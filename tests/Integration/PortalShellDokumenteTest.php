@@ -183,7 +183,7 @@ final class PortalShellDokumenteTest extends TestCase
 
         $rgDokumente = $this->dokumenteFuer($rg);
         $this->assertSame([$vertrag->id], array_column($rgDokumente, 'id'), 'RG sieht ihren Vertrag');
-        $this->assertStringContainsString('/contract/' . $vertrag->id . '/pdf', (string) $rgDokumente[0]['pdf_url'], 'PDF-Link weiter ueber den Bewerber-Token');
+        $this->assertStringContainsString('/recruiting/mitarbeiter/vertrag/', (string) $rgDokumente[0]['pdf_url'], 'PDF-Link ueber den Vertrags-Token (Spec Vertrag aus der Akte §2.5)');
 
         $this->assertSame([], $this->dokumenteFuer($ma->fresh()), 'MA sieht den RG-Vertrag NICHT');
     }
@@ -211,7 +211,7 @@ final class PortalShellDokumenteTest extends TestCase
      * N8: schon das ANZEIGEN legt CorePublicFormLink-Zeilen an — eine fuer
      * den Bewerber (PDF-Download) und eine je NICHT storniertem Vertrag
      * (Unterschreiben-Link). Zwei offene/fertige Vertraege + ein stornierter
-     * => 1 (Bewerber) + 2 (Vertraege) = 3 Zeilen, NICHT 4. Diese Zaehlung
+     * => 2 Zeilen (seit Vertrag aus der Akte kein Bewerber-Token mehr), NICHT 4. Diese Zaehlung
      * ist Bestandsverhalten (identisch zum alten Portal) und KEIN Fehler —
      * der Test soll nur verhindern, dass eine kuenftige Aenderung MEHR
      * Zeilen erzeugt als das alte Portal.
@@ -224,7 +224,7 @@ final class PortalShellDokumenteTest extends TestCase
 
         $this->dokumenteFuer($ma);
 
-        $this->assertSame(3, CorePublicFormLink::count());
+        $this->assertSame(2, CorePublicFormLink::count(), 'Je ein Vertrags-Link fuer sent und completed; der Bewerber-Token wird nicht mehr gebraucht');
     }
 
     // -----------------------------------------------------------------

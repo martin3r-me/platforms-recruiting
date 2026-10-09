@@ -67,6 +67,7 @@ class OffenePunkte
         private readonly ProofReader $nachweise = new ProofReader(),
         private readonly PersonScopeResolver $scope = new PersonScopeResolver(),
         private readonly DokumentLeser $dokumente = new DokumentLeser(),
+        private readonly VertragLeser $vertraege = new VertragLeser(),
     ) {
     }
 
@@ -79,9 +80,10 @@ class OffenePunkte
     }
 
     /**
-     * Dieselbe Form fuer die Einsatz-Pruefung — ohne Dokumente, die in den
-     * letzten PAUSE_TAGE ihre eigene WhatsApp bekommen haben (Spec Dokumente,
-     * Nachtrag 09.10.2026). Nachweise und Pflichtangaben unveraendert.
+     * Dieselbe Form fuer die Einsatz-Pruefung — ohne Dokumente UND Vertraege,
+     * die in den letzten PAUSE_TAGE ihre eigene WhatsApp bekommen haben
+     * (Spec Dokumente, Nachtrag 09.10.2026; Vertraege gemessen an sent_at,
+     * Spec Vertrag aus der Akte §2.5). Nachweise und Pflichtangaben unveraendert.
      */
     public function fuerTrigger(RecEmployee $employee, ?string $heute = null): array
     {
@@ -111,6 +113,12 @@ class OffenePunkte
         // bringen sie selbst mit — ProofTypes kennt sie nicht und wird fuer
         // sie nicht gefragt. gesperrt bleibt allein Sache der Arbeitserlaubnis.
         $punkte = array_merge($punkte, $this->dokumente->offenePunkte($employee, $ohneFrischGemeldeteTage, $heute));
+
+        // Dritte Quelle (Spec Vertrag aus der Akte §2.5): versendete
+        // Vertraege zur Unterschrift, Code 'vertrag:<id>'. Dieselbe Pause wie
+        // bei Dokumenten, gemessen an sent_at — so meldet die Einsatz-Pruefung
+        // den Vertrag mit, ohne eigenen Versand.
+        $punkte = array_merge($punkte, $this->vertraege->offenePunkte($employee, $ohneFrischGemeldeteTage, $heute));
 
         return [
             'punkte'   => $punkte,

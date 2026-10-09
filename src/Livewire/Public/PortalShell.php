@@ -9,11 +9,13 @@ use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
+use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\DokumentLeser;
 use Platform\Recruiting\Services\DokumentUnterschrift;
+use Platform\Recruiting\Services\VertragLeser;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\DokumentStatus;
 use Platform\Recruiting\Services\PersonScopeResolver;
@@ -433,6 +435,22 @@ class PortalShell extends Component
         $this->dokumentId = (int) $z->id;
     }
 
+    /**
+     * Klick auf einen offenen Punkt 'vertrag:<id>' (Spec Vertrag aus der Akte
+     * §2.5). Die ID kommt aus dem Browser — signierLink() prueft sie gegen die
+     * Vertraege DIESER Person; eine fremde ID fuehrt nirgendwohin.
+     */
+    public function oeffneVertrag(int $vertragId): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        $link = $employee ? app(VertragLeser::class)->signierLink($employee, $vertragId) : null;
+        if ($link === null) {
+            return;
+        }
+
+        $this->redirect($link);
+    }
+
     public function schliesseDokument(): void
     {
         $this->dokumentId = null;
@@ -687,62 +705,58 @@ class PortalShell extends Component
      * sign_url,pdf_url}>), damit das Blade seine Statuszweige unveraendert
      * uebernehmen kann (siehe portal-shell.blade.php, docs-Bereich).
      *
-     * N8 (Bestandsaufnahme): schon das ANZEIGEN legt CorePublicFormLink-
-     * Zeilen an — eine fuer den Bewerber (getOrCreatePublicFormLink() fuer
-     * den PDF-Token) und eine je NICHT storniertem Vertrag
-     * (getOrCreatePublicFormLink() fuer den Unterschreiben-Link). Das ist
-     * Bestandsverhalten des alten Portals, kein Fehler, und bleibt hier
-     * UNVERAENDERT — wer es aendert, aendert die Pruefung im
-     * ContractPdfController mit, der genau diesen Token erwartet.
+     * Anlegen von CorePublicFormLink-Zeilen beim ANZEIGEN: je eine pro
+     * Vertrag mit Status 'sent' (Signierlink) bzw. 'completed' (PDF-Link) —
+     * beide ueber den VERTRAGS-Token. Der Bewerber-Token des alten Portals
+     * wird seit Vertrag aus der Akte nicht mehr gebraucht; 'pending' bekommt
+     * keinen Link (er liefe ins Leere).
      *
      * KEINE eigene berechtigterMitarbeiter()-Pruefung hier: der Aufrufer
      * (render()) uebergibt bereits den durch berechtigterMitarbeiter()
      * geprueften Mitarbeiter (dasselbe Muster wie profilDaten()). Ein
-     * fremder Vertrag ist darueber hinaus strukturell nicht erreichbar —
-     * die Liste kommt ausschliesslich ueber $employee->contracts, nie ueber
-     * eine ID aus der Anfrage.
+     * fremder Vertrag ist strukturell nicht erreichbar — die Liste kommt
+     * ausschliesslich ueber VertragLeser::vertraege() (Personen-Umfang),
+     * nie ueber eine ID aus der Anfrage.
      *
-     * Vertraege DIESER Anstellung (Spec Vertrag an der Anstellung §3.4/§6a):
-     * der Token gehoert dem Menschen (Bewerber), die MENGE der Anstellung.
-     * Kein Rueckfall auf $employee->applicant->contracts — der zeigte bei
-     * zwei Anstellungen (RG+MA) den RG-Vertrag im Portal der MA-Anstellung.
-     * Spiegel von EmployeePortal::contracts() auf main.
+     * Vertraege DER PERSON (Spec Vertrag aus der Akte §2.5): alle Anstellungen
+     * des Personen-Umfangs, nicht storniert — ein Vertrag aus der MA-Akte
+     * erscheint auch im Portal der RG-Anstellung, dann mit Gesellschaft im
+     * Namen ("Arbeitsvertrag · MA"). Keine Bewerbung noetig.
+     * sign_url nur bei 'sent' (pending lief ins Leere); pdf_url ueber den
+     * VERTRAGS-Token und die Sitzungspruefung von VertragPdfController.
      *
      * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
      */
     private function dokumente(RecEmployee $employee): array
     {
-        if (!$employee->applicant) {
-            return [];
-        }
+        $leser = app(VertragLeser::class);
+        $mehrere = $leser->anstellungsAnzahl($employee) > 1;
 
-        $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
+        $contractRows = $leser->vertraege($employee)
+            ->map(function (RecContract $c) use ($mehrere) {
+                $firma = trim((string) $c->contractTemplate?->company);
 
-        $contractRows = $employee->contracts()->with('contractTemplate')->get()
-            ->filter(fn ($c) => $c->status !== 'cancelled')
-            ->map(function ($c) use ($applicantToken) {
-                $contractLink = $c->getOrCreatePublicFormLink();
-                $code = $c->contractTemplate?->code;
-                $displayName = match (true) {
-                    $code !== null && str_starts_with($code, 'AV-') => 'Arbeitsvertrag',
-                    $code === 'IFSG'                                => 'Infektionsschutzgesetz',
-                    $code !== null && str_starts_with($code, 'AT-') => 'Zusatzvereinbarung',
-                    default                                         => $c->contractTemplate?->name ?? 'Vertrag',
-                };
                 return [
                     'id'           => $c->id,
-                    'display_name' => $displayName,
+                    'display_name' => VertragLeser::anzeigename($c->contractTemplate?->code, $c->contractTemplate?->name)
+                        . ($mehrere && $firma !== '' ? ' · ' . $firma : ''),
                     'status'       => $c->status,
                     'signed_at'    => $c->signed_at,
                     'completed_at' => $c->completed_at,
-                    'sign_url'     => route('recruiting.public.contract-signing', ['token' => $contractLink->token]),
+                    'sign_url'     => $c->status === 'sent'
+                        ? route('recruiting.public.contract-signing', ['token' => $c->getOrCreatePublicFormLink()->token])
+                        : null,
                     'pdf_url'      => $c->status === 'completed'
-                        ? route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id])
+                        ? route('recruiting.public.contract-pdf-anstellung', ['token' => $c->getOrCreatePublicFormLink()->token])
                         : null,
                 ];
             })
             ->values()
-            ->toArray();
+            ->all();
+
+        if (!$employee->applicant) {
+            return $contractRows;
+        }
 
         return TrainingCertificatePortalRows::append(
             $contractRows,
@@ -800,6 +814,7 @@ class PortalShell extends Component
         $dokumente = $employee ? $this->dokumente($employee) : [];
         $mitarbeiterDokumente = $employee ? $this->mitarbeiterDokumente($employee) : [];
         $offeneDokumente = count(array_filter($mitarbeiterDokumente, static fn (array $d) => $d['offen']));
+        $offeneVertraege = $employee ? count(app(VertragLeser::class)->offenePunkte($employee)) : 0;
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
         $offeneNachweise = array_values(array_filter($checklist, fn ($z) => $z['offen']));
@@ -825,7 +840,7 @@ class PortalShell extends Component
         return [
             'aufgaben'          => $aufgabenDekoriert,
             'dokumente'         => $dokumente,
-            'offen'             => $offenAusNachweisen + count($pflichtAufgaben) + $offeneDokumente,
+            'offen'             => $offenAusNachweisen + count($pflichtAufgaben) + $offeneDokumente + $offeneVertraege,
             'pflichtAufgaben'   => $pflichtAufgaben,
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',

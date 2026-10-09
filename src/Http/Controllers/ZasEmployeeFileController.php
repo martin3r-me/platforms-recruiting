@@ -141,23 +141,7 @@ class ZasEmployeeFileController extends Controller
         $applicant = \Platform\Recruiting\Models\RecApplicant::find($contract->rec_applicant_id);
         $candidateName = $applicant?->crmContactLinks?->first()?->contact?->full_name;
 
-        $contentForPdf = $this->prepareContractContentForPdf($contract);
-
-        $html = view('recruiting::pdf.contract', [
-            'contract'       => $contract,
-            'candidateName'  => $candidateName,
-            'contentForPdf'  => $contentForPdf,
-        ])->render();
-
-        $filename = \Illuminate\Support\Str::slug(
-            $contract->contractTemplate?->name ?? 'Vertrag'
-        ) . '.pdf';
-
-        return \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html)
-            ->setOption('defaultFont', 'DejaVu Sans')
-            ->setOption('isHtml5ParserEnabled', true)
-            ->setPaper('a4')
-            ->download($filename)
+        return $this->contractPdfDownload($contract, $candidateName)
             ->header('Cache-Control', 'no-store');
     }
 }

@@ -93,6 +93,11 @@ final class PortalPflichtangabenTest extends TestCase
             // Dokumente: OffenePunkte::fuer() liest auch die Zustellungen.
             'database/migrations/2026_10_09_000001_create_rec_documents_table.php',
             'database/migrations/2026_10_09_000002_create_rec_document_recipients_table.php',
+            // Vertrag aus der Akte: dokumente() und OffenePunkte lesen rec_contracts auch ohne Bewerbung.
+            'database/migrations/2026_04_15_100000_create_rec_contract_tables.php',
+            'database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php',
+            'database/migrations/2026_08_21_000002_add_superseded_by_to_rec_contracts.php',
+            'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {

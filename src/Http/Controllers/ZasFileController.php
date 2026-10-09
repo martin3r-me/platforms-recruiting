@@ -150,23 +150,7 @@ class ZasFileController extends Controller
         // ContractPdfController nutzen (Trait), damit der Stempel bei
         // AV-* Vertraegen identisch injiziert wird. Sonst sieht der
         // Bewerber einen Vertrag MIT Stempel und ZAS einen OHNE.
-        $contentForPdf = $this->prepareContractContentForPdf($contract);
-
-        $html = view('recruiting::pdf.contract', [
-            'contract'       => $contract,
-            'candidateName'  => $candidateName,
-            'contentForPdf'  => $contentForPdf,
-        ])->render();
-
-        $filename = \Illuminate\Support\Str::slug(
-            $contract->contractTemplate?->name ?? 'Vertrag'
-        ) . '.pdf';
-
-        return \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html)
-            ->setOption('defaultFont', 'DejaVu Sans')
-            ->setOption('isHtml5ParserEnabled', true)
-            ->setPaper('a4')
-            ->download($filename)
+        return $this->contractPdfDownload($contract, $candidateName)
             ->header('Cache-Control', 'no-store');
     }
 

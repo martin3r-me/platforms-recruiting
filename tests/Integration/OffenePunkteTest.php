@@ -65,6 +65,16 @@ final class OffenePunkteTest extends TestCase
             (require dirname(__DIR__, 2) . '/database/migrations/' . $m . '.php')->up();
         }
 
+        // Vertrag aus der Akte (Task 6): OffenePunkte liest jetzt auch rec_contracts.
+        foreach ([
+            '2026_04_15_100000_create_rec_contract_tables',
+            '2026_08_12_000001_add_type_to_rec_contract_templates',
+            '2026_08_21_000002_add_superseded_by_to_rec_contracts',
+            '2026_10_07_000002_add_employee_anchor_to_contracts',
+        ] as $m) {
+            (require dirname(__DIR__, 2) . '/database/migrations/' . $m . '.php')->up();
+        }
+
         $this->capsule->schema()->create('rec_employees', function ($t) {
             $t->increments('id');
             $t->string('uuid', 64)->nullable();

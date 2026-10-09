@@ -81,8 +81,16 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * sondern in PortalAuth (fuenf Versuche je Nummer, fuenfzehn Minuten):
      * die Anmeldeversuche laufen ueber /livewire/update und fassen diese
      * GET-Adresse gar nicht wieder an.
+     *
+     * 'contract-pdf-anstellung': Vertrags-PDF aus dem neuen Portal (Spec
+     * Vertrag aus der Akte §2.5). Der Token in der Adresse ist der des
+     * VERTRAGS, oeffnet aber allein nichts: VertragPdfController verlangt die
+     * Portal-Sitzung einer Anstellung derselben Person, prueft Portalsperre
+     * und is_active (Muster DokumentZugriff), 404 fuer nicht unterschriebene
+     * oder unbekannte Vertraege. Gesehen und gewollt.
      */
     private const SPAETER = [
+        'recruiting.public.contract-pdf-anstellung',
         'recruiting.public.dokument',
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',

@@ -66,6 +66,13 @@ Route::get('/mitarbeiter/dokument/{uuid}', \Platform\Recruiting\Http\Controllers
     ->name('recruiting.public.dokument')
     ->where('uuid', '[0-9a-fA-F-]{36}');
 
+// Vertrags-PDF aus dem neuen Portal (Spec Vertrag aus der Akte §2.5): Token
+// des VERTRAGS am URL-Ende, Zugriff nur mit Portal-Sitzung der Person.
+// Keine Kollision mit /mitarbeiter/neu/{token} und /mitarbeiter/dokument/{uuid}:
+// gleiche Segmentzahl, aber anderes festes Wort.
+Route::get('/mitarbeiter/vertrag/{token}', \Platform\Recruiting\Http\Controllers\VertragPdfController::class)
+    ->name('recruiting.public.contract-pdf-anstellung');
+
 // Mitarbeiterkonto, Registrierung (Canvas 68, Spec 3). Die Einladung von HR
 // fuehrt hierher: Token aus der Adresse, dazu Geburtsdatum und Passwort.
 //

@@ -2,14 +2,18 @@
 
 namespace Platform\Recruiting\Http\Controllers\Concerns;
 
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Str;
 use Platform\Recruiting\Models\RecContract;
 
 /**
  * Gemeinsame Vertrags-PDF-Render-Logik.
  *
- * Wird von zwei Controllern genutzt:
- *   - ContractPdfController (HR-UI / Public-Token-Pfad)
- *   - ZasFileController     (ZAS-Export Signed-URL-Pfad)
+ * Wird genutzt von:
+ *   - ContractPdfController     (HR-UI / Public-Token-Pfad)
+ *   - VertragPdfController      (neues Portal, Vertrags-Token + Sitzung)
+ *   - ZasFileController         (ZAS-Export Signed-URL-Pfad)
+ *   - ZasEmployeeFileController (ZAS-Export ueber die Anstellung)
  *
  * Beide muessen exakt dasselbe PDF erzeugen — sonst sieht der Bewerber
  * einen Vertrag und ZAS / IBEI einen anderen. Insbesondere muss der
@@ -76,5 +80,27 @@ trait RendersContractPdf
             return null;
         }
         return 'data:image/png;base64,' . base64_encode($binary);
+    }
+
+    /**
+     * Das fertige Vertrags-PDF als Download — EINE Stelle fuer View, DomPDF-
+     * Optionen und Dateinamen (Spec Vertrag aus der Akte §2.5: der neue
+     * Portal-Controller kopiert den Rumpf nicht, er ruft ihn).
+     */
+    protected function contractPdfDownload(RecContract $contract, ?string $candidateName)
+    {
+        $html = view('recruiting::pdf.contract', [
+            'contract'      => $contract,
+            'candidateName' => $candidateName,
+            'contentForPdf' => $this->prepareContractContentForPdf($contract),
+        ])->render();
+
+        $filename = Str::slug($contract->contractTemplate?->name ?? 'Vertrag') . '.pdf';
+
+        return Pdf::loadHTML($html)
+            ->setOption('defaultFont', 'DejaVu Sans')
+            ->setOption('isHtml5ParserEnabled', true)
+            ->setPaper('a4')
+            ->download($filename);
     }
 }

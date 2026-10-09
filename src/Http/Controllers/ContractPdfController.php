@@ -2,9 +2,7 @@
 
 namespace Platform\Recruiting\Http\Controllers;
 
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Str;
 use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Http\Controllers\Concerns\RendersContractPdf;
 use Platform\Recruiting\Models\RecApplicant;
@@ -27,23 +25,13 @@ class ContractPdfController extends Controller
             ->with('contractTemplate')
             ->firstOrFail();
 
-        $contentForPdf = $this->prepareContractContentForPdf($contract);
-
-        $html = view('recruiting::pdf.contract', [
-            'contract' => $contract,
-            'candidateName' => $applicant->crmContactLinks?->first()?->contact?->full_name,
-            'contentForPdf' => $contentForPdf,
-        ])->render();
-
-        $filename = Str::slug($contract->contractTemplate?->name ?? 'Vertrag') . '.pdf';
-
-        return Pdf::loadHTML($html)
-            ->setOption('defaultFont', 'DejaVu Sans')
-            ->setOption('isHtml5ParserEnabled', true)
-            ->setPaper('a4')
-            ->download($filename);
+        return $this->contractPdfDownload(
+            $contract,
+            $applicant->crmContactLinks?->first()?->contact?->full_name,
+        );
     }
 
-    // PDF-Render-Logik (prepareContractContentForPdf, loadCompanyStampDataUrl)
-    // ist im RendersContractPdf-Trait — gemeinsam genutzt mit ZasFileController.
+    // PDF-Render-Logik (contractPdfDownload, prepareContractContentForPdf,
+    // loadCompanyStampDataUrl) ist im RendersContractPdf-Trait — gemeinsam
+    // genutzt mit VertragPdfController und den ZAS-Controllern.
 }

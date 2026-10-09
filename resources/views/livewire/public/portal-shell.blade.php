@@ -262,12 +262,17 @@
                                 // aussehen wie ein fehlendes Passfoto -- eigene
                                 // Klasse, kein zusaetzliches Zeichen.
                                 $offenerPunktKlasse = $offenerPunkt['ko'] ? 'aufgabe aufgabe-ko' : 'aufgabe';
-                                // Dokument-Punkte oeffnen das Dokument-Blatt, Nachweise das Upload-Blatt.
+                                // Dokument-Punkte oeffnen das Dokument-Blatt, Vertrags-Punkte die Signierseite,
+                                // Nachweise das Upload-Blatt.
                                 // Vorberechnet, kein @if im Attribut (Hausregel). Ungeescaped ausgegeben:
                                 // nur Katalog-Codes bzw. eine Ganzzahl, kein Nutzertext.
-                                $offenerPunktKlick = str_starts_with($offenerPunkt['code'], 'dokument:')
-                                    ? 'oeffneDokument(' . (int) substr($offenerPunkt['code'], 9) . ')'
-                                    : "oeffneUpload('" . $offenerPunkt['code'] . "')";
+                                if (str_starts_with($offenerPunkt['code'], 'dokument:')) {
+                                    $offenerPunktKlick = 'oeffneDokument(' . (int) substr($offenerPunkt['code'], 9) . ')';
+                                } elseif (str_starts_with($offenerPunkt['code'], 'vertrag:')) {
+                                    $offenerPunktKlick = 'oeffneVertrag(' . (int) substr($offenerPunkt['code'], 8) . ')';
+                                } else {
+                                    $offenerPunktKlick = "oeffneUpload('" . $offenerPunkt['code'] . "')";
+                                }
                             @endphp
                             {{--
                                 Der Klick oeffnet das Formular fuer genau diese
@@ -462,7 +467,7 @@
                                     $dokDatum = null;
                                 }
                                 $dokSub = $dokDatum ? $dokText . ' am ' . \Carbon\Carbon::parse($dokDatum)->format('d.m.Y') : $dokText;
-                                $dokZeigtUnterschreiben = !$dok['signed_at'] && in_array($dok['status'], ['sent', 'in_progress'], true);
+                                $dokZeigtUnterschreiben = !$dok['signed_at'] && !empty($dok['sign_url']);
                             @endphp
                             <div class="doc">
                                 <div class="docicon"><span>PDF</span></div>
