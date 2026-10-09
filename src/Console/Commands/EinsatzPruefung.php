@@ -8,15 +8,19 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsWhatsAppMessage;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Services\Comms\AufgabenSender;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\PersonScopeResolver;
+use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
 use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\TriggerRegeln;
+use Platform\Recruiting\Support\VertragsDeckung;
+use Platform\Recruiting\Support\VertragsVorbelegung;
 
 /**
  * Der Ausloeser: ein gebuchter Einsatz prueft, was dem Menschen davor fehlt.
@@ -54,7 +58,9 @@ use Platform\Recruiting\Support\TriggerRegeln;
  * naechste ZAS-Update-Datei. Am 02.09.2026 hat genau das 505
  * Bestands-Mitarbeiter verschoben. Der HR-Fall ist die EINZIGE Ausnahme: an
  * `rec_hr_desk_cases` haengt kein Export-Marker, und er wird regulaer per
- * `create()` angelegt.
+ * `create()` angelegt. Zweiter Fall-Grund: `contract_missing` (MA-Vertrags-
+ * check), ebenfalls per `create()`; er schliesst sich selbst, sobald ein
+ * unterschriebener AV alle kommenden Buchungen der Anstellung deckt.
  *
  * ===================================================================
  * DIE FUENF AUFLAGEN AUS DEN PRUEFUNGEN DER VORGAENGERAUFGABEN
@@ -265,6 +271,9 @@ class EinsatzPruefung extends Command
      */
     private const SPERRE_SEKUNDEN = 1800;
 
+    /** @var array<int, list<string>> contract_check_companies je Team, einmal je Lauf gelesen */
+    private array $vertragsFirmenJeTeam = [];
+
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
@@ -328,6 +337,10 @@ class EinsatzPruefung extends Command
             'fehlversand'     => 0,
             'abgebrochen'     => 0,
             'faelle_neu'      => 0,
+            'vertrag_buchungen'   => 0,
+            'vertrag_ohne'        => 0,
+            'vertrag_faelle_neu'  => 0,
+            'vertrag_geschlossen' => 0,
         ];
 
         /** @var list<string> $gesperrt Kennungen mit Grund — nie Namen */
@@ -377,6 +390,25 @@ class EinsatzPruefung extends Command
                     }
                 }
 
+                // ---- MA-Vertragscheck (Spec Vertrag aus der Akte §3.2). VOR
+                // dem Kurzschluss darunter: wer sonst nichts offen hat, wuerde
+                // sonst nie geprueft. Dieselbe Menge kommender Auftraege wie
+                // fuer Anlass und Erinnerung (eine Abfrage, kein Auseinanderlaufen).
+                // Eigener Fehlerkaefig: ein Fehler im Vertragscheck kostet
+                // nicht Nachricht, Erinnerung und Raeumen dieses Menschen,
+                // faerbt aber den Lauf (abgebrochen) wie jeder andere Abbruch.
+                $kommende = $this->kommendeAuftraege($umfang['ids'], $heute);
+                try {
+                    $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $dryRun, $z);
+                } catch (\Throwable $e) {
+                    $z['abgebrochen']++;
+                    $this->error(sprintf('MA #%d: Vertragsprüfung abgebrochen — %s', $rep->id, $e->getMessage()));
+                    Log::error('[EinsatzPruefung] Vertragspruefung abgebrochen, der Rest der Pruefung laeuft weiter', [
+                        'rec_employee_id' => $rep->id,
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
+
                 // ---- Ist nichts offen, ist auch nichts zu melden und nichts
                 // zu erinnern. Vorher raeumen (ET-16), dann fertig.
                 if ($punkte === []) {
@@ -408,7 +440,6 @@ class EinsatzPruefung extends Command
                 // ET-16/ET-23-Haushalt fuer ihn leer. Gefragt wird deshalb
                 // die ganze Menge der kommenden Auftraege, und der ERSTE mit
                 // genug Vorlauf wird der Anlass.
-                $kommende  = $this->kommendeAuftraege($umfang['ids'], $heute);
                 $ausloeser = $this->ausloesenderEinsatz($kommende, $heute);
                 $loest     = $ausloeser !== null;
 
@@ -763,6 +794,109 @@ class EinsatzPruefung extends Command
             'notes'            => 'Einsatz-Pruefung: Arbeitserlaubnis fehlt oder ist abgelaufen ('
                 .($gruende === [] ? 'ohne Angabe' : implode(', ', $gruende)).').',
         ]);
+    }
+
+    /**
+     * Spec Vertrag aus der Akte §3.2-§3.4. Faelle per Eloquent (kein
+     * ZAS-Marker an rec_hr_desk_cases); der Trockenlauf zaehlt nur.
+     *
+     * @param  list<int>  $umfangIds
+     * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
+     * @param  array<string,int>  $z
+     */
+    private function vertragsPruefung(RecEmployee $rep, array $umfangIds, $kommende, bool $dryRun, array &$z): void
+    {
+        $firmen = $this->vertragsFirmen((int) $rep->team_id);
+
+        foreach ((new VertragsPruefung())->pruefe($umfangIds, $kommende, $firmen) as $befund) {
+            $z['vertrag_buchungen'] += $befund['buchungen'];
+            $z['vertrag_ohne'] += $befund['ohne'];
+
+            if ($befund['deckung'] === VertragsDeckung::KEINER) {
+                if (!$this->hatOffenenVertragsFall($befund['anstellung_id'])) {
+                    if (!$dryRun) {
+                        $this->oeffneVertragsFall($befund);
+                    }
+                    $z['vertrag_faelle_neu']++;
+                }
+
+                continue;
+            }
+
+            // §3.4: erst wenn ALLE kommenden Buchungen dieser Anstellung
+            // unterschrieben gedeckt sind. "unterwegs" schliesst nicht.
+            if ($befund['deckung'] === VertragsDeckung::UNTERSCHRIEBEN) {
+                $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle($befund['anstellung_id'], $befund['vertrag_id'], $dryRun);
+            }
+        }
+    }
+
+    /**
+     * Ohne Settings-Zeile oder ohne Schluessel: Default ['MA']. Query Builder
+     * statt getOrCreateForTeam() — eine Pruefung legt keine Zeilen an.
+     *
+     * @return list<string>
+     */
+    private function vertragsFirmen(int $teamId): array
+    {
+        if (!array_key_exists($teamId, $this->vertragsFirmenJeTeam)) {
+            $roh = DB::table('rec_applicant_settings')->where('team_id', $teamId)->value('settings');
+            $settings = is_string($roh) ? (json_decode($roh, true) ?: []) : (is_array($roh) ? $roh : []);
+            $wert = array_key_exists('contract_check_companies', $settings)
+                ? $settings['contract_check_companies']
+                : RecApplicantSettings::DEFAULT_SETTINGS['contract_check_companies'];
+
+            $this->vertragsFirmenJeTeam[$teamId] = array_values(array_unique(array_filter(
+                array_map(static fn ($f) => strtoupper(trim((string) $f)), (array) $wert),
+                static fn (string $f) => $f !== ''
+            )));
+        }
+
+        return $this->vertragsFirmenJeTeam[$teamId];
+    }
+
+    private function hatOffenenVertragsFall(int $anstellungId): bool
+    {
+        return RecHrDeskCase::query()
+            ->where('rec_employee_id', $anstellungId)
+            ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
+            ->where('status', RecHrDeskCase::STATUS_OPEN)
+            ->exists();
+    }
+
+    /** @param array{anstellung_id:int, team_id:int, firma:string, erster_tag:?string, event:?string, taetigkeit:?string} $befund */
+    private function oeffneVertragsFall(array $befund): void
+    {
+        RecHrDeskCase::create([
+            'rec_applicant_id' => null,
+            'rec_employee_id'  => $befund['anstellung_id'],
+            'team_id'          => $befund['team_id'],
+            'reason'           => RecHrDeskCase::REASON_CONTRACT_MISSING,
+            'status'           => RecHrDeskCase::STATUS_OPEN,
+            'opened_at'        => now(),
+            'notes'            => VertragsVorbelegung::notiz((string) $befund['erster_tag'], $befund['event'], $befund['taetigkeit'], $befund['firma']),
+        ]);
+    }
+
+    private function schliesseVertragsFaelle(int $anstellungId, ?int $vertragId, bool $dryRun): int
+    {
+        $faelle = RecHrDeskCase::query()
+            ->where('rec_employee_id', $anstellungId)
+            ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
+            ->where('status', RecHrDeskCase::STATUS_OPEN)
+            ->get();
+
+        if (!$dryRun) {
+            foreach ($faelle as $fall) {
+                $fall->update([
+                    'status'           => RecHrDeskCase::STATUS_APPROVED,
+                    'resolved_at'      => now(),
+                    'resolution_notes' => sprintf('Automatisch: Arbeitsvertrag unterschrieben (#%d)', (int) $vertragId),
+                ]);
+            }
+        }
+
+        return $faelle->count();
     }
 
     /**
@@ -1202,6 +1336,14 @@ class EinsatzPruefung extends Command
             // Die Kennungen, damit HR nachsehen kann — nie Namen.
             $this->line('  '.implode(' · ', $gesperrt));
         }
+
+        $this->line(sprintf(
+            'Vertragsprüfung: %d Buchungen geprüft, %d ohne Vertrag, %d Fälle neu, %d Fälle geschlossen.',
+            $z['vertrag_buchungen'],
+            $z['vertrag_ohne'],
+            $z['vertrag_faelle_neu'],
+            $z['vertrag_geschlossen'],
+        ));
 
         if ($z['abgebrochen'] > 0) {
             $this->error(sprintf('%d Mensch(en) mit Abbruch — siehe Protokoll.', $z['abgebrochen']));

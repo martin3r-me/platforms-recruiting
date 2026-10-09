@@ -83,8 +83,9 @@ class Index extends Component
             ->with([
                 // employee: fuer die Faelle ohne Bewerber (Einsatz-Trigger) —
                 // ohne das Vorladen feuerte die Karte je Fall eine eigene
-                // Abfrage.
-                'employee:id,team_id',
+                // Abfrage. company: Vorflug des Knopfs "Vertrag erstellen"
+                // (Akte muss zur Gesellschaft der Fall-Notiz passen).
+                'employee:id,team_id,company',
                 'applicant.crmContactLinks.contact.emailAddresses',
                 'applicant.crmContactLinks.contact.phoneNumbers',
                 'applicant.phase',

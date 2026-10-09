@@ -209,13 +209,15 @@ class RecContractTemplate extends Model
      * DAS Firmen-Praedikat — die einzige Stelle, an der „Vorlage gehoert zu
      * Anstellung" entschieden wird (Spec §3.3 d, §3.5: derselbe Code). Eine
      * Anstellung ohne Firma (Altbestand, ZAS-Zeile ohne Praefix) ist nie ein
-     * Treffer: NULL == NULL waere einer.
+     * Treffer: NULL == NULL waere einer. Verglichen wird gross und ohne
+     * Leerzeichen — wie in VertragsZeilen und VertragsPruefung; sonst deckte
+     * ein Vertrag dort, den diese Stelle als fremd ablehnt (und umgekehrt).
      */
     public function giltFuerAnstellung(RecEmployee $anstellung): bool
     {
-        $firma = (string) $anstellung->company;
+        $firma = strtoupper(trim((string) $anstellung->company));
 
-        return $firma !== '' && $firma === (string) $this->company;
+        return $firma !== '' && $firma === strtoupper(trim((string) $this->company));
     }
 
     /**

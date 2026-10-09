@@ -935,6 +935,29 @@
                     </label>
                 </div>
 
+                <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                    <div class="text-sm font-medium text-[var(--ui-secondary)]">Vertragsprüfung bei Einsätzen</div>
+                    <p class="text-xs text-[var(--ui-muted)] mt-0.5 mb-3">
+                        Die stündliche Einsatz-Prüfung legt einen Fall auf den HR-Schreibtisch, wenn jemand für eine
+                        dieser Gesellschaften eingebucht ist und kein unterschriebener Arbeitsvertrag den Einsatztag deckt.
+                        Beide aus = keine Prüfung.
+                    </p>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                        <input type="checkbox"
+                               wire:model="settings.contract_check_companies"
+                               value="RG"
+                               class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                        <span class="text-[var(--ui-secondary)]">Gesellschaft RG</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm mt-2">
+                        <input type="checkbox"
+                               wire:model="settings.contract_check_companies"
+                               value="MA"
+                               class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                        <span class="text-[var(--ui-secondary)]">Gesellschaft MA</span>
+                    </label>
+                </div>
+
                 @foreach($this->payrollFieldGroups as $groupLabel => $fields)
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                         <div class="text-xs font-semibold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">{{ $groupLabel }}</div>

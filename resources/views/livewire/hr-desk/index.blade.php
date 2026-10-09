@@ -172,6 +172,44 @@
                                     </div>
                                 @endif
 
+                                {{-- Vertrag fehlt für Einsatz (Spec 2026-10-09 §3.3): Akte mit offenem Fenster, vorbelegt aus dem Einsatztag der Notiz.
+                                     Vorflug: Knopf nur, wenn die Akte zur Gesellschaft der Notiz passt; sonst lehnte das Fenster jede Vorlage ab. --}}
+                                @php
+                                    $vertragsFallLink = null;
+                                    $vertragsFallHinweis = null;
+                                    $vertragsFallAkte = null;
+                                    if ($case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_CONTRACT_MISSING && $case->rec_employee_id) {
+                                        $vertragsFallFirma = \Platform\Recruiting\Support\VertragsVorbelegung::firmaAusNotiz($case->notes) ?? 'MA';
+                                        if (\Platform\Recruiting\Support\VertragsVorbelegung::akteDecktNotiz($case->notes, $case->employee?->company)) {
+                                            $vertragsFallTag = \Platform\Recruiting\Support\VertragsVorbelegung::einsatztagAusNotiz($case->notes);
+                                            $vertragsFallLink = route('recruiting.employees.show', array_filter([
+                                                'employee' => $case->rec_employee_id,
+                                                'vertrag'  => 'neu',
+                                                'einsatz'  => $vertragsFallTag,
+                                            ]));
+                                        } else {
+                                            $vertragsFallAkte = route('recruiting.employees.show', ['employee' => $case->rec_employee_id]);
+                                            $vertragsFallHinweis = 'Erst Firma der Akte auf ' . $vertragsFallFirma . ' setzen bzw. ' . $vertragsFallFirma . '-Anstellung anlegen – dann lässt sich hier der Vertrag erstellen.';
+                                        }
+                                    }
+                                @endphp
+                                @if($vertragsFallLink)
+                                    <div class="mt-3">
+                                        <a href="{{ $vertragsFallLink }}" wire:navigate
+                                           class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-primary)] text-[var(--ui-primary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)] transition-colors">
+                                            @svg('heroicon-o-document-plus', 'w-3.5 h-3.5')
+                                            Vertrag erstellen
+                                        </a>
+                                    </div>
+                                @elseif($vertragsFallHinweis)
+                                    <div class="mt-3 text-xs text-amber-700">
+                                        {{ $vertragsFallHinweis }}
+                                        <a href="{{ $vertragsFallAkte }}" wire:navigate class="underline font-medium">
+                                            Akte öffnen
+                                        </a>
+                                    </div>
+                                @endif
+
                                 {{-- Rechtsstatus-Pruefung: nur fuer nicht-EU oder unklar --}}
                                 @php
                                     $legalStatus = $applicant?->legalStatus;

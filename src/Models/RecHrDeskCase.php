@@ -53,6 +53,12 @@ class RecHrDeskCase extends Model
     // haengt dieser Grund am MITARBEITER und nicht am Bewerber.
     public const REASON_WORK_PERMIT = 'work_permit';
 
+    // Eine MA-Buchung ohne unterschriebenen Arbeitsvertrag der Gesellschaft,
+    // der den Einsatztag deckt (Spec Vertrag aus der Akte §3.3). Angelegt von
+    // der Einsatz-Pruefung, haengt am MITARBEITER. Blockiert nichts — er
+    // fordert etwas an; deshalb NICHT in CONTRACT_BLOCKING_REASONS.
+    public const REASON_CONTRACT_MISSING = 'contract_missing';
+
     /** Map reason-codes auf sprechende deutsche Labels für UI-Anzeige. */
     /**
      * Offene Faelle dieser Reasons blockieren den VERTRAGSVERSAND aus der
@@ -74,6 +80,7 @@ class RecHrDeskCase extends Model
         self::REASON_MINOR => 'Minderjährig (unter 18)',
         self::REASON_TRAINING_CLARIFICATION => 'Klärung aus der Schulung',
         self::REASON_WORK_PERMIT => 'Arbeitserlaubnis fehlt oder ist abgelaufen',
+        self::REASON_CONTRACT_MISSING => 'Vertrag fehlt für Einsatz',
     ];
 
     public function reasonLabel(): string

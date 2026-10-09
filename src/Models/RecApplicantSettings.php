@@ -76,6 +76,11 @@ class RecApplicantSettings extends Model
         // Unterschrift im Portal". Leer = VertragHinweisSender nimmt
         // document_wa_template_id.
         'employee_contract_wa_template_id' => null,
+        // MA-Vertragscheck der Einsatz-Pruefung (Spec 2026-10-09 §3.2): fuer
+        // Buchungen dieser Gesellschaften muss ein unterschriebener AV den
+        // Tag decken. Checkboxen statt Select (Select-Speicherproblem).
+        // [] = Pruefung aus.
+        'contract_check_companies' => ['MA'],
         'minimum_wage_hourly' => 13.90,
         // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je
         // Kalenderjahr (§8 Abs. 1 Nr. 2 SGB IV). Als Einstellung, weil es

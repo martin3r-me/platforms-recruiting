@@ -10,8 +10,9 @@ namespace Platform\Recruiting\Support;
  * (Telefonat 09.10.2026, offene Frage 1 im Spec §9). Sie steht NUR hier —
  * kommt seine Antwort, wird diese eine Methode ersetzt.
  *
- * notiz() und einsatztagAusNotiz() gehoeren zusammen: der HR-Schreibtisch
- * liest den Tag aus der Notiz zurueck (keine neue Spalte, Spec §4).
+ * notiz(), einsatztagAusNotiz() und firmaAusNotiz() gehoeren zusammen: der
+ * HR-Schreibtisch liest Tag und Gesellschaft aus der Notiz zurueck (keine
+ * neue Spalte, Spec §4).
  */
 final class VertragsVorbelegung
 {
@@ -50,6 +51,30 @@ final class VertragsVorbelegung
         $ymd = $m[3] . '-' . $m[2] . '-' . $m[1];
 
         return YmdDate::isValid($ymd) ? $ymd : null;
+    }
+
+    /** Die Gesellschaft aus der Notiz ("MA-Einsatz am …" → MA); fremde Notiz → null. */
+    public static function firmaAusNotiz(?string $notiz): ?string
+    {
+        if (!preg_match('/^\s*(\p{L}+)-Einsatz am \d{2}\.\d{2}\.\d{4}/u', (string) $notiz, $m)) {
+            return null;
+        }
+
+        return mb_strtoupper($m[1]);
+    }
+
+    /**
+     * Vorflug fuer den Knopf "Vertrag erstellen" am HR-Schreibtisch: nur wenn
+     * die Akte des Falls zur Gesellschaft der Notiz gehoert. Sonst lehnte das
+     * Fenster jede Vorlage dieser Gesellschaft ab (giltFuerAnstellung) — der
+     * Fall haengt dann an einer Akte ohne oder mit fremder Firma, und HR muss
+     * erst die Firma setzen bzw. die Anstellung anlegen.
+     */
+    public static function akteDecktNotiz(?string $notiz, ?string $akteFirma): bool
+    {
+        $firma = self::firmaAusNotiz($notiz);
+
+        return $firma !== null && strtoupper(trim((string) $akteFirma)) === $firma;
     }
 
     /** Y-m-d → dd.mm.yyyy. Die EINE Stelle dafuer; spaetere Tasks nutzen sie mit. */
