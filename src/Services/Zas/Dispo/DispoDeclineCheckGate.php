@@ -8,7 +8,7 @@ use Platform\Recruiting\Models\RecDispoFilialeSettings;
 /**
  * Billige Vorpruefung im Listener (Spec 2026-10-08, Entscheidung 3): nur
  * eingehende Nachrichten mit Text, und nur solange mindestens eine Filiale
- * die Erkennung eingeschaltet hat. Alles Weitere entscheidet der Job.
+ * die Erkennung heute eingeschaltet hat. Alles Weitere entscheidet der Job.
  */
 final class DispoDeclineCheckGate
 {
@@ -22,7 +22,7 @@ final class DispoDeclineCheckGate
 
         return $teamId > 0 && RecDispoFilialeSettings::query()
             ->where('team_id', $teamId)
-            ->whereNotNull('decline_check_enabled_at')
+            ->declineCheckActiveAt(\Illuminate\Support\Carbon::parse($message->created_at ?? now()))
             ->exists();
     }
 }

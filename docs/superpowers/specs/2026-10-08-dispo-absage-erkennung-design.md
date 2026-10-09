@@ -46,6 +46,12 @@ zugleich die Untergrenze: **geprueft werden nur Nachrichten, die nach dem
 Einschalten eingehen** — kein Nachlauf ueber die Vergangenheit, kein
 Kostenstoss beim Einschalten.
 
+*Nachtrag 09.10. (Kunde):* Der Schalter gilt **nur am Kalendertag des
+Einschaltens** (ab dem Einschalten bis 23:59). Um Mitternacht ist er ohne
+Zeitschaltung von selbst aus — vergessene Haken laufen nicht dauerhaft weiter.
+Massgeblich ist der Eingangstag der Nachricht, nicht der Zeitpunkt der
+Pruefung. Mehrtaegige VA: jeden Tag neu einschalten.
+
 **5. Vorfilter vor dem Sprachmodell.** Ans Modell geht nur, was ALLE Huerden
 nimmt:
 - Richtung eingehend, mit Text (Sprachnachricht/Bild ohne Text: nicht

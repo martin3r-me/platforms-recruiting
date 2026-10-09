@@ -86,7 +86,7 @@ class Settings extends Component
             $row = $this->filialeSettings->get($nr);
             $this->filialeChannelId[$nr] = $row ? (string) $row->comms_channel_id : '';
             $this->filialeDutyPhone[$nr] = $row ? (string) $row->duty_phone : '';
-            $this->filialeDeclineCheck[$nr] = $row?->decline_check_enabled_at !== null;
+            $this->filialeDeclineCheck[$nr] = RecDispoFilialeSettings::isDeclineCheckActive($row?->decline_check_enabled_at, now());
         }
     }
 
@@ -218,10 +218,13 @@ class Settings extends Component
         $dutyPhone  = trim((string) ($this->filialeDutyPhone[$filialNr] ?? ''));
 
         // Absage-Erkennung: der Einschalt-Zeitpunkt ist die Untergrenze der
-        // Pruefung — erneutes Speichern bei "an" darf ihn NICHT nach vorne schieben.
+        // Pruefung — erneutes Speichern bei "an" darf ihn am selben Tag NICHT
+        // nach vorne schieben. Ein Stempel von gestern ist abgelaufen (gilt nur
+        // am Einschalt-Tag) -> neu einschalten = jetzt.
         $existing = RecDispoFilialeSettings::where('team_id', $this->teamId())->where('filial_nr', $filialNr)->first();
+        $previous = $existing?->decline_check_enabled_at;
         $declineCheckAt = !empty($this->filialeDeclineCheck[$filialNr])
-            ? ($existing?->decline_check_enabled_at ?? now())
+            ? (RecDispoFilialeSettings::isDeclineCheckActive($previous, now()) ? $previous : now())
             : null;
 
         RecDispoFilialeSettings::updateOrCreate(

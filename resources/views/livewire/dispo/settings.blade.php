@@ -110,7 +110,7 @@
         <div>
             <h2 class="text-base font-semibold">Filial-Konfiguration</h2>
             <p class="text-sm text-gray-500">Versand-Kanal und Diensthandy je Filiale — überschreibt den Default-Kanal aus dem Bestätigungs-Template. Jede Zeile wird einzeln gespeichert.</p>
-            <p class="text-sm text-gray-500">Absage-Erkennung: eingehende Nachrichten von angeschriebenen Mitarbeitern werden von der KI geprüft. Eine mögliche Absage wird in der Veranstaltung markiert und ans Diensthandy gemeldet — abgesagt wird erst, wenn jemand das bestätigt. Geprüft wird nur, was nach dem Einschalten eingeht.</p>
+            <p class="text-sm text-gray-500">Absage-Erkennung: eingehende Nachrichten von angeschriebenen Mitarbeitern werden von der KI geprüft. Eine mögliche Absage wird in der Veranstaltung markiert und ans Diensthandy gemeldet — abgesagt wird erst, wenn jemand das bestätigt. Geprüft wird nur, was nach dem Einschalten eingeht — und nur am selben Tag: um Mitternacht geht der Haken von selbst wieder aus.</p>
         </div>
 
         <div class="overflow-x-auto">
@@ -142,13 +142,14 @@
                             <td class="py-2 pr-4 whitespace-nowrap">
                                 @php
                                     $dcSince = $this->filialeSettings->get($nr)?->decline_check_enabled_at;
+                                    $dcActive = \Platform\Recruiting\Models\RecDispoFilialeSettings::isDeclineCheckActive($dcSince, now());
                                     $dcCounts = $this->declineCheckCounts[$nr] ?? ['checked' => 0, 'failed' => 0, 'reported' => 0];
                                 @endphp
                                 <label class="flex items-center gap-2">
                                     <input type="checkbox" wire:model="filialeDeclineCheck.{{ $nr }}" class="rounded border-gray-300">
                                     <span>prüfen</span>
-                                    @if ($dcSince)
-                                        <span class="text-xs text-gray-400">seit {{ $dcSince->format('d.m.Y') }}</span>
+                                    @if ($dcActive)
+                                        <span class="text-xs text-gray-400">heute ab {{ $dcSince->format('H:i') }} bis 24:00</span>
                                     @endif
                                 </label>
                                 <div class="mt-0.5 text-xs text-gray-500 tabular-nums" title="Laufender Monat: vom Sprachmodell geprüfte Nachrichten / davon als mögliche Absage gemeldet">
