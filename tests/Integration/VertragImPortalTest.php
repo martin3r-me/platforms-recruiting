@@ -132,7 +132,7 @@ final class VertragImPortalTest extends TestCase
     public function test_offener_punkt_in_fuer_und_trigger_mit_pause_ab_sent_at(): void
     {
         $ma = $this->anstellung();
-        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-10-05 10:00:00'], ['zuschlag' => '0,60']);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-10-05 10:00:00'], ['zuschlag' => '0,60', 'herkunft' => 'akte']);
         $punkt = ['code' => 'vertrag:' . $v->id, 'label' => 'Arbeitsvertrag · MA', 'status' => 'offen', 'ko' => false, 'punkt' => 'crit', 'text' => 'Lesen und unterschreiben'];
 
         $this->assertContains($punkt, (new OffenePunkte())->fuer($ma, '2026-10-09')['punkte']);
@@ -170,7 +170,7 @@ final class VertragImPortalTest extends TestCase
         $this->assertStringContainsString('recruiting.public.contract-signing', (string) $zeilen[1]['sign_url']);
 
         // Derselbe Mensch bekommt einen Vertrag aus der Akte: der IST ein Punkt.
-        $akte = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-09-20 10:00:00'], ['zuschlag' => '0,60']);
+        $akte = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-09-20 10:00:00'], ['zuschlag' => '0,60', 'herkunft' => 'akte']);
         $this->assertSame(['vertrag:' . $akte->id], array_column(app(VertragLeser::class)->offenePunkte($ma->fresh()), 'code'));
     }
 

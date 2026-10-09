@@ -10,9 +10,9 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Services\Comms\VertragHinweisSender;
 use Platform\Recruiting\Support\VertragsDeckung;
+use Platform\Recruiting\Support\VertragsHerkunft;
 use Platform\Recruiting\Support\VertragsVorbelegung;
 use Platform\Recruiting\Support\YmdDate;
-use Platform\Recruiting\Support\ZuschlagWert;
 
 /**
  * Arbeitsvertrag aus der Mitarbeiterakte (Spec 2026-10-09 §2.2).
@@ -60,7 +60,10 @@ final class VertragAusAkte
 
             $vertrag->setExtraField('vertragsbeginn', $daten['vertragsbeginn']);
             $vertrag->setExtraField('vertragsende', $daten['vertragsende']);
-            $vertrag->setExtraField('zuschlag', $this->zuschlagFuerFeld($vertrag, $angaben->zuschlag));
+            // Herkunftsmerker + Zuschlag am Vertrag (die eine Stelle:
+            // VertragsHerkunft). Fehlt die Felddefinition, rollt die
+            // Transaktion zurueck statt einen unmarkierten Vertrag zu senden.
+            VertragsHerkunft::markieren($vertrag, $angaben->zuschlag);
 
             // rec_applicants.zuschlag bleibt BEWUSST unberuehrt (Ruling Task 4):
             // Quelle ist das Vertrags-Extrafeld. Sonst aenderte sich der
@@ -130,18 +133,6 @@ final class VertragAusAkte
                 $konflikt['ende'] !== null ? 'bis ' . VertragsVorbelegung::deutsch($konflikt['ende']) : 'unbefristet'
             ));
         }
-    }
-
-    /**
-     * Das Feld ist ab dem Seed Text ("0,60"). Hat ein Team es frueher als
-     * Zahl angelegt, verwirft setTypedValue() das Komma still — dort steht
-     * deshalb die Zahl.
-     */
-    private function zuschlagFuerFeld(RecContract $vertrag, float $zuschlag): string
-    {
-        $typ = $vertrag->getExtraFieldDefinitions()->firstWhere('name', 'zuschlag')?->type;
-
-        return $typ === 'number' ? (string) $zuschlag : ZuschlagWert::format($zuschlag);
     }
 
     private function hinweisSenden(RecEmployee $anstellung): string

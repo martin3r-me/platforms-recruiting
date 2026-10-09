@@ -95,12 +95,22 @@ Schritte, in einer Transaktion (bis auf den WhatsApp-Versand, der danach läuft)
    Vertrags-Extrafeld ist die einzige Quelle. Sonst änderte sich der ZAS-Exportwert vor
    der Unterschrift ohne Marker/Lohn-Eintrag, und eine RG-Bewerbung bekäme den MA-Zuschlag.
    Der ZAS-Export dieses Zuschlags bleibt wie bisher (offene Frage E14 an Markus).
+   Zusätzlich das Vertrags-Extrafeld **`herkunft` = `akte`** (Herkunftsmerker, Typ text,
+   nicht Pflicht, im selben Seed). Merker und Zuschlag setzt **nur**
+   `VertragsHerkunft::markieren()`; fehlt die Felddefinition (Seed nicht gelaufen), bricht
+   die Erstellung laut ab und die Transaktion rollt zurück (sonst wäre `setExtraField()`
+   ein stiller No-Op und der Vertrag unmarkiert). Im „Felder"-Dialog der Bewerberseite ist
+   `herkunft` ausgeblendet (`VertragsHerkunft::istMerkerFeld`).
 3. Inhalt: `personalized_content` über **`RecContractTemplate::personalizeFuerAnstellung(RecEmployee $anstellung, RecContract $vertrag): string`** (§2.3).
 4. `RecContract::create([... 'rec_employee_id' => $anstellung->id, 'rec_applicant_id' => $anstellung->rec_applicant_id (darf null sein), 'status' => 'pending', 'created_by_user_id' => $userId])`.
    `rec_applicant_id` bleibt bewusst gesetzt (ZAS-Upload-Links, Bewerberliste). Deshalb ist
    die Bewerbung **kein** Herkunftsmerker: „aus der Akte" heißt **Vertrags-Extrafeld
-   `zuschlag` gesetzt**, an EINER Stelle: `VertragsHerkunft::ausAkte(RecContract)`
-   (Schlussreview I1). Neu-Rendern läuft über `VertragsHerkunft::neuRendern()`:
+   `herkunft` = `akte`**, an EINER Stelle: `VertragsHerkunft::ausAkte(RecContract)`
+   (Schlussreview I1, N1). Das Zuschlagsfeld ist **kein** Merker mehr: eine Live-Vorlage
+   des Bewerbungswegs mappt `contract.extra_field.zuschlag`, ihre Verträge tragen den
+   Zuschlag ebenfalls am Vertrag und blieben sonst als „aus der Akte" erkannt (offene
+   Punkte, Neu-Rendern über die Anstellung). Geschrieben wird der Merker von
+   `VertragAusAkte` und von „Neu ausstellen" eines Akte-Vertrags (§2.7), sonst nie. Neu-Rendern läuft über `VertragsHerkunft::neuRendern()`:
    Akte-Verträge über `personalizeFuerAnstellung`, alle anderen wie bisher.
    Danach Extrafelder setzen, Inhalt rendern, `getOrCreatePublicFormLink()`,
    `status = sent`, `sent_at = now()`. **Eloquent ist hier richtig** (ein Vertrag, kein
@@ -166,12 +176,13 @@ return []`). Neu:
   `RendersContractPdf` (Bewerber-Route und neue Route teilen es).
 - **Offener Punkt:** `OffenePunkte::stand()` bekommt eine dritte Quelle
   `VertragLeser::offenePunkte($employee)`: je Vertrag **aus der Akte**
-  (`VertragsHerkunft::ausAkte`) mit `status = sent` der Person ein Punkt `{code: 'vertrag:<id>', label: '<Anzeigename> · <Gesellschaft>', status:
+  (`VertragsHerkunft::ausAkte`, Merker `herkunft = akte`) mit `status = sent` der Person ein Punkt `{code: 'vertrag:<id>', label: '<Anzeigename> · <Gesellschaft>', status:
   'offen', ko: false, punkt: 'crit', text: 'Lesen und unterschreiben'}`. Für den
   Trigger (`fuerTrigger`) gilt dieselbe 7-Tage-Pause wie bei Dokumenten, gemessen an
   `sent_at`. Damit meldet die Einsatz-Prüfung den Vertrag mit, ohne eigenen Versand.
   Alte offene Verträge aus dem Bewerbungsweg (auch die von `vertraege-an-anstellung`
-  angehängten IFSG/AT/AV) werden **kein** offener Punkt: sie stehen wie bisher nur in der
+  angehängten IFSG/AT/AV, auch die einer Vorlage mit `contract.extra_field.zuschlag` und
+  gefülltem Zuschlagsfeld) werden **kein** offener Punkt: sie stehen wie bisher nur in der
   Liste mit Unterschreiben-Link. Sonst stiegen Portal-Zähler und Trigger-Signatur
   Hunderter Menschen auf einen Schlag, und die nächste Welle schriebe sie an
   (Schlussreview I3). Der offene Punkt trägt die
@@ -201,7 +212,8 @@ ohne Anker zählt wie bisher der Bewerber. `contract_end_date` wird nur bei Vert
 Quelle). Auch `RePersonalizeContractsTool` kommt mit Verträgen ohne Bewerbung zurecht
 (`personalizeFuerAnstellung`). Werkzeug und „Felder"-Dialog der Bewerberseite
 (`Applicant/Show::saveContractFields`) rendern Akte-Verträge über die Anstellung,
-Bewerbungs-Verträge ohne Zuschlagsfeld weiter auf dem alten Pfad (Schlussreview I1).
+Bewerbungs-Verträge (ohne Merker `herkunft`, auch mit Zuschlagsfeld) weiter
+byteidentisch auf dem alten Pfad (Schlussreview I1, N1).
 
 ### 2.7 HR-Akte, Liste
 
@@ -216,7 +228,12 @@ Neu ausstellen bleibt.
 PDF für HR ohne Bewerbung über `GET /employees/vertraege/{contractId}/pdf`
 (`recruiting.employees.vertrag-pdf`, Team-geprüft). „Neu ausstellen" nur für Verträge mit
 Bewerbung (`ReissueContractService` braucht sie); offene Verträge lassen sich in der Akte
-stornieren.
+stornieren. **Neu ausstellen eines Akte-Vertrags** (Schlussreview N2): der Nachfolger
+bekommt Merker und neuen Zuschlag am Vertrag (`VertragsHerkunft::markieren`) und rendert
+über `VertragsHerkunft::neuRendern`; `rec_applicants.zuschlag` und
+`contract_template_id` der Bewerbung bleiben unberührt; der alte Zuschlag für Notizen
+und Lohnmeldung kommt aus dem Vertragsfeld, die Lohnmeldung landet an der Anstellung des
+Vertrags. Bewerbungs-Verträge laufen unverändert wie bisher.
 
 ---
 
@@ -309,15 +326,26 @@ MA-Zeile existiert jetzt, der alte Fall hängt an der gebuchten RG-Zeile), schli
 den offenen Fall an der bisherigen Zeile (`STATUS_APPROVED`, `resolution_notes =
 'Automatisch: verschoben auf Akte #<id>'`), sobald die Gesellschaft seiner Notiz an einer
 **anderen** Anstellung derselben Person geprüft wird; der neue Fall entsteht dort im
-selben Lauf. Wird die Zeile des Falls selbst noch geprüft, bleibt er (kein Auf/Zu).
-Zählt im Bericht unter „Fälle geschlossen".
+selben Lauf. Wird die Zeile des Falls selbst noch **für die Gesellschaft seiner Notiz**
+geprüft, bleibt er (kein Auf/Zu); ein alter MA-Fall an der RG-Zeile wandert also auch
+dann, wenn die RG-Zeile noch für RG geprüft wird (Schlussreview N3). Verschoben wird
+**vor** dem Öffnen/Schließen je Anstellung, damit der verschobene Fall dort keinen neuen
+Fall blockiert. Automatisch geschlossen („unterschrieben") werden an einer Zeile nur Fälle
+der dort geprüften Gesellschaften (unlesbare Notiz: wie bisher). Zählt im Bericht unter
+„Fälle geschlossen".
+
+**Keine Auto-Schließung außerhalb der Prüfung (Schlussreview N4):** Nach dem Ausschalten
+der Vertragsprüfung (`contract_check_companies = []` oder Gesellschaft abgehakt) und für
+Fälle, deren Buchungen über den 30-Tage-Horizont hinaus wandern oder deren Gesellschaft
+nirgends mehr gebucht ist, schließt der Lauf offene Fälle **nicht** von selbst — HR
+schließt sie.
 
 ---
 
 ## 4. Datenmodell
 
-- Keine neue Tabelle, keine neue Spalte. Neu sind: Vertrags-Extrafeld `zuschlag`
-  (Seed), Fallgrund `contract_missing` (Konstante), Einstellungen
+- Keine neue Tabelle, keine neue Spalte. Neu sind: Vertrags-Extrafelder `zuschlag` und
+  `herkunft` (Herkunftsmerker, Seed), Fallgrund `contract_missing` (Konstante), Einstellungen
   `employee_contract_wa_template_id` und `contract_check_companies` (JSON im
   Settings-Blob).
 - Migration: **eine** — `2026_10_09_000003_make_rec_applicant_id_nullable_on_rec_contracts`
@@ -372,6 +400,12 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
     HR-geschlossen bleibt zu / öffnet für späteren Tag, Fall wandert mit, kein Flattern),
     `VertragImPortalTest` (alter Bewerbungsvertrag: kein Punkt, Signatur gleich),
     `VertragAusAkteOberflaecheTest` (Stornieren nur AV).
+12. N-Welle: `VertragsHerkunftTest` (Vorlage mit `contract.extra_field.zuschlag` +
+    gefülltem Feld: nicht aus der Akte, kein Punkt, byteidentisch; Merker fehlt → kein
+    Vertrag; Merker nicht im „Felder"-Dialog; Neu ausstellen offen/unterschrieben behält
+    Merker, Bewerbung unberührt, alter Wert aus dem Vertrag), `EinsatzPruefungVertragTest`
+    (RG+MA: alter MA-Fall an der RG-Zeile wandert, schließt nicht mit dem RG-Vertrag),
+    `VertragAusAkteTest` (Seed legt `herkunft` an).
 
 ---
 
@@ -389,7 +423,9 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
 
 - **`migrate`** (eine Migration, siehe §4). `view:clear`. **`queue:restart` nicht nötig** (kein neuer Job; der
   Einsatz-Lauf ist ein Kommando).
-- `php artisan recruiting:seed-rec-contract-extra-fields` (Extrafeld `zuschlag`).
+- `php artisan recruiting:seed-rec-contract-extra-fields` (Extrafelder `zuschlag` und
+  `herkunft`) — **vor** dem ersten „Vertrag erstellen": ohne `herkunft` lehnt die Akte das
+  Erstellen ab.
 - **Vor dem Deploy** die Fälle `mehrdeutig`/`firma_fehlt` aus
   `recruiting:vertraege-an-anstellung` klären.
 - **Vor dem Merge** die Migration auf der Demo mit MySQL prüfen (`migrate` + `migrate:rollback`
@@ -405,6 +441,7 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
   3. Erst nach deren OK im Einstellungs-Fenster „Gesellschaft MA" anhaken; der nächste
      Stundenlauf legt die Fälle an. Geprüft werden nur Einsätze der nächsten 30 Tage; von
      HR geschlossene Fälle bleiben zu (§3.3).
+  4. Wieder ausschalten schließt offene Fälle **nicht** (§3.4) — HR schließt sie.
 - Vorlagen: je Vertragsart eine Vorlage mit `company = MA` anlegen — ohne Vorlage ist
   der Knopf in MA-Akten leer, der Check erzeugt trotzdem Fälle.
 

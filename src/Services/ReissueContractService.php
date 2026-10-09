@@ -5,6 +5,8 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Support\VertragsHerkunft;
+use Platform\Recruiting\Support\ZuschlagWert;
 
 /**
  * Stellt einen bereits unterschriebenen Arbeitsvertrag neu aus.
@@ -87,19 +89,21 @@ class ReissueContractService
 
         [$template, $zuschlagSource] = $this->resolveTemplate($old);
         $applicant = $this->resolveApplicant($old);
+        $ausAkte = VertragsHerkunft::ausAkte($old);
 
-        $oldZuschlag = $applicant->zuschlag !== null ? (float) $applicant->zuschlag : null;
+        $oldZuschlag = $this->alterZuschlag($old, $applicant, $ausAkte);
         $dates = $this->resolveDates($old, $vertragsbeginn, $vertragsende);
 
         return DB::transaction(function () use (
             $old, $applicant, $template, $newZuschlag, $oldZuschlag, $reason, $dates, $hrNote,
-            $userId, $zuschlagSource
+            $userId, $zuschlagSource, $ausAkte
         ) {
             // 1)-3) Zuschlag am Bewerber setzen und den Nachfolger ausstellen.
             $new = $this->createSuccessor(
                 $applicant, $template, $newZuschlag, $dates, $zuschlagSource, $userId,
                 $this->successorNote($old, $oldZuschlag, $newZuschlag, $reason, $hrNote),
                 $old->rec_employee_id !== null ? (int) $old->rec_employee_id : null,
+                $ausAkte,
             );
 
             // 4) Vorgaenger markieren. NUR notes + superseded_by — Unterschrift,
@@ -115,7 +119,10 @@ class ReissueContractService
             //    Verhaeltnis informieren.
             $payrollReported = false;
             if ($reason === self::REASON_RAISE) {
-                $payrollReported = $this->reportToPayroll($applicant, $oldZuschlag, $newZuschlag);
+                $payrollReported = $this->reportToPayroll(
+                    $applicant, $oldZuschlag, $newZuschlag,
+                    $ausAkte && $old->rec_employee_id !== null ? (int) $old->rec_employee_id : null,
+                );
             }
 
             return ['contract' => $new, 'payroll_reported' => $payrollReported];
@@ -182,13 +189,14 @@ class ReissueContractService
 
         [$template, $zuschlagSource] = $this->resolveTemplate($open);
         $applicant = $this->resolveApplicant($open);
+        $ausAkte = VertragsHerkunft::ausAkte($open);
 
-        $oldZuschlag = $applicant->zuschlag !== null ? (float) $applicant->zuschlag : null;
+        $oldZuschlag = $this->alterZuschlag($open, $applicant, $ausAkte);
         $dates = $this->resolveDates($open, $vertragsbeginn, $vertragsende);
 
         return DB::transaction(function () use (
             $open, $applicant, $template, $newZuschlag, $oldZuschlag, $dates, $hrNote,
-            $userId, $zuschlagSource
+            $userId, $zuschlagSource, $ausAkte
         ) {
             $new = $this->createSuccessor(
                 $applicant, $template, $newZuschlag, $dates, $zuschlagSource, $userId,
@@ -200,6 +208,7 @@ class ReissueContractService
                     number_format($newZuschlag, 2, ',', '.'),
                 ), $hrNote),
                 $open->rec_employee_id !== null ? (int) $open->rec_employee_id : null,
+                $ausAkte,
             );
 
             // Vorgaenger stornieren — damit stirbt sein Signaturlink.
@@ -241,7 +250,12 @@ class ReissueContractService
         ?int $userId,
         string $notes,
         ?int $recEmployeeId = null,
+        bool $ausAkte = false,
     ): RecContract {
+        if ($ausAkte) {
+            return $this->createAkteSuccessor($applicant, $template, $newZuschlag, $dates, $userId, $notes, $recEmployeeId);
+        }
+
         // 1) Zuschlag am Bewerber — die eine Quelle. Vertragstext UND
         //    ZAS-Export lesen von hier (ZasEmployeeFieldResolver).
         $applicant->zuschlag = $newZuschlag;
@@ -290,6 +304,65 @@ class ReissueContractService
         }
 
         return $new;
+    }
+
+    /**
+     * Nachfolger eines Vertrags AUS DER AKTE (Schlussreview N2). Die
+     * Bewerbung bleibt unberuehrt — weder rec_applicants.zuschlag noch
+     * contract_template_id (Ruling Task 4: Quelle ist das Vertragsfeld; sonst
+     * aenderte sich der ZAS-Exportwert ohne Unterschrift, und eine
+     * RG-Bewerbung bekaeme den MA-Zuschlag). Der Nachfolger traegt den
+     * Herkunftsmerker und den neuen Zuschlag am Vertrag und rendert ueber
+     * dieselbe Weiche wie jedes Neu-Rendern (VertragsHerkunft::neuRendern).
+     */
+    private function createAkteSuccessor(
+        RecApplicant $applicant,
+        $template,
+        float $newZuschlag,
+        array $dates,
+        ?int $userId,
+        string $notes,
+        ?int $recEmployeeId,
+    ): RecContract {
+        $new = RecContract::create([
+            'rec_applicant_id'         => $applicant->id,
+            'rec_employee_id'          => $recEmployeeId,
+            'rec_contract_template_id' => $template->id,
+            'team_id'                  => $applicant->team_id,
+            'personalized_content'     => '',
+            'status'                   => 'sent',
+            'sent_at'                  => now(),
+            'created_by_user_id'       => $userId,
+            'notes'                    => $notes,
+        ]);
+
+        if ($dates['vertragsbeginn']) {
+            $new->setExtraField('vertragsbeginn', $dates['vertragsbeginn']);
+        }
+        if ($dates['vertragsende']) {
+            $new->setExtraField('vertragsende', $dates['vertragsende']);
+        }
+        VertragsHerkunft::markieren($new, $newZuschlag);
+
+        $new->personalized_content = VertragsHerkunft::neuRendern($new)
+            ?? $template->personalizeContent($applicant, $new);
+        $new->save();
+
+        return $new;
+    }
+
+    /**
+     * Bisheriger Zuschlag fuer Notizen und Lohnmeldung: bei einem Vertrag
+     * aus der Akte der am Vertrag (der Bewerber-Wert ist dort ein anderer,
+     * Schlussreview N2), sonst wie immer der am Bewerber.
+     */
+    private function alterZuschlag(RecContract $contract, RecApplicant $applicant, bool $ausAkte): ?float
+    {
+        if ($ausAkte) {
+            return ZuschlagWert::lesen($contract->getExtraField('zuschlag'));
+        }
+
+        return $applicant->zuschlag !== null ? (float) $applicant->zuschlag : null;
     }
 
     /**
@@ -416,15 +489,19 @@ class ReissueContractService
      * ausschliesslich angezeigt und exportiert werden; PayrollChanges gibt
      * sie unveraendert durch.
      */
-    private function reportToPayroll(RecApplicant $applicant, ?float $old, float $new): bool
+    private function reportToPayroll(RecApplicant $applicant, ?float $old, float $new, ?int $recEmployeeId = null): bool
     {
         if ($old !== null && abs($old - $new) < 0.005) {
             return false; // Kein Wertwechsel — keine Meldung.
         }
 
-        $employee = DB::table('rec_employees')
-            ->where('rec_applicant_id', $applicant->id)
-            ->first(['id', 'payroll_data_changed_fields']);
+        // Akte-Vertrag: die Anstellung des Vertrags, nicht die erste der
+        // Bewerbung (RG- und MA-Zeile teilen sich die Bewerbung).
+        $employee = $recEmployeeId !== null
+            ? DB::table('rec_employees')->where('id', $recEmployeeId)->first(['id', 'payroll_data_changed_fields'])
+            : DB::table('rec_employees')
+                ->where('rec_applicant_id', $applicant->id)
+                ->first(['id', 'payroll_data_changed_fields']);
 
         if (!$employee) {
             return false; // Noch kein Mitarbeiterdatensatz — nichts abzurechnen.

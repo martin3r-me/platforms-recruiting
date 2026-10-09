@@ -398,6 +398,64 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('0 Fälle neu, 0 Fälle geschlossen.', $zweite);
     }
 
+    /**
+     * Schlussreview N3: RG+MA geprueft. Alter MA-Fall an der RG-Zeile (keine
+     * MA-Zeile); die RG-Zeile hat selbst eine RG-Buchung. Dann entsteht die
+     * MA-Zeile. Der MA-Fall wandert, obwohl die RG-Zeile noch (fuer RG)
+     * geprueft wird — und an der RG-Zeile entsteht der RG-Fall.
+     * Probe: Waechter wieder nur auf die Anstellung → zwei MA-Faelle, rot.
+     */
+    public function test_alter_ma_fall_an_der_rg_zeile_wandert_auch_wenn_rg_dort_geprueft_wird(): void
+    {
+        $this->einstellung(['RG', 'MA']);
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG358']);
+        $this->einbuchung($rg, '2026-10-20', 'MA358');
+        $this->einbuchung($rg, '2026-10-22', 'RG358');
+        $this->laufe('2026-10-09');
+        $alt = $this->vertragsFaelle()->first();
+        $this->assertCount(1, $this->vertragsFaelle(), 'Vorflug: ein Fall je Anstellung');
+        $this->assertStringStartsWith('MA-Einsatz am 20.10.2026', (string) $alt->notes, 'Vorflug: fruehester Tag = MA');
+
+        $ma = $this->maAnstellung(['personnel_number' => 'MA358']);
+        $this->personVerbinden($rg, $ma);
+        $this->laufe('2026-10-10');
+
+        $alt = $alt->fresh();
+        $this->assertSame(RecHrDeskCase::STATUS_APPROVED, $alt->status);
+        $this->assertSame('Automatisch: verschoben auf Akte #' . $ma->id, $alt->resolution_notes);
+        $offen = $this->vertragsFaelle()->where('status', RecHrDeskCase::STATUS_OPEN)->values();
+        $this->assertSame([$rg->id, $ma->id], $offen->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->sort()->values()->all());
+        $this->assertStringStartsWith('RG-Einsatz am 22.10.2026', (string) $offen->firstWhere('rec_employee_id', $rg->id)->notes);
+        $this->assertStringStartsWith('MA-Einsatz am 20.10.2026', (string) $offen->firstWhere('rec_employee_id', $ma->id)->notes);
+
+        $dritte = $this->laufe('2026-10-11');
+        $this->assertStringContainsString('0 Fälle neu, 0 Fälle geschlossen.', $dritte, 'kein Flattern');
+    }
+
+    /**
+     * N3, zweite Haelfte: die RG-Buchung ist unterschrieben gedeckt. Der alte
+     * MA-Fall an der RG-Zeile schliesst NICHT mit "Arbeitsvertrag
+     * unterschrieben" (das war der RG-Vertrag), sondern wandert.
+     */
+    public function test_alter_ma_fall_schliesst_nicht_mit_dem_rg_vertrag(): void
+    {
+        $this->einstellung(['RG', 'MA']);
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG359']);
+        $this->einbuchung($rg, '2026-10-20', 'MA359');
+        $this->laufe('2026-10-09');
+        $alt = $this->vertragsFaelle()->first();
+
+        $this->vertragAn($rg, $this->vorlage('AV-default', 'RG'), ['status' => 'completed', 'signed_at' => '2026-09-01 12:00:00', 'completed_at' => '2026-09-01 12:00:00'],
+            ['vertragsbeginn' => '2026-01-01', 'vertragsende' => '2026-12-31']);
+        $this->einbuchung($rg, '2026-10-22', 'RG359');
+        $ma = $this->maAnstellung(['personnel_number' => 'MA359']);
+        $this->personVerbinden($rg, $ma);
+        $this->laufe('2026-10-10');
+
+        $this->assertSame('Automatisch: verschoben auf Akte #' . $ma->id, $alt->fresh()->resolution_notes);
+        $this->assertSame([$ma->id], $this->vertragsFaelle()->where('status', RecHrDeskCase::STATUS_OPEN)->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->values()->all());
+    }
+
     public function test_trockenlauf_verschiebt_nichts(): void
     {
         $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG355']);

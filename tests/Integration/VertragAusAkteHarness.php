@@ -115,7 +115,7 @@ trait VertragAusAkteHarness
     /** Ohne diese Definitionen ist setExtraField() ein stiller No-Op (siehe ReissueContractTest). */
     private function vertragsFelderAnlegen(): void
     {
-        foreach ([['vertragsbeginn', 'Vertragsbeginn', 'date', 10], ['vertragsende', 'Vertragsende', 'date', 20], ['zuschlag', 'Zuschlag (€/Std)', 'text', 30]] as [$name, $label, $typ, $order]) {
+        foreach ([['vertragsbeginn', 'Vertragsbeginn', 'date', 10], ['vertragsende', 'Vertragsende', 'date', 20], ['zuschlag', 'Zuschlag (€/Std)', 'text', 30], ['herkunft', 'Herkunft (intern)', 'text', 90]] as [$name, $label, $typ, $order]) {
             CoreExtraFieldDefinition::create([
                 'team_id' => $this->team, 'context_type' => RecContract::class, 'context_id' => null,
                 'name' => $name, 'label' => $label, 'type' => $typ, 'order' => $order,

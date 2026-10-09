@@ -831,6 +831,14 @@ class EinsatzPruefung extends Command
             $jeAnstellung[$befund['anstellung_id']][] = $befund;
         }
 
+        // Erst verschieben (Schlussreview N3): ein alter Fall einer
+        // Gesellschaft, die jetzt an einer ANDEREN Zeile geprueft wird, darf
+        // die Zeile nicht mehr blockieren (kein neuer Fall daneben) und nicht
+        // mit der falschen Notiz "unterschrieben" schliessen. Verschobene
+        // Faelle zaehlen unten nicht mehr als offen — auch im Trockenlauf.
+        $verschoben = $this->verschiebeVertragsFaelle($umfangIds, $jeAnstellung, $dryRun);
+        $z['vertrag_geschlossen'] += count($verschoben);
+
         foreach ($jeAnstellung as $anstellungId => $befunde) {
             // Der frueheste ungedeckte Tag ueber alle Gesellschaften; seine
             // Firma steht in der Notiz.
@@ -850,7 +858,7 @@ class EinsatzPruefung extends Command
             }
 
             if ($ungedeckt !== null) {
-                if (!$this->hatOffenenVertragsFall((int) $anstellungId)
+                if (!$this->hatOffenenVertragsFall((int) $anstellungId, $verschoben)
                     && !$this->vonHrErledigt((int) $anstellungId, (string) $ungedeckt['erster_tag'])) {
                     if (!$dryRun) {
                         $this->oeffneVertragsFall($ungedeckt);
@@ -865,11 +873,25 @@ class EinsatzPruefung extends Command
             // jeder geprueften Gesellschaft, unterschrieben gedeckt sind.
             // "unterwegs" schliesst nicht.
             if ($alleUnterschrieben) {
-                $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle((int) $anstellungId, $vertragId, $dryRun);
+                $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle(
+                    (int) $anstellungId, $vertragId, $dryRun, $verschoben, self::firmenDerBefunde($befunde)
+                );
             }
         }
+    }
 
-        $z['vertrag_geschlossen'] += $this->verschiebeVertragsFaelle($umfangIds, $jeAnstellung, $dryRun);
+    /**
+     * @param  list<array>  $befunde
+     * @return array<string, true>
+     */
+    private static function firmenDerBefunde(array $befunde): array
+    {
+        $firmen = [];
+        foreach ($befunde as $befund) {
+            $firmen[(string) $befund['firma']] = true;
+        }
+
+        return $firmen;
     }
 
     /**
@@ -899,10 +921,16 @@ class EinsatzPruefung extends Command
      * Person — wenn die Gesellschaft seiner Notiz jetzt an einer ANDEREN
      * Anstellung geprueft wird. Der neue Fall dort entsteht im selben Lauf.
      *
+     * Waechter gegen Flattern je Anstellung UND Gesellschaft (Schlussreview
+     * N3): bleibt nur, wenn seine Zeile selbst noch fuer die Gesellschaft
+     * seiner Notiz geprueft wird. Ein alter MA-Fall an der RG-Zeile wandert
+     * also auch dann, wenn die RG-Zeile noch fuer RG geprueft wird.
+     *
      * @param  list<int>  $umfangIds
      * @param  array<int, list<array>>  $jeAnstellung
+     * @return list<int>  IDs der verschobenen Faelle (im Trockenlauf: die, die es waeren)
      */
-    private function verschiebeVertragsFaelle(array $umfangIds, array $jeAnstellung, bool $dryRun): int
+    private function verschiebeVertragsFaelle(array $umfangIds, array $jeAnstellung, bool $dryRun): array
     {
         $zielJeFirma = [];
         foreach ($jeAnstellung as $anstellungId => $befunde) {
@@ -911,7 +939,7 @@ class EinsatzPruefung extends Command
             }
         }
         if ($zielJeFirma === []) {
-            return 0;
+            return [];
         }
 
         $faelle = RecHrDeskCase::query()
@@ -920,16 +948,20 @@ class EinsatzPruefung extends Command
             ->where('status', RecHrDeskCase::STATUS_OPEN)
             ->get();
 
-        $n = 0;
+        $verschoben = [];
         foreach ($faelle as $fall) {
-            // Wird die Zeile des Falls selbst noch geprueft (z. B. zwei
-            // gebuchte Zeilen ohne MA-Akte), bleibt er — sonst schloesse und
-            // oeffnete jeder Lauf ihn neu.
-            if (array_key_exists((int) $fall->rec_employee_id, $jeAnstellung)) {
+            $firma = VertragsVorbelegung::firmaAusNotiz($fall->notes);
+            $zeile = (int) $fall->rec_employee_id;
+            // Wird die Zeile des Falls selbst noch fuer SEINE Gesellschaft
+            // geprueft (z. B. zwei gebuchte Zeilen ohne MA-Akte), bleibt er —
+            // sonst schloesse und oeffnete jeder Lauf ihn neu. Unlesbare
+            // Notiz: wie bisher nur die Zeile.
+            if (array_key_exists($zeile, $jeAnstellung)
+                && ($firma === null || isset(self::firmenDerBefunde($jeAnstellung[$zeile])[$firma]))) {
                 continue;
             }
-            $ziel = $zielJeFirma[VertragsVorbelegung::firmaAusNotiz($fall->notes) ?? ''] ?? null;
-            if ($ziel === null) {
+            $ziel = $zielJeFirma[$firma ?? ''] ?? null;
+            if ($ziel === null || $ziel === $zeile) {
                 continue;
             }
             if (!$dryRun) {
@@ -939,10 +971,10 @@ class EinsatzPruefung extends Command
                     'resolution_notes' => sprintf('Automatisch: verschoben auf Akte #%d', $ziel),
                 ]);
             }
-            $n++;
+            $verschoben[] = (int) $fall->id;
         }
 
-        return $n;
+        return $verschoben;
     }
 
     /**
@@ -969,12 +1001,14 @@ class EinsatzPruefung extends Command
         return $this->vertragsFirmenJeTeam[$teamId];
     }
 
-    private function hatOffenenVertragsFall(int $anstellungId): bool
+    /** @param list<int> $ausser  in diesem Lauf verschobene Faelle */
+    private function hatOffenenVertragsFall(int $anstellungId, array $ausser = []): bool
     {
         return RecHrDeskCase::query()
             ->where('rec_employee_id', $anstellungId)
             ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
             ->where('status', RecHrDeskCase::STATUS_OPEN)
+            ->when($ausser !== [], fn ($q) => $q->whereNotIn('id', $ausser))
             ->exists();
     }
 
@@ -992,13 +1026,28 @@ class EinsatzPruefung extends Command
         ]);
     }
 
-    private function schliesseVertragsFaelle(int $anstellungId, ?int $vertragId, bool $dryRun): int
+    /**
+     * Schliesst nur Faelle, deren Gesellschaft an dieser Zeile geprueft (und
+     * damit unterschrieben gedeckt) ist — ein Fall einer anderen
+     * Gesellschaft bekaeme sonst die falsche Notiz (Schlussreview N3).
+     * Unlesbare Notiz: wie bisher.
+     *
+     * @param  list<int>  $ausser  in diesem Lauf verschobene Faelle
+     * @param  array<string, true>  $firmen  an dieser Zeile gepruefte Gesellschaften
+     */
+    private function schliesseVertragsFaelle(int $anstellungId, ?int $vertragId, bool $dryRun, array $ausser = [], array $firmen = []): int
     {
         $faelle = RecHrDeskCase::query()
             ->where('rec_employee_id', $anstellungId)
             ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
             ->where('status', RecHrDeskCase::STATUS_OPEN)
-            ->get();
+            ->when($ausser !== [], fn ($q) => $q->whereNotIn('id', $ausser))
+            ->get()
+            ->filter(function (RecHrDeskCase $fall) use ($firmen) {
+                $firma = VertragsVorbelegung::firmaAusNotiz($fall->notes);
+
+                return $firma === null || $firmen === [] || isset($firmen[$firma]);
+            });
 
         if (!$dryRun) {
             foreach ($faelle as $fall) {

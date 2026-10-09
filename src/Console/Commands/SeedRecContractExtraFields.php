@@ -11,7 +11,7 @@ class SeedRecContractExtraFields extends Command
     protected $signature = 'recruiting:seed-rec-contract-extra-fields
         {--dry-run : Nur anzeigen was passieren würde, keine Writes}';
 
-    protected $description = 'Legt die Extra-Field-Definitions vertragsbeginn, vertragsende und zuschlag auf rec_contract-Kontext an (für jedes Team das bereits rec_contract_templates hat). Idempotent via Unique-Key (team_id, context_type, context_id, name).';
+    protected $description = 'Legt die Extra-Field-Definitions vertragsbeginn, vertragsende, zuschlag und herkunft auf rec_contract-Kontext an (für jedes Team das bereits rec_contract_templates hat). Idempotent via Unique-Key (team_id, context_type, context_id, name).';
 
     private const CONTEXT_TYPE = 'Platform\\Recruiting\\Models\\RecContract';
 
@@ -39,6 +39,15 @@ class SeedRecContractExtraFields extends Command
             'type'        => 'text',
             'is_required' => false,
             'order'       => 30,
+        ],
+        // Herkunftsmerker "akte" (Schlussreview N1) — geschrieben NUR von
+        // VertragsHerkunft::markieren(), im "Felder"-Dialog ausgeblendet.
+        [
+            'name'        => 'herkunft',
+            'label'       => 'Herkunft (intern)',
+            'type'        => 'text',
+            'is_required' => false,
+            'order'       => 90,
         ],
     ];
 

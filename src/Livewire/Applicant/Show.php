@@ -855,7 +855,12 @@ class Show extends Component
             ->firstOrFail();
 
         $this->activeContractId = $contractId;
-        $this->contractFieldDefinitions = $contract->getExtraFieldsWithLabels();
+        // Den Herkunftsmerker (VertragsHerkunft) nie zeigen — HR soll ihn
+        // nicht leeren; saveContractFields() schreibt nur gezeigte Felder.
+        $this->contractFieldDefinitions = array_values(array_filter(
+            $contract->getExtraFieldsWithLabels(),
+            static fn (array $f) => !\Platform\Recruiting\Support\VertragsHerkunft::istMerkerFeld($f['name'] ?? null)
+        ));
         $this->contractFieldValues = [];
 
         foreach ($this->contractFieldDefinitions as $field) {
@@ -885,7 +890,7 @@ class Show extends Component
         }
 
         if ($contract->contractTemplate) {
-            // Akte-Vertraege (Zuschlag am Vertrag) ueber die Anstellung, alle
+            // Akte-Vertraege (Merker herkunft=akte) ueber die Anstellung, alle
             // anderen exakt wie bisher ueber die Bewerbung (Schlussreview I1).
             $contract->personalized_content = \Platform\Recruiting\Support\VertragsHerkunft::neuRendern($contract)
                 ?? $contract->contractTemplate->personalizeContent($this->applicant, $contract);

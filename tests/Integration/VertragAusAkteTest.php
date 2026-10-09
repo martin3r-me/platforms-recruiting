@@ -310,8 +310,10 @@ final class VertragAusAkteTest extends TestCase
         $this->seed();
 
         $zeilen = DB::table('core_extra_field_definitions')->where('team_id', $this->team)->where('context_type', RecContract::class)->orderBy('order')->get();
-        $this->assertSame(['vertragsbeginn', 'vertragsende', 'zuschlag'], $zeilen->pluck('name')->all());
+        $this->assertSame(['vertragsbeginn', 'vertragsende', 'zuschlag', 'herkunft'], $zeilen->pluck('name')->all());
         $this->assertSame('text', $zeilen->firstWhere('name', 'zuschlag')->type);
+        $this->assertSame('text', $zeilen->firstWhere('name', 'herkunft')->type, 'Schlussreview N1: Herkunftsmerker');
+        $this->assertSame(0, (int) $zeilen->firstWhere('name', 'herkunft')->is_required);
     }
 
     private function seed(): void

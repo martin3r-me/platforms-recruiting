@@ -6,25 +6,61 @@ use Platform\Recruiting\Models\RecContract;
 
 /**
  * Woher ein Vertrag kommt — die EINE Stelle fuer diesen Merker
- * (Schlussreview I1/I3, Spec Vertrag aus der Akte §2.2).
+ * (Schlussreview I1/I3 + N1, Spec Vertrag aus der Akte §2.2).
  *
- * "Aus der Akte" = das Vertrags-Extrafeld `zuschlag` ist gesetzt. Das setzt
- * VertragAusAkte immer; der Bewerbungsweg (SendContractsService) nie.
- * rec_applicant_id taugt NICHT als Merker: Akte-Vertraege an einer RG-Zeile
+ * "Aus der Akte" = das Vertrags-Extrafeld `herkunft` steht auf `akte`.
+ * Geschrieben wird es NUR hier (markieren()), aufgerufen von
+ * VertragAusAkte und von "Neu ausstellen" (ReissueContractService), wenn
+ * der Vorgaenger selbst aus der Akte kam. Der Bewerbungsweg
+ * (SendContractsService) setzt es nie; im "Felder"-Dialog der
+ * Bewerberseite ist es ausgeblendet (istMerkerFeld()).
+ *
+ * WARUM NICHT DAS ZUSCHLAGSFELD (Schlussreview N1): eine Live-Vorlage des
+ * Bewerbungswegs mappt contract.extra_field.zuschlag — deren Vertraege
+ * tragen den Zuschlag ebenfalls am Vertrag und waeren sonst "aus der Akte"
+ * (offene Punkte, Neu-Rendern ueber die Anstellung). Das Zuschlagsfeld
+ * bleibt Quelle fuer den Betrag (applicant.zuschlag bevorzugt es in allen
+ * Vertraegen), entscheidet aber nicht mehr ueber die Herkunft.
+ * rec_applicant_id taugt ebenfalls NICHT: Akte-Vertraege an einer RG-Zeile
  * aus dem Funnel tragen die Bewerbung mit (ZAS-Upload-Links, Bewerberliste).
  *
- * Bekannte Grenze: ein Bewerbungs-Vertrag, dem ReissueContractService
- * (Vorlagen mit contract.extra_field.zuschlag) oder HR im "Felder"-Dialog
- * einen Zuschlag eingetragen hat, gilt ebenfalls als "aus der Akte" — dort
- * steht der Zuschlag dann auch im Vertrag, also rendert er richtig.
+ * Keine neue Spalte (keine Migration): das Feld legt
+ * recruiting:seed-rec-contract-extra-fields an. Ohne Definition waere
+ * setExtraField() ein stiller No-Op — markieren() bricht dann laut ab.
  */
 final class VertragsHerkunft
 {
+    public const FELD = 'herkunft';
+
+    public const AKTE = 'akte';
+
     public static function ausAkte(RecContract $vertrag): bool
     {
-        $zuschlag = $vertrag->getExtraField('zuschlag');
+        return trim((string) $vertrag->getExtraField(self::FELD)) === self::AKTE;
+    }
 
-        return $zuschlag !== null && trim((string) $zuschlag) !== '';
+    /**
+     * Setzt Herkunft UND Zuschlag am Vertrag. Das Zuschlagsfeld ist ab dem
+     * Seed Text ("0,60"); hat ein Team es frueher als Zahl angelegt,
+     * verwirft setTypedValue() das Komma still — dort steht die Zahl.
+     *
+     * @throws \DomainException wenn die Felddefinition fehlt (Seed nicht gelaufen)
+     */
+    public static function markieren(RecContract $vertrag, float $zuschlag): void
+    {
+        $vertrag->setExtraField(self::FELD, self::AKTE);
+        if (!self::ausAkte($vertrag)) {
+            throw new \DomainException('Vertragsfeld „herkunft“ fehlt — bitte recruiting:seed-rec-contract-extra-fields ausführen.');
+        }
+
+        $typ = $vertrag->getExtraFieldDefinitions()->firstWhere('name', 'zuschlag')?->type;
+        $vertrag->setExtraField('zuschlag', $typ === 'number' ? (string) $zuschlag : ZuschlagWert::format($zuschlag));
+    }
+
+    /** Der Merker ist kein HR-Feld: im "Felder"-Dialog ausblenden. */
+    public static function istMerkerFeld(?string $name): bool
+    {
+        return $name === self::FELD;
     }
 
     /**
