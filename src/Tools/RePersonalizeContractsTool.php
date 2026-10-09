@@ -8,6 +8,7 @@ use Platform\Core\Contracts\ToolMetadataContract;
 use Platform\Core\Contracts\ToolResult;
 use Platform\Core\Tools\Concerns\HasStandardizedWriteOperations;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Support\VertragsHerkunft;
 use Platform\Recruiting\Tools\Concerns\ResolvesRecruitingTeam;
 
 class RePersonalizeContractsTool implements ToolContract, ToolMetadataContract
@@ -144,22 +145,14 @@ class RePersonalizeContractsTool implements ToolContract, ToolMetadataContract
     }
 
     /**
-     * Neuer Vertragstext. Mit Bewerbung exakt der alte Weg; ohne Bewerbung
-     * (Vertrag aus der Akte, Spec §2.6) ueber die Anstellung am Vertrag —
-     * personalizeContent() verlangt einen Bewerber und warf hier einen
-     * TypeError. Ganz ohne Anker: null, der Vertrag wird uebersprungen.
+     * Neuer Vertragstext — die Wahl des Wegs steht an EINER Stelle
+     * (VertragsHerkunft::neuRendern): Akte-Vertraege und Vertraege ohne
+     * Bewerbung ueber die Anstellung, sonst exakt der alte Bewerbungsweg.
+     * Ganz ohne Anker: null, der Vertrag wird uebersprungen.
      */
     private function neuRendern(RecContract $contract): ?string
     {
-        if ($contract->applicant) {
-            return $contract->contractTemplate->personalizeContent($contract->applicant, $contract);
-        }
-        $anstellung = $contract->employee;
-        if (!$anstellung) {
-            return null;
-        }
-
-        return $contract->contractTemplate->personalizeFuerAnstellung($anstellung, $contract);
+        return VertragsHerkunft::neuRendern($contract);
     }
 
     public function getMetadata(): array

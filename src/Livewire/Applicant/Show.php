@@ -885,10 +885,10 @@ class Show extends Component
         }
 
         if ($contract->contractTemplate) {
-            $contract->personalized_content = $contract->contractTemplate->personalizeContent(
-                $this->applicant,
-                $contract
-            );
+            // Akte-Vertraege (Zuschlag am Vertrag) ueber die Anstellung, alle
+            // anderen exakt wie bisher ueber die Bewerbung (Schlussreview I1).
+            $contract->personalized_content = \Platform\Recruiting\Support\VertragsHerkunft::neuRendern($contract)
+                ?? $contract->contractTemplate->personalizeContent($this->applicant, $contract);
 
             // Bei bereits unterschriebenen Vertraegen die Vorschalt-Angaben
             // wieder einbetten. Ohne das wuerde ein Neu-Rendern aus der

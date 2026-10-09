@@ -57,6 +57,31 @@ final class PersonalisierungAnstellungTest extends TestCase
         );
     }
 
+    /**
+     * Schlussreview I1: applicant.zuschlag liest auch im Bewerbungsweg zuerst
+     * das Vertragsfeld. Altvertraege ohne Feld bleiben byteidentisch (Test
+     * oben + PlaceholderResolutionPinTest Fall 8). Probe: Vorrang in
+     * personalize() entfernen → 1,50 statt 0,60, rot.
+     */
+    public function test_bewerbungsweg_nimmt_den_zuschlag_aus_dem_vertragsfeld(): void
+    {
+        $b = $this->bewerberMitKontakt('Max', 'Muster', 1.5);
+        $t = $this->vorlage('AV-default', 'RG', ['content' => '<p>{{z}}</p>', 'field_mappings' => ['z' => 'applicant.zuschlag']]);
+        $mit = RecContract::create([
+            'rec_applicant_id' => $b->id, 'rec_contract_template_id' => $t->id, 'team_id' => $this->team,
+            'status' => 'sent', 'personalized_content' => '',
+        ]);
+        $mit->setExtraField('zuschlag', '0,60');
+        $ohne = RecContract::create([
+            'rec_applicant_id' => $b->id, 'rec_contract_template_id' => $t->id, 'team_id' => $this->team,
+            'status' => 'sent', 'personalized_content' => '',
+        ]);
+
+        $this->assertSame('<p>0,60</p>', $t->personalizeContent($b, $mit), 'Vertragsfeld gewinnt');
+        $this->assertSame('<p>1,50</p>', $t->personalizeContent($b, $ohne), 'ohne Feld: Bewerber wie bisher');
+        $this->assertSame('<p>1,50</p>', $t->personalizeContent($b), 'ohne Vertrag: Bewerber wie bisher');
+    }
+
     /** Probe: mitAnstellung()-Aufruf in personalize() entfernen → hier leerer Name, rot. */
     public function test_ohne_bewerbung_kommen_name_und_adresse_aus_der_anstellung(): void
     {

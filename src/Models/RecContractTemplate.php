@@ -269,7 +269,7 @@ class RecContractTemplate extends Model
      * §2.3): dieselbe Vorlagensprache, die Anstellung als zweite Quelle.
      * Ohne Bewerbung ist sie die einzige Quelle fuer contact.* und
      * applicant.<spalte>; mit Bewerbung fuellt sie nur leere Werte. Neu:
-     * employee.<spalte>. applicant.zuschlag liest zuerst das Vertragsfeld.
+     * employee.<spalte>. applicant.zuschlag liest (in beiden Wegen) zuerst das Vertragsfeld.
      */
     public function personalizeFuerAnstellung(RecEmployee $anstellung, RecContract $vertrag): string
     {
@@ -308,7 +308,8 @@ class RecContractTemplate extends Model
 
         $replacements = [];
         foreach ($mappings as $placeholder => $source) {
-            $wert = $this->resolveSource($source, $applicant, $contactModel, $contract, $lookups);
+            $wert = $source === 'applicant.zuschlag' ? self::zuschlagAmVertrag($contract) : null;
+            $wert ??= $this->resolveSource($source, $applicant, $contactModel, $contract, $lookups);
             if ($anstellung !== null) {
                 $wert = $this->mitAnstellung((string) $source, $wert, $anstellung, $contract);
             }
@@ -323,6 +324,19 @@ class RecContractTemplate extends Model
         return $content;
     }
 
+    /**
+     * applicant.zuschlag: das Vertrags-Extrafeld `zuschlag` gewinnt, in BEIDEN
+     * Wegen (Schlussreview I1) — sonst schriebe ein Neu-Rendern ueber die
+     * Bewerbung den Bewerber-Zuschlag in einen Akte-Vertrag. Ohne Feld (alle
+     * Bewerbungs-Altvertraege) null → exakt der alte Bewerber-Wert.
+     */
+    private static function zuschlagAmVertrag(?RecContract $contract): ?string
+    {
+        $feld = ZuschlagWert::lesen($contract?->getExtraField('zuschlag'));
+
+        return $feld !== null ? ZuschlagWert::format($feld) : null;
+    }
+
     /** Vorrang-Kette der Anstellung (Spec §2.3, Tabelle). */
     private function mitAnstellung(string $source, string $wert, RecEmployee $anstellung, ?RecContract $contract): string
     {
@@ -331,9 +345,9 @@ class RecContractTemplate extends Model
         }
 
         if ($source === 'applicant.zuschlag') {
-            $feld = ZuschlagWert::lesen($contract?->getExtraField('zuschlag'));
-
-            return $feld !== null ? ZuschlagWert::format($feld) : $wert;
+            // Vertragsfeld vor Bewerber erledigt personalize(); kein Rueckfall
+            // auf eine Anstellungs-Spalte.
+            return $wert;
         }
 
         if ($wert !== '') {
