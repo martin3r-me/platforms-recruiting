@@ -34,6 +34,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillPersons::class,
                 \Platform\Recruiting\Console\Commands\MigrateProofsFromColumns::class,
                 \Platform\Recruiting\Console\Commands\SwitchPortalVersion::class,
+                \Platform\Recruiting\Console\Commands\PersonendatenAbgleich::class,
                 \Platform\Recruiting\Console\Commands\SeedDemoEmployees::class,
                 \Platform\Recruiting\Console\Commands\KontoZuruecksetzen::class,
                 \Platform\Recruiting\Console\Commands\KontoEinladen::class,
