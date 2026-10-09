@@ -103,10 +103,17 @@ class RePersonalizeContractsTool implements ToolContract, ToolMetadataContract
                     continue;
                 }
 
-                $contract->personalized_content = $contract->contractTemplate->personalizeContent(
-                    $contract->applicant,
-                    $contract
-                );
+                $inhalt = $this->neuRendern($contract);
+                if ($inhalt === null) {
+                    $results[] = [
+                        'contract_id' => $contract->id,
+                        'template' => $contract->contractTemplate->name,
+                        'status' => 'skipped',
+                        'reason' => 'Weder Bewerbung noch Anstellung am Vertrag.',
+                    ];
+                    continue;
+                }
+                $contract->personalized_content = $inhalt;
 
                 // For completed contracts: re-embed pre-signing data at correct positions
                 if ($contract->status === 'completed' && !empty($contract->pre_signing_data)) {
@@ -134,6 +141,25 @@ class RePersonalizeContractsTool implements ToolContract, ToolMetadataContract
         } catch (\Throwable $e) {
             return ToolResult::error('EXECUTION_ERROR', 'Fehler: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Neuer Vertragstext. Mit Bewerbung exakt der alte Weg; ohne Bewerbung
+     * (Vertrag aus der Akte, Spec §2.6) ueber die Anstellung am Vertrag —
+     * personalizeContent() verlangt einen Bewerber und warf hier einen
+     * TypeError. Ganz ohne Anker: null, der Vertrag wird uebersprungen.
+     */
+    private function neuRendern(RecContract $contract): ?string
+    {
+        if ($contract->applicant) {
+            return $contract->contractTemplate->personalizeContent($contract->applicant, $contract);
+        }
+        $anstellung = $contract->employee;
+        if (!$anstellung) {
+            return null;
+        }
+
+        return $contract->contractTemplate->personalizeFuerAnstellung($anstellung, $contract);
     }
 
     public function getMetadata(): array

@@ -55,35 +55,35 @@ class RecContract extends Model implements InheritsExtraFields
             }
         });
 
-        // ZAS-Export-Snapshot: wenn ein AV-Vertrag signiert wird und der
-        // zugehoerige Bewerber bereits einen RecEmployee hat (= ist
-        // Mitarbeiter geworden), schreibe contract_signed_at auf die
-        // hrData-Row. Idempotent — wenn schon gesetzt, kein Re-Write.
+        // ZAS-Export-Snapshot: wird ein AV unterschrieben und gehoert der
+        // Vertrag zu einer Anstellung, steht "Vertrag zurueck am" an deren
+        // HR-Daten (contract_signed_at) — sobald ALLE nicht stornierten AV
+        // DIESER Anstellung unterschrieben sind (Spec Vertrag aus der Akte
+        // §2.6). Ohne Anker (Bewerberstadium, Altbestand) zaehlt wie bisher
+        // der Bewerber. Idempotent; ein HR-Override (neuer) bleibt stehen.
         static::saved(function (self $contract) {
             if (!$contract->signed_at) {
                 return;
             }
-            $applicant = $contract->applicant;
-            if (!$applicant) {
-                return;
-            }
-            $employee = $applicant->employee;
+            $employee = $contract->anstellung();
             if (!$employee) {
                 return;
             }
-            // Pruefe ob alle nicht-cancelled AV-Vertraege signed sind
-            $avContracts = $applicant->contracts()
+            // Ohne Anker kam die Anstellung ueber den Bewerber — er existiert
+            // also hier, ein eigener Null-Waechter waere toter Code.
+            $avQuery = $contract->rec_employee_id !== null
+                ? self::query()->where('rec_employee_id', $contract->rec_employee_id)
+                : $contract->applicant->contracts();
+            $avContracts = $avQuery
                 ->whereNotIn('status', ['cancelled'])
                 ->whereHas('contractTemplate', fn ($q) => $q->where('code', 'like', 'AV-%'))
                 ->get();
             if ($avContracts->isEmpty()) {
                 return;
             }
-            $allSigned = $avContracts->every(fn ($c) => $c->signed_at !== null);
-            if (!$allSigned) {
+            if (!$avContracts->every(fn ($c) => $c->signed_at !== null)) {
                 return;
             }
-            // Spaeteste signed_at als "Vertrag zurueck am"
             $latestSigned = $avContracts
                 ->filter(fn ($c) => $c->signed_at !== null)
                 ->sortByDesc('signed_at')
@@ -91,13 +91,60 @@ class RecContract extends Model implements InheritsExtraFields
             if (!$latestSigned) {
                 return;
             }
+
             $hrData = $employee->ensureHrData();
+            $updates = [];
             // Nur ueberschreiben wenn aelter — HR-Manueller Override darf nicht weg
-            if ($hrData->contract_signed_at === null
-                || $hrData->contract_signed_at->lt($latestSigned)) {
-                $hrData->update(['contract_signed_at' => $latestSigned->toDateString()]);
+            if ($hrData->contract_signed_at === null || $hrData->contract_signed_at->lt($latestSigned)) {
+                $updates['contract_signed_at'] = $latestSigned->toDateString();
+            }
+
+            // "Befristet bis" (Spec §2.6) — NUR fuer Vertraege ohne Bewerbung.
+            // Bei Bewerbungs-Vertraegen bleibt avContractEndDate() ueber den
+            // Bewerber die Erstquelle (ZasEmployeeFieldResolver).
+            if ($contract->rec_applicant_id === null) {
+                $ende = self::vertragsendeFuerHrDaten($contract);
+                if ($ende !== null && ($hrData->contract_end_date === null || $hrData->contract_end_date->toDateString() < $ende)) {
+                    $updates['contract_end_date'] = $ende;
+                }
+            }
+
+            if ($updates !== []) {
+                $hrData->update($updates);
             }
         });
+    }
+
+    /**
+     * Vertragsende eines unterschriebenen AV als Y-m-d, oder null. Darf die
+     * Unterschrift nie kippen — der Vertrag ist in diesem Moment gespeichert.
+     */
+    private static function vertragsendeFuerHrDaten(self $contract): ?string
+    {
+        try {
+            if (!\Platform\Recruiting\Support\VertragsDeckung::istAv($contract->contractTemplate?->code)) {
+                return null;
+            }
+
+            return \Platform\Recruiting\Support\VertragsDeckung::datum($contract->getExtraField('vertragsende'));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[RecContract] Vertragsende nicht gelesen', [
+                'contract_id' => $contract->id,
+                'error'       => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Die Anstellung dieses Vertrags (Spec Vertrag aus der Akte §2.6): der
+     * Anker am Vertrag, sonst — Bewerberstadium, Altbestand — die Anstellung
+     * des Bewerbers. Eine Stelle fuer Unterschrift, Hook und PDF-Zugriff.
+     */
+    public function anstellung(): ?RecEmployee
+    {
+        return $this->employee ?? $this->applicant?->employee;
     }
 
     public function applicant(): BelongsTo

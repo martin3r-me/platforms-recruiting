@@ -103,7 +103,9 @@ class ContractSigning extends Component
             return;
         }
 
-        $this->duzen = $contract->applicant?->usesInformalAddress() ?? false;
+        $this->duzen = $contract->applicant?->usesInformalAddress()
+            ?? $contract->employee?->usesInformalAddress()
+            ?? false;
 
         if ($contract->status === 'completed' || $contract->signed_at) {
             $this->state = 'already_signed';
@@ -168,15 +170,14 @@ class ContractSigning extends Component
     {
         try {
             $applicant = $contract->applicant;
-            if (!$applicant) {
+            $employee = $contract->anstellung();
+            if (!$applicant && !$employee) {
                 return;
             }
 
-            $employee = $applicant->employee;
-
             $this->employerRole = EmployerDeclaration::initialRole(
                 $employee?->is_main_employer,
-                $this->applicantEmploymentType($applicant),
+                $applicant ? $this->applicantEmploymentType($applicant) : null,
             );
             // Auch den Namen vorbelegen: ohne ihn wuerde ein Durchklicken
             // einen vorhandenen Eintrag leeren — toEmployeeAttributes liefert
@@ -414,7 +415,7 @@ class ContractSigning extends Component
                 return;
             }
 
-            $employee = $contract->applicant?->employee;
+            $employee = $contract->anstellung();
             if (!$employee) {
                 return;
             }
@@ -444,7 +445,7 @@ class ContractSigning extends Component
     private function applyDayBudget(RecContract $contract, array $preSigningData): void
     {
         try {
-            $employee = $contract->applicant?->employee;
+            $employee = $contract->anstellung();
             if (!$employee) {
                 // Existiert der Mitarbeiter noch nicht, holt
                 // CreateEmployeeFromApplicantService den Wert bei der Anlage nach.
@@ -493,14 +494,26 @@ class ContractSigning extends Component
         }
     }
 
+    /**
+     * Rueckweg nach der Unterschrift. Ist die Anstellung auf das neue Portal
+     * umgestellt, fuehrt er dorthin (Spec Vertrag aus der Akte §2.6) — sonst
+     * wie bisher ins Bewerber-Portal, und ohne Bewerbung gibt es keinen.
+     */
     private function buildPortalUrl(RecContract $contract): ?string
     {
-        $applicant = $contract->applicant;
-        if (!$applicant) {
-            return null;
-        }
         try {
+            $anstellung = $contract->anstellung();
+            $token = trim((string) $anstellung?->portal_token);
+            if ($anstellung !== null && $anstellung->portal_v2_since !== null && $token !== '') {
+                return route('recruiting.public.portal-shell', ['token' => $token]);
+            }
+
+            $applicant = $contract->applicant;
+            if (!$applicant) {
+                return null;
+            }
             $link = $applicant->getOrCreatePublicFormLink();
+
             return route('recruiting.public.applicant-portal', ['token' => $link->token]);
         } catch (\Throwable) {
             return null;
