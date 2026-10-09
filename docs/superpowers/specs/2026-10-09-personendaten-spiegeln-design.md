@@ -75,6 +75,26 @@ im Info-Dokument für Markus.
 Nachweise (eigener Weg). Alles in `rec_employee_hr_data` (Verträge, Status,
 Bewertungen, Tätigkeiten, Wäsche) bleibt je Akte.
 
+### 2.3 Von ZAS geführte Werte (bleiben je Akte, kommen weiter von ZAS)
+
+Die Regel „unsere Daten gewinnen" (§5.2, Paarung) gilt nur für die Personenfelder
+aus §2.1. Diese Werte führt ZAS je Gesellschaft, der Import übernimmt sie
+unverändert wie heute, der Spiegel fasst sie nie an:
+
+| Wert | Spalte | Weg |
+|---|---|---|
+| Status (GO/MA …) | `rec_employee_hr_data.export_status` | `STATUS_SYNC_FIELDS` |
+| MA seit | `rec_employee_hr_data.status_ma_since` | `STATUS_SYNC_FIELDS` |
+| Tagekonto (Tage erlaubt / gearbeitet / Rest) | `rec_employee_hr_data.short_term_days_*` | Row-Mapper |
+| Dispo-Tätigkeiten | `rec_employee_hr_data.dispo_taetigkeiten` | `ZasDispoTaetigkeitSync` |
+| Personalnummer, Firma | `rec_employees.personnel_number`, `company` | nur in leere Felder |
+
+**Offene Frage (Markus/ZAS), nicht Teil dieses Pakets:** Die 70-Tage-Grenze der
+kurzfristigen Beschäftigung zählt je Mensch und Kalenderjahr über alle Arbeitgeber.
+Liefert ZAS das Tagekonto je Gesellschaft, sieht unsere Akte bei RG und MA je
+nur die Hälfte. Ob ZAS summiert oder getrennt liefert, ist zu klären; bis dahin
+zeigt die Akte die Werte je Gesellschaft wie geliefert.
+
 ---
 
 ## 3. Wer gehört zu wem
