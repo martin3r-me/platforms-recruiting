@@ -207,6 +207,47 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('Uebersprungen, weil ohne Personen-Zeile: 1', $ausgabe);
     }
 
+    /**
+     * Review Task 8, Fund 1: RG+MA geprueft, nur eine RG-Zeile. Der RG-Befund
+     * (gedeckt) darf den Fall des MA-Befunds (ungedeckt) nicht schliessen —
+     * sonst schliesst und oeffnet jeder Lauf ihn neu.
+     * Probe: Schliessen je Befund statt je Anstellung → rot.
+     */
+    public function test_gedeckte_andere_gesellschaft_schliesst_den_fall_nicht(): void
+    {
+        $this->einstellung(['RG', 'MA']);
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG77']);
+        $this->vertragAn($rg, $this->vorlage('AV-default', 'RG'), ['status' => 'completed', 'signed_at' => '2026-09-01 12:00:00', 'completed_at' => '2026-09-01 12:00:00'],
+            ['vertragsbeginn' => '2026-01-01', 'vertragsende' => '2026-12-31']);
+        $this->einbuchung($rg, '2026-10-15', 'RG77');
+        $this->einbuchung($rg, '2026-10-20', 'MA77');
+
+        $erste = $this->laufe('2026-10-09');
+        $zweite = $this->laufe('2026-10-10');
+
+        $this->assertStringContainsString('1 Fälle neu, 0 Fälle geschlossen.', $erste);
+        $this->assertStringContainsString('2 Buchungen geprüft, 1 ohne Vertrag, 0 Fälle neu, 0 Fälle geschlossen.', $zweite);
+        $faelle = $this->vertragsFaelle();
+        $this->assertCount(1, $faelle);
+        $this->assertSame(RecHrDeskCase::STATUS_OPEN, $faelle->first()->status);
+        $this->assertStringStartsWith('MA-Einsatz am 20.10.2026', $faelle->first()->notes);
+    }
+
+    /** Fruehester ungedeckter Tag ueber alle Gesellschaften einer Anstellung, mit deren Firma in der Notiz. */
+    public function test_ein_fall_je_anstellung_mit_fruehestem_tag_ueber_gesellschaften(): void
+    {
+        $this->einstellung(['RG', 'MA']);
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG78']);
+        $this->einbuchung($rg, '2026-10-25', 'RG78');
+        $this->einbuchung($rg, '2026-10-20', 'MA78');
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertCount(1, $this->vertragsFaelle());
+        $this->assertStringStartsWith('MA-Einsatz am 20.10.2026', $this->vertragsFaelle()->first()->notes);
+        $this->assertStringContainsString('2 Buchungen geprüft, 2 ohne Vertrag, 1 Fälle neu', $ausgabe);
+    }
+
     // ---- Review-Focus ----------------------------------------------------
 
     /** Review-Focus 1. */
@@ -320,6 +361,9 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('Vertrag erstellen', $desk);
         $this->assertStringContainsString('VertragsVorbelegung::akteDecktNotiz', $desk);
         $this->assertStringContainsString('Erst Firma der Akte', $desk);
+        $this->assertStringContainsString('Einsatztag/Gesellschaft in der Notiz nicht lesbar', $desk);
+        $this->assertStringNotContainsString("?? 'MA'", $desk, 'unlesbare Notiz faellt nicht still auf MA zurueck');
+        $this->assertStringContainsString('dark:', $desk);
     }
 
     // ---- Fixtures --------------------------------------------------------

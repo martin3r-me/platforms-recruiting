@@ -361,6 +361,10 @@ class EinsatzPruefung extends Command
             /** @var RecEmployee $rep */
             $rep = $anstellungen[0];
 
+            // Der Vertragscheck hat einen eigenen Kaefig; feuert danach auch
+            // der aeussere, zaehlt der Mensch trotzdem nur einmal.
+            $vertragAbgebrochen = false;
+
             // DER FEHLERKAEFIG. Ein Ausfall kostet einen Mitarbeiter, nicht
             // den Lauf — und er faerbt den Rueckgabewert, damit er nicht
             // still im Protokoll versickert.
@@ -402,10 +406,12 @@ class EinsatzPruefung extends Command
                     $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $dryRun, $z);
                 } catch (\Throwable $e) {
                     $z['abgebrochen']++;
+                    $vertragAbgebrochen = true;
                     $this->error(sprintf('MA #%d: Vertragsprüfung abgebrochen — %s', $rep->id, $e->getMessage()));
                     Log::error('[EinsatzPruefung] Vertragspruefung abgebrochen, der Rest der Pruefung laeuft weiter', [
                         'rec_employee_id' => $rep->id,
                         'error'           => $e->getMessage(),
+                        'exception'       => $e,
                     ]);
                 }
 
@@ -646,7 +652,9 @@ class EinsatzPruefung extends Command
                     $z['fehlversand']++;
                 }
             } catch (\Throwable $e) {
-                $z['abgebrochen']++;
+                if (!$vertragAbgebrochen) {
+                    $z['abgebrochen']++;
+                }
                 $this->error(sprintf('MA #%d: Abbruch — %s', $rep->id, $e->getMessage()));
                 Log::error('[EinsatzPruefung] Abbruch bei einem Menschen, der Lauf geht weiter', [
                     'rec_employee_id' => $rep->id,
@@ -808,14 +816,40 @@ class EinsatzPruefung extends Command
     {
         $firmen = $this->vertragsFirmen((int) $rep->team_id);
 
+        // Befunde kommen je Anstellung UND Gesellschaft; Fall und Schliessen
+        // haengen aber nur an der Anstellung. Deshalb erst je Anstellung
+        // buendeln — sonst schloss ein gedeckter RG-Befund den Fall eines
+        // ungedeckten MA-Befunds an derselben Zeile, und der naechste Lauf
+        // oeffnete ihn neu (Review Task 8, Fund 1).
+        $jeAnstellung = [];
         foreach ((new VertragsPruefung())->pruefe($umfangIds, $kommende, $firmen) as $befund) {
             $z['vertrag_buchungen'] += $befund['buchungen'];
             $z['vertrag_ohne'] += $befund['ohne'];
+            $jeAnstellung[$befund['anstellung_id']][] = $befund;
+        }
 
-            if ($befund['deckung'] === VertragsDeckung::KEINER) {
-                if (!$this->hatOffenenVertragsFall($befund['anstellung_id'])) {
+        foreach ($jeAnstellung as $anstellungId => $befunde) {
+            // Der frueheste ungedeckte Tag ueber alle Gesellschaften; seine
+            // Firma steht in der Notiz.
+            $ungedeckt = null;
+            $alleUnterschrieben = true;
+            $vertragId = null;
+            foreach ($befunde as $befund) {
+                if ($befund['deckung'] === VertragsDeckung::KEINER) {
+                    if ($ungedeckt === null || (string) $befund['erster_tag'] < (string) $ungedeckt['erster_tag']) {
+                        $ungedeckt = $befund;
+                    }
+                }
+                if ($befund['deckung'] !== VertragsDeckung::UNTERSCHRIEBEN) {
+                    $alleUnterschrieben = false;
+                }
+                $vertragId ??= $befund['vertrag_id'];
+            }
+
+            if ($ungedeckt !== null) {
+                if (!$this->hatOffenenVertragsFall((int) $anstellungId)) {
                     if (!$dryRun) {
-                        $this->oeffneVertragsFall($befund);
+                        $this->oeffneVertragsFall($ungedeckt);
                     }
                     $z['vertrag_faelle_neu']++;
                 }
@@ -823,10 +857,11 @@ class EinsatzPruefung extends Command
                 continue;
             }
 
-            // §3.4: erst wenn ALLE kommenden Buchungen dieser Anstellung
-            // unterschrieben gedeckt sind. "unterwegs" schliesst nicht.
-            if ($befund['deckung'] === VertragsDeckung::UNTERSCHRIEBEN) {
-                $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle($befund['anstellung_id'], $befund['vertrag_id'], $dryRun);
+            // §3.4: erst wenn ALLE kommenden Buchungen dieser Anstellung, in
+            // jeder geprueften Gesellschaft, unterschrieben gedeckt sind.
+            // "unterwegs" schliesst nicht.
+            if ($alleUnterschrieben) {
+                $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle((int) $anstellungId, $vertragId, $dryRun);
             }
         }
     }
