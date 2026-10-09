@@ -36,8 +36,15 @@ final class PersonendatenAbgleich extends Command
     public function handle(): int
     {
         $person = $this->option('person');
-        $person = ($person === null || $person === '') ? null : (int) $person;
         $nach = $this->option('nach');
+        foreach (['--person' => $person, '--nach' => $nach] as $name => $wert) {
+            if ($wert !== null && $wert !== '' && !ctype_digit((string) $wert)) {
+                $this->error("{$name} erwartet eine ganze Zahl (ID), bekam '{$wert}'. Es wird nichts geschrieben.");
+
+                return self::FAILURE;
+            }
+        }
+        $person = ($person === null || $person === '') ? null : (int) $person;
         $nach = ($nach === null || $nach === '') ? null : (int) $nach;
 
         if ($nach !== null && $person === null) {
@@ -56,11 +63,11 @@ final class PersonendatenAbgleich extends Command
         $personen = 0;
         $mitAbweichung = 0;
         $felderGesamt = 0;
-        $gruppeDerPerson = null;
+        $alleIds = [];
 
         foreach ($gruppen as $g) {
             $personen++;
-            $gruppeDerPerson = $g;
+            $alleIds = array_merge($alleIds, $g['ids']);
             $abweichend = $this->abweichungen($g, $nurFelder);
             if ($abweichend === []) {
                 continue;
@@ -73,7 +80,7 @@ final class PersonendatenAbgleich extends Command
         }
 
         if ($nach !== null) {
-            if ($gruppeDerPerson === null || !in_array($nach, $gruppeDerPerson['ids'], true)) {
+            if (!in_array($nach, $alleIds, true)) {
                 $this->error("Akte #{$nach} gehoert nicht zu Person {$person}. Es wird nichts geschrieben.");
 
                 return self::FAILURE;
@@ -150,7 +157,7 @@ final class PersonendatenAbgleich extends Command
             foreach ($rows as $r) {
                 $normiert[] = PersonenFelder::normalisiere($feld, $r->{$feld} ?? null);
             }
-            if (count(array_unique($normiert, SORT_REGULAR)) <= 1) {
+            if (count(array_unique($normiert, SORT_STRING)) <= 1) {
                 continue;
             }
             $zellen = [];
@@ -168,6 +175,13 @@ final class PersonendatenAbgleich extends Command
     {
         $quelle = RecEmployee::find($nach);
         $raw = DB::table('rec_employees')->where('id', $nach)->first();
+        if ($quelle === null || $raw === null) {
+            $this->error("Akte #{$nach} nicht gefunden. Es wird nichts geschrieben.");
+
+            return self::FAILURE;
+        }
+        // Feldmenge wie in der Auflistung (dort: Team der kleinsten Akte der
+        // Gruppe) -- hier das Team der Quell-Akte; eine Person liegt in einem Team.
         $team = $quelle->team_id !== null ? (int) $quelle->team_id : null;
 
         $werte = [];

@@ -55,6 +55,23 @@ class PersonendatenAbgleichTest extends TestCase
         $this->assertStringContainsString('mit Abweichung: 0', $aus);
     }
 
+    public function test_fuehrende_nullen_zaehlen_als_abweichung(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'zip' => '01067']);
+        $this->akte(['rec_person_id' => $p, 'zip' => '1067']);
+        [, $aus] = $this->run_([]);
+        $this->assertStringContainsString('mit Abweichung: 1', $aus);
+    }
+
+    public function test_nicht_numerische_ids_werden_abgelehnt(): void
+    {
+        [$c1] = $this->run_(['--person' => 'abc']);
+        [$c2] = $this->run_(['--person' => '1', '--nach' => 'x']);
+        $this->assertSame(1, $c1);
+        $this->assertSame(1, $c2);
+    }
+
     public function test_nach_ohne_person_bricht_ab(): void
     {
         [$code] = $this->run_(['--nach' => '1']);
