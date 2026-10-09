@@ -29,9 +29,6 @@ wird damit mit **Nein** beantwortet.
   Stammdaten bleiben auf `rec_employees` (eine Spalte je Akte). Ein Umzug der
   Stammdaten an die Person wäre der saubere Endzustand, zieht aber ZAS-Export,
   Akte, Portal, Verträge und Importer auf einmal um — nicht vor dem Pilot.
-- Kein Spiegeln beim **Paaren** (ZAS liefert einen neuen MA-Datensatz, der mit der
-  RG-Akte verklammert wird). Welche Akte dann recht hat, weiß niemand automatisch;
-  das Prüfkommando zeigt die Abweichung.
 - Kein Spiegeln gesellschaftsbezogener Felder (§2.2).
 - Kein Spiegeln des Telefons und der Nachweise — die haben ihren eigenen,
   bereits gebauten Weg (`PersonLinker::setzeNummer`, `ProofWriter`).
@@ -207,6 +204,23 @@ die Schwester-Akte klemmt, wäre schlimmer.
   `BackfillEmployerDeclaration`, `NormalizeEmployeePhones`): laufen vor dem
   Backfill der Personen-Zeilen oder betreffen `phone`. Kein Umbau; wer sie nach
   dem Spiegel noch einmal laufen lässt, nimmt das Prüfkommando hinterher.
+- **Paarung beim ZAS-Eingang** (`PersonPairLinker::pairIfExact`, ZAS legt für
+  einen bekannten Menschen einen neuen Datensatz der anderen Gesellschaft an):
+  **Datenhoheit liegt bei uns** (Entscheidung Sebastian 09.10.). Von ZAS brauchen
+  wir nur die Information „es gibt jetzt auch eine MA-Anstellung" mit ihrer
+  Personalnummer. Deshalb übernimmt die neue Akte direkt nach dem Verklammern
+  die Personenfelder der **bestehenden** Akte:
+  `spiegele($bestehende, <Personenfelder der bestehenden Akte>, markerSetzen: true, lohnVerfolgen: false)`.
+  - Nur nicht-leere Werte der bestehenden Akte werden übertragen. Ist ein Feld
+    bei uns leer und hat ZAS einen Wert geliefert, bleibt der ZAS-Wert stehen und
+    wird umgekehrt in die bestehende Akte nachgetragen (nur leere Felder füllen,
+    kein Überschreiben).
+  - Marker auf der neuen Akte: ja — ZAS bekommt für den MA-Datensatz unsere Werte
+    zurück. Kein Lohn-Eintrag: die neue Akte hat noch keine Lohnhistorie.
+  - Gilt nur für die automatische Paarung beim Eingang (neue Akte ist eindeutig
+    die ZAS-Akte). Beim Hand-Link / Audit-Kommando (`PersonPairLinker::stamp`
+    über `recruiting:person-pair-audit`) ist nicht klar, welche Akte führt —
+    dort zeigt das Prüfkommando (§6) die Abweichung, HR gleicht mit `--nach` an.
 - **`CreateEmployeeFromApplicantService` (Neuanlage):** `created` spiegelt nicht
   (es gibt noch keine Geschwister; die Paarung kommt danach, §1).
 
@@ -268,6 +282,9 @@ Observer), je ein Test, der rot wird, wenn die Regel fehlt:
 7. ZAS-Eingang überschreibt `street` an der MA-Akte: RG-Akte hat den Wert und den
    Marker, MA-Akte hat den Marker **nicht**, kein Lohn-Eintrag an beiden.
 8. ZAS-Eingang: Geschwister ohne `isZasOwned()` wird trotzdem beschrieben.
+8a. Paarung beim ZAS-Eingang: neue MA-Akte trägt danach unsere Adresse/Bank
+    (ZAS-Wert überschrieben), Marker gesetzt; ein bei uns leeres Feld behält den
+    ZAS-Wert und wird in die bestehende Akte nachgetragen.
 9. Spiegel wirft: Quelle bleibt gespeichert, Log-Zeile, Geschwister alt.
 10. Prüfkommando listet Abweichung, zählt richtig, schreibt im Lesemodus nichts;
     `--person --nach` gleicht an und setzt Marker; `--nach` ohne `--person`
