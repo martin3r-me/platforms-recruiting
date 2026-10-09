@@ -79,8 +79,11 @@ class RecApplicantSettings extends Model
         // MA-Vertragscheck der Einsatz-Pruefung (Spec 2026-10-09 §3.2): fuer
         // Buchungen dieser Gesellschaften muss ein unterschriebener AV den
         // Tag decken. Checkboxen statt Select (Select-Speicherproblem).
-        // [] = Pruefung aus.
-        'contract_check_companies' => ['MA'],
+        // [] = Pruefung aus — und das ist der STANDARD (Schlussreview I2):
+        // ZAS-Bestand hat hier meist keinen AV, eingeschaltet oeffnete der
+        // erste Stundenlauf Hunderte Faelle. Deploy: Trockenlauf, Zahl
+        // melden, dann bewusst einschalten.
+        'contract_check_companies' => [],
         'minimum_wage_hourly' => 13.90,
         // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je
         // Kalenderjahr (§8 Abs. 1 Nr. 2 SGB IV). Als Einstellung, weil es

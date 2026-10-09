@@ -36,6 +36,9 @@ final class EinsatzPruefungVertragTest extends TestCase
             public function sende(RecEmployee $e, array $stand, string $anlass): string { return 'sent'; }
             public function letzteNachrichtId(): ?int { return null; }
         });
+        // Standard ist AUS (Schlussreview I2); diese Klasse prueft die Regeln
+        // bei eingeschaltetem MA-Check.
+        $this->einstellung(['MA']);
     }
 
     protected function tearDown(): void
@@ -81,7 +84,7 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringStartsWith('MA-Einsatz am 20.10.2026', $this->vertragsFaelle()->first()->notes);
     }
 
-    public function test_rg_buchung_bei_standard_einstellung_ohne_fall(): void
+    public function test_rg_buchung_bei_nur_ma_eingeschaltet_ohne_fall(): void
     {
         $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG14']);
         $this->einbuchung($rg, '2026-10-20', 'RG14');
@@ -140,7 +143,7 @@ final class EinsatzPruefungVertragTest extends TestCase
     {
         $ma = $this->maAnstellung();
         $this->einbuchung($ma, '2026-10-20', 'MA4711');
-        $this->einbuchung($ma, '2026-11-20', 'MA4711');
+        $this->einbuchung($ma, '2026-11-05', 'MA4711');   // im 30-Tage-Horizont
         $this->laufe('2026-10-09');
         $this->assertCount(1, $this->vertragsFaelle());
 
@@ -248,6 +251,167 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('2 Buchungen geprüft, 2 ohne Vertrag, 1 Fälle neu', $ausgabe);
     }
 
+    // ---- Schlussreview I2 / T8-1 ------------------------------------------
+
+    /** Probe: Standard wieder ['MA'] → ein Fall, rot. */
+    public function test_ohne_einstellung_ist_die_pruefung_aus(): void
+    {
+        DB::table('rec_applicant_settings')->where('team_id', $this->team)->delete();
+        $ma = $this->maAnstellung();
+        $this->einbuchung($ma, '2026-10-20', 'MA4711');
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertCount(0, $this->vertragsFaelle());
+        $this->assertStringContainsString('Vertragsprüfung: 0 Buchungen geprüft', $ausgabe);
+    }
+
+    /** Probe: Horizont entfernen → der Einsatz in 31 Tagen oeffnet einen Fall, rot. */
+    public function test_nur_buchungen_der_naechsten_30_tage(): void
+    {
+        $fern = $this->maAnstellung(['personnel_number' => 'MA31']);
+        $this->einbuchung($fern, '2026-11-09', 'MA31');   // heute + 31
+        $nah = $this->maAnstellung(['personnel_number' => 'MA30']);
+        $this->einbuchung($nah, '2026-11-08', 'MA30');    // heute + 30
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertSame([$nah->id], $this->vertragsFaelle()->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertStringContainsString('Vertragsprüfung: 1 Buchungen geprüft, 1 ohne Vertrag, 1 Fälle neu', $ausgabe);
+        $this->assertSame(30, \Platform\Recruiting\Services\VertragsPruefung::HORIZONT_TAGE);
+    }
+
+    /**
+     * Von HR geschlossen (resolved_by_user_id) = bleibt zu, solange der
+     * frueheste ungedeckte Einsatztag nicht NACH dem Tag des geschlossenen
+     * Falls liegt. Probe: Pruefung auf HR-geschlossene Faelle entfernen → rot.
+     */
+    public function test_von_hr_geschlossener_fall_kommt_fuer_denselben_tag_nicht_wieder(): void
+    {
+        $ma = $this->maAnstellung();
+        $this->einbuchung($ma, '2026-10-20', 'MA4711');
+        $this->laufe('2026-10-09');
+        $this->hrSchliesst($this->vertragsFaelle()->first());
+
+        $ausgabe = $this->laufe('2026-10-10');
+        $this->assertCount(1, $this->vertragsFaelle(), 'derselbe Tag: kein neuer Fall');
+        $this->assertStringContainsString('1 ohne Vertrag, 0 Fälle neu', $ausgabe);
+
+        // Ein spaeterer Einsatz, solange der 20.10. noch der frueheste ungedeckte ist: weiter zu.
+        $this->einbuchung($ma, '2026-10-27', 'MA4711');
+        $this->laufe('2026-10-11');
+        $this->assertCount(1, $this->vertragsFaelle(), 'frueheste Luecke unveraendert');
+
+        // Ein frueherer neuer Einsatz liegt nicht NACH dem geschlossenen Tag: weiter zu.
+        $this->einbuchung($ma, '2026-10-15', 'MA4711');
+        $this->laufe('2026-10-12');
+        $this->assertCount(1, $this->vertragsFaelle());
+    }
+
+    public function test_von_hr_geschlossener_fall_oeffnet_neu_fuer_einen_spaeteren_tag(): void
+    {
+        $ma = $this->maAnstellung();
+        $this->einbuchung($ma, '2026-10-20', 'MA4711');
+        $this->einbuchung($ma, '2026-10-27', 'MA4711');
+        $this->laufe('2026-10-09');
+        $this->hrSchliesst($this->vertragsFaelle()->first());
+
+        // Der 20.10. ist vorbei; der 27.10. ist der neue frueheste ungedeckte Tag.
+        $this->laufe('2026-10-21');
+
+        $faelle = $this->vertragsFaelle();
+        $this->assertCount(2, $faelle);
+        $this->assertSame(RecHrDeskCase::STATUS_OPEN, $faelle->last()->status);
+        $this->assertStringStartsWith('MA-Einsatz am 27.10.2026', $faelle->last()->notes);
+    }
+
+    public function test_automatisch_geschlossener_fall_sperrt_nicht(): void
+    {
+        $ma = $this->maAnstellung();
+        $this->einbuchung($ma, '2026-10-20', 'MA4711');
+        $this->laufe('2026-10-09');
+        $fall = $this->vertragsFaelle()->first();
+        $fall->update(['status' => RecHrDeskCase::STATUS_APPROVED, 'resolved_at' => now(), 'resolution_notes' => 'Automatisch: x']);
+
+        $this->laufe('2026-10-10');
+
+        $this->assertCount(2, $this->vertragsFaelle(), 'ohne resolved_by_user_id kein HR-Abschluss');
+    }
+
+    /**
+     * Ledger T8-1: Fall an der gebuchten RG-Zeile; dann entsteht die
+     * MA-Zeile derselben Person. Der alte Fall schliesst sich (verschoben),
+     * der neue haengt an der MA-Zeile. Probe: Verschieben entfernen → zwei
+     * offene Faelle, rot.
+     */
+    public function test_fall_wandert_mit_wenn_die_gepruefte_anstellung_wechselt(): void
+    {
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG353']);
+        $this->einbuchung($rg, '2026-10-20', 'MA353');
+        $this->laufe('2026-10-09');
+        $alt = $this->vertragsFaelle()->first();
+        $this->assertSame($rg->id, (int) $alt->rec_employee_id, 'Vorflug: ohne MA-Zeile an der gebuchten Zeile');
+
+        $ma = $this->maAnstellung(['personnel_number' => 'MA353']);
+        $this->personVerbinden($rg, $ma);
+        $ausgabe = $this->laufe('2026-10-10');
+
+        $alt = $alt->fresh();
+        $this->assertSame(RecHrDeskCase::STATUS_APPROVED, $alt->status);
+        $this->assertNotNull($alt->resolved_at);
+        $this->assertNull($alt->resolved_by_user_id);
+        $this->assertSame('Automatisch: verschoben auf Akte #' . $ma->id, $alt->resolution_notes);
+        $offen = $this->vertragsFaelle()->where('status', RecHrDeskCase::STATUS_OPEN);
+        $this->assertSame([$ma->id], $offen->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->values()->all());
+        $this->assertStringContainsString('1 Fälle neu, 1 Fälle geschlossen.', $ausgabe);
+    }
+
+    public function test_fall_einer_anderen_gesellschaft_wandert_nicht(): void
+    {
+        $this->einstellung(['RG', 'MA']);
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG354']);
+        $ma = $this->maAnstellung(['personnel_number' => 'MA354']);
+        $this->personVerbinden($rg, $ma);
+        $this->einbuchung($rg, '2026-10-20', 'RG354');
+        $this->einbuchung($ma, '2026-10-21', 'MA354');
+
+        $this->laufe('2026-10-09');
+        $this->laufe('2026-10-10');
+
+        $this->assertCount(2, $this->vertragsFaelle()->where('status', RecHrDeskCase::STATUS_OPEN), 'RG-Fall bleibt an der RG-Zeile');
+    }
+
+    /** Probe: Waechter "Zeile wird selbst noch geprueft" entfernen → ein Fall schliesst und oeffnet je Lauf, rot. */
+    public function test_zwei_gebuchte_zeilen_ohne_ma_akte_flattern_nicht(): void
+    {
+        $a = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG356']);
+        $b = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG357']);
+        $this->personVerbinden($a, $b);
+        $this->einbuchung($a, '2026-10-20', 'MA356');
+        $this->einbuchung($b, '2026-10-21', 'MA357');
+
+        $this->laufe('2026-10-09');
+        $zweite = $this->laufe('2026-10-10');
+
+        $this->assertCount(2, $this->vertragsFaelle());
+        $this->assertCount(2, $this->vertragsFaelle()->where('status', RecHrDeskCase::STATUS_OPEN));
+        $this->assertStringContainsString('0 Fälle neu, 0 Fälle geschlossen.', $zweite);
+    }
+
+    public function test_trockenlauf_verschiebt_nichts(): void
+    {
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG355']);
+        $this->einbuchung($rg, '2026-10-20', 'MA355');
+        $this->laufe('2026-10-09');
+        $ma = $this->maAnstellung(['personnel_number' => 'MA355']);
+        $this->personVerbinden($rg, $ma);
+
+        $ausgabe = $this->laufe('2026-10-10', ['--dry-run' => true]);
+
+        $this->assertSame(RecHrDeskCase::STATUS_OPEN, $this->vertragsFaelle()->first()->status);
+        $this->assertStringContainsString('1 Fälle neu, 1 Fälle geschlossen.', $ausgabe);
+    }
+
     // ---- Review-Focus ----------------------------------------------------
 
     /** Review-Focus 1. */
@@ -348,7 +512,7 @@ final class EinsatzPruefungVertragTest extends TestCase
 
     public function test_einstellung_und_schreibtisch_sind_verdrahtet(): void
     {
-        $this->assertSame(['MA'], RecApplicantSettings::DEFAULT_SETTINGS['contract_check_companies']);
+        $this->assertSame([], RecApplicantSettings::DEFAULT_SETTINGS['contract_check_companies'], 'Standard aus (Schlussreview I2)');
         $this->assertSame('Vertrag fehlt für Einsatz', RecHrDeskCase::REASON_LABELS[RecHrDeskCase::REASON_CONTRACT_MISSING]);
 
         $modal = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
@@ -400,6 +564,15 @@ final class EinsatzPruefungVertragTest extends TestCase
     {
         DB::table('rec_applicant_settings')->where('team_id', $this->team)->delete();
         DB::table('rec_applicant_settings')->insert(['team_id' => $this->team, 'settings' => json_encode(['contract_check_companies' => $firmen])]);
+    }
+
+    private function hrSchliesst(RecHrDeskCase $fall): void
+    {
+        $userId = (int) DB::table('users')->insertGetId(['name' => 'HR', 'email' => 'hr' . $this->n++ . '@example.org', 'password' => 'x']);
+        $fall->update([
+            'status' => RecHrDeskCase::STATUS_APPROVED, 'resolved_at' => now(),
+            'resolved_by_user_id' => $userId, 'resolution_notes' => 'Papiervertrag liegt vor',
+        ]);
     }
 
     private function vertragsFaelle()

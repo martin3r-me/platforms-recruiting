@@ -939,8 +939,9 @@
                     <div class="text-sm font-medium text-[var(--ui-secondary)]">Vertragsprüfung bei Einsätzen</div>
                     <p class="text-xs text-[var(--ui-muted)] mt-0.5 mb-3">
                         Die stündliche Einsatz-Prüfung legt einen Fall auf den HR-Schreibtisch, wenn jemand für eine
-                        dieser Gesellschaften eingebucht ist und kein unterschriebener Arbeitsvertrag den Einsatztag deckt.
-                        Beide aus = keine Prüfung.
+                        dieser Gesellschaften eingebucht ist (Einsätze der nächsten 30 Tage) und kein unterschriebener
+                        Arbeitsvertrag den Einsatztag deckt. Beide aus = keine Prüfung (Standard). Vor dem Einschalten
+                        einen Trockenlauf machen: <code>recruiting:einsatz-pruefung --dry-run</code>.
                     </p>
                     <label class="flex items-center gap-2 cursor-pointer text-sm">
                         <input type="checkbox"

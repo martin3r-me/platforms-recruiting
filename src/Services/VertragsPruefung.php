@@ -28,6 +28,20 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  */
 final class VertragsPruefung
 {
+    /**
+     * Geprueft werden nur Buchungen bis heute + HORIZONT_TAGE (Schlussreview
+     * I2): Einsaetze in Monaten erzeugen jetzt noch keinen Fall. Die EINE
+     * Stelle fuer diese Zahl.
+     */
+    public const HORIZONT_TAGE = 30;
+
+    /** Letzter gepruefter Tag (Y-m-d) fuer den Stichtag $heute. */
+    public static function horizontBis(string $heute): string
+    {
+        return (new \DateTimeImmutable($heute, new \DateTimeZone('UTC')))
+            ->modify('+' . self::HORIZONT_TAGE . ' days')->format('Y-m-d');
+    }
+
     /** @var array<string, list<array>> */
     private array $zeilen = [];
 
@@ -35,9 +49,10 @@ final class VertragsPruefung
      * @param  list<int>  $umfangIds
      * @param  iterable<\Platform\Recruiting\Models\RecDispoAssignment>  $kommende  frueheste zuerst
      * @param  list<string>  $firmen  Grossbuchstaben
+     * @param  ?string  $bis  letzter gepruefter Tag (horizontBis()); null = alle
      * @return list<array{anstellung_id:int, team_id:int, firma:string, deckung:string, vertrag_id:?int, buchungen:int, ohne:int, erster_tag:?string, event:?string, taetigkeit:?string}>
      */
-    public function pruefe(array $umfangIds, iterable $kommende, array $firmen): array
+    public function pruefe(array $umfangIds, iterable $kommende, array $firmen, ?string $bis = null): array
     {
         if ($firmen === []) {
             return [];
@@ -49,7 +64,7 @@ final class VertragsPruefung
 
         foreach ($kommende as $buchung) {
             $tag = $buchung->datum?->format('Y-m-d') ?? '';
-            if ($tag === '') {
+            if ($tag === '' || ($bis !== null && $tag > $bis)) {
                 continue;
             }
 

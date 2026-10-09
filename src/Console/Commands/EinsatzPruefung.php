@@ -403,7 +403,7 @@ class EinsatzPruefung extends Command
                 // faerbt aber den Lauf (abgebrochen) wie jeder andere Abbruch.
                 $kommende = $this->kommendeAuftraege($umfang['ids'], $heute);
                 try {
-                    $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $dryRun, $z);
+                    $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $heute, $dryRun, $z);
                 } catch (\Throwable $e) {
                     $z['abgebrochen']++;
                     $vertragAbgebrochen = true;
@@ -812,9 +812,12 @@ class EinsatzPruefung extends Command
      * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
      * @param  array<string,int>  $z
      */
-    private function vertragsPruefung(RecEmployee $rep, array $umfangIds, $kommende, bool $dryRun, array &$z): void
+    private function vertragsPruefung(RecEmployee $rep, array $umfangIds, $kommende, string $heute, bool $dryRun, array &$z): void
     {
         $firmen = $this->vertragsFirmen((int) $rep->team_id);
+        if ($firmen === []) {
+            return;
+        }
 
         // Befunde kommen je Anstellung UND Gesellschaft; Fall und Schliessen
         // haengen aber nur an der Anstellung. Deshalb erst je Anstellung
@@ -822,7 +825,7 @@ class EinsatzPruefung extends Command
         // ungedeckten MA-Befunds an derselben Zeile, und der naechste Lauf
         // oeffnete ihn neu (Review Task 8, Fund 1).
         $jeAnstellung = [];
-        foreach ((new VertragsPruefung())->pruefe($umfangIds, $kommende, $firmen) as $befund) {
+        foreach ((new VertragsPruefung())->pruefe($umfangIds, $kommende, $firmen, VertragsPruefung::horizontBis($heute)) as $befund) {
             $z['vertrag_buchungen'] += $befund['buchungen'];
             $z['vertrag_ohne'] += $befund['ohne'];
             $jeAnstellung[$befund['anstellung_id']][] = $befund;
@@ -847,7 +850,8 @@ class EinsatzPruefung extends Command
             }
 
             if ($ungedeckt !== null) {
-                if (!$this->hatOffenenVertragsFall((int) $anstellungId)) {
+                if (!$this->hatOffenenVertragsFall((int) $anstellungId)
+                    && !$this->vonHrErledigt((int) $anstellungId, (string) $ungedeckt['erster_tag'])) {
                     if (!$dryRun) {
                         $this->oeffneVertragsFall($ungedeckt);
                     }
@@ -864,10 +868,85 @@ class EinsatzPruefung extends Command
                 $z['vertrag_geschlossen'] += $this->schliesseVertragsFaelle((int) $anstellungId, $vertragId, $dryRun);
             }
         }
+
+        $z['vertrag_geschlossen'] += $this->verschiebeVertragsFaelle($umfangIds, $jeAnstellung, $dryRun);
     }
 
     /**
-     * Ohne Settings-Zeile oder ohne Schluessel: Default ['MA']. Query Builder
+     * Schlussreview I2: ein von HR geschlossener Fall (resolved_by_user_id,
+     * z. B. "Papiervertrag liegt vor") bleibt zu, solange der frueheste
+     * ungedeckte Einsatztag nicht NACH dem Einsatztag eines solchen Falls
+     * liegt. Der Tag kommt aus der Notiz (VertragsVorbelegung, die eine
+     * Formatstelle); eine unlesbare Notiz sperrt nichts.
+     */
+    private function vonHrErledigt(int $anstellungId, string $ersterTag): bool
+    {
+        $tage = RecHrDeskCase::query()
+            ->where('rec_employee_id', $anstellungId)
+            ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
+            ->where('status', '!=', RecHrDeskCase::STATUS_OPEN)
+            ->whereNotNull('resolved_by_user_id')
+            ->pluck('notes')
+            ->map(fn ($notiz) => VertragsVorbelegung::einsatztagAusNotiz($notiz))
+            ->filter();
+
+        return $tage->isNotEmpty() && $ersterTag <= (string) $tage->max();
+    }
+
+    /**
+     * Ledger T8-1: wechselt die gepruefte Anstellung (die MA-Zeile ist neu
+     * da), schliesst sich der offene Fall an der bisherigen Zeile derselben
+     * Person — wenn die Gesellschaft seiner Notiz jetzt an einer ANDEREN
+     * Anstellung geprueft wird. Der neue Fall dort entsteht im selben Lauf.
+     *
+     * @param  list<int>  $umfangIds
+     * @param  array<int, list<array>>  $jeAnstellung
+     */
+    private function verschiebeVertragsFaelle(array $umfangIds, array $jeAnstellung, bool $dryRun): int
+    {
+        $zielJeFirma = [];
+        foreach ($jeAnstellung as $anstellungId => $befunde) {
+            foreach ($befunde as $befund) {
+                $zielJeFirma[$befund['firma']] ??= (int) $anstellungId;
+            }
+        }
+        if ($zielJeFirma === []) {
+            return 0;
+        }
+
+        $faelle = RecHrDeskCase::query()
+            ->whereIn('rec_employee_id', $umfangIds)
+            ->where('reason', RecHrDeskCase::REASON_CONTRACT_MISSING)
+            ->where('status', RecHrDeskCase::STATUS_OPEN)
+            ->get();
+
+        $n = 0;
+        foreach ($faelle as $fall) {
+            // Wird die Zeile des Falls selbst noch geprueft (z. B. zwei
+            // gebuchte Zeilen ohne MA-Akte), bleibt er — sonst schloesse und
+            // oeffnete jeder Lauf ihn neu.
+            if (array_key_exists((int) $fall->rec_employee_id, $jeAnstellung)) {
+                continue;
+            }
+            $ziel = $zielJeFirma[VertragsVorbelegung::firmaAusNotiz($fall->notes) ?? ''] ?? null;
+            if ($ziel === null) {
+                continue;
+            }
+            if (!$dryRun) {
+                $fall->update([
+                    'status'           => RecHrDeskCase::STATUS_APPROVED,
+                    'resolved_at'      => now(),
+                    'resolution_notes' => sprintf('Automatisch: verschoben auf Akte #%d', $ziel),
+                ]);
+            }
+            $n++;
+        }
+
+        return $n;
+    }
+
+    /**
+     * Ohne Settings-Zeile oder ohne Schluessel: Default [] (aus). Query Builder
      * statt getOrCreateForTeam() — eine Pruefung legt keine Zeilen an.
      *
      * @return list<string>
