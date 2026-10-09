@@ -230,13 +230,13 @@ die Schwester-Akte klemmt, wäre schlimmer.
   wir nur die Information „es gibt jetzt auch eine MA-Anstellung" mit ihrer
   Personalnummer. Deshalb übernimmt die neue Akte direkt nach dem Verklammern
   die Personenfelder der **bestehenden** Akte:
-  `spiegele($bestehende, <Personenfelder der bestehenden Akte>, markerSetzen: true, lohnVerfolgen: false)`.
-  - Nur nicht-leere Werte der bestehenden Akte werden übertragen. Ist ein Feld
-    bei uns leer und hat ZAS einen Wert geliefert, bleibt der ZAS-Wert stehen und
-    wird umgekehrt in die bestehende Akte nachgetragen (nur leere Felder füllen,
-    kein Überschreiben).
-  - Marker auf der neuen Akte: ja — ZAS bekommt für den MA-Datensatz unsere Werte
-    zurück. Kein Lohn-Eintrag: die neue Akte hat noch keine Lohnhistorie.
+  `PersonenSpiegel::uebernimmBeiPaarung($bestehendeId, $neueId)` (zweiseitig).
+  - Unsere nicht-leeren Werte gehen in die neue Akte. Ist ein Feld bei uns leer
+    und hat ZAS einen Wert geliefert, wird er in unsere Akte nachgetragen. Ein
+    nicht-leerer Wert bei uns wird nie überschrieben.
+  - Marker auf jeder Akte, die beschrieben wurde, sofern sich ein RELEVANTES Feld
+    geändert hat — ZAS bekommt so für den MA-Datensatz unsere Werte zurück. Kein
+    Lohn-Eintrag: die neue Akte hat noch keine Lohnhistorie.
   - Gilt nur für die automatische Paarung beim Eingang (neue Akte ist eindeutig
     die ZAS-Akte). Beim Hand-Link / Audit-Kommando (`PersonPairLinker::stamp`
     über `recruiting:person-pair-audit`) ist nicht klar, welche Akte führt —
@@ -279,8 +279,8 @@ an HR, die je Person entscheidet. Erwartung aus dem Vorflug des Konto-Pakets:
 ## 7. Einstellung
 
 `RecApplicantSettings::DEFAULT_SETTINGS['tax_class_per_company'] = false`. Ein
-Schalter im Einstellungs-Fenster → Mitarbeiter, Text: „Steuerklasse je
-Gesellschaft führen (nicht auf beide Akten spiegeln)". Als Boolean-Schalter, kein
+Schalter im Einstellungs-Fenster → Lohn, Text: „Steuerklasse je
+Gesellschaft führen" (mit Erklärung: bleibt von der Spiegelung ausgenommen). Als Boolean-Schalter, kein
 Select — das bekannte Select-Speicherproblem im Einstellungs-Fenster wird so
 umgangen.
 

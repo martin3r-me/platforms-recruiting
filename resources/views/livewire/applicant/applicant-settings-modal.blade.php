@@ -904,6 +904,18 @@
                     uebergeben werden. Initiale Befuellung (leer → Wert) wird nicht getrackt.
                 </p>
 
+                <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox"
+                               wire:model="settings.tax_class_per_company"
+                               class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                        <div>
+                            <span class="text-sm font-medium text-[var(--ui-secondary)]">Steuerklasse je Gesellschaft führen</span>
+                            <p class="text-xs text-[var(--ui-muted)] mt-0.5">Hat jemand eine RG- und eine MA-Akte, werden Adresse, Bank und Co. automatisch in beiden gleich gehalten. Mit diesem Schalter bleibt die Steuerklasse davon ausgenommen und wird je Akte gepflegt.</p>
+                        </div>
+                    </label>
+                </div>
+
                 @foreach($this->payrollFieldGroups as $groupLabel => $fields)
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                         <div class="text-xs font-semibold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">{{ $groupLabel }}</div>
