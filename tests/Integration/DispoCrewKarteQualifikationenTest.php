@@ -276,11 +276,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
     {
         $c = new Show();
         $c->eventId = $eventId;
-        $c->getAttributes()->each(function ($attribute) {
-            if (method_exists($attribute, 'boot')) {
-                $attribute->boot();
-            }
-        });
+        ComputedWiring::wire($c);
 
         return $c;
     }
