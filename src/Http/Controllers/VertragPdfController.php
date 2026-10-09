@@ -32,6 +32,24 @@ class VertragPdfController extends Controller
         return $this->pdfAntwort($vertrag)->header('Cache-Control', 'private, no-store');
     }
 
+    /** HR-Download aus der Akte (Spec §2.7) — im Modul-Guard, Mandant = aktives Team, sonst 404. */
+    public function hr(int $contractId)
+    {
+        $vertrag = self::hrVertrag((int) auth()->user()->currentTeam->id, $contractId);
+        abort_if($vertrag === null, 404);
+
+        return $this->pdfAntwort($vertrag)->header('Cache-Control', 'private, no-store');
+    }
+
+    public static function hrVertrag(int $teamId, int $contractId): ?RecContract
+    {
+        return RecContract::query()
+            ->where('team_id', $teamId)
+            ->where('status', 'completed')
+            ->with('contractTemplate')
+            ->find($contractId);
+    }
+
     public static function vertragZumToken(string $token): ?RecContract
     {
         $link = CorePublicFormLink::query()->where('token', $token)->first();

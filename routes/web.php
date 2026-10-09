@@ -75,6 +75,10 @@ Route::get('/employees/dokumente/{uuid}/datei', [\Platform\Recruiting\Http\Contr
     ->name('recruiting.employees.dokument.datei');
 Route::get('/employees/dokumente/{uuid}/nachweis', [\Platform\Recruiting\Http\Controllers\DokumentHrController::class, 'nachweis'])
     ->name('recruiting.employees.dokument.nachweis');
+// Vertrag aus der Akte (Spec 2026-10-09 §2.7): PDF fuer HR auch ohne Bewerbung.
+Route::get('/employees/vertraege/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\VertragPdfController::class, 'hr'])
+    ->name('recruiting.employees.vertrag-pdf')
+    ->whereNumber('contractId');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
 Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Controllers\EmployeeFileController::class)

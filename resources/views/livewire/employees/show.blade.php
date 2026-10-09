@@ -438,6 +438,20 @@
                 </div>
             </div>
 
+            {{-- Vertrag aus der Akte (Spec 2026-10-09 §2.1) --}}
+            <div class="mt-6 flex items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold text-[var(--ui-secondary)]">Verträge</h3>
+                @if($employee?->is_active)
+                    <button type="button" wire:click="openVertragModal"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)] transition-colors">
+                        @svg('heroicon-o-document-plus', 'w-3.5 h-3.5')
+                        Vertrag erstellen
+                    </button>
+                @else
+                    <span class="text-xs text-[var(--ui-muted)]">Akte deaktiviert — kein neuer Vertrag</span>
+                @endif
+            </div>
+
             {{-- Signierte Vertraege (Download) --}}
             @php $contracts = $this->signedContracts; @endphp
             @if(!empty($contracts))
@@ -457,6 +471,16 @@
                                         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
                                             ersetzt durch #{{ $c['superseded_by'] }}
                                         </span>
+                                    @endif
+                                    @php
+                                        $cLaufzeit = implode(' · ', array_filter([
+                                            $c['beginn'] ? 'Beginn ' . $c['beginn'] : null,
+                                            $c['ende'] ? 'Ende ' . $c['ende'] : null,
+                                            $c['zuschlag'] ? 'Zuschlag ' . $c['zuschlag'] . ' €' : null,
+                                        ]));
+                                    @endphp
+                                    @if($cLaufzeit !== '')
+                                        <span class="text-xs text-[var(--ui-muted)]">{{ $cLaufzeit }}</span>
                                     @endif
                                 </div>
                                 <div class="flex items-center gap-2">
@@ -561,8 +585,25 @@
                                     <span class="text-xs text-[var(--ui-muted)]">
                                         {{ $oc['sent_at'] ? 'versendet am ' . \Carbon\Carbon::parse($oc['sent_at'])->format('d.m.Y') : 'noch nicht versendet' }}
                                     </span>
+                                    @php
+                                        $ocLaufzeit = implode(' · ', array_filter([
+                                            $oc['beginn'] ? 'Beginn ' . $oc['beginn'] : null,
+                                            $oc['ende'] ? 'Ende ' . $oc['ende'] : null,
+                                            $oc['zuschlag'] ? 'Zuschlag ' . $oc['zuschlag'] . ' €' : null,
+                                        ]));
+                                    @endphp
+                                    @if($ocLaufzeit !== '')
+                                        <span class="text-xs text-[var(--ui-muted)]">{{ $ocLaufzeit }}</span>
+                                    @endif
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @if($oc['can_cancel'])
+                                        <button type="button" wire:click="vertragStornieren({{ $oc['id'] }})"
+                                                wire:confirm="Vertrag stornieren? Der Signaturlink funktioniert danach nicht mehr."
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-700 bg-white text-xs font-medium rounded-md hover:bg-red-50 transition-colors">
+                                            Stornieren
+                                        </button>
+                                    @endif
                                     @if($oc['can_reissue'])
                                         <button type="button" wire:click="openReissueModal({{ $oc['id'] }})"
                                                 class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)] transition-colors">
@@ -773,6 +814,62 @@
                                      wire:loading.attr="disabled" wire:target="reissueContract">
                             Neu ausstellen
                         </x-ui-button>
+                    </div>
+                </x-slot>
+            </x-ui-modal>
+
+            {{-- Vertrag erstellen (Spec 2026-10-09 §2.1) --}}
+            <x-ui-modal size="sm" model="vertragModalShow">
+                <x-slot name="header">Vertrag erstellen</x-slot>
+                @php
+                    $vertragVorlagen = $this->vertragsVorlagen;
+                    $vertragFirma = trim((string) ($employee?->company ?? ''));
+                @endphp
+                <div class="p-4 space-y-4">
+                    @if(empty($vertragVorlagen))
+                        <p class="text-sm text-amber-700">
+                            Für die Gesellschaft {{ $vertragFirma !== '' ? $vertragFirma : '—' }} ist keine Arbeitsvertrags-Vorlage angelegt.
+                        </p>
+                    @else
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Vertragsart</label>
+                            <select wire:model="vertragVorlageId" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                                <option value="">– Vertragsart wählen –</option>
+                                @foreach($vertragVorlagen as $vv)
+                                    <option value="{{ $vv['id'] }}">{{ $vv['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Beginn</label>
+                            <input type="date" wire:model="vertragBeginn"
+                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Ende</label>
+                            <input type="date" wire:model="vertragEnde"
+                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                            <p class="text-xs text-[var(--ui-muted)] mt-1">
+                                Leer = ein Jahr ab Beginn, zum Monatsende. Für MA-Monatsverträge den Monatsletzten eintragen.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Zuschlag (€/Std)</label>
+                            <input type="text" wire:model="vertragZuschlag" placeholder="0,60"
+                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                            <p class="text-xs text-[var(--ui-muted)] mt-1">0 ist erlaubt.</p>
+                        </div>
+                    @endif
+                </div>
+                <x-slot name="footer">
+                    <div class="flex items-center justify-end gap-2">
+                        <x-ui-button variant="secondary" wire:click="closeVertragModal">Abbrechen</x-ui-button>
+                        @if(!empty($vertragVorlagen))
+                            <x-ui-button variant="primary" wire:click="vertragErstellen"
+                                         wire:loading.attr="disabled" wire:target="vertragErstellen">
+                                Erstellen und senden
+                            </x-ui-button>
+                        @endif
                     </div>
                 </x-slot>
             </x-ui-modal>

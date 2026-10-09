@@ -11,6 +11,7 @@ use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
@@ -18,12 +19,20 @@ use Platform\Recruiting\Services\DokumentService;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ReissueContractService;
+use Platform\Recruiting\Services\VertragAusAkte;
+use Platform\Recruiting\Services\VertragsAngaben;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\ProofTypes;
+use Platform\Recruiting\Support\VertragsAnzeige;
+use Platform\Recruiting\Support\VertragsDeckung;
+use Platform\Recruiting\Support\VertragsVorbelegung;
+use Platform\Recruiting\Support\VorlagenMerkmale;
+use Platform\Recruiting\Support\YmdDate;
+use Platform\Recruiting\Support\ZuschlagWert;
 
 /**
  * HR-Backend Detail-Edit-View fuer einen RecEmployee.
@@ -64,6 +73,16 @@ class Show extends Component
     // laeuft, entscheidet reissueContract() am Vertrag selbst — sonst koennte
     // ein manipuliertes Property den falschen Zweig waehlen.
     public bool $reissueOpenMode = false;
+
+    // Vertrag aus der Akte (Spec 2026-10-09 §2.1). Strings, nicht int/Datum:
+    // ein geleertes Select/type=date schickt null bzw. '' — eine getypte
+    // int-Property wuerde beim Hydrieren mit TypeError abbrechen, und an
+    // einen Datums-Cast wird nie gebunden.
+    public bool $vertragModalShow = false;
+    public ?string $vertragVorlageId = '';
+    public ?string $vertragBeginn = '';
+    public ?string $vertragEnde = '';
+    public ?string $vertragZuschlag = '';
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -416,6 +435,13 @@ class Show extends Component
         $emp = $this->employee();
         if ($emp) {
             $this->loadFieldValues($emp);
+
+            // Vom HR-Schreibtisch (Fall "Vertrag fehlt fuer Einsatz"): Fenster
+            // gleich offen, vorbelegt aus dem Einsatztag (Spec §3.3).
+            if (request()->query('vertrag') === 'neu') {
+                $einsatz = request()->query('einsatz');
+                $this->openVertragModal(is_string($einsatz) ? $einsatz : null);
+            }
         }
     }
 
@@ -466,32 +492,39 @@ class Show extends Component
     public function signedContracts(): array
     {
         $emp = $this->employee();
-        if (!$emp?->applicant) {
+        if (!$emp) {
             return [];
         }
-        $applicantToken = $emp->applicant->getOrCreatePublicFormLink()->token;
+        $applicantToken = null;
+
         return $emp->contracts
             ->filter(fn ($c) => $c->status === 'completed' && $c->signed_at)
-            ->map(function ($c) use ($applicantToken) {
+            ->map(function ($c) use ($emp, &$applicantToken) {
                 $code = $c->contractTemplate?->code;
-                $displayName = match (true) {
-                    $code !== null && str_starts_with($code, 'AV-') => 'Arbeitsvertrag (' . $code . ')',
-                    $code === 'IFSG'                                => 'Infektionsschutzgesetz',
-                    $code !== null && str_starts_with($code, 'AT-') => 'Zusatzvereinbarung (' . $code . ')',
-                    default                                         => $c->contractTemplate?->name ?? 'Vertrag',
-                };
+                // EINE Stelle fuer den Anzeigenamen (Portal, VertragLeser, Akte).
+                $displayName = VertragsAnzeige::name($code, $c->contractTemplate?->name);
                 $isAv = $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV');
+                $ausBewerbung = $c->rec_applicant_id !== null && $emp->applicant !== null
+                    && (int) $c->rec_applicant_id === (int) $emp->applicant->id;
+                if ($ausBewerbung) {
+                    // Alter Weg: ContractPdfController validiert ueber den Bewerber-Token.
+                    $applicantToken ??= $emp->applicant->getOrCreatePublicFormLink()->token;
+                    $pdfUrl = route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]);
+                } else {
+                    $pdfUrl = route('recruiting.employees.vertrag-pdf', ['contractId' => $c->id]);
+                }
+
                 return [
                     'id'            => $c->id,
                     'display_name'  => $displayName,
-                    'merkmale'      => \Platform\Recruiting\Support\VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
+                    'merkmale'      => VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
                     'signed_at'     => $c->signed_at,
-                    'pdf_url'       => route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]),
+                    'pdf_url'       => $pdfUrl,
                     'superseded_by' => $c->superseded_by_contract_id,
-                    // Ersetzen gilt nur fuer Arbeitsvertraege und nur einmal
-                    // — ein bereits ersetzter ist Archiv.
-                    'can_reissue'   => $isAv && $c->superseded_by_contract_id === null,
-                ];
+                    // Ersetzen gilt nur fuer Arbeitsvertraege, nur einmal und
+                    // nur mit Bewerbung (ReissueContractService braucht sie).
+                    'can_reissue'   => $isAv && $c->superseded_by_contract_id === null && $c->rec_applicant_id !== null,
+                ] + $this->laufzeitUndZuschlag($c);
             })
             ->values()
             ->toArray();
@@ -513,7 +546,7 @@ class Show extends Component
     public function openContracts(): array
     {
         $emp = $this->employee();
-        if (!$emp?->applicant) {
+        if (!$emp) {
             return [];
         }
 
@@ -521,23 +554,42 @@ class Show extends Component
             ->filter(fn ($c) => !in_array($c->status, ['completed', 'cancelled'], true))
             ->map(function ($c) {
                 $code = $c->contractTemplate?->code;
+
                 return [
                     'id'           => $c->id,
-                    'display_name' => $c->contractTemplate?->name ?? 'Vertrag',
-                    'merkmale'     => \Platform\Recruiting\Support\VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
+                    'display_name' => VertragsAnzeige::name($code, $c->contractTemplate?->name),
+                    'merkmale'     => VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
                     'code'         => $code,
                     'status'       => $c->status,
                     'sent_at'      => $c->sent_at,
-                    // Nur Arbeitsvertraege tragen einen Zuschlag; ein offener
-                    // IFSG hat nichts zu ersetzen.
-                    'can_reissue'  => $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV'),
+                    'can_reissue'  => $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV') && $c->rec_applicant_id !== null,
+                    'can_cancel'   => true,
                     'sign_url'     => $c->publicFormLink
                         ? route('recruiting.public.contract-signing', ['token' => $c->publicFormLink->token])
                         : null,
-                ];
+                ] + $this->laufzeitUndZuschlag($c);
             })
             ->values()
             ->toArray();
+    }
+
+    /**
+     * Beginn, Ende, Zuschlag aus den Vertrags-Extrafeldern (Spec §2.7).
+     * Alt-AV ohne Zuschlagsfeld: aus dem Code (AV-060 → 0,60).
+     *
+     * @return array{beginn:?string, ende:?string, zuschlag:?string}
+     */
+    private function laufzeitUndZuschlag(RecContract $c): array
+    {
+        $beginn = VertragsDeckung::datum($c->getExtraField('vertragsbeginn'));
+        $ende = VertragsDeckung::datum($c->getExtraField('vertragsende'));
+        $zuschlag = ZuschlagWert::lesen($c->getExtraField('zuschlag')) ?? ZuschlagWert::ausAvCode($c->contractTemplate?->code);
+
+        return [
+            'beginn'   => $beginn !== null ? \Carbon\Carbon::parse($beginn)->format('d.m.Y') : null,
+            'ende'     => $ende !== null ? \Carbon\Carbon::parse($ende)->format('d.m.Y') : null,
+            'zuschlag' => $zuschlag !== null ? ZuschlagWert::format($zuschlag) : null,
+        ];
     }
 
     /**
@@ -576,6 +628,11 @@ class Show extends Component
         $contract = $emp?->contracts->firstWhere('id', $contractId);
         if (!$contract) {
             $this->flashError = 'Vertrag nicht gefunden.';
+            return;
+        }
+        if ($contract->rec_applicant_id === null || $emp->applicant === null) {
+            $this->flashError = 'Neu ausstellen geht nur bei Verträgen aus einer Bewerbung — diesen Vertrag stornieren und neu erstellen.';
+
             return;
         }
 
@@ -683,6 +740,161 @@ class Show extends Component
             . ($result['payroll_reported']
                 ? ' Die Zuschlagsaenderung steht in den Lohnaenderungen.'
                 : '');
+    }
+
+    /**
+     * Die Vertragsarten dieser Akte (Spec §2.1): aktive Vorlagen vom Typ
+     * Vertrag, Code AV-*, Gesellschaft = Gesellschaft der Akte.
+     *
+     * @return list<array{id:int, label:string}>
+     */
+    #[Computed]
+    public function vertragsVorlagen(): array
+    {
+        $emp = $this->employee();
+        $firma = trim((string) $emp?->company);
+        if (!$emp || $firma === '') {
+            return [];
+        }
+
+        return RecContractTemplate::query()
+            ->where('team_id', $emp->team_id)
+            ->where('type', RecContractTemplate::TYPE_CONTRACT)
+            ->where('is_active', true)
+            ->where('code', 'like', 'AV-%')
+            ->where('company', $firma)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'taetigkeit'])
+            ->map(fn (RecContractTemplate $t) => [
+                'id'    => (int) $t->id,
+                'label' => $t->name . (trim((string) $t->taetigkeit) !== '' ? ' (' . VorlagenMerkmale::taetigkeit($t->taetigkeit) . ')' : ''),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** $einsatztag (Y-m-d) belegt Beginn/Ende vor — nur Vorbelegung, HR aendert frei. */
+    public function openVertragModal(?string $einsatztag = null): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+
+        $emp = $this->employee();
+        if (!$emp) {
+            $this->flashError = 'Mitarbeiter nicht gefunden.';
+
+            return;
+        }
+        if (!$emp->is_active) {
+            $this->flashError = 'Die Akte ist deaktiviert — es entsteht kein neuer Vertrag.';
+
+            return;
+        }
+
+        $vorbelegung = $einsatztag !== null ? VertragsVorbelegung::fuerEinsatz($einsatztag) : null;
+        $vorlagen = $this->vertragsVorlagen();
+
+        $this->vertragVorlageId = count($vorlagen) === 1 ? (string) $vorlagen[0]['id'] : '';
+        $this->vertragBeginn = $vorbelegung['beginn'] ?? '';
+        $this->vertragEnde = $vorbelegung['ende'] ?? '';
+        $this->vertragZuschlag = '';
+        $this->vertragModalShow = true;
+    }
+
+    public function closeVertragModal(): void
+    {
+        $this->vertragModalShow = false;
+        $this->vertragVorlageId = '';
+        $this->vertragBeginn = '';
+        $this->vertragEnde = '';
+        $this->vertragZuschlag = '';
+    }
+
+    /** "Erstellen und senden" — die Arbeit macht VertragAusAkte, hier nur Eingabe und Rueckmeldung. */
+    public function vertragErstellen(): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+
+        $emp = $this->employee();
+        if (!$emp) {
+            $this->flashError = 'Mitarbeiter nicht gefunden.';
+
+            return;
+        }
+
+        $vorlageId = (int) $this->vertragVorlageId;
+        $erlaubt = in_array($vorlageId, array_column($this->vertragsVorlagen(), 'id'), true);
+        $vorlage = $erlaubt ? RecContractTemplate::query()->where('team_id', $emp->team_id)->find($vorlageId) : null;
+        if (!$vorlage) {
+            $this->flashError = 'Bitte eine Vertragsart wählen.';
+
+            return;
+        }
+
+        $beginn = trim((string) $this->vertragBeginn);
+        if (!YmdDate::isValid($beginn)) {
+            $this->flashError = 'Bitte einen Vertragsbeginn eintragen.';
+
+            return;
+        }
+        $ende = trim((string) $this->vertragEnde);
+
+        $zuschlag = ZuschlagWert::ausEingabe($this->vertragZuschlag);
+        if ($zuschlag === null) {
+            $this->flashError = 'Zuschlag muss eine Zahl sein (z. B. 0,60).';
+
+            return;
+        }
+
+        $service = app(VertragAusAkte::class);
+        try {
+            $vertrag = $service->erstellen($emp, $vorlage, new VertragsAngaben($beginn, $ende !== '' ? $ende : null, $zuschlag), auth()->id());
+        } catch (\DomainException $e) {
+            $this->flashError = $e->getMessage();
+
+            return;
+        }
+
+        $this->closeVertragModal();
+        unset($this->employee, $this->signedContracts, $this->openContracts);
+
+        $this->flash = 'Arbeitsvertrag #' . $vertrag->id . ' erstellt — er liegt im Portal zur Unterschrift. '
+            . self::hinweisSatz($service->letzterHinweis());
+    }
+
+    /** Nur offene Vertraege DIESER Akte (Spec §2.1 "umkehrbar") — der Signaturlink stirbt mit. */
+    public function vertragStornieren(int $contractId): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+
+        $vertrag = $this->employee()?->contracts->firstWhere('id', $contractId);
+        if (!$vertrag || in_array($vertrag->status, ['completed', 'cancelled'], true)) {
+            $this->flashError = 'Nur offene Verträge dieser Akte lassen sich hier stornieren.';
+
+            return;
+        }
+
+        $vertrag->status = 'cancelled';
+        $vertrag->notes = trim((string) $vertrag->notes . "\nStorniert in der Mitarbeiterakte am " . now()->format('d.m.Y H:i') . '.');
+        $vertrag->save();
+
+        unset($this->employee, $this->signedContracts, $this->openContracts);
+        $this->flash = 'Vertrag #' . $vertrag->id . ' storniert — sein Signaturlink funktioniert nicht mehr.';
+    }
+
+    private static function hinweisSatz(?string $status): string
+    {
+        return match ($status) {
+            'sent'               => 'Die WhatsApp mit dem Portal-Link ist raus.',
+            'altes_portal'       => 'Keine WhatsApp: der Mitarbeiter ist noch nicht auf das neue Portal umgestellt — den Link unten unter „Offene Verträge" kopieren.',
+            'no_phone'           => 'Keine WhatsApp: in der Akte steht keine gültige Handynummer.',
+            'nicht_konfiguriert' => 'Keine WhatsApp: in den Einstellungen ist kein Template für Verträge oder Dokumente hinterlegt.',
+            'vorlage_untauglich' => 'Keine WhatsApp: das hinterlegte Template passt nicht (Portal-Knopf fehlt).',
+            default              => 'Die WhatsApp konnte nicht verschickt werden — den Link unten unter „Offene Verträge" kopieren.',
+        };
     }
 
     public function updatedDokumentKategorie(): void
