@@ -320,11 +320,14 @@
             @php
                 $threadsM = $this->threadsByEmployee;
                 $canonMapM = $this->identity['canon'];
+                $chasedM = $this->chasedByEmployee;
             @endphp
             @forelse ($this->filteredAssignments as $assignment)
                 @php
                     $cidM = $assignment->rec_employee_id ? ($canonMapM[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
                     $thrM = $cidM !== null ? ($threadsM[$cidM] ?? null) : null;
+                    // Kunde 09.10.: an diesem Tag „Wo bist du?" geschickt -> Blase violett (Ungelesen/blau geht vor).
+                    $chaseM = $cidM !== null ? ($chasedM[$cidM][$assignment->datum->format('Y-m-d')] ?? null) : null;
                     $attListM = $assignment->rec_employee_id ? ($this->attachmentsByEmployee[$assignment->rec_employee_id] ?? []) : [];
                     $noteM = $assignment->rec_employee_id ? trim($notes[$assignment->rec_employee_id] ?? '') : '';
                     $zeitM = $assignment->datum->format('d.m.Y');
@@ -373,8 +376,8 @@
                     </div>
                     @if ($thrM)
                         <button type="button" wire:click="openChat({{ $cidM }})"
-                                class="relative mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full {{ $thrM['is_unread'] ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500' }}"
-                                title="{{ $thrM['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}">
+                                class="relative mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full {{ $thrM['is_unread'] ? 'bg-blue-600 text-white' : ($chaseM ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500') }}"
+                                title="{{ $thrM['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}{{ $chaseM ? ' · „Wo bist du?" gesendet um ' . $chaseM : '' }}">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/></svg>
                             @if ($thrM['is_unread'])
                                 <span class="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-red-500 ring-2 ring-white"></span>
@@ -408,6 +411,7 @@
                 @php
                     $threads = $this->threadsByEmployee;
                     $canonMap = $this->identity['canon'];
+                    $chased = $this->chasedByEmployee;
                 @endphp
                 @forelse ($this->filteredAssignments as $assignment)
                     <tr class="group {{ $assignment->missing_since ? 'opacity-50' : '' }}">
@@ -428,11 +432,12 @@
                             @php
                                 $cid = $assignment->rec_employee_id ? ($canonMap[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
                                 $thr = $cid !== null ? ($threads[$cid] ?? null) : null;
+                                $chase = $cid !== null ? ($chased[$cid][$assignment->datum->format('Y-m-d')] ?? null) : null;
                             @endphp
                             @if ($thr)
                                 <button type="button" wire:click="openChat({{ $cid }})"
-                                        class="relative inline-flex h-7 w-7 items-center justify-center rounded-full {{ $thr['is_unread'] ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}"
-                                        title="{{ $thr['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}">
+                                        class="relative inline-flex h-7 w-7 items-center justify-center rounded-full {{ $thr['is_unread'] ? 'bg-blue-600 text-white' : ($chase ? 'bg-violet-100 text-violet-700 hover:bg-violet-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200') }}"
+                                        title="{{ $thr['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}{{ $chase ? ' · „Wo bist du?" gesendet um ' . $chase : '' }}">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/></svg>
                                     @if ($thr['is_unread'])
                                         <span class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>

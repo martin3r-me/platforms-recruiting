@@ -19,6 +19,7 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
+use Platform\Recruiting\Services\Zas\Dispo\DispoChaseMarks;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
@@ -1308,6 +1309,28 @@ class Show extends Component
         // VA-Chat gehoert das der Filiale, ueber die auch die Bestaetigung ging.
         return $ids === [] ? [] : app(DispoThreadDirectory::class)
             ->threadsFor($this->channelIds, $ids, $this->eventChannelId);
+    }
+
+    /**
+     * kanonische id => [Y-m-d => H:i]: an diesem Tag „Wo bist du?" geschickt
+     * (Kunde 09.10.) — faerbt die Sprechblase der Zeile dieses Tages. Alle
+     * Gespraeche der Person, auch die anderer Filial-Kanaele.
+     */
+    #[Computed]
+    public function chasedByEmployee(): array
+    {
+        $template = DispoChaseMarks::templateName();
+        $dates = $this->event->assignments->pluck('datum')->filter();
+        $ids = array_keys($this->identity['groups']);
+        if ($template === null || $dates->isEmpty() || $ids === []) {
+            return [];
+        }
+        $byPerson = array_map(
+            fn (array $list) => array_column($list, 'thread_id'),
+            app(DispoThreadDirectory::class)->allThreadsFor($this->channelIds, $ids)
+        );
+
+        return DispoChaseMarks::forPersons($byPerson, $template, $dates->min()->toDateString(), $dates->max()->toDateString());
     }
 
     /** Kanal-Id dieser Veranstaltung (Filiale), oder null wenn keiner aufloesbar ist. */
