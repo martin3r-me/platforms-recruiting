@@ -25,14 +25,35 @@ final class PersonenFelder
     public const DATUM = ['birth_date', 'identity_card_valid_until'];
     public const BOOL  = ['is_main_employer', 'is_eu_citizen'];
 
-    /** @return list<string> */
-    public static function fuerTeam(?int $teamId): array
+    /**
+     * Felder, die der Schalter tax_class_per_company aus dem Spiegel und der
+     * Pruefung nimmt: Steuerklasse und Haupt-/Nebenarbeitgeber haengen an der
+     * Anstellung je Gesellschaft (Review I1, Ruling 09.10.).
+     */
+    public const JE_GESELLSCHAFT_SCHALTBAR = ['tax_class', 'is_main_employer', 'other_employer'];
+
+    /**
+     * Personenfelder fuer ein Team. Liest die Einstellung nur, legt sie nie an
+     * (fehlt die Zeile: Schalter aus). Mit $nurFuer wird die Einstellung nur
+     * gelesen, wenn darunter ein schaltbares Feld ist — sonst kostet ein
+     * Speichern ohne solche Felder keine Abfrage.
+     *
+     * @param  list<string>|null $nurFuer
+     * @return list<string>
+     */
+    public static function fuerTeam(?int $teamId, ?array $nurFuer = null): array
     {
-        if ($teamId !== null && (bool) RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting('tax_class_per_company', false)) {
-            return array_values(array_diff(self::SPIEGELN, ['tax_class']));
+        $felder = $nurFuer === null ? self::SPIEGELN : array_values(array_intersect(self::SPIEGELN, $nurFuer));
+        if ($teamId === null || array_intersect($felder, self::JE_GESELLSCHAFT_SCHALTBAR) === []) {
+            return $felder;
         }
 
-        return self::SPIEGELN;
+        $einstellung = RecApplicantSettings::query()->where('team_id', $teamId)->first();
+        if ($einstellung !== null && (bool) $einstellung->getSetting('tax_class_per_company', false)) {
+            return array_values(array_diff($felder, self::JE_GESELLSCHAFT_SCHALTBAR));
+        }
+
+        return $felder;
     }
 
     /** Vergleichsform: leer = null, Datum ohne Uhrzeit, Bool als '1'/'0'. */

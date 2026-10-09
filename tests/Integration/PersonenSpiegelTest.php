@@ -107,4 +107,36 @@ public function test_ohne_marker_und_ohne_lohn(): void
     $this->assertNull($this->zeile($ma)->zas_changed_at);
     $this->assertSame([], $this->lohn($ma));
 }
+
+public function test_schalter_nimmt_auch_haupt_und_nebenarbeitgeber_aus(): void
+{
+    $this->setzeEinstellung(['tax_class_per_company' => true]);
+    $p = $this->person();
+    $rg = $this->akte(['rec_person_id' => $p]);
+    $ma = $this->akte(['rec_person_id' => $p, 'is_main_employer' => 1, 'other_employer' => null, 'city' => 'Alt']);
+    (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['is_main_employer' => false, 'other_employer' => 'MA GmbH', 'city' => 'Neu'], true, true);
+    $this->assertSame(1, (int) $this->zeile($ma)->is_main_employer);
+    $this->assertNull($this->zeile($ma)->other_employer);
+    $this->assertSame('Neu', $this->zeile($ma)->city);
+}
+
+public function test_spiegel_legt_keine_einstellungs_zeile_an(): void
+{
+    $p = $this->person();
+    $rg = $this->akte(['rec_person_id' => $p]);
+    $ma = $this->akte(['rec_person_id' => $p, 'tax_class' => '1']);
+    (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['city' => 'Neu', 'tax_class' => '6'], false, false);
+    $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'ohne Einstellung: Schalter aus');
+    $this->assertSame(0, \Illuminate\Database\Capsule\Manager::table('rec_applicant_settings')->count());
+}
+
+public function test_nur_in_leere_felder_schreibt_nicht_ueber_vorhandene_werte(): void
+{
+    $p = $this->person();
+    $rg = $this->akte(['rec_person_id' => $p]);
+    $ma = $this->akte(['rec_person_id' => $p, 'street' => 'Bleibt', 'city' => null]);
+    (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['street' => 'Neu', 'city' => 'Neu'], true, false, nurInLeere: ['street', 'city']);
+    $this->assertSame('Bleibt', $this->zeile($ma)->street);
+    $this->assertSame('Neu', $this->zeile($ma)->city);
+}
 }

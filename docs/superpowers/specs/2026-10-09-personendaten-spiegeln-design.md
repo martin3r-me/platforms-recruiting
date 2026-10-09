@@ -61,9 +61,14 @@ zeitweise gleichzeitig aktiv sein. Dann wäre der zweite Arbeitgeber üblicherwe
 Steuerklasse 6 und die Steuerklasse gehörte je Gesellschaft. Entscheidung
 Sebastian 09.10.: vorerst spiegeln. Damit das ohne Deploy umkehrbar ist, gibt es
 die Team-Einstellung `tax_class_per_company` (Schalter im Einstellungs-Fenster →
-Mitarbeiter, Standard **aus**). Steht er an, wird `tax_class` nicht gespiegelt und
-das Prüfkommando meldet Abweichungen in `tax_class` nicht. Der Punkt steht auch
-im Info-Dokument für Markus.
+Mitarbeiter, Standard **aus**). Steht er an, werden `tax_class`,
+`is_main_employer` und `other_employer` nicht gespiegelt und das Prüfkommando
+meldet Abweichungen in diesen Feldern nicht (Nachtrag 09.10., Review I1: die
+Haupt-/Nebenarbeitgeber-Angabe stammt aus der §15/16-Erklärung EINES Vertrags
+und ist die Grundlage für Steuerklasse 6 — sie gehört zur selben Frage). Ohne
+Schalter bleiben beide gespiegelt (Entscheidung Sebastian). Text des Schalters:
+„Steuerklasse und Haupt-/Nebenarbeitgeber je Gesellschaft führen". Der Punkt
+steht auch im Info-Dokument für Markus.
 
 ### 2.2 Gesellschaftsfelder (bleiben je Akte)
 
@@ -127,21 +132,28 @@ final class PersonenSpiegel
      * @param  bool $lohnVerfolgen          Lohn-Änderungsverfolgung je Geschwister
      * @return list<int>                    beschriebene Geschwister-Kennungen
      */
-    public function spiegele(RecEmployee $quelle, array $werte, bool $markerSetzen, bool $lohnVerfolgen): array;
+    public function spiegele(RecEmployee $quelle, array $werte, bool $markerSetzen, bool $lohnVerfolgen,
+        array $nurInLeere = [], bool $offeneMarkerAuslassen = false): array;
 }
 ```
 
 Ablauf je Aufruf, in einer Transaktion:
 
-1. `$werte` auf `PersonenFelder::SPIEGELN` schneiden; `tax_class` entfällt, wenn
-   `tax_class_per_company` an ist. Bleibt nichts, passiert nichts.
+1. `$werte` auf `PersonenFelder::SPIEGELN` schneiden; `tax_class`,
+   `is_main_employer` und `other_employer` entfallen, wenn
+   `tax_class_per_company` an ist. Bleibt nichts, passiert nichts. Die
+   Einstellung wird nur gelesen, wenn eines dieser drei Felder dabei ist, und
+   nie angelegt (fehlt die Zeile: Schalter aus).
 2. Umfang über `PersonScopeResolver`, Quelle selbst ausgenommen. Keine
    Geschwister: nichts.
 3. Je Geschwister: aktuelle Werte der betroffenen Felder lesen (Query-Builder).
    Nur Felder schreiben, deren Wert sich **unterscheidet** (Vergleich nach
    derselben Normalisierung wie `RecEmployeeExportObserver::normalizePayrollValue`:
    leer = null). Gleiche Werte werden nicht angefasst — sonst setzte jedes
-   Speichern Marker auf beiden Akten.
+   Speichern Marker auf beiden Akten. Felder in `$nurInLeere` werden nur in
+   **leere** Geschwisterfelder geschrieben (Erstbefüllung §5.1, Rohwerte §5.2).
+   Mit `$offeneMarkerAuslassen` bleiben Geschwister mit offenem
+   `zas_changed_at` ganz außen vor (ZAS-Pfad §5.2).
 4. Schreiben per **`DB::table('rec_employees')->update()`**, nie Eloquent. Damit
    feuert kein Observer auf dem Geschwister, es gibt keine Rückkopplung, und die
    ZAS-Regel „Massenläufe am Marker vorbei" bleibt verletzungsfrei — der Marker
@@ -188,6 +200,15 @@ Damit sind **ohne Einzelumbau** abgedeckt: `PortalProfileWriter` (neues Portal),
 der Listener ist egal: Marker und Lohn-Eintrag der Quelle schreibt der Observer
 wie heute auf der Quelle, der Spiegel schreibt nur Geschwister.
 
+**Erstbefüllung füllt nur Leeres** (Nachtrag 09.10., Review I2): war das Feld
+der Quelle vor dem Speichern leer, schreibt der Spiegel den neuen Wert nur in
+**leere** Geschwisterfelder. Nur eine echte Änderung (alter Wert nicht leer)
+überschreibt nach „letzter Schreiber gewinnt". Grund: `BackfillEmployeeFieldsFromApplicant`,
+die HR-Ersterfassung und die Arbeitgeber-Erklärung füllen leere Felder — ohne
+diese Regel schöbe ein Nachtrag aus einer alten Bewerbung den aktuellen Wert
+der anderen Akte weg (mit Marker). Wer eine Erstangabe bewusst übertragen will,
+nimmt das Prüfkommando mit `--nach`.
+
 Rückkopplung ist ausgeschlossen, weil Geschwister per Query-Builder beschrieben
 werden (kein `updated`-Ereignis). Zusätzlich hält `PersonenSpiegel` einen
 statischen Wächter (`$laeuft`), der einen verschachtelten Aufruf sofort
@@ -216,6 +237,19 @@ die Schwester-Akte klemmt, wäre schlimmer.
     gilt dem Zufallstreffer über die Personalnummer, nicht dem bewusst
     verklammerten Menschen. `OVERWRITE_PROTECTED` greift schon vorher — was
     dort steht, kommt gar nicht erst in `$employeeFields`.
+  - **Offener Marker** (Nachtrag 09.10., Review C1): Hat die getroffene Akte
+    ein offenes `zas_changed_at`, ist unsere Änderung auf dem Weg zu ZAS und die
+    Lieferung für die Personenfelder veraltet. Dann überschreibt der Import
+    deren Personenfelder (`PersonenFelder::SPIEGELN`) **nicht**; die übrigen
+    Felder und der Status-Abgleich laufen wie bisher. Ebenso lässt der Spiegel
+    auf diesem Weg Geschwister mit offenem Marker aus. Sonst drehte eine
+    veraltete Lieferung eine Portal-Änderung auf **beiden** Akten zurück
+    (Portal RG → Spiegel MA → alte ZAS-Zeile für MA → zurück auf RG). Preis:
+    eine echte Korrektur bei ZAS kommt erst eine Lieferung nach unserem Export an.
+  - **Rohwerte ohne Lookup-Treffer** (`$mapped['unmatched']`, z. B.
+    `nationality = 'Syrisch'`) schreibt der Import nur in leere Felder; der
+    Spiegel hält sich daran und füllt mit ihnen nur **leere** Geschwisterfelder
+    (Review I3) — ein sauberer Code (`SYR`) bei der anderen Akte bleibt.
   - Liefert dieselbe Datei RG- und MA-Zeile mit **verschiedenen** Werten, gewinnt
     die später verarbeitete Zeile; beide Akten bekommen diesen Wert, beide
     kommen in die Aktualisierungsdatei zurück. Die Abweichung liegt dann bei ZAS
@@ -232,8 +266,12 @@ die Schwester-Akte klemmt, wäre schlimmer.
   die Personenfelder der **bestehenden** Akte:
   `PersonenSpiegel::uebernimmBeiPaarung($bestehendeId, $neueId)` (zweiseitig).
   - Unsere nicht-leeren Werte gehen in die neue Akte. Ist ein Feld bei uns leer
-    und hat ZAS einen Wert geliefert, wird er in unsere Akte nachgetragen. Ein
-    nicht-leerer Wert bei uns wird nie überschrieben.
+    und hat ZAS einen Wert geliefert, wird er in unsere Akte nachgetragen —
+    außer bei Feldern aus `ZasInboundEmployeeImporter::OVERWRITE_PROTECTED`
+    (`identity_card_number` als Login-Faktor, `country_code`, das der Mapper
+    ohne `Land` auf `'de'` erfindet; Review I4). Ein nicht-leerer Wert bei uns
+    wird nie überschrieben. Das gilt auch, wenn die bestehende Akte selbst
+    ZAS-Bestand ist.
   - Marker auf jeder Akte, die beschrieben wurde, sofern sich ein RELEVANTES Feld
     geändert hat — ZAS bekommt so für den MA-Datensatz unsere Werte zurück. Kein
     Lohn-Eintrag: die neue Akte hat noch keine Lohnhistorie.
@@ -259,14 +297,17 @@ recruiting:personendaten-abgleich {--team=} {--person=} {--nach=} {--felder=}
   Personenfeld (§2.1), das zwischen den Akten abweicht (Normalisierung wie §4
   Schritt 3): eine Tabelle `Person | Feld | Akte A (PNr) | Akte B (PNr) | …`.
   Am Ende eine Summe: Personen geprüft, Personen mit Abweichung, Felder
-  abweichend. `tax_class` entfällt bei `tax_class_per_company`.
+  abweichend. `tax_class`, `is_main_employer` und `other_employer` entfallen bei
+  `tax_class_per_company`. Der Lesemodus legt keine Einstellungs-Zeile an.
 - **`--person=<rec_person_id> --nach=<rec_employee_id>`: angleichen.** Alle
   Geschwister der Person bekommen die Personenfelder der genannten Akte über
   `PersonenSpiegel::spiegele(..., markerSetzen: true, lohnVerfolgen: true)` —
   derselbe Schreiber, dieselben Marker. Vorher wird die Tabelle dieser Person
   gezeigt; ohne `--person` ist `--nach` ein Fehler. **Kein `--alle --nach`**:
   pauschales Überschreiben gibt es nicht.
-- `--felder=street,zip` grenzt die Ausgabe auf Felder ein (für große Listen).
+- `--felder=street,zip` grenzt die Ausgabe auf Felder ein (für große Listen) —
+  und zusammen mit `--nach` auch das Angleichen: übertragen wird nur, was
+  angesehen wurde (Review I5).
 - `--team` grenzt die Quell-Akten ein, nicht den Menschen (wie bei
   `portal-umstellen`).
 
@@ -279,8 +320,10 @@ an HR, die je Person entscheidet. Erwartung aus dem Vorflug des Konto-Pakets:
 ## 7. Einstellung
 
 `RecApplicantSettings::DEFAULT_SETTINGS['tax_class_per_company'] = false`. Ein
-Schalter im Einstellungs-Fenster → Lohn, Text: „Steuerklasse je
-Gesellschaft führen" (mit Erklärung: bleibt von der Spiegelung ausgenommen). Als Boolean-Schalter, kein
+Schalter im Einstellungs-Fenster → Lohn, Text: „Steuerklasse und
+Haupt-/Nebenarbeitgeber je Gesellschaft führen" (mit Erklärung: diese drei
+Felder bleiben von der Spiegelung ausgenommen). Der Schlüssel bleibt
+`tax_class_per_company`. Als Boolean-Schalter, kein
 Select — das bekannte Select-Speicherproblem im Einstellungs-Fenster wird so
 umgangen.
 

@@ -113,6 +113,37 @@ class PersonendatenAbgleichTest extends TestCase
         $this->assertStringContainsString('mit Abweichung: 0', $aus);
     }
 
+
+    public function test_schalter_nimmt_arbeitgeberfelder_aus_der_pruefung(): void
+    {
+        $this->setzeEinstellung(['tax_class_per_company' => true]);
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'is_main_employer' => 1, 'other_employer' => null]);
+        $this->akte(['rec_person_id' => $p, 'is_main_employer' => 0, 'other_employer' => 'RG']);
+        [, $aus] = $this->run_([]);
+        $this->assertStringContainsString('mit Abweichung: 0', $aus);
+    }
+
+    public function test_nur_lesen_legt_keine_einstellungs_zeile_an(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'city' => 'Koeln']);
+        $this->akte(['rec_person_id' => $p, 'city' => 'Bonn']);
+        [, $aus] = $this->run_([]);
+        $this->assertStringContainsString('mit Abweichung: 1', $aus);
+        $this->assertSame(0, \Illuminate\Database\Capsule\Manager::table('rec_applicant_settings')->count());
+    }
+
+    public function test_nach_mit_felder_uebertraegt_nur_diese_felder(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'city' => 'Koeln', 'street' => 'A 1']);
+        $ma = $this->akte(['rec_person_id' => $p, 'city' => 'Bonn', 'street' => 'B 2']);
+        [$code] = $this->run_(['--person' => (string) $p, '--nach' => (string) $rg, '--felder' => 'city']);
+        $this->assertSame(0, $code);
+        $this->assertSame('Koeln', $this->zeile($ma)->city);
+        $this->assertSame('B 2', $this->zeile($ma)->street, 'nicht genanntes Feld bleibt');
+    }
     public function test_felder_begrenzt_die_ausgabe_und_person_key_gruppen_sind_nicht_adressierbar(): void
     {
         $this->akte(['person_key' => 'abcdef12345', 'phone' => '+491711234567', 'city' => 'Koeln', 'street' => 'A 1']);

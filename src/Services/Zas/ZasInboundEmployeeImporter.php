@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PersonenSpiegel;
 use Platform\Recruiting\Support\EuMemberStates;
+use Platform\Recruiting\Support\PersonenFelder;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
 /**
@@ -150,7 +151,7 @@ class ZasInboundEmployeeImporter
                         ];
                         continue;
                     }
-                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee']);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee'], $mapped['unmatched'] ?? []);
                     $updated[] = [
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
@@ -351,8 +352,10 @@ class ZasInboundEmployeeImporter
      * @param array<string,mixed> $changes  Statusfelder fuer rec_employee_hr_data
      * @param string|null         $pnrFill     nachzutragende Personalnummer, oder null
      * @param string|null         $companyFill nachzutragende Firma, oder null
+     * @param list<string>        $unmatched   Rohwerte ohne Lookup-Treffer: gehen
+     *                                         nur in leere Geschwisterfelder
      */
-    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = []): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = [], array $unmatched = []): void
     {
         DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
@@ -386,6 +389,10 @@ class ZasInboundEmployeeImporter
         // Lohn-Eintrag (Werte aus ZAS loesen keinen aus). Werte aus der
         // gespeicherten Zeile, nicht aus der Eingabe. Ein Fehler hier kostet
         // nur den Abgleich, nie die Import-Zeile.
+        // Geschwister mit offenem Marker bleiben aussen vor: ihre Aenderung ist
+        // auf dem Weg zu ZAS, der gelieferte Wert ist dafuer veraltet (Review C1).
+        // Rohwerte ohne Lookup-Treffer nur in leere Felder — wie bei der
+        // getroffenen Akte selbst (Review I3).
         if ($employeeFields !== []) {
             try {
                 $frisch = RecEmployee::find($existing->id);
@@ -395,6 +402,8 @@ class ZasInboundEmployeeImporter
                         array_intersect_key($frisch->getAttributes(), $employeeFields),
                         markerSetzen: true,
                         lohnVerfolgen: false,
+                        nurInLeere: array_values($unmatched),
+                        offeneMarkerAuslassen: true,
                     );
                 }
             } catch (\Throwable $e) {
@@ -413,7 +422,7 @@ class ZasInboundEmployeeImporter
      *    es nie) — ueberschreiben setzte jeden auf Deutschland zurueck
      *  - personnel_number, company: nur Nachtrag in leere Felder (siehe oben)
      */
-    protected const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company'];
+    public const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company'];
 
     /** rec_employee_hr_data-Felder, die ZAS beim Bestand ueberschreiben darf. */
     protected const OVERWRITE_HR_FIELDS = ['contract_sent_date', 'contract_signed_at', 'contract_end_date', 'employment_classification'];
@@ -444,10 +453,19 @@ class ZasInboundEmployeeImporter
             $incoming['is_eu_citizen'] = true;
         }
 
+        // Offener Export-Marker: unsere Aenderung (Portal, HR, Spiegel) ist
+        // noch nicht bei ZAS angekommen, die Lieferung traegt fuer die
+        // Personenfelder den alten Stand. Dann bleiben sie stehen; alles
+        // andere (Status, Kleidung, Fristen) laeuft weiter (Review C1).
+        $offenerMarker = $existing->getRawOriginal('zas_changed_at') !== null;
+
         $employee = [];
         $scratch  = new RecEmployee();
         foreach ($incoming as $field => $value) {
             if (in_array($field, self::OVERWRITE_PROTECTED, true)) {
+                continue;
+            }
+            if ($offenerMarker && in_array($field, PersonenFelder::SPIEGELN, true)) {
                 continue;
             }
             $current = $existing->getAttribute($field);

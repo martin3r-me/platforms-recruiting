@@ -17,7 +17,7 @@ use Platform\Recruiting\Support\PersonenFelder;
  * gibt es bewusst nicht: angeglichen wird nur gezielt, fuer EINE Person
  * (--person) und von EINER benannten Akte aus (--nach). Uebertragen werden
  * dabei nur nicht-leere Werte dieser Akte; leere werden gemeldet, nie
- * uebertragen. Geschrieben wird ueber den PersonenSpiegel (Query-Builder,
+ * uebertragen. Mit --felder nur diese Felder. Geschrieben wird ueber den PersonenSpiegel (Query-Builder,
  * Export-Marker + Lohn-Eintraege).
  *
  * Gruppen ohne rec_person_id (Paarung ueber person_key) werden mit
@@ -29,7 +29,7 @@ final class PersonendatenAbgleich extends Command
         {--team= : Nur Akten dieses Teams als Ausgangspunkt}
         {--person= : rec_person_id — nur diese Person}
         {--nach= : rec_employee_id — Personenfelder dieser Akte auf alle Geschwister uebertragen (nur mit --person)}
-        {--felder= : komma-getrennt, Ausgabe auf diese Felder begrenzen}';
+        {--felder= : komma-getrennt, Ausgabe und Angleichen (--nach) auf diese Felder begrenzen}';
 
     protected $description = 'Personenfelder je Person ueber alle Akten vergleichen; mit --person --nach gezielt angleichen';
 
@@ -100,7 +100,7 @@ final class PersonendatenAbgleich extends Command
         $this->line("Geprueft: {$personen} Personen · mit Abweichung: {$mitAbweichung} · abweichende Felder: {$felderGesamt}");
 
         if ($nach !== null) {
-            return $this->gleicheAn($nach);
+            return $this->gleicheAn($nach, $nurFelder);
         }
 
         return self::SUCCESS;
@@ -171,7 +171,8 @@ final class PersonendatenAbgleich extends Command
         return $aus;
     }
 
-    private function gleicheAn(int $nach): int
+    /** @param list<string>|null $nurFelder */
+    private function gleicheAn(int $nach, ?array $nurFelder): int
     {
         $quelle = RecEmployee::find($nach);
         $raw = DB::table('rec_employees')->where('id', $nach)->first();
@@ -186,7 +187,12 @@ final class PersonendatenAbgleich extends Command
 
         $werte = [];
         $leer = [];
-        foreach (PersonenFelder::fuerTeam($team) as $feld) {
+        // --felder gilt auch hier: uebertragen wird nur, was HR angesehen hat (Review I5).
+        $felder = PersonenFelder::fuerTeam($team);
+        if ($nurFelder !== null) {
+            $felder = array_values(array_intersect($felder, $nurFelder));
+        }
+        foreach ($felder as $feld) {
             if (PersonenFelder::normalisiere($feld, $raw->{$feld} ?? null) === null) {
                 $leer[] = $feld;
             } else {

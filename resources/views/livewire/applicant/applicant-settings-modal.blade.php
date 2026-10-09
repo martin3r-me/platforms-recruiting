@@ -910,8 +910,8 @@
                                wire:model="settings.tax_class_per_company"
                                class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
                         <div>
-                            <span class="text-sm font-medium text-[var(--ui-secondary)]">Steuerklasse je Gesellschaft führen</span>
-                            <p class="text-xs text-[var(--ui-muted)] mt-0.5">Hat jemand eine RG- und eine MA-Akte, werden Adresse, Bank und Co. automatisch in beiden gleich gehalten. Mit diesem Schalter bleibt die Steuerklasse davon ausgenommen und wird je Akte gepflegt.</p>
+                            <span class="text-sm font-medium text-[var(--ui-secondary)]">Steuerklasse und Haupt-/Nebenarbeitgeber je Gesellschaft führen</span>
+                            <p class="text-xs text-[var(--ui-muted)] mt-0.5">Hat jemand eine RG- und eine MA-Akte, werden Adresse, Bank und Co. automatisch in beiden gleich gehalten. Mit diesem Schalter bleiben Steuerklasse, „Hauptarbeitgeber“ und „Anderer Arbeitgeber“ davon ausgenommen und werden je Akte gepflegt – sinnvoll, wenn jemand bei beiden Gesellschaften gleichzeitig arbeitet und die Angaben je Vertrag verschieden sind.</p>
                         </div>
                     </label>
                 </div>

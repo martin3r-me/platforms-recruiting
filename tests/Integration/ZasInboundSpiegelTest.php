@@ -132,10 +132,113 @@ class ZasInboundSpiegelTest extends TestCase
         $this->assertSame([], $this->lohn($ma));
     }
 
+
+    public function test_veraltete_zas_lieferung_dreht_portal_aenderung_nicht_zurueck(): void
+    {
+        // Review C1: Portal-Aenderung an RG wird auf MA gespiegelt; die naechste
+        // ZAS-Lieferung kennt unseren Export noch nicht und bringt den alten
+        // Wert fuer MA. Ohne Schutz stuenden danach BEIDE Akten auf dem alten Wert.
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'iban' => 'DEALT', 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'iban' => 'DEALT', 'shirt_size' => 'M',
+            'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        RecEmployee::find($rg)->update(['iban' => 'DENEU']);
+        $this->assertSame('DENEU', $this->zeile($ma)->iban, 'Vorbedingung: Spiegel lief');
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'Vorbedingung: Marker offen');
+
+        $report = $this->run_($this->row(['Status' => 'MA', 'IBAN' => 'DEALT', 'HemdGroesse' => 'XL']));
+
+        $this->assertSame([], $report['failed']);
+        $this->assertSame('DENEU', $this->zeile($ma)->iban, 'Personenfeld mit offenem Marker bleibt');
+        $this->assertSame('DENEU', $this->zeile($rg)->iban, 'und wird nicht zurueckgespiegelt');
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'unser Export bleibt faellig');
+        $this->assertSame('XL', $this->zeile($ma)->shirt_size, 'andere Felder ueberschreibt ZAS weiter');
+        $this->assertSame('MA', Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $ma)->value('export_status'), 'Status-Sync bleibt');
+    }
+
+    public function test_zas_spiegel_laesst_geschwister_mit_offenem_marker_aus(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'street' => 'Unser Neu', 'personnel_number' => 'RG1', 'company' => 'RG',
+            'zas_changed_at' => '2026-10-09 08:00:00']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'street' => 'Alt', 'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        $this->run_($this->row(['Strasse' => 'ZAS Neu']));
+
+        $this->assertSame('ZAS Neu', $this->zeile($ma)->street, 'Vorbedingung: MA ohne Marker wird ueberschrieben');
+        $this->assertSame('Unser Neu', $this->zeile($rg)->street, 'Geschwister mit offener Aenderung bleibt');
+    }
+
+    public function test_rohwert_ohne_lookup_ueberschreibt_sauberen_code_beim_geschwister_nicht(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'nationality' => 'SYR', 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'nationality' => null, 'personnel_number' => 'MA1', 'company' => 'MA']);
+        $p2 = $this->person();
+        $rg2 = $this->akte(['rec_person_id' => $p2, 'rec_applicant_id' => 8, 'nationality' => null, 'personnel_number' => 'RG2', 'company' => 'RG']);
+        $this->akte(['rec_person_id' => $p2, 'rec_zas_inbound_file_id' => 5, 'nationality' => null, 'personnel_number' => 'MA2', 'company' => 'MA']);
+
+        $this->run_($this->row(['Nation' => 'Syrisch']));
+        $this->run_($this->row(['ZasPersonalNr' => 'MA2', 'Nation' => 'Syrisch']));
+
+        $this->assertSame('Syrisch', $this->zeile($ma)->nationality, 'Vorbedingung: Rohwert landet im leeren Feld');
+        $this->assertSame('SYR', $this->zeile($rg)->nationality, 'sauberer Code beim Geschwister bleibt');
+        $this->assertSame('Syrisch', $this->zeile($rg2)->nationality, 'leeres Geschwisterfeld wird gefuellt');
+    }
+
+    public function test_geschuetztes_feld_im_ueberschreiben_erreicht_das_geschwister_nicht(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'identity_card_number' => 'X1', 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'identity_card_number' => 'X1', 'street' => 'Alt',
+            'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        $this->run_($this->row(['AusweisNr' => 'Z9', 'Strasse' => 'Neu 3']));
+
+        $this->assertSame('Neu 3', $this->zeile($rg)->street, 'Vorbedingung: Spiegel lief');
+        $this->assertSame('X1', $this->zeile($ma)->identity_card_number);
+        $this->assertSame('X1', $this->zeile($rg)->identity_card_number);
+        $this->assertNull($this->zeile($rg)->country_code, 'Default-Land des Mappers wandert nicht');
+    }
+
+    public function test_paarung_traegt_geschuetzte_felder_nicht_bei_uns_nach(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'first_name' => 'Max', 'last_name' => 'Muster',
+            'birth_date' => '1990-01-01', 'country_code' => null, 'identity_card_number' => null, 'personnel_number' => 'RG1', 'company' => 'RG']);
+
+        $report = $this->run_($this->row(['ZasPersonalNr' => 'MA77', 'Vorname' => 'Max', 'Name' => 'Muster',
+            'Geburtsdatum' => '01.01.1990', 'AusweisNr' => 'Z1', 'IBAN' => 'DE99']));
+
+        $this->assertSame('paired', $report['created'][0]['person_pairing'] ?? null, 'Vorbedingung: Paarung');
+        $this->assertSame('DE99', $this->zeile($rg)->iban, 'Vorbedingung: Nachtrag laeuft');
+        $this->assertNull($this->zeile($rg)->country_code, 'erfundenes Default-Land landet nicht bei uns');
+        $this->assertNull($this->zeile($rg)->identity_card_number, 'Login-Faktor kommt nicht aus ZAS');
+    }
+
+    public function test_paarung_mit_zas_bestand_als_bestehender_akte(): void
+    {
+        $p = $this->person();
+        $alt = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'first_name' => 'Max', 'last_name' => 'Muster',
+            'birth_date' => '1990-01-01', 'street' => 'Bestand 1', 'iban' => null, 'country_code' => null, 'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        $report = $this->run_($this->row(['ZasPersonalNr' => 'RG55', 'Vorname' => 'Max', 'Name' => 'Muster',
+            'Geburtsdatum' => '01.01.1990', 'Strasse' => 'ZAS Str 9', 'IBAN' => 'DE77']));
+
+        $this->assertSame([], $report['failed']);
+        $this->assertSame('paired', $report['created'][0]['person_pairing'] ?? null, 'Vorbedingung: Paarung');
+        $neu = (int) Capsule::table('rec_employees')->where('personnel_number', 'RG55')->value('id');
+        $this->assertSame('Bestand 1', $this->zeile($neu)->street, 'Werte der bestehenden Akte gewinnen');
+        $this->assertSame('DE77', $this->zeile($alt)->iban, 'leeres Feld wird nachgetragen');
+        $this->assertSame('Bestand 1', $this->zeile($alt)->street);
+        $this->assertNull($this->zeile($alt)->country_code);
+        $this->assertSame('MA1', $this->zeile($alt)->personnel_number);
+    }
     public function test_spiegel_fehler_bricht_import_nicht_ab(): void
     {
         Container::getInstance()->instance(PersonenSpiegel::class, new class extends PersonenSpiegel {
-            public function spiegele(RecEmployee $quelle, array $werte, bool $markerSetzen, bool $lohnVerfolgen): array
+            public function spiegele(RecEmployee $quelle, array $werte, bool $markerSetzen, bool $lohnVerfolgen, array $nurInLeere = [], bool $offeneMarkerAuslassen = false): array
             {
                 throw new \RuntimeException('klemmt');
             }

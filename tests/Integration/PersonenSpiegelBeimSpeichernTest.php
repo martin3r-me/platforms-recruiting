@@ -89,4 +89,18 @@ class PersonenSpiegelBeimSpeichernTest extends TestCase
 
         $this->assertSame('Neu', $this->zeile($rg)->city);
     }
+
+    public function test_erstbefuellung_fuellt_nur_leere_geschwisterfelder(): void
+    {
+        // Review I2: Nachtragen aus der alten Bewerbung (Feld war leer) darf
+        // den aktuellen Wert der anderen Akte nicht ueberschreiben.
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'street' => null, 'city' => null]);
+        $ma = $this->akte(['rec_person_id' => $p, 'street' => 'Aktuell 1', 'city' => null]);
+
+        RecEmployee::find($rg)->update(['street' => 'Bewerbung 9', 'city' => 'Koeln']);
+
+        $this->assertSame('Aktuell 1', $this->zeile($ma)->street, 'nicht-leerer Wert bleibt');
+        $this->assertSame('Koeln', $this->zeile($ma)->city, 'leeres Geschwisterfeld wird gefuellt');
+    }
 }

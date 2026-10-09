@@ -150,8 +150,17 @@ class RecEmployeeExportObserver
             // Query-Builder (keine Rueckkopplung), Marker + Lohn ausdruecklich.
             self::safelyRun(function () use ($employee): void {
                 $geaendert = array_intersect_key($employee->getAttributes(), $employee->getChanges());
+                // War das Feld der Quelle vorher leer (Erstbefuellung, z. B.
+                // Nachtrag aus der Bewerbung), fuellt der Spiegel nur leere
+                // Geschwisterfelder — nur eine echte Aenderung ueberschreibt (Review I2).
+                $erstbefuellung = [];
+                foreach (array_keys($geaendert) as $feld) {
+                    if (\Platform\Recruiting\Support\PersonenFelder::normalisiere($feld, $employee->getRawOriginal($feld)) === null) {
+                        $erstbefuellung[] = $feld;
+                    }
+                }
                 app(\Platform\Recruiting\Services\PersonenSpiegel::class)
-                    ->spiegele($employee, $geaendert, markerSetzen: true, lohnVerfolgen: true);
+                    ->spiegele($employee, $geaendert, markerSetzen: true, lohnVerfolgen: true, nurInLeere: $erstbefuellung);
             }, 'rec_employee.updated.spiegel', $employee->id);
         });
 
