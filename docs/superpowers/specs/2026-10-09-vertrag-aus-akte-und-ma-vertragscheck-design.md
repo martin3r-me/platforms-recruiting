@@ -96,8 +96,13 @@ Schritte, in einer Transaktion (bis auf den WhatsApp-Versand, der danach läuft)
    der Unterschrift ohne Marker/Lohn-Eintrag, und eine RG-Bewerbung bekäme den MA-Zuschlag.
    Der ZAS-Export dieses Zuschlags bleibt wie bisher (offene Frage E14 an Markus).
 3. Inhalt: `personalized_content` über **`RecContractTemplate::personalizeFuerAnstellung(RecEmployee $anstellung, RecContract $vertrag): string`** (§2.3).
-4. `RecContract::create([... 'rec_employee_id' => $anstellung->id, 'rec_applicant_id' => $anstellung->rec_applicant_id (darf null sein), 'status' => 'pending', 'created_by_user_id' => $userId])`,
-   dann Extrafelder setzen, Inhalt rendern, `getOrCreatePublicFormLink()`,
+4. `RecContract::create([... 'rec_employee_id' => $anstellung->id, 'rec_applicant_id' => $anstellung->rec_applicant_id (darf null sein), 'status' => 'pending', 'created_by_user_id' => $userId])`.
+   `rec_applicant_id` bleibt bewusst gesetzt (ZAS-Upload-Links, Bewerberliste). Deshalb ist
+   die Bewerbung **kein** Herkunftsmerker: „aus der Akte" heißt **Vertrags-Extrafeld
+   `zuschlag` gesetzt**, an EINER Stelle: `VertragsHerkunft::ausAkte(RecContract)`
+   (Schlussreview I1). Neu-Rendern läuft über `VertragsHerkunft::neuRendern()`:
+   Akte-Verträge über `personalizeFuerAnstellung`, alle anderen wie bisher.
+   Danach Extrafelder setzen, Inhalt rendern, `getOrCreatePublicFormLink()`,
    `status = sent`, `sent_at = now()`. **Eloquent ist hier richtig** (ein Vertrag, kein
    Massenlauf; der ZAS-Marker auf `contract_signed_at` kommt erst beim Unterschreiben).
 5. Nach der Transaktion: `VertragHinweisSender::sende($anstellung)` (§2.4). Ergebnis in
@@ -115,7 +120,7 @@ Vorrang-Kette, keine zweite Vorlagensprache:
 |---|---|---|
 | `contact.first_name/last_name/email/phone` | Anstellung | wie bisher (CRM-Kontakt), leer → Anstellung |
 | `contact.address.*` | Anstellung (`street`, `house_number`, `zip`, `city`) | wie bisher, leer → Anstellung |
-| `applicant.zuschlag` | Vertrags-Extrafeld `zuschlag` | Extrafeld, leer → Bewerber |
+| `applicant.zuschlag` | Vertrags-Extrafeld `zuschlag` | Extrafeld, leer → Bewerber (gilt auch in `personalizeContent`: ein Vertrag mit Zuschlagsfeld behält seinen Betrag auf jedem Weg; Altverträge ohne Feld bleiben byteidentisch) |
 | `applicant.<spalte>` (z. B. birth_date, iban) | gleichnamige Spalte der Anstellung, sonst `''` | wie bisher, leer → Anstellung |
 | `applicant.extra_field.*` | `''` | wie bisher |
 | neu `employee.<spalte>` | Anstellung | Anstellung |
@@ -160,11 +165,16 @@ return []`). Neu:
   `Cache-Control: private, no-store`. Das PDF-Rendern liegt im gemeinsamen Trait
   `RendersContractPdf` (Bewerber-Route und neue Route teilen es).
 - **Offener Punkt:** `OffenePunkte::stand()` bekommt eine dritte Quelle
-  `VertragLeser::offenePunkte($employee)`: je Vertrag mit `status = sent` der Person
-  ein Punkt `{code: 'vertrag:<id>', label: '<Anzeigename> · <Gesellschaft>', status:
+  `VertragLeser::offenePunkte($employee)`: je Vertrag **aus der Akte**
+  (`VertragsHerkunft::ausAkte`) mit `status = sent` der Person ein Punkt `{code: 'vertrag:<id>', label: '<Anzeigename> · <Gesellschaft>', status:
   'offen', ko: false, punkt: 'crit', text: 'Lesen und unterschreiben'}`. Für den
   Trigger (`fuerTrigger`) gilt dieselbe 7-Tage-Pause wie bei Dokumenten, gemessen an
-  `sent_at`. Damit meldet die Einsatz-Prüfung den Vertrag mit, ohne eigenen Versand. Der offene Punkt trägt die
+  `sent_at`. Damit meldet die Einsatz-Prüfung den Vertrag mit, ohne eigenen Versand.
+  Alte offene Verträge aus dem Bewerbungsweg (auch die von `vertraege-an-anstellung`
+  angehängten IFSG/AT/AV) werden **kein** offener Punkt: sie stehen wie bisher nur in der
+  Liste mit Unterschreiben-Link. Sonst stiegen Portal-Zähler und Trigger-Signatur
+  Hunderter Menschen auf einen Schlag, und die nächste Welle schriebe sie an
+  (Schlussreview I3). Der offene Punkt trägt die
   Gesellschaft immer (`Arbeitsvertrag · MA`), die Vertragsliste nur bei mehr als einer
   Anstellung.
 
@@ -189,14 +199,19 @@ Die AV-Zählung je Anstellung gilt, wenn der Vertrag einen Anker (`rec_employee_
 ohne Anker zählt wie bisher der Bewerber. `contract_end_date` wird nur bei Verträgen
 **ohne** Bewerbung geschrieben (bei Bewerbungs-Verträgen bleibt `avContractEndDate()` die
 Quelle). Auch `RePersonalizeContractsTool` kommt mit Verträgen ohne Bewerbung zurecht
-(`personalizeFuerAnstellung`); das Neu-Rendern aus der Bewerbung (Applicant/Show) bleibt
-für Verträge mit Bewerbung auf dem alten Pfad.
+(`personalizeFuerAnstellung`). Werkzeug und „Felder"-Dialog der Bewerberseite
+(`Applicant/Show::saveContractFields`) rendern Akte-Verträge über die Anstellung,
+Bewerbungs-Verträge ohne Zuschlagsfeld weiter auf dem alten Pfad (Schlussreview I1).
 
 ### 2.7 HR-Akte, Liste
 
 `signedContracts()`/`openContracts()` zeigen zusätzlich Beginn, Ende, Zuschlag (aus
 Extrafeldern; Alt-AV ohne Extrafeld: Zuschlag aus dem Code `AV-060` → 0,60 wie
-`ReissueContractService`). Stornieren und Neu ausstellen bleiben.
+`ReissueContractService`). „Offen" heißt jeder Status außer `completed` und
+`cancelled` (in der Praxis `pending` und `sent`). **Stornieren** gibt es nur für
+Arbeitsverträge (`AV`/`AV-*`, `can_cancel`), am Knopf und serverseitig in
+`vertragStornieren()` — IFSG/AT aus dem Bewerbungsweg bleiben unberührt (Ledger T7-1).
+Neu ausstellen bleibt.
 
 PDF für HR ohne Bewerbung über `GET /employees/vertraege/{contractId}/pdf`
 (`recruiting.employees.vertrag-pdf`, Team-geprüft). „Neu ausstellen" nur für Verträge mit
@@ -237,9 +252,11 @@ In `EinsatzPruefung::lauf()`, je Person, **vor** dem `$punkte === []`-Kurzschlus
    Geprüft wird die Anstellung des Personen-Umfangs mit dieser Gesellschaft (sonst die
    gebuchte), und nur AV, deren Vorlage zu dieser Gesellschaft gehört. Der Vergleich der
    Gesellschaft ist case-insensitiv. Geprüft werden nur Buchungen, deren Gesellschaft in
-   `contract_check_companies` steht (Team-Einstellung, Standard `['MA']`; Schalter im
+   `contract_check_companies` steht (Team-Einstellung, **Standard `[]` = aus**, siehe §8; Schalter im
    Einstellungs-Fenster als Checkbox je Gesellschaft RG/MA — kein Select, wegen des
    bekannten Select-Speicherproblems).
+   Horizont: nur Buchungen bis **heute + 30 Tage** (`VertragsPruefung::HORIZONT_TAGE`,
+   die eine Stelle) — Einsätze in Monaten erzeugen jetzt noch keinen Fall.
 2. Verträge dieser Anstellung laden (`rec_employee_id`, nicht storniert, mit
    Extrafeldern) → `VertragsDeckung::amTag(…, $buchung->datum)`.
 3. `keiner` → HR-Fall (§3.3). `unterwegs` → kein Fall; der Vertrag steht als offener
@@ -260,7 +277,12 @@ n Buchungen geprüft, m ohne Vertrag, k Fälle neu, j Fälle geschlossen".
 (Veranstaltung, Tätigkeit) — kein unterschriebener Arbeitsvertrag der Gesellschaft MA
 deckt diesen Tag.", `opened_at`. Dedupe: offener Fall mit diesem `reason` an dieser
 Anstellung → kein zweiter (Notiz wird nicht fortgeschrieben; der früheste Einsatztag
-reicht). `CONTRACT_BLOCKING_REASONS` **nicht** erweitern — der Fall blockiert nichts,
+reicht). Ein **von HR geschlossener** Fall (`resolved_by_user_id` gesetzt, z. B.
+„Papiervertrag liegt vor") wird nicht wieder geöffnet, solange der früheste ungedeckte
+Einsatztag nicht **nach** dem Einsatztag dieses Falls liegt (Tag aus der Notiz über
+`VertragsVorbelegung::einsatztagAusNotiz`, die eine Formatstelle). Erst ein späterer Tag
+(der geschlossene ist vorbei oder gedeckt, ein späterer Einsatz ist ungedeckt) öffnet einen
+neuen Fall. Automatisch geschlossene Fälle sperren nichts. `CONTRACT_BLOCKING_REASONS` **nicht** erweitern — der Fall blockiert nichts,
 er fordert etwas an.
 
 Auf dem HR-Schreibtisch zeigt der Fall den Knopf **„Vertrag erstellen"**, der die Akte
@@ -280,9 +302,15 @@ gesetzt (`resolved_at = now()`, `resolution_notes = 'Automatisch: Arbeitsvertrag
 unterschrieben (#id)'`), sobald `VertragsDeckung` für **alle** kommenden Buchungen
 dieser Anstellung `unterschrieben` liefert. Verschwindet die Buchung (`missing_since`)
 oder liegt sie in der Vergangenheit, bleibt der Fall offen bis HR ihn schließt —
-ein stiller Abbau würde verbergen, dass jemand ohne Vertrag gearbeitet hat. Ein Fall an
-einer gebuchten RG-Zeile schließt sich nicht automatisch, sobald eine MA-Zeile existiert
-(HR schließt ihn von Hand).
+ein stiller Abbau würde verbergen, dass jemand ohne Vertrag gearbeitet hat.
+
+**Verschoben (Ledger T8-1):** Wechselt die geprüfte Anstellung einer Person (z. B. die
+MA-Zeile existiert jetzt, der alte Fall hängt an der gebuchten RG-Zeile), schließt der Lauf
+den offenen Fall an der bisherigen Zeile (`STATUS_APPROVED`, `resolution_notes =
+'Automatisch: verschoben auf Akte #<id>'`), sobald die Gesellschaft seiner Notiz an einer
+**anderen** Anstellung derselben Person geprüft wird; der neue Fall entsteht dort im
+selben Lauf. Wird die Zeile des Falls selbst noch geprüft, bleibt er (kein Auf/Zu).
+Zählt im Bericht unter „Fälle geschlossen".
 
 ---
 
@@ -305,7 +333,9 @@ Einstellungs-Fenster:
 - Reiter Allgemein, unter dem Ansprechpartner-Select: „Vertrag zur Unterschrift — WhatsApp-Template mit Portal-Link"
   (Select wie beim Dokument-Template; leer = Dokument-Template wird genommen).
 - Mitarbeiter/Lohn-Reiter: „Vertragsprüfung bei Einsätzen" mit zwei Checkboxen
-  „Gesellschaft RG" (aus), „Gesellschaft MA" (an). Beide aus = Prüfung läuft nicht.
+  „Gesellschaft RG", „Gesellschaft MA" — **beide standardmäßig aus**
+  (`contract_check_companies = []`, Schlussreview I2). Beide aus = Prüfung läuft nicht.
+  Eingeschaltet wird bewusst nach dem Trockenlauf (§8).
 
 ---
 
@@ -336,6 +366,12 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
    schieben).
 10. `MassenzuweisungGeschlosseneWeltTest` grün (keine neue Spalte); Blade-Check aller
     angefassten Vorlagen.
+11. Schlusswelle: `VertragsHerkunftTest` (Akte-Vertrag mit Bewerbung behält 0,60 nach
+    „Felder"/Werkzeug), `PersonalisierungAnstellungTest` (Vertragsfeld vor Bewerber auch im
+    Bewerbungsweg), `EinsatzPruefungVertragTest` (Standard aus, 30-Tage-Horizont,
+    HR-geschlossen bleibt zu / öffnet für späteren Tag, Fall wandert mit, kein Flattern),
+    `VertragImPortalTest` (alter Bewerbungsvertrag: kein Punkt, Signatur gleich),
+    `VertragAusAkteOberflaecheTest` (Stornieren nur AV).
 
 ---
 
@@ -354,12 +390,21 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
 - **`migrate`** (eine Migration, siehe §4). `view:clear`. **`queue:restart` nicht nötig** (kein neuer Job; der
   Einsatz-Lauf ist ein Kommando).
 - `php artisan recruiting:seed-rec-contract-extra-fields` (Extrafeld `zuschlag`).
-- Vor dem Deploy die Fälle `mehrdeutig`/`firma_fehlt` aus `recruiting:vertraege-an-anstellung`
-  klären. Ein Fall an einer gebuchten RG-Zeile schließt sich nicht automatisch, sobald eine
-  MA-Zeile existiert (HR schließt von Hand).
-- Die Migration auf der Demo mit MySQL prüfen (migrate + rollback), bevor gemerged wird.
-- Einstellungen: WhatsApp-Template für Verträge (oder leer lassen → Dokument-Template);
-  Vertragsprüfung MA steht standardmäßig an.
+- **Vor dem Deploy** die Fälle `mehrdeutig`/`firma_fehlt` aus
+  `recruiting:vertraege-an-anstellung` klären.
+- **Vor dem Merge** die Migration auf der Demo mit MySQL prüfen (`migrate` + `migrate:rollback`
+  + `migrate`); `down()` scheitert absichtlich, sobald Verträge ohne Bewerbung existieren.
+- Einstellungen: WhatsApp-Template für Verträge (oder leer lassen → Dokument-Template).
+- **Vertragsprüfung ist nach dem Deploy AUS** (Standard `[]`). Reihenfolge zum Einschalten:
+  1. Trockenlauf `php artisan recruiting:einsatz-pruefung --dry-run`. Bei ausgeschalteter
+     Prüfung zählt er 0 — deshalb auf der **Demo mit aktuellem Prod-Abzug** „Gesellschaft MA"
+     anhaken und dort trocken laufen lassen (auf Prod nicht „kurz einschalten": der
+     Stundenlauf legt sonst sofort Fälle an). Zeile „Vertragsprüfung: n Buchungen geprüft,
+     m ohne Vertrag, k Fälle neu, j Fälle geschlossen" ablesen.
+  2. Die Zahl k an Sebastian/Markus melden („k Fälle neu").
+  3. Erst nach deren OK im Einstellungs-Fenster „Gesellschaft MA" anhaken; der nächste
+     Stundenlauf legt die Fälle an. Geprüft werden nur Einsätze der nächsten 30 Tage; von
+     HR geschlossene Fälle bleiben zu (§3.3).
 - Vorlagen: je Vertragsart eine Vorlage mit `company = MA` anlegen — ohne Vorlage ist
   der Knopf in MA-Akten leer, der Check erzeugt trotzdem Fälle.
 
@@ -374,6 +419,11 @@ Integration (Capsule + SQLite, echte Migrationen), je eine Mutationsprobe genann
    (Logistik, Zapfer, Eventmitarbeiter, …), mit welchen Texten?
 4. **Automatik:** Soll der Vertrag beim Check automatisch rausgehen, oder bleibt der
    Klick bei HR? (Technisch vorbereitet; eine Aufgabe nach der Antwort.)
+5. **Zu E14 (Schlussreview M2):** Unterschriebene MA-Verträge aus der Akte erreichen ZAS
+   **nicht als Datei** — `UplVertrag`/`UplIfsg`, `ifsgSignedAt` und die AV-Datumsfelder
+   werden nur über `rec_applicant_id` aufgelöst; Anstellungen ohne Bewerbung liefern dort
+   nichts (ebenso der Zuschlag, Ruling E14). Frage an Markus: Braucht ZAS die Datei bzw.
+   den Zuschlag dieser Verträge? Ein neuer Exportwert wird vorher angekündigt.
 
 ---
 
