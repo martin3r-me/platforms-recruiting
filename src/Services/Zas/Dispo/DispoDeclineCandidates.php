@@ -50,11 +50,10 @@ class DispoDeclineCandidates
 
         $at = Carbon::parse($message->created_at ?? now());
 
-        // Untergrenze je Filiale: nur Nachrichten NACH dem Einschalten (Entscheidung 4).
+        // Nur Nachrichten NACH dem Einschalten und am selben Kalendertag (Entscheidung 4, Kunde 09.10.).
         $filialen = RecDispoFilialeSettings::query()
             ->where('team_id', $teamId)
-            ->whereNotNull('decline_check_enabled_at')
-            ->where('decline_check_enabled_at', '<=', $at)
+            ->declineCheckActiveAt($at)
             ->pluck('filial_nr')
             ->map(fn ($v) => (int) $v)
             ->all();

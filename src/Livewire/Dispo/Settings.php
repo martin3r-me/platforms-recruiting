@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Dispo;
 
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoDeclineCheck;
@@ -56,6 +57,9 @@ class Settings extends Component
     public array $filialeDutyPhone = [];
     /** Absage-Erkennung je Filiale (Checkbox, Livewire liefert bool). @var array<int, bool|string> */
     public array $filialeDeclineCheck = [];
+    /** Checkbox-Stand beim Laden — trennt einen frischen Klick vom Haken einer ueber Nacht offenen Seite. @var array<int, bool> */
+    #[Locked]
+    public array $filialeDeclineCheckLoaded = [];
     public ?int $savedFilialNr = null;
 
     public function mount(): void
@@ -86,7 +90,8 @@ class Settings extends Component
             $row = $this->filialeSettings->get($nr);
             $this->filialeChannelId[$nr] = $row ? (string) $row->comms_channel_id : '';
             $this->filialeDutyPhone[$nr] = $row ? (string) $row->duty_phone : '';
-            $this->filialeDeclineCheck[$nr] = $row?->decline_check_enabled_at !== null;
+            $this->filialeDeclineCheck[$nr] = RecDispoFilialeSettings::isDeclineCheckActive($row?->decline_check_enabled_at, now());
+            $this->filialeDeclineCheckLoaded[$nr] = $this->filialeDeclineCheck[$nr];
         }
     }
 
@@ -217,12 +222,15 @@ class Settings extends Component
         $channelId  = ($channelRaw !== '' && ctype_digit($channelRaw)) ? (int) $channelRaw : null;
         $dutyPhone  = trim((string) ($this->filialeDutyPhone[$filialNr] ?? ''));
 
-        // Absage-Erkennung: der Einschalt-Zeitpunkt ist die Untergrenze der
-        // Pruefung — erneutes Speichern bei "an" darf ihn NICHT nach vorne schieben.
+        // Absage-Erkennung: Regel siehe RecDispoFilialeSettings::declineCheckStampOnSave
+        // (Start bleibt am selben Tag; Haken von gestern auf offener Seite = aus).
         $existing = RecDispoFilialeSettings::where('team_id', $this->teamId())->where('filial_nr', $filialNr)->first();
-        $declineCheckAt = !empty($this->filialeDeclineCheck[$filialNr])
-            ? ($existing?->decline_check_enabled_at ?? now())
-            : null;
+        $declineCheckAt = RecDispoFilialeSettings::declineCheckStampOnSave(
+            !empty($this->filialeDeclineCheck[$filialNr]),
+            !empty($this->filialeDeclineCheckLoaded[$filialNr]),
+            $existing?->decline_check_enabled_at,
+            now(),
+        );
 
         RecDispoFilialeSettings::updateOrCreate(
             ['team_id' => $this->teamId(), 'filial_nr' => $filialNr],
@@ -232,6 +240,7 @@ class Settings extends Component
                 'decline_check_enabled_at' => $declineCheckAt,
             ]
         );
+        $this->filialeDeclineCheck[$filialNr] = $this->filialeDeclineCheckLoaded[$filialNr] = $declineCheckAt !== null;
         unset($this->filialeSettings, $this->declineCheckCounts);
 
         $this->savedFilialNr = $filialNr;

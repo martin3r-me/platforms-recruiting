@@ -21,6 +21,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCandidates;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCheckGate;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCheckRunner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineClassifier;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineReview;
@@ -140,11 +141,11 @@ class DispoDeclineCheckTest extends TestCase
 
     // ---- Aufbau ----
 
-    private function enable(string $since = '-1 day'): void
+    private function enable(): void
     {
         RecDispoFilialeSettings::create([
             'team_id' => self::TEAM, 'filial_nr' => self::FILIALE,
-            'decline_check_enabled_at' => now()->modify($since),
+            'decline_check_enabled_at' => now()->startOfDay(),
         ]);
     }
 
@@ -282,6 +283,66 @@ class DispoDeclineCheckTest extends TestCase
         $this->check($this->message($t, 'ich kann nicht'));
 
         $this->assertSame(0, RecDispoDeclineCheck::count());
+    }
+
+    public function test_switched_on_yesterday_is_off_today(): void
+    {
+        [, , , $t] = $this->scenario();
+        RecDispoFilialeSettings::query()->update(['decline_check_enabled_at' => now()->subDay()->setTime(10, 0)]);
+
+        $m = $this->message($t, 'ich kann nicht');
+        $this->assertFalse(DispoDeclineCheckGate::shouldQueue(CommsWhatsAppMessage::find($m)));
+        $this->check($m);
+
+        $this->assertSame(0, RecDispoDeclineCheck::count());
+        $this->assertSame([], self::$llmCalls);
+    }
+
+    public function test_switched_on_today_queues_the_check(): void
+    {
+        [, , , $t] = $this->scenario();
+
+        $this->assertTrue(DispoDeclineCheckGate::shouldQueue(CommsWhatsAppMessage::find($this->message($t, 'ich kann nicht'))));
+    }
+
+    public function test_message_from_the_switch_on_day_is_checked_even_if_the_job_runs_the_next_day(): void
+    {
+        [, , $a, $t] = $this->scenario();
+        $yesterday = now()->subDay();
+        RecDispoFilialeSettings::query()->update(['decline_check_enabled_at' => $yesterday->copy()->setTime(10, 0)]);
+        RecDispoAssignment::query()->whereKey($a)->update(['reminder_sent_at' => $yesterday->copy()->setTime(9, 0)]);
+        $m = $this->message($t, 'ich kann nicht');
+        CommsWhatsAppMessage::query()->whereKey($m)->update(['created_at' => $yesterday->copy()->setTime(20, 0)]);
+        self::$llmAnswer = json_encode(['absage' => true, 'sicherheit' => 'high', 'einbuchungen' => [$a], 'grund' => 'sagt ab']);
+
+        $this->assertTrue(DispoDeclineCheckGate::shouldQueue(CommsWhatsAppMessage::find($m)));
+        $this->check($m);
+
+        $this->assertSame(1, RecDispoDeclineCheck::where('review_status', RecDispoDeclineCheck::REVIEW_OPEN)->count());
+    }
+
+    public function test_switch_rule_is_bound_to_the_calendar_day(): void
+    {
+        $on = new \DateTimeImmutable('2026-10-09 10:00:00');
+
+        $this->assertTrue(RecDispoFilialeSettings::isDeclineCheckActive($on, new \DateTimeImmutable('2026-10-09 10:00:00')));
+        $this->assertTrue(RecDispoFilialeSettings::isDeclineCheckActive($on, new \DateTimeImmutable('2026-10-09 23:59:59')));
+        $this->assertFalse(RecDispoFilialeSettings::isDeclineCheckActive($on, new \DateTimeImmutable('2026-10-09 09:59:59')), 'vor dem Einschalten');
+        $this->assertFalse(RecDispoFilialeSettings::isDeclineCheckActive($on, new \DateTimeImmutable('2026-10-10 00:00:00')), 'um Mitternacht aus');
+        $this->assertFalse(RecDispoFilialeSettings::isDeclineCheckActive(null, new \DateTimeImmutable('2026-10-09 12:00:00')));
+    }
+
+    public function test_saving_the_row_keeps_the_start_today_and_never_revives_a_stale_tick(): void
+    {
+        $now = new \DateTimeImmutable('2026-10-10 09:00:00');
+        $today = new \DateTimeImmutable('2026-10-10 07:30:00');
+        $yesterday = new \DateTimeImmutable('2026-10-09 10:00:00');
+
+        $this->assertNull(RecDispoFilialeSettings::declineCheckStampOnSave(false, true, $today, $now), 'Haken raus = aus');
+        $this->assertSame($today, RecDispoFilialeSettings::declineCheckStampOnSave(true, true, $today, $now), 'erneutes Speichern verschiebt den Start nicht');
+        $this->assertNull(RecDispoFilialeSettings::declineCheckStampOnSave(true, true, $yesterday, $now), 'Seite ueber Nacht offen: Haken von gestern schaltet nicht wieder ein');
+        $this->assertSame($now, RecDispoFilialeSettings::declineCheckStampOnSave(true, false, $yesterday, $now), 'frischer Klick schaltet ein');
+        $this->assertSame($now, RecDispoFilialeSettings::declineCheckStampOnSave(true, false, null, $now));
     }
 
     public function test_person_not_yet_asked_for_confirmation_is_not_checked(): void
