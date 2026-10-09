@@ -11,6 +11,8 @@ use Platform\Recruiting\Jobs\CheckDispoDeclineJob;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
 use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
+use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
+use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
@@ -169,6 +171,11 @@ class HandleWhatsAppInboundForRecruiting
                 return;
             }
 
+            if (isset($result['employee_match'])) {
+                $this->handleEmployeeSender($result['employee_match'], $thread, $senderPhone, $logExtra);
+                return;
+            }
+
             $applicant = $result['applicant'];
 
             // Quellplattform nur einmal bei Erstanlage setzen.
@@ -259,6 +266,41 @@ class HandleWhatsAppInboundForRecruiting
                 extra: $logExtra,
             );
         }
+    }
+
+    /**
+     * Absender ist aktiver Mitarbeiter: kein Bewerber. Eindeutig -> Thread an
+     * den Mitarbeiter haengen (Kommunikationsseite zeigt ihn dann unter
+     * "Mitarbeiter"). Mehrdeutig (verschiedene Personen, eine Nummer) ->
+     * nichts zuordnen, nur protokollieren; der Chat bleibt unter "Alle".
+     *
+     * @param array{status: string, employee_id: ?int, employee_ids: list<int>} $match
+     */
+    private function handleEmployeeSender(array $match, CommsWhatsAppThread $thread, string $senderPhone, array $logExtra): void
+    {
+        $ids = implode(', ', array_map(fn ($id) => '#' . $id, $match['employee_ids']));
+
+        if ($match['status'] === EmployeeSenderResolver::EMPLOYEE && $match['employee_id'] !== null) {
+            EmployeeThreadLinker::link($thread, $match['employee_id'], 'recruiting_inbound_employee');
+
+            CommsLog::log(
+                event: 'inbound_skipped',
+                status: 'info',
+                summary: "Absender {$senderPhone} ist Mitarbeiter #{$match['employee_id']}, kein Bewerber angelegt",
+                details: ['thread_id' => $thread->id, 'employee_id' => $match['employee_id'], 'employee_ids' => $match['employee_ids']],
+                extra: $logExtra,
+            );
+
+            return;
+        }
+
+        CommsLog::log(
+            event: 'inbound_skipped',
+            status: 'info',
+            summary: "Nummer {$senderPhone} gehört mehreren Mitarbeitern ({$ids}), kein Bewerber angelegt, nicht zugeordnet",
+            details: ['thread_id' => $thread->id, 'employee_ids' => $match['employee_ids']],
+            extra: $logExtra,
+        );
     }
 
     /**

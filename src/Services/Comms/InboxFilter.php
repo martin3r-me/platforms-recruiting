@@ -15,5 +15,7 @@ final class InboxFilter
         public readonly bool $handled = false,
         /** fuer owner = 'mine' */
         public readonly ?int $currentUserId = null,
+        /** all | applicants | employees — Mitarbeiter = Mitarbeiter-Thread ODER Bewerbung mit aktivem Mitarbeiter */
+        public readonly string $kind = 'all',
     ) {}
 }

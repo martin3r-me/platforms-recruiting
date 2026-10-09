@@ -36,6 +36,8 @@ class Inbox extends Component
     ];
 
     public string $level = 'all';
+    /** all | applicants | employees — Umschalter ueber der Liste */
+    public string $kind = 'all';
     public string $owner = 'all';
     public string $search = '';
     public bool $showHandled = false;
@@ -97,6 +99,7 @@ class Inbox extends Component
             search: $this->search,
             handled: $this->showHandled,
             currentUserId: (int) Auth::id(),
+            kind: $this->kind,
         );
     }
 
@@ -128,6 +131,13 @@ class Inbox extends Component
         $this->level = ($this->level === $level) ? 'all' : $level;
         $this->showHandled = false;
         $this->showForwards = false;
+        $this->discardSelectionOnFilterChange();
+        $this->resetPage();
+    }
+
+    public function setKind(string $kind): void
+    {
+        $this->kind = in_array($kind, ['all', 'applicants', 'employees'], true) ? $kind : 'all';
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
