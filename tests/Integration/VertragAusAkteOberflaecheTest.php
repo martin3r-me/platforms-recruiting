@@ -182,7 +182,32 @@ final class VertragAusAkteOberflaecheTest extends TestCase
 
         $akte->vertragStornieren($fertig->id);
         $this->assertSame('completed', $fertig->fresh()->status);
-        $this->assertSame('Nur offene Verträge dieser Akte lassen sich hier stornieren.', $akte->flashError);
+        $this->assertSame('Hier lassen sich nur offene Arbeitsverträge dieser Akte stornieren.', $akte->flashError);
+    }
+
+    /**
+     * Ledger T7-1 / Schlussreview M4: Stornieren in der Akte nur fuer
+     * Arbeitsvertraege (Spec §1: die Akte kennt nur AV). IFSG/AT aus dem
+     * Bewerbungsweg (auch pending) bleiben unberuehrt — Knopf UND Server.
+     * Probe: can_cancel wieder true bzw. istAv-Waechter in vertragStornieren() entfernen → rot.
+     */
+    public function test_stornieren_nur_fuer_arbeitsvertraege(): void
+    {
+        $ma = $this->anstellung();
+        $av = $this->vertragAn($ma, $this->maVorlage());
+        $ifsg = $this->vertragAn($ma, $this->vorlage('IFSG'), ['status' => 'pending', 'sent_at' => null]);
+        $at = $this->vertragAn($ma, $this->vorlage('AT-140'));
+        $akte = $this->akte($ma);
+
+        $knopf = array_column($akte->openContracts(), 'can_cancel', 'id');
+        $this->assertSame([$av->id => true, $ifsg->id => false, $at->id => false], $knopf);
+
+        $akte->vertragStornieren($ifsg->id);
+        $this->assertSame('pending', $ifsg->fresh()->status);
+        $this->assertSame('Hier lassen sich nur offene Arbeitsverträge dieser Akte stornieren.', $akte->flashError);
+
+        $akte->vertragStornieren($at->id);
+        $this->assertSame('sent', $at->fresh()->status);
     }
 
     public function test_neu_ausstellen_ohne_bewerbung_meldet_statt_abzustuerzen(): void

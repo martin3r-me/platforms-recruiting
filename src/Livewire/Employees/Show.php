@@ -564,7 +564,8 @@ class Show extends Component
                     'status'       => $c->status,
                     'sent_at'      => $c->sent_at,
                     'can_reissue'  => $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV') && $c->rec_applicant_id !== null,
-                    'can_cancel'   => true,
+                    // Nur AV (Spec §1/§2.7, Ledger T7-1): IFSG/AT aus dem Bewerbungsweg bleiben unberuehrt.
+                    'can_cancel'   => VertragsDeckung::istAv($code),
                     'sign_url'     => $c->publicFormLink
                         ? route('recruiting.public.contract-signing', ['token' => $c->publicFormLink->token])
                         : null,
@@ -867,15 +868,20 @@ class Show extends Component
             . self::hinweisSatz($service->letzterHinweis());
     }
 
-    /** Nur offene Vertraege DIESER Akte (Spec §2.1 "umkehrbar") — der Signaturlink stirbt mit. */
+    /**
+     * Nur offene ARBEITSvertraege DIESER Akte (Spec §2.1 "umkehrbar", §2.7) —
+     * der Signaturlink stirbt mit. Der Waechter steht auch hier, nicht nur am
+     * Knopf: $wire.vertragStornieren(id) ist frei aufrufbar.
+     */
     public function vertragStornieren(int $contractId): void
     {
         $this->flash = null;
         $this->flashError = null;
 
         $vertrag = $this->employee()?->contracts->firstWhere('id', $contractId);
-        if (!$vertrag || in_array($vertrag->status, ['completed', 'cancelled'], true)) {
-            $this->flashError = 'Nur offene Verträge dieser Akte lassen sich hier stornieren.';
+        if (!$vertrag || in_array($vertrag->status, ['completed', 'cancelled'], true)
+            || !VertragsDeckung::istAv($vertrag->contractTemplate?->code)) {
+            $this->flashError = 'Hier lassen sich nur offene Arbeitsverträge dieser Akte stornieren.';
 
             return;
         }
