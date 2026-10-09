@@ -72,6 +72,10 @@ class RecApplicantSettings extends Model
         // der das Portal-Token als Suffix traegt. Ohne Wert liegt jedes
         // Dokument bereit, aber niemand bekommt eine WhatsApp.
         'document_wa_template_id' => null,
+        // Vertrag aus der Akte (Spec 2026-10-09, §2.4): Hinweis "Vertrag zur
+        // Unterschrift im Portal". Leer = VertragHinweisSender nimmt
+        // document_wa_template_id.
+        'employee_contract_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je
         // Kalenderjahr (§8 Abs. 1 Nr. 2 SGB IV). Als Einstellung, weil es

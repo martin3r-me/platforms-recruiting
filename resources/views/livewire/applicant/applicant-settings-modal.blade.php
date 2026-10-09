@@ -239,6 +239,25 @@
                         wire:model.live="settings.default_contact_user_id"
                     />
 
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['employee_contract_wa_template_id'] ?? null"
+                            name="settings.employee_contract_wa_template_id"
+                            label="Vertrag zur Unterschrift — WhatsApp-Template mit Portal-Link"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– wie Dokumente –"
+                            wire:model.live="settings.employee_contract_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                            Geht raus, wenn HR in der Mitarbeiterakte einen Vertrag erstellt. Leer gelassen wird das
+                            Dokumente-Template genommen. Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf,
+                            dessen Variable am Ende steht.
+                        </p>
+                    @endif
+
                     {{-- Auto-Assign Owner --}}
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                         <label class="flex items-center gap-3 cursor-pointer">

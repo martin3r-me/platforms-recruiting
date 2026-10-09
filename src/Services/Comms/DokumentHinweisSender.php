@@ -70,7 +70,7 @@ class DokumentHinweisSender
             return self::STATUS_NO_PHONE;
         }
 
-        $ziel = app(HoldingTemplateSender::class)->resolveTarget((int) $employee->team_id, self::SETTINGS_KEY);
+        $ziel = app(HoldingTemplateSender::class)->resolveTarget((int) $employee->team_id, $this->vorlagenSchluessel((int) $employee->team_id));
         if ($ziel['error'] !== null) {
             Log::error('recruiting.dokumente.nicht_konfiguriert', ['team_id' => $employee->team_id, 'fehler' => $ziel['error']]);
 
@@ -142,6 +142,17 @@ class DokumentHinweisSender
         }
 
         return self::STATUS_SENT;
+    }
+
+    /**
+     * Welcher Einstellungs-Schluessel die Vorlage traegt. Eigene Methode,
+     * damit VertragHinweisSender (Spec Vertrag aus der Akte §2.4) seinen
+     * Schluessel mit Rueckfall auf diesen setzen kann, ohne den Versandweg
+     * zu kopieren.
+     */
+    protected function vorlagenSchluessel(int $teamId): string
+    {
+        return self::SETTINGS_KEY;
     }
 
     /** @return list<string> alle {{...}} im BODY, in Fundreihenfolge, ohne Doppelte */
