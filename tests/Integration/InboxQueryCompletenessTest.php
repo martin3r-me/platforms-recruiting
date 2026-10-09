@@ -175,6 +175,10 @@ class InboxQueryCompletenessTest extends TestCase
             'missed' => 4,
             'handled' => 1,
             'total' => 5,
+            // Filter Alle | Bewerber | Mitarbeiter: vier der fuenf haengen an
+            // einem Bewerber, der Chat ohne Kontext zaehlt nur unter "Alle".
+            'applicants' => 4,
+            'employees' => 0,
         ], $counts);
     }
 

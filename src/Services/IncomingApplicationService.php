@@ -9,6 +9,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 
 class IncomingApplicationService
 {
@@ -28,7 +29,9 @@ class IncomingApplicationService
      * @param string|null         $messageBody       The message text
      * @param RecSourcePlatform|null $source         Already-detected source platform (from listener)
      *
-     * @return array{applicant: RecApplicant, posting: ?RecPosting, is_new: bool}|null
+     * @return array{applicant: RecApplicant, posting: ?RecPosting, is_new: bool}|array{employee_match: array{status: string, employee_id: ?int, employee_ids: list<int>}}|null
+     *         'employee_match' nur bei WhatsApp: Absender ist aktiver Mitarbeiter
+     *         (oder mehrdeutig), es wurde KEIN Bewerber angelegt.
      */
     public function handleInboundMessage(
         CommsChannel $channel,
@@ -81,6 +84,35 @@ class IncomingApplicationService
                 'posting' => $existingApplicant->postings()->first(),
                 'is_new' => false,
             ];
+        }
+
+        // Mitarbeiter-Check — bewusst NACH dem Bestandscheck: wer aus einer
+        // Bewerbung zum Mitarbeiter wurde, bleibt an seiner Bewerbung
+        // (Reminder-Antworten, Kampagnen-Reaktionen laufen dort). Hier landen
+        // nur Absender OHNE auffindbare Bewerbung, typisch ZAS-Bestand, der
+        // seine Nummer nur in rec_employees.phone hat. Nur WhatsApp: der
+        // Abgleich laeuft ueber die Telefonnummer.
+        if ($channel->type === 'whatsapp') {
+            try {
+                $employeeMatch = app(EmployeeSenderResolver::class)->resolve($senderIdentifier, (int) $teamId);
+            } catch (\Throwable $e) {
+                // Lieber ein Bewerber zu viel als eine verschluckte Nachricht.
+                Log::warning('[IncomingApplicationService] Employee sender check failed, continuing as applicant', [
+                    'sender' => $senderIdentifier,
+                    'error' => $e->getMessage(),
+                ]);
+                $employeeMatch = null;
+            }
+
+            if ($employeeMatch !== null && $employeeMatch['status'] !== EmployeeSenderResolver::NONE) {
+                Log::info('[IncomingApplicationService] Sender is an active employee, skipping applicant creation', [
+                    'sender' => $senderIdentifier,
+                    'status' => $employeeMatch['status'],
+                    'employee_ids' => $employeeMatch['employee_ids'],
+                ]);
+
+                return ['employee_match' => $employeeMatch];
+            }
         }
 
         // Neuer Bewerber: Stufe 1 inline, Stufe 2-4 asynchron im Job

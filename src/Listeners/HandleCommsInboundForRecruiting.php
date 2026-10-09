@@ -111,7 +111,8 @@ class HandleCommsInboundForRecruiting
                 source: $source,
             );
 
-            if (!$result) {
+            // employee_match liefert der Service nur fuer WhatsApp — hier nur Schutz.
+            if (!$result || !isset($result['applicant'])) {
                 return;
             }
 

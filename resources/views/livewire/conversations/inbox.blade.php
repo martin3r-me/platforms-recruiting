@@ -178,6 +178,25 @@
                  Felder gehen ueber updated() (search/owner -> Auswahl leeren +
                  Seite zuruecksetzen) direkt in InboxFilter/InboxQuery. --}}
             <div class="space-y-2 border-b border-gray-200 px-3 py-2">
+                {{-- Alle | Bewerber | Mitarbeiter: Mitarbeiter-Nachrichten laufen hier
+                     mit auf, statt als neue Bewerbung (Kundenwunsch 09.10.2026).
+                     Zaehler = offene Chats, wie die Ampel-Pillen. Drei gleich breite
+                     Felder, passt auch auf Handybreite. --}}
+                @php
+                    $kindTabs = [
+                        ['key' => 'all', 'label' => 'Alle', 'value' => $counts['total']],
+                        ['key' => 'applicants', 'label' => 'Bewerber', 'value' => $counts['applicants'] ?? 0],
+                        ['key' => 'employees', 'label' => 'Mitarbeiter', 'value' => $counts['employees'] ?? 0],
+                    ];
+                @endphp
+                <div class="grid grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1">
+                    @foreach ($kindTabs as $tab)
+                        <button type="button" wire:click="setKind('{{ $tab['key'] }}')"
+                                class="rounded-md px-2 py-1 text-xs font-semibold {{ $kind === $tab['key'] ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700' }}">
+                            {{ $tab['label'] }} {{ $tab['value'] }}
+                        </button>
+                    @endforeach
+                </div>
                 {{-- Suche auf eigener Zeile und voller Breite: gequetscht neben
                      Auswahlfeld und Knopf brach der Platzhalter nach "Name oder Nu"
                      ab und niemand erkannte das Feld als Suche. --}}

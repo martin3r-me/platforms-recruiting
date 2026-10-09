@@ -28,7 +28,7 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 final class InboxQuery
 {
-    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int} */
+    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int} */
     public function counts(int $teamId, ?int $now = null): array
     {
         return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now)['counts'];
@@ -126,7 +126,7 @@ final class InboxQuery
      * saubere Fehlkonfiguration und wuerde still den Verlustpfad
      * wiederherstellen, den dieses Feature beseitigt.
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int}, rows: list<InboxRow>, total: int, fallback: bool}
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool}
      */
     public function snapshot(
         int $teamId,
@@ -188,12 +188,13 @@ final class InboxQuery
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int}
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int}
      */
     private function countsFromScored(array $rows): array
     {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
-                   'missed' => 0, 'handled' => 0, 'total' => 0];
+                   'missed' => 0, 'handled' => 0, 'total' => 0,
+                   'applicants' => 0, 'employees' => 0];
 
         foreach ($rows as $row) {
             if ($row['handled']) {
@@ -201,6 +202,11 @@ final class InboxQuery
                 continue;
             }
             $counts['total']++;
+            if ($row['kind'] === 'applicant') {
+                $counts['applicants']++;
+            } elseif ($row['kind'] === 'employee') {
+                $counts['employees']++;
+            }
             if ($row['is_unread']) {
                 $counts['unread']++;
             }
@@ -252,6 +258,20 @@ final class InboxQuery
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
 
+        // Bewerbungen, aus denen ein aktiver Mitarbeiter wurde: deren Chats
+        // haengen weiter an der Bewerbung, gehoeren im Filter aber zu
+        // "Mitarbeiter". Eine Query fuer die ganze Grundmenge.
+        $employeeApplicantIds = array_fill_keys(
+            RecEmployee::query()
+                ->where('team_id', $teamId)
+                ->where('is_active', true)
+                ->whereNotNull('rec_applicant_id')
+                ->pluck('rec_applicant_id')
+                ->map(fn ($id) => (int) $id)
+                ->all(),
+            true,
+        );
+
         // Geschwister je Nummer (letzte 10 Ziffern) zaehlen — nur fuer den Hinweis-Chip.
         $byDigits = [];
         foreach ($threads as $thread) {
@@ -282,6 +302,11 @@ final class InboxQuery
                 'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
                 'siblings' => max(0, count($byDigits[$digits] ?? []) - 1),
                 'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
+                'kind' => $this->kindOf(
+                    (string) ($thread->context_model ?? ''),
+                    $thread->context_model_id ? (int) $thread->context_model_id : null,
+                    $employeeApplicantIds,
+                ),
             ];
         }
 
@@ -297,6 +322,13 @@ final class InboxQuery
     private function matches(array $row, InboxFilter $filter, ?array $allowed): bool
     {
         if ($row['handled'] !== $filter->handled) {
+            return false;
+        }
+
+        if ($filter->kind === 'applicants' && $row['kind'] !== 'applicant') {
+            return false;
+        }
+        if ($filter->kind === 'employees' && $row['kind'] !== 'employee') {
             return false;
         }
 
@@ -353,6 +385,29 @@ final class InboxQuery
         }
 
         return true;
+    }
+
+    /**
+     * Zuordnung fuer den Filter Alle | Bewerber | Mitarbeiter:
+     * 'employee' = Mitarbeiter-Thread ODER Bewerbung, aus der ein aktiver
+     * Mitarbeiter wurde; 'applicant' = uebrige Bewerber-Threads; 'other' =
+     * nicht zugeordnet (nur unter "Alle").
+     *
+     * @param array<int, true> $employeeApplicantIds
+     */
+    private function kindOf(string $contextModel, ?int $contextId, array $employeeApplicantIds): string
+    {
+        if ($contextId === null) {
+            return 'other';
+        }
+        if ($this->isEmployeeContext($contextModel)) {
+            return 'employee';
+        }
+        if ($this->isApplicantContext($contextModel)) {
+            return isset($employeeApplicantIds[$contextId]) ? 'employee' : 'applicant';
+        }
+
+        return 'other';
     }
 
     /** @see hydrate() — dieselbe Zwei-Alias-Pruefung (Morph-Map ODER volle Klasse). */
