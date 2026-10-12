@@ -27,3 +27,5 @@ Chat-Liste nicht. Dafür gibt es jetzt den Reiter **„Nicht zugestellt“**.
 - **„Erledigt“ gilt nur für diese eine Nachricht.** Scheitert später wieder eine Nachricht an dieselbe Person,
   taucht sie erneut auf.
 - Die Liste zeigt die **letzten 30 Tage**. Ältere Fehlschläge stehen nicht drin.
+- Hier steht nur, was WhatsApp ausdrücklich als **nicht zugestellt** meldet. Eine Nachricht, die noch unterwegs ist
+  (z. B. Handy länger aus, nur ein Haken), erscheint nicht.

@@ -16,6 +16,7 @@ use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDeliveryFailureAck;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\DeliveryFailureReason;
 use Platform\Recruiting\Services\Comms\UndeliveredQuery;
 
@@ -28,6 +29,7 @@ use Platform\Recruiting\Services\Comms\UndeliveredQuery;
 class UndeliveredQueryTest extends TestCase
 {
     private const TEAM = 731;
+    private const TEAM_OHNE_KANAL = 732;
     private const JETZT = 1_757_930_000;
 
     private static int $channelId = 0;
@@ -148,7 +150,11 @@ class UndeliveredQueryTest extends TestCase
             count($query->rows(self::TEAM, self::JETZT)),
             $query->count(self::TEAM, self::JETZT),
         );
-        $this->assertSame(5, $query->count(self::TEAM, self::JETZT), 'frisch, ueberschrieben, sofort, ohneCode, quittiert (Alt-Quittung deckt den Fehlschlag nicht).');
+        $this->assertSame(
+            ['frisch', 'mitarbeiter', 'ohneCode', 'quittiert', 'sofort', 'ueberschrieben'],
+            $this->namesOf(array_column($query->rows(self::TEAM, self::JETZT), 'thread_id')),
+            'Alt-Quittung (message_id 0) deckt den Fehlschlag von "quittiert" nicht.',
+        );
     }
 
     public function test_neueste_zuerst(): void
@@ -161,7 +167,9 @@ class UndeliveredQueryTest extends TestCase
     public function test_erledigt_gilt_bis_zur_naechsten_gescheiterten_nachricht(): void
     {
         $query = new UndeliveredQuery();
-        $thread = self::$t['quittiert'];
+        // Eigener Thread, damit dieser Ablauf den Bestand der anderen Tests nicht veraendert.
+        $thread = self::thread(self::$channelId, '+49 151 80000099', 'rec_applicant', 699, null);
+        self::message($thread, 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 4 * 86400);
 
         $this->assertNotNull($this->row($thread));
         $this->assertTrue($query->acknowledge(self::TEAM, $thread, 7, self::JETZT));
@@ -171,8 +179,60 @@ class UndeliveredQueryTest extends TestCase
         self::message($thread, 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 60);
         $this->assertNotNull($this->row($thread), 'Ein neuer Fehlschlag holt ihn zurueck.');
 
-        // Aufraeumen fuer andere Tests (Zaehler).
-        $query->acknowledge(self::TEAM, $thread, 7, self::JETZT);
+        // Thread wieder neutralisieren: zugestellte Nachricht obendrauf.
+        self::message($thread, 'delivered', [], self::JETZT - 30, null, true);
+        $this->assertNull($this->row($thread));
+    }
+
+    public function test_aelterer_fehlschlag_aber_neueste_nachricht_nur_gesendet(): void
+    {
+        $this->assertNull($this->row(self::$t['neuesteGesendet']), 'Entscheidend ist nur die LETZTE ausgehende Nachricht.');
+    }
+
+    public function test_eingang_zur_selben_sekunde_gilt_als_geantwortet(): void
+    {
+        $this->assertNull($this->row(self::$t['gleichzeitig']));
+    }
+
+    public function test_mitarbeiter_kontext_wird_aufgeloest(): void
+    {
+        $row = $this->row(self::$t['mitarbeiter']);
+
+        $this->assertNotNull($row);
+        $this->assertSame('employee', $row['subject_type']);
+        $this->assertSame('Ali Demir', $row['name']);
+        $this->assertNull($row['owner_user_id']);
+    }
+
+    public function test_nicht_zugeordnet_zeigt_die_nummer(): void
+    {
+        $row = $this->row(self::$t['ohneCode']);
+
+        $this->assertSame('unassigned', $row['subject_type']);
+        $this->assertNull($row['subject_id']);
+        $this->assertSame('+49 151 80000004', $row['name']);
+    }
+
+    public function test_fremdes_team_auf_demselben_kanal_bleibt_draussen(): void
+    {
+        $this->assertNull($this->row(self::$t['fremdesTeam']));
+        $this->assertNull((new UndeliveredQuery())->threadForTeam(self::TEAM, self::$t['fremdesTeam']));
+    }
+
+    public function test_rueckfall_ohne_kanal_nimmt_nur_bewerber_und_mitarbeiter(): void
+    {
+        $ids = array_column((new UndeliveredQuery())->rows(self::TEAM_OHNE_KANAL, self::JETZT), 'thread_id');
+
+        $this->assertSame([self::$t['rueckfallBewerber']], $ids, 'Ohne Konto: nur zugeordnete Bewerber/Mitarbeiter, kein blosser Kontakt.');
+    }
+
+    /** @param list<int> $ids @return list<string> */
+    private function namesOf(array $ids): array
+    {
+        $names = array_map(fn (int $id) => (string) array_search($id, self::$t, true), $ids);
+        sort($names);
+
+        return $names;
     }
 
     public function test_erledigt_fuer_fremden_oder_unauffaelligen_thread_tut_nichts(): void
@@ -262,6 +322,30 @@ class UndeliveredQueryTest extends TestCase
         self::$t['ok'] = self::thread(self::$channelId, '+49 151 80000010', 'rec_applicant', 663, null);
         self::message(self::$t['ok'], 'sent', ['messages' => [['id' => 'wamid.y']]], self::JETZT - 3600);
 
+        self::$t['neuesteGesendet'] = self::thread(self::$channelId, '+49 151 80000012', 'rec_applicant', 665, null);
+        self::message(self::$t['neuesteGesendet'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 2 * $tag);
+        self::message(self::$t['neuesteGesendet'], 'sent', ['messages' => [['id' => 'wamid.z']]], self::JETZT - $tag);
+
+        self::$t['gleichzeitig'] = self::thread(self::$channelId, '+49 151 80000013', 'rec_applicant', 666, self::JETZT - 7200);
+        self::message(self::$t['gleichzeitig'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 7200);
+
+        self::$t['mitarbeiter'] = self::thread(self::$channelId, '+49 151 80000014', RecEmployee::class, 77, null);
+        self::message(self::$t['mitarbeiter'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 5 * $tag);
+        Capsule::table('rec_employees')->insert([
+            'id' => 77, 'uuid' => 'uuid-employee-77', 'team_id' => self::TEAM, 'first_name' => 'Ali', 'last_name' => 'Demir', 'is_active' => true,
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
+
+        // Gleicher Kanal, anderes Team (darf nie auftauchen).
+        self::$t['fremdesTeam'] = self::thread(self::$channelId, '+49 151 80000015', 'rec_applicant', 667, null, 733);
+        self::message(self::$t['fremdesTeam'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 3600);
+
+        // Team ohne Kanal-Konfiguration -> Rueckfall ueber den Kontext.
+        self::$t['rueckfallBewerber'] = self::thread(self::$fremdChannelId, '+49 151 80000016', 'rec_applicant', 668, null, self::TEAM_OHNE_KANAL);
+        self::message(self::$t['rueckfallBewerber'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 3600);
+        self::$t['rueckfallKontakt'] = self::thread(self::$fremdChannelId, '+49 151 80000017', 'Platform\\Crm\\Models\\CrmContact', 5, null, self::TEAM_OHNE_KANAL);
+        self::message(self::$t['rueckfallKontakt'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 3600);
+
         self::$t['quittiert'] = self::thread(self::$channelId, '+49 151 80000011', 'rec_applicant', 664, null);
         self::message(self::$t['quittiert'], 'failed', ['errors' => [['code' => 131026]]], self::JETZT - 4 * $tag);
         RecDeliveryFailureAck::create([
@@ -279,10 +363,10 @@ class UndeliveredQueryTest extends TestCase
         ]);
     }
 
-    private static function thread(int $channelId, string $phone, ?string $contextModel, ?int $contextId, ?int $lastInboundAt): int
+    private static function thread(int $channelId, string $phone, ?string $contextModel, ?int $contextId, ?int $lastInboundAt, int $teamId = self::TEAM): int
     {
         return (int) CommsWhatsAppThread::create([
-            'team_id' => self::TEAM,
+            'team_id' => $teamId,
             'comms_channel_id' => $channelId,
             'token' => bin2hex(random_bytes(8)),
             'remote_phone_number' => $phone,

@@ -1,7 +1,7 @@
 {{-- Reiter "Nicht zugestellt": unsere letzte WhatsApp kam nicht an, seitdem keine Antwort.
      Blade-Regeln: PHP-Bloecke nur in Blockform, keine an Woerter geklebten
      Direktiven, keine x-ui-Komponenten. --}}
-<div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]" wire:poll.60s>
+<div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]" wire:poll.visible.20s>
     @php
         $rows = $this->rows;
         $sel = $this->selected;
