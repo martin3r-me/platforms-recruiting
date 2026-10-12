@@ -199,6 +199,17 @@ trait HrBereichHarness
         return DB::table('rec_hr_vermerke')->orderBy('id')->get();
     }
 
+    /**
+     * Weg 4 ganz an: Server-Riegel UND Team-Schalter (Spec HR-Bereich §6).
+     * Der Stundenlauf (wendeNummernwechselAn) fragt beides in der gesperrten
+     * Lesung — wer "der Stundenlauf war schneller" nachstellt, braucht es an.
+     */
+    protected function notfallwegAn(?int $teamId = null): void
+    {
+        Container::getInstance()->make('config')->set('recruiting.konto.weg4_aktiv', true);
+        $this->einstellung('konto_notfall_weg_aktiv', true, $teamId);
+    }
+
     protected function einstellung(string $key, mixed $wert, ?int $teamId = null): void
     {
         $teamId ??= $this->team;

@@ -43,6 +43,7 @@ use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
 use Platform\Recruiting\RecruitingServiceProvider;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
+use Platform\Recruiting\Support\NummernwechselTafel;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -454,7 +455,10 @@ final class KontoZuruecksetzenTest extends TestCase
 
         DB::table('rec_applicant_settings')->insert([
             'team_id'  => self::TEAM,
-            'settings' => json_encode(['auto_pilot_wa_account_id' => $kontoId]),
+            // Spec HR-Bereich §6: Weg 4 braucht Server-Riegel UND Team-Schalter.
+            // Diese Klasse prueft, was Weg 4 TUT — der Team-Schalter steht an;
+            // die Faelle "Team aus" stellen ihn ausdruecklich ab.
+            'settings' => json_encode(['auto_pilot_wa_account_id' => $kontoId, 'konto_notfall_weg_aktiv' => true]),
         ]);
     }
 
@@ -2692,6 +2696,17 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->container->make('config')->set('recruiting.konto.weg4_aktiv', false);
     }
 
+    /** Den Team-Schalter konto_notfall_weg_aktiv eines Teams setzen (legt die Zeile bei Bedarf an). */
+    private function setzeTeamSchalter(bool $an, int $team = self::TEAM): void
+    {
+        $zeile = DB::table('rec_applicant_settings')->where('team_id', $team)->first();
+        $settings = $zeile ? (array) json_decode((string) $zeile->settings, true) : [];
+        $settings['konto_notfall_weg_aktiv'] = $an;
+        $zeile
+            ? DB::table('rec_applicant_settings')->where('team_id', $team)->update(['settings' => json_encode($settings)])
+            : DB::table('rec_applicant_settings')->insert(['team_id' => $team, 'settings' => json_encode($settings)]);
+    }
+
     /**
      * Ohne Freigabe antwortet Weg 4 wie ein FEHLGESCHLAGENER VERSUCH — nicht
      * mit einer eigenen Meldung.
@@ -2807,6 +2822,146 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertSame('notfall-code', $letzte->state);
         $this->assertSame([], $this->meta->calls, 'es darf nichts rausgegangen sein');
+    }
+
+    /** Spec HR-Bereich §6: Server an + Team aus -> kein Versand, Antwort zeichengleich. */
+    public function test_team_schalter_aus_antwortet_wie_ein_fehlgeschlagener_versuch(): void
+    {
+        $mitFalschenZiffern = $this->seite();
+        $mitFalschenZiffern->zumNotfall();
+        $mitFalschenZiffern->nummer = self::NUMMER_GETIPPT;
+        $mitFalschenZiffern->geburtsdatum = self::GEBURT;
+        $mitFalschenZiffern->ausweis = '9999';
+        $mitFalschenZiffern->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $mitFalschenZiffern->notfallAnfordern($this->sender());
+        $vergleich = $this->rendere($mitFalschenZiffern);
+        $this->assertNotSame('', trim($vergleich));
+
+        $this->setzeTeamSchalter(false);
+        $seite = $this->notfallVersuch();
+
+        $this->assertSame([], $this->meta->calls, 'Team aus: kein Code');
+        $this->assertSame($vergleich, $this->rendere($seite));
+        $zeilen = $this->logZeilen('recruiting.konto.weg4_abgeschaltet');
+        $this->assertCount(1, $zeilen);
+        $this->assertSame(['schritt' => 'anfordern', 'ebene' => 'team'], $zeilen[0]['daten']);
+    }
+
+    public function test_server_aus_und_team_an_verschickt_nichts_beide_an_verschickt(): void
+    {
+        $this->schalteWeg4Ab();
+        $this->notfallVersuch();
+        $this->assertSame([], $this->meta->calls);
+
+        $this->container->make('config')->set('recruiting.konto.weg4_aktiv', true);
+        $this->notfallVersuch();
+        $this->assertCount(1, $this->meta->calls, 'beide Riegel offen: Versand');
+    }
+
+    /**
+     * Gefragt wird das Team DER PERSON, nicht "irgendein Team ist an".
+     *
+     * Abweichung vom Brief (Mutationsprobe): die dort vorgesehene Person in
+     * Team 4 bekam auch bei Team-4-Schalter AN keinen Code (fuer Team 4 gibt
+     * es keinen WhatsApp-Kanal) — der Test war gruen ohne zu pruefen. Hier
+     * deshalb umgekehrt: die Person (Team 3, mit Kanal) aus, Team 4 an; und
+     * als Anker derselbe Versuch mit Team 3 an.
+     */
+    public function test_person_aus_team_mit_schalter_aus_bekommt_keinen_code_auch_wenn_ein_anderes_team_an_ist(): void
+    {
+        $this->setzeTeamSchalter(true, 4);
+        $this->setzeTeamSchalter(false);
+
+        $this->notfallVersuch();
+        $this->assertSame([], $this->meta->calls, 'Team 4 ist an, Team 3 (die Person) nicht');
+
+        $this->setzeTeamSchalter(true);
+        $this->notfallVersuch();
+        $this->assertCount(1, $this->meta->calls, 'Anker: mit Team 3 an geht der Code raus');
+    }
+
+    public function test_bestaetigen_mit_sitzung_von_vor_dem_abschalten_legt_keinen_antrag_an(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $this->setzeTeamSchalter(false);
+
+        $seite->notfallBestaetigen();
+
+        $this->assertSame(KontoAnmelden::MELDUNG_ZURUECK, $seite->fehler);
+        $this->assertNull($this->zeile()->wechsel_neue_nummer);
+        $this->assertSame('bestaetigen', $this->logZeilen('recruiting.konto.weg4_abgeschaltet')[0]['daten']['schritt']);
+    }
+
+    public function test_faellig_mit_team_schalter_aus_wendet_nicht_an_und_endet_mit_null(): void
+    {
+        DB::table('rec_persons')->where('id', $this->personId)->update([
+            'wechsel_neue_nummer' => self::NEUE_NUMMER, 'wechsel_beantragt_at' => '2026-09-28 10:00:00',
+            'wechsel_wirksam_ab' => '2026-09-29 10:00:00', 'wechsel_quelle' => 'notfall',
+        ]);
+        $this->setzeTeamSchalter(false);
+
+        [$code, $ausgabe] = $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(0, $code);
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertStringContainsString('0 angewendet, 0 noch nicht faellig, 0 gescheitert, 1 liegen bei HR.', $ausgabe);
+        $this->assertStringContainsString('Notfallweg', $ausgabe);
+
+        $this->setzeTeamSchalter(true);
+        $this->kommando(['--faellig' => true]);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone, 'wieder an: der Stundenlauf wendet an');
+    }
+
+    /**
+     * Controller-Ruling K4: --offen nennt einen Notfall-Antrag bei
+     * abgeschaltetem Team-Schalter "wartet auf HR" — nicht "offen", sonst
+     * glaubt HR, der Stundenlauf erledige ihn.
+     */
+    public function test_offen_zeigt_bei_team_schalter_aus_wartet_auf_hr(): void
+    {
+        DB::table('rec_persons')->where('id', $this->personId)->update([
+            'wechsel_neue_nummer' => self::NEUE_NUMMER, 'wechsel_beantragt_at' => '2026-09-28 10:00:00',
+            'wechsel_wirksam_ab' => '2026-09-29 10:00:00', 'wechsel_quelle' => 'notfall',
+        ]);
+
+        [, $an] = $this->kommando(['--offen' => true]);
+        $this->assertStringNotContainsString('wartet auf HR', $an, 'Vorflug: Team an zeigt offen');
+
+        $this->setzeTeamSchalter(false);
+        [, $aus] = $this->kommando(['--offen' => true]);
+
+        $this->assertStringContainsString(NummernwechselTafel::ZUSTAND_NOTFALLWEG_AUS, $aus);
+    }
+
+    /**
+     * Uebertrag aus der Aufgabe-3-Pruefung: der Schalter wird IN der
+     * gesperrten Lesung des Antrags gefragt, nicht nur vorher in der Liste.
+     * Wer zwischen Listenlesung und Anwenden abschaltet, laesst keinen
+     * faelligen Antrag mehr durch.
+     */
+    public function test_abschalten_zwischen_liste_und_anwenden_laesst_den_antrag_nicht_durch(): void
+    {
+        DB::table('rec_persons')->where('id', $this->personId)->update([
+            'wechsel_neue_nummer' => self::NEUE_NUMMER, 'wechsel_beantragt_at' => '2026-09-28 10:00:00',
+            'wechsel_wirksam_ab' => '2026-09-29 10:00:00', 'wechsel_quelle' => 'notfall',
+        ]);
+
+        $liste = KontoWriter::offeneNummernwechsel(self::TEAM);
+        $this->assertCount(1, $liste);
+        $this->assertSame(
+            NummernwechselTafel::ZUSTAND_OFFEN,
+            NummernwechselTafel::zustand($liste[0], KontoWriter::notfallWegAn($this->personId)),
+            'Vorflug: zur Listenzeit ist der Antrag anwendbar',
+        );
+
+        $this->setzeTeamSchalter(false);
+
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($this->personId));
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->wechsel_neue_nummer, 'der Antrag bleibt fuer HR liegen');
+
+        $this->setzeTeamSchalter(true);
+        $this->assertNotNull(KontoWriter::wendeNummernwechselAn($this->personId), 'wieder an: anwendbar');
     }
 
     /**

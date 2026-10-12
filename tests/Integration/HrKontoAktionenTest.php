@@ -127,6 +127,7 @@ final class HrKontoAktionenTest extends TestCase
     public function test_stopp_nach_angewendetem_antrag_meldet_schon_erledigt_ohne_vermerk(): void
     {
         [$id] = $this->menschMitAntrag(7, '2026-10-12 08:00:00');
+        $this->notfallwegAn(7);
         KontoWriter::wendeNummernwechselAn($id);
 
         $e = $this->aktionen()->stoppeAntrag($id, self::NOTIZ);

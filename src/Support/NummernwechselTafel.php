@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Support;
 
+use Platform\Recruiting\Services\KontoWriter;
+
 /**
  * Die EINE Darstellung der offenen Notfall-Antraege aus Weg 4 (Spec §5).
  *
@@ -46,6 +48,21 @@ final class NummernwechselTafel
      */
     public static function zeilen(array $offene): array
     {
+        // Controller-Ruling K4: der Team-Schalter JE ZEILE — die Tafel zeigt
+        // ohne Team-Filter Antraege mehrerer Teams. Gefragt wird nur fuer
+        // Notfall-Antraege (nur die betrifft der Schalter) und einmal je
+        // Team, nicht je Zeile.
+        $wegAnJeTeam = [];
+        $wegAn = static function (object $zeile) use (&$wegAnJeTeam): bool {
+            if (($zeile->wechsel_quelle ?? null) !== 'notfall') {
+                return true;
+            }
+
+            $team = (string) ($zeile->team_id ?? '');
+
+            return $wegAnJeTeam[$team] ??= KontoWriter::notfallWegAn((int) $zeile->id);
+        };
+
         return array_map(static fn (object $zeile): array => [
             (int) $zeile->id,
             (string) ($zeile->team_id ?? ''),
@@ -54,7 +71,7 @@ final class NummernwechselTafel
             (string) $zeile->wechsel_beantragt_at,
             (string) $zeile->wechsel_wirksam_ab,
             (string) $zeile->wechsel_quelle,
-            self::zustand($zeile),
+            self::zustand($zeile, $wegAn($zeile)),
         ], $offene);
     }
 

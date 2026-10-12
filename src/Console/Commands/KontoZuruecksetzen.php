@@ -241,6 +241,7 @@ class KontoZuruecksetzen extends Command
         $offenGeblieben = 0;
         $gescheitert = 0;
         $liegtBeiHr = 0;
+        $notfallwegAus = 0;
 
         foreach ($offene as $zeile) {
             $personId = (int) $zeile->id;
@@ -248,8 +249,13 @@ class KontoZuruecksetzen extends Command
             // Steht nur zur Anzeige da (gesperrt, stillgelegt) — anwenden
             // laesst er sich nicht, und ein Versuch endete jede Stunde aufs
             // Neue im Fehlerausgang.
-            if ($this->zustand($zeile) !== 'offen') {
+            $zustand = $this->zustand($zeile);
+            if ($zustand !== NummernwechselTafel::ZUSTAND_OFFEN) {
                 $liegtBeiHr++;
+                if ($zustand === NummernwechselTafel::ZUSTAND_NOTFALLWEG_AUS) {
+                    // Spec HR-Bereich §6: Ausschalten laesst nichts still wirksam werden.
+                    $notfallwegAus++;
+                }
 
                 continue;
             }
@@ -303,7 +309,15 @@ class KontoZuruecksetzen extends Command
             $liegtBeiHr,
         ));
 
-        if ($liegtBeiHr > 0) {
+        if ($notfallwegAus > 0) {
+            $this->line(sprintf(
+                '%d Notfall-Antrag/Anträge warten auf HR, weil der Notfallweg (Server oder Team) aus ist — '
+                . 'stoppen oder freigeben unter HR-Schreibtisch → Mitarbeiter → Konto-Anträge.',
+                $notfallwegAus,
+            ));
+        }
+
+        if ($liegtBeiHr > $notfallwegAus) {
             $this->line('Die Antraege gesperrter oder stillgelegter Personen werden nie angewendet — '
                 . 'ansehen mit --offen, wegraeumen mit --stopp=<Person>.');
         }
@@ -337,7 +351,7 @@ class KontoZuruecksetzen extends Command
      */
     private function zustand(object $zeile): string
     {
-        return NummernwechselTafel::zustand($zeile);
+        return NummernwechselTafel::zustand($zeile, KontoWriter::notfallWegAn((int) $zeile->id));
     }
 
     /**

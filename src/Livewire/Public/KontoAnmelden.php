@@ -941,6 +941,16 @@ class KontoAnmelden extends Component
             } else {
                 $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
 
+                // SPEC HR-BEREICH §6: der TEAM-Schalter des Teams der Person
+                // (KontoWriter::notfallWegAn: Server-Riegel UND Team). Erst
+                // hier, weil die oeffentliche Seite kein Team hat. Aus = kein
+                // Versand und DIESELBE Antwort wie bei falschen Nachweisen;
+                // die Zeile steht hinter der IP-Bremse (darfAnfordern).
+                if ($personId !== null && !KontoWriter::notfallWegAn($personId)) {
+                    Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'anfordern', 'ebene' => 'team']);
+                    $personId = null;
+                }
+
                 // RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer diese
                 // Person. Gefragt wird VOR den Nachweisen — ein Gesperrter soll
                 // nicht einmal durch Ausprobieren erfahren, ob sein Geburtsdatum
@@ -1021,6 +1031,19 @@ class KontoAnmelden extends Component
         if (!self::weg4Aktiv()) {
             if ($this->darfAnfordern()) {
                 Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'bestaetigen']);
+            }
+
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
+
+            return;
+        }
+
+        // Dieselbe Frage fuer das TEAM der Person aus der Sitzung (Spec §6):
+        // eine Sitzung von vor dem Abschalten kommt nicht durch.
+        if (!KontoWriter::notfallWegAn($personId)) {
+            if ($this->darfAnfordern()) {
+                Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'bestaetigen', 'ebene' => 'team']);
             }
 
             $this->code = '';

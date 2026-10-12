@@ -12,6 +12,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Livewire\Applicant\ApplicantSettingsModal;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Services\IssueTrainingCertificateService;
+use Platform\Recruiting\Support\HrEinstellungen;
 
 /**
  * Kommt der Team-Schalter beim Speichern WIRKLICH in der settings-Spalte an?
@@ -47,6 +48,13 @@ class SettingsModalToggleWriteTest extends TestCase
 {
     private const TEAM = 4711;
 
+    /**
+     * Log-Attrappe fuer die ganze Klasse (Controller-Ruling K3): save()
+     * schreibt beim Kippen des Notfallwegs Log::notice — ohne gebundenes
+     * 'log' stuerbe jeder Speichern-Test, der den Schalter umlegt.
+     */
+    private static object $log;
+
     public static function setUpBeforeClass(): void
     {
         $container = Container::getInstance();
@@ -64,19 +72,82 @@ class SettingsModalToggleWriteTest extends TestCase
         $container->instance('db', $capsule->getDatabaseManager());
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
         $container->instance('auth', self::authStub());
+        self::$log = new class {
+            public array $zeilen = [];
+
+            public function __call($m, $a)
+            {
+                $this->zeilen[] = ['nachricht' => (string) ($a[0] ?? ''), 'daten' => (array) ($a[1] ?? [])];
+            }
+        };
+        $container->instance('log', self::$log);
         Facade::setFacadeApplication($container);
+        Facade::clearResolvedInstance('log');
 
         self::runRealMigrations();
     }
 
     public static function tearDownAfterClass(): void
     {
+        Container::getInstance()->forgetInstance('log');
         Facade::clearResolvedInstances();
     }
 
     protected function setUp(): void
     {
         Capsule::table('rec_applicant_settings')->delete();
+        self::$log->zeilen = [];
+    }
+
+    public function testNotfallwegSchalterUndZahlenWerdenGespeichertUndBegrenzt(): void
+    {
+        $this->bestehendeZeileOhneDenSchluessel();
+        $modal = new ApplicantSettingsModal();
+        $modal->openSettings();
+
+        $this->assertFalse($modal->settings['konto_notfall_weg_aktiv'], 'Vorgabe aus');
+        $this->assertSame(5, $modal->settings['hr_erinnert_tage']);
+        $this->assertSame(3, $modal->settings['hr_kontaktiert_ruhe_tage']);
+
+        $modal->settings['konto_notfall_weg_aktiv'] = true;
+        $modal->settings['hr_erinnert_tage'] = '99';
+        $modal->settings['hr_kontaktiert_ruhe_tage'] = '';
+        $modal->save();
+
+        $json = $this->rohesJson();
+        $this->assertStringContainsString('"konto_notfall_weg_aktiv":true', $json);
+        $this->assertStringContainsString('"hr_erinnert_tage":60', $json);
+        $this->assertStringContainsString('"hr_kontaktiert_ruhe_tage":3', $json);
+        $this->assertTrue(HrEinstellungen::notfallWegAktiv(self::TEAM));
+    }
+
+    public function testKippenDesNotfallwegsStehtImLogNurBeiAenderung(): void
+    {
+        $this->bestehendeZeileOhneDenSchluessel();
+
+        $an = new ApplicantSettingsModal();
+        $an->openSettings();
+        $an->settings['konto_notfall_weg_aktiv'] = true;
+        $an->save();
+
+        $gleich = new ApplicantSettingsModal();
+        $gleich->openSettings();
+        $gleich->save();
+
+        $zeilen = array_values(array_filter(self::$log->zeilen, fn ($z) => $z['nachricht'] === 'recruiting.konto.notfallweg_schalter'));
+        $this->assertCount(1, $zeilen);
+        $this->assertSame(['team_id' => self::TEAM, 'user_id' => 42, 'an' => true], $zeilen[0]['daten']);
+    }
+
+    public function testBladeHatCheckboxUndZahlenfelderUndKeinSelect(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
+
+        $this->assertMatchesRegularExpression('/type="checkbox"\s+wire:model="settings\.konto_notfall_weg_aktiv"/', $blade);
+        $this->assertMatchesRegularExpression('/name="settings\.hr_erinnert_tage"[^>]*type="number"/s', $blade);
+        $this->assertMatchesRegularExpression('/name="settings\.hr_kontaktiert_ruhe_tage"[^>]*type="number"/s', $blade);
+        $this->assertDoesNotMatchRegularExpression('/x-ui-input-select[^>]*(konto_notfall|hr_erinnert|hr_kontaktiert)/s', $blade);
+        $this->assertStringContainsString('RECRUITING_KONTO_WEG4_AKTIV', $blade);
     }
 
     /**
@@ -286,6 +357,11 @@ class SettingsModalToggleWriteTest extends TestCase
             public function user(): object
             {
                 return $this->benutzer;
+            }
+
+            public function id(): ?int
+            {
+                return 42;
             }
         };
     }

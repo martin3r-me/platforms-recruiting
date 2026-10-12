@@ -958,6 +958,16 @@ final class KontoWriter
                 return null;
             }
 
+            // Spec HR-Bereich §6 + Uebertrag Aufgabe-3-Pruefung: der
+            // Notfallweg-Schalter wird HIER gefragt, in der gesperrten Lesung,
+            // und nicht nur vorher in der Liste des Stundenlaufs. Wer zwischen
+            // Listenlesung und Anwenden abschaltet, laesst sonst einen
+            // faelligen Antrag noch durch. Aus = nicht anwenden, der Antrag
+            // bleibt fuer HR liegen (stoppen oder freigeben).
+            if ($person->wechsel_quelle === 'notfall' && !self::notfallWegAnFuerTeam($person->team_id)) {
+                return null;
+            }
+
             // Verglichen wird ueber Zeitstempel und nicht ueber die Zeichenkette:
             // die Spalte kommt je nach Treiber in verschiedenen Schreibweisen
             // zurueck, und ein Zeichenvergleich waere dann mal richtig und mal
@@ -1151,9 +1161,15 @@ final class KontoWriter
             return false;
         }
 
-        $teamId = DB::table('rec_persons')->where('id', $personId)->value('team_id');
+        return self::notfallWegAnFuerTeam(DB::table('rec_persons')->where('id', $personId)->value('team_id'));
+    }
 
-        return $teamId !== null && HrEinstellungen::notfallWegAktiv((int) $teamId);
+    /** Dieselbe Regel fuer eine schon (gesperrt) gelesene Zeile — ohne zweite Lesung der Person. */
+    private static function notfallWegAnFuerTeam(mixed $teamId): bool
+    {
+        return (bool) config('recruiting.konto.weg4_aktiv', false)
+            && $teamId !== null
+            && HrEinstellungen::notfallWegAktiv((int) $teamId);
     }
 
     /**

@@ -101,6 +101,7 @@ final class KontoWriterHrTest extends TestCase
         $this->assertSame('+4915122222222', $this->personZeile($gestoppt)->phone);
 
         $angewendet = $this->mitAntrag(['phone' => '+4915133333333', 'wechsel_neue_nummer' => '+4917011111111'], '2026-10-12 08:00:00');
+        $this->notfallwegAn();
         $this->assertNotNull(KontoWriter::wendeNummernwechselAn($angewendet));
         $this->assertFalse(KontoWriter::stoppeNummerwechsel($angewendet), 'schon angewendet: false, keine Sperre');
         $this->assertNull($this->personZeile($angewendet)->notfall_gesperrt_bis);
@@ -200,6 +201,7 @@ final class KontoWriterHrTest extends TestCase
     public function test_wettlauf_zweiter_weg_findet_nichts_mehr(): void
     {
         $angewendet = $this->mitAntrag([], '2026-10-12 08:00:00');
+        $this->notfallwegAn();
         $this->assertNotNull(KontoWriter::wendeNummernwechselAn($angewendet));
         $this->assertFalse(KontoWriter::stoppeNummerwechsel($angewendet), 'Stopp nach Anwenden: nichts mehr da');
         $this->assertNull($this->personZeile($angewendet)->notfall_gesperrt_bis);

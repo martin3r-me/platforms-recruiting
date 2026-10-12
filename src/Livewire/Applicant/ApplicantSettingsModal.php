@@ -10,6 +10,8 @@ use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Platform\Recruiting\Support\HrEinstellungen;
 
 class ApplicantSettingsModal extends Component
 {
@@ -277,8 +279,24 @@ class ApplicantSettingsModal extends Component
             }
         }
 
+        // HR-Bereich (Spec §6/§7.2): Zahlen begrenzt speichern, Schalter als bool;
+        // ein Kippen des Notfallwegs gehoert ins Log (wer, wann, an/aus).
+        $vorher = (bool) ($this->settingsModel->getSetting(HrEinstellungen::NOTFALL_WEG) ?? false);
+        $this->settings[HrEinstellungen::NOTFALL_WEG] = (bool) ($this->settings[HrEinstellungen::NOTFALL_WEG] ?? false);
+        $this->settings[HrEinstellungen::ERINNERT_TAGE] = HrEinstellungen::begrenze($this->settings[HrEinstellungen::ERINNERT_TAGE] ?? null, 1, 60, 5);
+        $this->settings[HrEinstellungen::RUHE_TAGE] = HrEinstellungen::begrenze($this->settings[HrEinstellungen::RUHE_TAGE] ?? null, 1, 30, 3);
+
         $this->settingsModel->settings = $this->settings;
         $this->settingsModel->save();
+
+        if ($vorher !== $this->settings[HrEinstellungen::NOTFALL_WEG]) {
+            Log::notice('recruiting.konto.notfallweg_schalter', [
+                'team_id' => (int) $this->settingsModel->team_id,
+                'user_id' => Auth::id(),
+                'an'      => $this->settings[HrEinstellungen::NOTFALL_WEG],
+            ]);
+        }
+
         $this->modalShow = false;
     }
 

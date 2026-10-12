@@ -282,6 +282,55 @@
                         placeholder="13.90"
                         hint="Wird in Verträgen als Stundenlohn-Platzhalter eingesetzt. Bei Gesetzesänderung hier anpassen."
                     />
+
+                    {{-- Mitarbeiterkonto & Erinnerungen (Spec HR-Bereich 2026-10-12 §6/§7.2).
+                         Rohe Checkbox wie die Nachbarn (kein x-ui-input-checkbox, KEIN Select:
+                         Select-Speicherfehler). Zahlen als x-ui-input-text type=number wie der Mindestlohn. --}}
+                    @php
+                        $serverRiegelZu = !(bool) config('recruiting.konto.weg4_aktiv', false);
+                    @endphp
+                    <div class="space-y-4 border-t border-[var(--ui-border)]/40 pt-4">
+                        <h4 class="text-sm font-semibold text-[var(--ui-secondary)]">Mitarbeiterkonto &amp; Erinnerungen</h4>
+                        <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox"
+                                       wire:model="settings.konto_notfall_weg_aktiv"
+                                       class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                <div>
+                                    <span class="text-sm font-medium text-[var(--ui-secondary)]">Notfallweg ‚Nummer und Passwort verloren‘ erlauben</span>
+                                    <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                        Anträge erscheinen unter HR-Schreibtisch → Mitarbeiter → Konto-Anträge und werden nach 24 Stunden wirksam,
+                                        wenn niemand stoppt. Nur einschalten, wenn verabredet ist, wer die Liste täglich ansieht.
+                                    </p>
+                                    @if ($serverRiegelZu)
+                                        <p class="text-xs text-[var(--ui-muted)] mt-1">Auf dem Server noch abgeschaltet (RECRUITING_KONTO_WEG4_AKTIV) — der Haken wirkt erst danach.</p>
+                                    @endif
+                                </div>
+                            </label>
+                        </div>
+                        <x-ui-input-text
+                            name="settings.hr_erinnert_tage"
+                            label="„Erinnert, aber keine Reaktion“ ab (Tage nach der Erinnerung)"
+                            wire:model="settings.hr_erinnert_tage"
+                            type="number"
+                            step="1"
+                            min="1"
+                            max="60"
+                            placeholder="5"
+                            hint="Ab so vielen Tagen ohne Reaktion erscheint der Mensch auf dem HR-Schreibtisch (1–60)."
+                        />
+                        <x-ui-input-text
+                            name="settings.hr_kontaktiert_ruhe_tage"
+                            label="Ruhezeit nach „Kontaktiert“ (Tage)"
+                            wire:model="settings.hr_kontaktiert_ruhe_tage"
+                            type="number"
+                            step="1"
+                            min="1"
+                            max="30"
+                            placeholder="3"
+                            hint="So lange ruht die Zeile nach einem Anruf; ist danach noch etwas offen, kommt sie zurück (1–30)."
+                        />
+                    </div>
                 </div>
             </div>
 
