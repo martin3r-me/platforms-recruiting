@@ -4,12 +4,14 @@ namespace Platform\Recruiting\Livewire\Employees;
 
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
+use Platform\Recruiting\Livewire\HrDesk\Mitarbeiter;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecDocumentRecipient;
@@ -595,32 +597,15 @@ class Show extends Component
     }
 
     /**
-     * HR-Entsperrung des MA-Portal-Zugangs (Eskalations-Stufe-3-Sperre,
-     * siehe DispoEmployeeGateway::lockPortal). Leert Zeitpunkt + Grund —
-     * serverseitig, nur ueber diese HR-Sicht erreichbar. Kein Fehler bei
-     * einem bereits entsperrten MA (idempotent, wie das Setzen selbst).
+     * Der Konto-Kasten (Kind-Komponente) hat etwas geaendert — z. B. das
+     * Portal entsperrt: die Akte neu laden, damit der rote Kasten
+     * "MA-Portal-Zugang gesperrt" ohne Neuladen verschwindet. Die
+     * Entsperrung selbst laeuft nur noch ueber den Kasten
+     * (HrKontoAktionen::entsperrePortal, Notiz Pflicht; Spec HR-Bereich §5.3).
      */
-    public function unlockPortal(): void
+    #[On(Mitarbeiter::EVENT_GEAENDERT)]
+    public function kontoGeaendert(): void
     {
-        $employee = $this->employee();
-        if (!$employee) {
-            $this->flashError = 'Mitarbeiter nicht gefunden.';
-            return;
-        }
-
-        // Eskalation sperrt alle Datensaetze derselben Person (siehe DispoEscalateCommand Stufe 3 / DispoEmployeeGateway::lockPortal) -
-        // die Entsperrung muss dieselbe Gruppe wieder freigeben, sonst bleibt
-        // die verknuepfte Personalnummer stumm gesperrt liegen.
-        $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
-        RecEmployee::query()->whereIn('id', $ids)->update([
-            'portal_locked_at' => null,
-            'portal_locked_reason' => null,
-        ]);
-
-        $this->flash = count($ids) > 1
-            ? 'Portalzugang entsperrt — auch fuer die verknuepften Personalnummern derselben Person (' . (count($ids) - 1) . ').'
-            : 'Portalzugang entsperrt.';
-        $this->flashError = null;
         unset($this->employee);
     }
 

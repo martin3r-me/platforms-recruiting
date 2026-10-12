@@ -234,7 +234,7 @@ final class PortalAuth
      * ueber den gemeinsamen CRM-Kontakt und nur ueber AKTIVE Anstellungen des
      * Anker-Teams; genau diese Gruppe sperrt die Eskalation
      * (DispoEmployeeGateway::lockPortal), genau diese entsperrt HR
-     * (Show.php::unlockPortal, Zeile 354), und genau diese lesen der
+     * (PortalEntsperrung::fuerAnstellung), und genau diese lesen der
      * Einsatz-Bereich (EmployeeAssignments) und der Anhang-Abruf
      * (DispoAttachmentController).
      *

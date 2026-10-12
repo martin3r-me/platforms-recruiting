@@ -185,6 +185,7 @@ final class PortalAuthKontoTest extends TestCase
             $t->string('phone')->nullable();
             $t->boolean('is_active')->default(true);
             $t->timestamp('portal_locked_at')->nullable();
+            $t->string('portal_locked_reason')->nullable(); // PortalEntsperrung leert beide Spalten
             $t->timestamps();
         });
 
@@ -383,16 +384,12 @@ final class PortalAuthKontoTest extends TestCase
     }
 
     /**
-     * Die HR-Entsperrung, Zeile fuer Zeile wie Show.php::unlockPortal() sie
-     * fuehrt (Show.php:354). Nachgebaut und nicht gerufen, weil die
-     * Livewire-Komponente hier nicht laeuft — aber wenn sich der Weg dort
-     * aendert, gehoert dieser Test angepasst.
+     * Die HR-Entsperrung — derselbe Weg wie der Konto-Kasten der Akte
+     * (HrKontoAktionen::entsperrePortal -> PortalEntsperrung::fuerAnstellung).
      */
     private function hrEntsperrt(int $employeeId): void
     {
-        $ids = app(DispoIdentityResolver::class)->groupFor($employeeId);
-
-        RecEmployee::query()->whereIn('id', $ids)->update(['portal_locked_at' => null]);
+        (new \Platform\Recruiting\Services\PortalEntsperrung())->fuerAnstellung($employeeId);
     }
 
     /**

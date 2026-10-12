@@ -217,14 +217,18 @@
                             @endif
                         </div>
                     </div>
-                    <button wire:click="unlockPortal"
-                            wire:confirm="Portalzugang wirklich entsperren?"
+                    <button type="button" wire:click="$dispatch('konto-kasten-portal-entsperren')"
                             class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors">
                         @svg('heroicon-o-lock-open', 'w-4 h-4')
                         Portalzugang entsperren
                     </button>
                 </div>
             @endif
+
+            {{-- Konto-Kasten (Spec HR-Bereich §4) — Anker #konto für den Pilot-Überblick --}}
+            <div id="konto" class="mt-4">
+                <livewire:recruiting.employees.konto-kasten :employee-id="$employee->id" :key="'konto-kasten-' . $employee->id" />
+            </div>
 
             {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">

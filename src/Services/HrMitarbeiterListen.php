@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Models\RecHrVermerk;
 use Platform\Recruiting\Support\Bote;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\DokumentStatus;
@@ -455,6 +456,61 @@ final class HrMitarbeiterListen
         }
 
         return count($this->antraege($teamId)) + $gesperrt;
+    }
+
+    // ------------------------------------------------------------ Konto-Kasten (Akte)
+
+    /** Daten des Konto-Kastens einer Akte (Spec HR-Bereich §4) — null, wenn die Akte nicht im Team ist. */
+    public function kasten(int $teamId, int $employeeId): ?array
+    {
+        $akte = DB::table('rec_employees')->where('team_id', $teamId)->where('id', $employeeId)->first(self::AKTEN_SPALTEN);
+        if ($akte === null) {
+            return null;
+        }
+        $jetzt = now()->format('Y-m-d H:i:s');
+        $person = $akte->rec_person_id !== null
+            ? DB::table('rec_persons')->where('id', (int) $akte->rec_person_id)->where('team_id', $teamId)->first()
+            : null;
+        $akten = $person !== null
+            ? DB::table('rec_employees')->where('team_id', $teamId)->where('rec_person_id', (int) $person->id)->orderBy('id')->get(self::AKTEN_SPALTEN)
+            : collect([$akte]);
+        $menschen = self::menschen($akten);
+        $schluessel = $person !== null ? 'p:' . (int) $person->id : 'e:' . (int) $akte->id;
+        $gruende = $this->sperrGruende($teamId, $menschen, $akten, true)[$schluessel] ?? [];
+
+        $pilotSeit = $akten->pluck('portal_v2_since')->filter()->min();
+        $altesPortal = $akten->flatMap(fn ($a) => [$a->portal_verified_at, $a->portal_last_seen_at])->filter()->max();
+        $verlauf = RecHrVermerk::letzte($teamId, $person !== null ? (int) $person->id : null, $akten->pluck('id')->map(fn ($v) => (int) $v)->all(), 10)
+            ->map(fn ($v) => [
+                'wann'     => Carbon::parse((string) $v->created_at)->format('d.m.Y, H:i'),
+                'was'      => RecHrVermerk::ART_LABELS[$v->art] ?? (string) $v->art,
+                'wer'      => (string) ($v->benutzer ?? '—'),
+                'notiz'    => $v->notiz,
+                'ergebnis' => $v->ergebnis,
+            ])->all();
+
+        $stillgelegt = $person !== null && $person->merged_into_person_id !== null ? (int) $person->merged_into_person_id : null;
+        $gesperrt = $person !== null && $person->locked_at !== null;
+        $registriert = $person !== null && $person->password_hash !== null;
+        $knoepfeAus = $person === null || $stillgelegt !== null;
+
+        return [
+            'ohne_person'        => $person === null,
+            'stillgelegt_ziel'   => $stillgelegt,
+            'person_id'          => $person !== null ? (int) $person->id : null,
+            'status_code'        => $person !== null ? KontoStatus::code($person, $jetzt) : null,
+            'status_text'        => $person !== null ? KontoStatus::text($person, $jetzt) : 'keine Personen-Zeile',
+            'nummer'             => $person !== null && $person->phone !== null ? '…' . NummernwechselTafel::kurz((string) $person->phone) : '—',
+            'letzte_anmeldung'   => $person !== null && $person->letzte_anmeldung_at !== null ? Carbon::parse((string) $person->letzte_anmeldung_at)->format('d.m.Y, H:i') : '—',
+            'altes_portal'       => $altesPortal !== null ? Carbon::parse((string) $altesPortal)->format('d.m.Y, H:i') : '—',
+            'pilot'              => $pilotSeit !== null ? 'im neuen Portal seit ' . Carbon::parse((string) $pilotSeit)->format('d.m.Y') : 'noch altes Portal',
+            'gruende'            => $gruende,
+            'antrag_offen'       => $person !== null && $person->wechsel_wirksam_ab !== null,
+            'verlauf'            => $verlauf,
+            'kann_einladen'      => !$knoepfeAus && !$gesperrt && !$registriert,
+            'kann_zuruecksetzen' => !$knoepfeAus && !$gesperrt && $registriert,
+            'knoepfe_aus'        => $knoepfeAus,
+        ];
     }
 
     // ------------------------------------------------------------ intern
