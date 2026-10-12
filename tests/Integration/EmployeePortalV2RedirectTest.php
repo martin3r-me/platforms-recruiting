@@ -172,7 +172,8 @@ final class EmployeePortalV2RedirectTest extends TestCase
         $this->assertNull($this->ziel($portal), 'Ohne Umstellung wird nicht umgeleitet.');
         $this->assertSame('unverified', $portal->state);
         $this->assertSame($ma->id, $portal->employeeId);
-        $this->assertSame('Kevin Muster', $portal->displayName);
+        // Name erst nach der Anmeldung im Snapshot (Datenleck-Fix, EmployeePortalVorAnmeldungTest).
+        $this->assertSame('', $portal->displayName);
     }
 
     /**

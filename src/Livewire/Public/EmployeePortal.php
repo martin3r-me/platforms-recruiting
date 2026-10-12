@@ -137,7 +137,6 @@ class EmployeePortal extends Component
         }
 
         $this->employeeId = $employee->id;
-        $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
         $this->duzen = $employee->usesInformalAddress();
 
         // Eskalations-Stufe-3-Sperre (DispoEmployeeGateway::lockPortal):
@@ -149,13 +148,11 @@ class EmployeePortal extends Component
             return;
         }
 
-        // Initial-Werte fuer alle editierbaren Felder laden (Direct-Edit-UX)
-        $this->loadFieldValues($employee);
-
         // Bereits verifiziert in dieser Session? (Session-Flag basiert
         // auf employeeId — kein dauerhaftes Login, nur fuer aktuellen
         // Browser-Tab solange Session lebt.)
         if (PortalAuth::sitzungGueltig((int) $this->employeeId)) {
+            $this->angemeldetLaden($employee);
             $this->state = 'verified';
             return;
         }
@@ -210,7 +207,7 @@ class EmployeePortal extends Component
         // Verifikation erfolgreich — Session-Flag setzen + Audit
         session()->put($this->sessionKey(), PortalAuth::anmeldeWert());
         $employee->update(['portal_verified_at' => now()]);
-        $this->loadFieldValues($employee->fresh());
+        $this->angemeldetLaden($employee->fresh());
         $this->clearFailedAttempts();
         $this->loginError = null;
         $this->state = 'verified';
@@ -223,12 +220,27 @@ class EmployeePortal extends Component
         $this->birthDateInput = '';
         $this->idCardLast4Input = '';
         $this->loginError = null;
+        $this->fieldValues = [];
+        $this->displayName = '';
+    }
+
+    /**
+     * Personendaten in die oeffentlichen Eigenschaften — NUR nach der
+     * Anmeldung (gueltige Sitzung in mount() oder erfolgreiches verify()).
+     * Livewire schreibt jede oeffentliche Eigenschaft in den wire:snapshot;
+     * vorher geladen, bekam jeder mit dem Token-Link IBAN, Adresse und Name,
+     * ohne Geburtsdatum und Ausweisziffern.
+     */
+    private function angemeldetLaden(RecEmployee $employee): void
+    {
+        $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
+        $this->loadFieldValues($employee);
     }
 
     /**
      * Laedt aktuelle Werte aus dem Employee-Record in $fieldValues.
-     * Wird in mount() aufgerufen sowie nach saveAll() um den State zu
-     * refreshen.
+     * Wird nach der Anmeldung (angemeldetLaden) sowie nach saveAll()
+     * aufgerufen, um den State zu refreshen.
      */
     private function loadFieldValues(RecEmployee $employee): void
     {
