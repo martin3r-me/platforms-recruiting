@@ -87,4 +87,44 @@ final class NoAssignmentCampaignStateTest extends TestCase
     {
         $this->assertSame($expected, Index::noAssignmentStartError($enabled, $alreadyStarted, $selected, $templateId, $templateError));
     }
+
+    public function testConfirmTextNenntAnzahlWiederholungUndKeineErinnerung(): void
+    {
+        $text = Index::noAssignmentConfirmText(21, 3);
+
+        $this->assertStringContainsString('21 Personen', $text);
+        $this->assertStringContainsString('3 davon haben die Nachfrage schon einmal bekommen', $text);
+        $this->assertStringContainsString('keine automatischen Erinnerungen', $text);
+        $this->assertStringContainsString('Kommunikation', $text);
+
+        $eins = Index::noAssignmentConfirmText(1, 0);
+        $this->assertStringContainsString('1 Person ', $eins);
+        $this->assertStringNotContainsString('schon einmal', $eins);
+    }
+
+    /** @return array<string, array{?int, ?array, ?string, ?string}> */
+    public static function problemFaelle(): array
+    {
+        $ok = ['label' => 't_einsatz_start (de)', 'text' => 'Hallo Anna', 'buttons' => []];
+
+        return [
+            'keine gewaehlt' => [null, null, null, 'Noch keine Vorlage gewählt'],
+            'nicht mehr in der Liste' => [7, null, null, 'nicht mehr verfügbar'],
+            'Sender lehnt ab' => [7, $ok, 'Template „x“ hat einen URL-Button mit Variable', 'URL-Button mit Variable'],
+            'kein lesbarer Text' => [7, ['label' => 'x (de)', 'text' => null, 'buttons' => []], null, 'keinen lesbaren Text'],
+            'passt' => [7, $ok, null, null],
+        ];
+    }
+
+    #[DataProvider('problemFaelle')]
+    public function testVorlagenProblem(?int $id, ?array $preview, ?string $senderError, ?string $erwartet): void
+    {
+        $problem = Index::noAssignmentTemplateProblemFor($id, $preview, $senderError);
+
+        if ($erwartet === null) {
+            $this->assertNull($problem);
+        } else {
+            $this->assertStringContainsString($erwartet, (string) $problem);
+        }
+    }
 }

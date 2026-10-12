@@ -2463,6 +2463,73 @@ class Index extends Component
         return null;
     }
 
+    /**
+     * Text der Sende-Bestaetigung (wire:confirm) des Sammelversands — rein,
+     * Muster campaignConfirmText (UX-Paket 12.10.2026).
+     */
+    public static function noAssignmentConfirmText(int $count, int $wiederholung): string
+    {
+        return 'WhatsApp-Nachfrage jetzt an ' . $count . ' ' . ($count === 1 ? 'Person' : 'Personen') . ' senden?'
+            . ($wiederholung > 0 ? "\n\n" . $wiederholung . ' davon haben die Nachfrage schon einmal bekommen.' : '')
+            . "\n\nEs folgen keine automatischen Erinnerungen. Antworten landen in der Kommunikation.";
+    }
+
+    /**
+     * Zustand der gewaehlten Vorlage fuer Karte und Start (Muster
+     * campaignTemplateProblem) — rein. Der Ablehnungsgrund kommt aus
+     * NoAssignmentCampaignSender::checkTemplate, also aus derselben Pruefung,
+     * die der Versand macht: die Karte kann nichts anderes sagen als der Job.
+     *
+     * @param array{label:string, text:?string, buttons:list<string>}|null $preview
+     */
+    public static function noAssignmentTemplateProblemFor(?int $templateId, ?array $preview, ?string $senderError): ?string
+    {
+        if (!$templateId) {
+            return 'Noch keine Vorlage gewählt — ohne sie geht nichts raus.';
+        }
+        if ($preview === null) {
+            return 'Die hinterlegte Vorlage ist nicht mehr verfügbar — bei Meta nicht (mehr) genehmigt oder von einem anderen WhatsApp-Konto. Bitte eine andere wählen.';
+        }
+        if ($senderError !== null) {
+            return $senderError;
+        }
+        if ($preview['text'] === null) {
+            return 'Die Vorlage „' . $preview['label'] . '“ hat keinen lesbaren Text — bitte eine andere wählen.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Vorschau der gewaehlten Vorlage (Text mit Beispielnamen statt des
+     * technischen Namens). Die 'warnung' von CampaignTemplatePreview gilt dem
+     * Link-Versand der Kampagne „Neue Termine" und wird hier NICHT benutzt —
+     * dieser Versand verlangt das Gegenteil (keinen Link-Button).
+     *
+     * @return array{label:string, text:?string, buttons:list<string>}|null
+     */
+    #[Computed]
+    public function noAssignmentPreview(): ?array
+    {
+        $t = $this->noAssignmentTemplate ? ($this->campaignTemplateModels()[(int) $this->noAssignmentTemplate] ?? null) : null;
+        if ($t === null) {
+            return null;
+        }
+        $vorschau = CampaignTemplatePreview::render($t->components);
+
+        return ['label' => "{$t->name} ({$t->language})", 'text' => $vorschau['text'], 'buttons' => $vorschau['buttons']];
+    }
+
+    #[Computed]
+    public function noAssignmentTemplateProblem(): ?string
+    {
+        $senderError = ($this->noAssignmentTemplate && $this->noAssignmentPreview !== null)
+            ? app(NoAssignmentCampaignSender::class)->checkTemplate($this->teamId(), (int) $this->noAssignmentTemplate)
+            : null;
+
+        return self::noAssignmentTemplateProblemFor($this->noAssignmentTemplate, $this->noAssignmentPreview, $senderError);
+    }
+
     public function startNoAssignmentCampaign(): void
     {
         $this->noAssignmentError = '';
@@ -2473,8 +2540,10 @@ class Index extends Component
         // gewaehlt). Fuer eine Anfrage, die ohnehin abgelehnt wird, soll
         // niemand etwas nachschlagen.
         $enabled = $this->noAssignmentEnabled();
+        // Dieselbe Quelle wie die Karte (UX-Paket 12.10.): Sender-Pruefung,
+        // Verfuegbarkeit in der Liste und lesbarer Text.
         $templateError = ($enabled && $this->noAssignmentTemplate)
-            ? app(NoAssignmentCampaignSender::class)->checkTemplate($this->teamId(), (int) $this->noAssignmentTemplate)
+            ? $this->noAssignmentTemplateProblem
             : null;
 
         $error = self::noAssignmentStartError($enabled, $this->noAssignmentUuid !== null, count($ids), $this->noAssignmentTemplate, $templateError);
