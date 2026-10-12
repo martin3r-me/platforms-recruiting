@@ -58,20 +58,22 @@ final class NummernwechselTafel
         ], $offene);
     }
 
+    public const ZUSTAND_OFFEN = 'offen';
+
+    /** Spec HR-Bereich §6: Antrag liegt, der Stundenlauf wendet ihn nicht an; HR stoppt oder gibt frei. */
+    public const ZUSTAND_NOTFALLWEG_AUS = 'Notfallweg aus, wartet auf HR';
+
     /**
      * Warum ein Antrag nicht angewendet wird, obwohl er in der Liste steht
-     * (Befund G5).
+     * (Befund G5) — und seit dem HR-Bereich: ob der Notfallweg fuer das Team
+     * der Person ueberhaupt an ist (KontoWriter::notfallWegAn()). Gesperrt
+     * und stillgelegt stechen den Schalter. Der Schalter betrifft nur Weg 4
+     * (wechsel_quelle = notfall).
      *
-     * Gesperrte und stillgelegte Zeilen kommen seit G5 mit in die Liste —
-     * ihr Antrag laesst sich nie anwenden (KontoWriter::wendeNummernwechselAn()
-     * geht durch offeneZeile()), und ohne Anzeige stuenden sie dort als
-     * unerklaerliche Dauergaeste. Stoppen kann HR sie trotzdem.
-     *
-     * Diese Antwort entscheidet mehr als die Optik: recruiting:konto-zuruecksetzen
-     * --faellig ueberspringt anhand von ihr, was nur zur Anzeige dasteht
-     * (Befund N2) — ohne das liefe der stuendliche Lauf dauerhaft auf exit 1.
+     * recruiting:konto-zuruecksetzen --faellig ueberspringt alles, was nicht
+     * ZUSTAND_OFFEN ist (Befund N2).
      */
-    public static function zustand(object $zeile): string
+    public static function zustand(object $zeile, bool $notfallWegAn = true): string
     {
         if (($zeile->merged_into_person_id ?? null) !== null) {
             return 'stillgelegt, wird nie angewendet';
@@ -81,7 +83,11 @@ final class NummernwechselTafel
             return 'gesperrt, wird nie angewendet';
         }
 
-        return 'offen';
+        if (!$notfallWegAn && ($zeile->wechsel_quelle ?? null) === 'notfall') {
+            return self::ZUSTAND_NOTFALLWEG_AUS;
+        }
+
+        return self::ZUSTAND_OFFEN;
     }
 
     /** Die letzten vier Stellen — dieselbe Kuerzung wie im Protokoll. */

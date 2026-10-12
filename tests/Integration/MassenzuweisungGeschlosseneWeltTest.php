@@ -123,7 +123,7 @@ final class MassenzuweisungGeschlosseneWeltTest extends TestCase
             .'massenzuweisbar waere das Stopp-Recht von HR wieder aussitzbar.',
 
         'sitzungen_ungueltig_ab' => 'Beendet laufende Portal-Sitzungen (Spec HR-Bereich §9.6); setzt nur '
-            .'HrKontoAktionen per Query Builder. Massenzuweisbar liesse sich ein Rauswurf still zuruecknehmen.',
+            .'KontoWriter (HR-Zuruecksetzen, Notfallsperre aufheben) per Query Builder. Massenzuweisbar liesse sich ein Rauswurf still zuruecknehmen.',
 
         'aufgaben_signatur' => 'Der Zustand des Einsatz-Triggers. Geschrieben wird er ausschliesslich '
             .'ueber den Query Builder im Kommando, also beobachter-frei: per Eloquent liefe der '

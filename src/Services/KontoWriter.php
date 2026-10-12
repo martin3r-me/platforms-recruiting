@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Platform\Recruiting\Support\EinladungsToken;
 use Platform\Recruiting\Support\Einmalcode;
+use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\PasswortRegeln;
 use Platform\Recruiting\Support\PhoneE164;
 
@@ -848,28 +849,39 @@ final class KontoWriter
      * nie anwenden laesst und deshalb liegen bleibt. Wuerde das Stoppen sie
      * abweisen, waere ihr Antrag unsichtbar UND unstoppbar. Stoppen nimmt
      * nur etwas weg; dafuer braucht es keine offene Zeile.
+     *
+     * Liest mit sperrAbfrage() in einer Transaktion (Spec HR-Bereich §5.2) —
+     * wer zuerst kommt, gewinnt; der zweite liest neu und findet nichts.
      */
     public static function stoppeNummerwechsel(int $personId): bool
     {
-        $person = DB::table('rec_persons')->where('id', $personId)->first();
-
-        if ($person === null || $person->wechsel_wirksam_ab === null) {
-            return false;
-        }
-
         $gesperrtBis = now()->addDays(self::NOTFALL_SPERRE_TAGE);
 
-        self::loescheWechselAntrag($personId);
+        $person = DB::transaction(function () use ($personId, $gesperrtBis) {
+            $person = self::sperrAbfrage($personId)->first();
 
-        // RULING GD-13: der Stopp sperrt Weg 4 fuer diese Person. Ohne das
-        // koennte der Antragsteller sofort neu stellen, und HR stoppte
-        // endlos. Geschrieben NACH dem Abraeumen, damit
-        // loescheWechselAntrag() nichts davon weiss und an allen seinen
-        // anderen Aufrufstellen unveraendert bleibt.
-        DB::table('rec_persons')->where('id', $personId)->update([
-            'notfall_gesperrt_bis' => $gesperrtBis,
-            'updated_at'           => now(),
-        ]);
+            if ($person === null || $person->wechsel_wirksam_ab === null) {
+                return null;
+            }
+
+            self::loescheWechselAntrag($personId);
+
+            // RULING GD-13: der Stopp sperrt Weg 4 fuer diese Person. Ohne das
+            // koennte der Antragsteller sofort neu stellen, und HR stoppte
+            // endlos. Geschrieben NACH dem Abraeumen, damit
+            // loescheWechselAntrag() nichts davon weiss und an allen seinen
+            // anderen Aufrufstellen unveraendert bleibt.
+            DB::table('rec_persons')->where('id', $personId)->update([
+                'notfall_gesperrt_bis' => $gesperrtBis,
+                'updated_at'           => now(),
+            ]);
+
+            return $person;
+        });
+
+        if ($person === null) {
+            return false;
+        }
 
         Log::warning('recruiting.konto.nummernwechsel_gestoppt', [
             'person_id'     => $personId,
@@ -932,33 +944,186 @@ final class KontoWriter
      * denn diesen Fall muss ein Mensch klaeren (Spec §6.2). Wer erst
      * loescht, verliert ihn still.
      *
+     * Lesen, Wechsel und Abraeumen in EINER Transaktion mit Zeilensperre
+     * (Spec §5.2); CRM-Nachzug und Protokoll nach dem Commit.
+     *
      * @return array{alt: ?string, neu: string}|null
      */
     public static function wendeNummernwechselAn(int $personId): ?array
     {
-        $person = self::offeneZeile($personId);
+        $ergebnis = DB::transaction(function () use ($personId) {
+            $person = self::pruefeOffen(self::sperrAbfrage($personId)->first(), $personId);
 
-        if ($person->wechsel_wirksam_ab === null || $person->wechsel_neue_nummer === null) {
+            if ($person->wechsel_wirksam_ab === null || $person->wechsel_neue_nummer === null) {
+                return null;
+            }
+
+            // Verglichen wird ueber Zeitstempel und nicht ueber die Zeichenkette:
+            // die Spalte kommt je nach Treiber in verschiedenen Schreibweisen
+            // zurueck, und ein Zeichenvergleich waere dann mal richtig und mal
+            // still falsch.
+            if (strtotime((string) $person->wechsel_wirksam_ab) > strtotime(self::jetzt())) {
+                return null;
+            }
+
+            $alt = $person->phone === null ? null : (string) $person->phone;
+            $neu = (string) $person->wechsel_neue_nummer;
+
+            PersonLinker::setzeNummer($personId, $neu);
+            self::loescheWechselAntrag($personId);
+
+            return ['alt' => $alt, 'neu' => $neu];
+        });
+
+        if ($ergebnis === null) {
             return null;
         }
 
-        // Verglichen wird ueber Zeitstempel und nicht ueber die Zeichenkette:
-        // die Spalte kommt je nach Treiber in verschiedenen Schreibweisen
-        // zurueck, und ein Zeichenvergleich waere dann mal richtig und mal
-        // still falsch.
-        if (strtotime((string) $person->wechsel_wirksam_ab) > strtotime(self::jetzt())) {
-            return null;
-        }
-
-        $alt = $person->phone === null ? null : (string) $person->phone;
-        $neu = (string) $person->wechsel_neue_nummer;
-
-        PersonLinker::setzeNummer($personId, $neu);
         self::zieheCrmKontakteNach($personId);
-        self::loescheWechselAntrag($personId);
-        self::protokolliereWechsel($personId, $alt, $neu, self::ZWECK_NOTFALL);
+        self::protokolliereWechsel($personId, $ergebnis['alt'], $ergebnis['neu'], self::ZWECK_NOTFALL);
 
-        return ['alt' => $alt, 'neu' => $neu];
+        return $ergebnis;
+    }
+
+    /**
+     * Die Personen-Zeile, gelesen MIT Zeilensperre (InnoDB). Stoppen,
+     * Freigeben und der Stundenlauf nehmen dieselbe Sperre; der zweite
+     * wartet, liest neu und findet den Antrag nicht mehr (Spec §5.2). Nur
+     * innerhalb von DB::transaction() sinnvoll. SQLite kennt keine
+     * Zeilensperre — dort pruefen die Tests die Transaktion und $lock.
+     */
+    public static function sperrAbfrage(int $personId): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('rec_persons')->where('id', $personId)->lockForUpdate();
+    }
+
+    /**
+     * HR gibt einen Notfall-Antrag SOFORT frei (Spec HR-Bereich §5.1).
+     *
+     * Nur wenn: Quelle notfall, Zeile offen (offeneZeile-Regel) und
+     * wechsel_beantragt_at GLEICH dem Wert, den HR gesehen hat — sonst null
+     * ("der Antrag hat sich inzwischen geaendert"). Die Faelligkeit wird
+     * bewusst NICHT geprueft, das ist der Zweck. Scheitert setzeNummer()
+     * (Zielnummer im Team vergeben), rollt die Transaktion zurueck, der Antrag
+     * bleibt, und die Ausnahme geht an den Aufrufer.
+     *
+     * Der Hinweis an die alte Nummer ist Sache des Aufrufers (HrKontoAktionen),
+     * wie beim Kommando.
+     *
+     * @return array{alt: ?string, neu: string}|null
+     */
+    public static function gibNummernwechselFrei(int $personId, string $erwartetBeantragtAt): ?array
+    {
+        $ergebnis = DB::transaction(function () use ($personId, $erwartetBeantragtAt) {
+            $person = self::sperrAbfrage($personId)->first();
+
+            if ($person === null || $person->locked_at !== null || $person->merged_into_person_id !== null) {
+                return null;
+            }
+            if ($person->wechsel_quelle !== self::ZWECK_NOTFALL
+                || $person->wechsel_neue_nummer === null
+                || $person->wechsel_beantragt_at === null) {
+                return null;
+            }
+            // Ueber Zeitstempel, nicht ueber die Zeichenkette (Treiber-Schreibweisen).
+            $gesehen = strtotime($erwartetBeantragtAt);
+            if ($gesehen === false || strtotime((string) $person->wechsel_beantragt_at) !== $gesehen) {
+                return null;
+            }
+
+            $alt = $person->phone === null ? null : (string) $person->phone;
+            $neu = (string) $person->wechsel_neue_nummer;
+
+            PersonLinker::setzeNummer($personId, $neu);
+            self::loescheWechselAntrag($personId);
+
+            return ['alt' => $alt, 'neu' => $neu];
+        });
+
+        if ($ergebnis === null) {
+            return null;
+        }
+
+        self::zieheCrmKontakteNach($personId);
+        self::protokolliereWechsel($personId, $ergebnis['alt'], $ergebnis['neu'], 'hr_freigabe');
+
+        return $ergebnis;
+    }
+
+    /**
+     * HR setzt ein registriertes Konto zurueck (Spec §5.1): Passwort und
+     * laufender Code weg, neue Einladung. registered_at bleibt als Beleg. KEIN
+     * Passwort durch HR (Weg-5-Regel: kein Generalschluessel) — der Mensch
+     * registriert sich neu, mit Token UND Geburtsdatum.
+     *
+     * Setzt im SELBEN Update sitzungen_ungueltig_ab = jetzt (Spec §9.6,
+     * Controller-Ruling): ein zurueckgesetztes Konto laesst keinen Fremden
+     * eingeloggt. Hier und nicht erst im Aufrufer, damit es keinen Weg gibt,
+     * das Konto zurueckzusetzen und die Sitzungen zu vergessen.
+     *
+     * @return string der Klartext-Token der neuen Einladung (nur fuer die Einmal-Anzeige)
+     */
+    public static function setzeKontoZurueckDurchHr(int $personId): string
+    {
+        self::offeneZeile($personId);
+
+        DB::table('rec_persons')->where('id', $personId)->update([
+            'password_hash'    => null,
+            'code_hash'        => null,
+            'code_expires_at'  => null,
+            'code_zweck'       => null,
+            'code_neue_nummer' => null,
+            'code_versuche'    => 0,
+            'sitzungen_ungueltig_ab' => now(),
+            'updated_at'       => now(),
+        ]);
+
+        return self::ladeEin($personId);
+    }
+
+    /**
+     * locked_at weg — nur wenn gesetzt und nicht stillgelegt. Beendet KEINE
+     * Sitzungen (Controller-Ruling): Entsperren oeffnet, es schliesst nicht.
+     */
+    public static function entsperreKontoDurchHr(int $personId): bool
+    {
+        return DB::table('rec_persons')
+            ->where('id', $personId)
+            ->whereNotNull('locked_at')
+            ->whereNull('merged_into_person_id')
+            ->update(['locked_at' => null, 'updated_at' => now()]) > 0;
+    }
+
+    /**
+     * Die Sperre aus einem gestoppten Antrag (GD-13) vorzeitig aufheben — nur
+     * eine laufende. Setzt im selben Update sitzungen_ungueltig_ab = jetzt
+     * (Spec §9.6 "Entsperren nach Notfallsperre", Controller-Ruling): die
+     * Sperre kam aus einem Uebernahmeversuch, wer bis hierhin eingeloggt
+     * war, meldet sich neu an.
+     */
+    public static function hebeNotfallSperreAuf(int $personId): bool
+    {
+        return DB::table('rec_persons')
+            ->where('id', $personId)
+            ->whereNotNull('notfall_gesperrt_bis')
+            ->where('notfall_gesperrt_bis', '>', self::jetzt())
+            ->update(['notfall_gesperrt_bis' => null, 'sitzungen_ungueltig_ab' => now(), 'updated_at' => now()]) > 0;
+    }
+
+    /**
+     * EINE Antwort auf "ist Weg 4 fuer Person X an?" (Spec §6): Server-Riegel
+     * recruiting.konto.weg4_aktiv UND Team-Schalter konto_notfall_weg_aktiv
+     * des Teams der Person. Person ohne Team: aus (fail closed).
+     */
+    public static function notfallWegAn(int $personId): bool
+    {
+        if (!(bool) config('recruiting.konto.weg4_aktiv', false)) {
+            return false;
+        }
+
+        $teamId = DB::table('rec_persons')->where('id', $personId)->value('team_id');
+
+        return $teamId !== null && HrEinstellungen::notfallWegAktiv((int) $teamId);
     }
 
     /**
@@ -1069,8 +1234,12 @@ final class KontoWriter
      */
     private static function offeneZeile(int $personId): object
     {
-        $person = DB::table('rec_persons')->where('id', $personId)->first();
+        return self::pruefeOffen(DB::table('rec_persons')->where('id', $personId)->first(), $personId);
+    }
 
+    /** Dieselbe Regel wie offeneZeile(), fuer eine schon (gesperrt) gelesene Zeile. */
+    private static function pruefeOffen(?object $person, int $personId): object
+    {
         if ($person === null) {
             throw new InvalidArgumentException("Person {$personId} existiert nicht.");
         }
