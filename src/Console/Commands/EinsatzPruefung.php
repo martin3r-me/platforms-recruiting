@@ -17,6 +17,7 @@ use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
+use Platform\Recruiting\Support\Bote;
 use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\TriggerRegeln;
 use Platform\Recruiting\Support\VertragsDeckung;
@@ -152,7 +153,7 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  * faelligen Einbuchungen — die Nachricht spricht fuer sie alle.
  *
  * F4 — DER BOTE IST DIE ANSTELLUNG MIT DEM PORTAL, nicht die mit der
- * Buchung. Siehe bote().
+ * Buchung. Siehe Support\Bote::fuer().
  *
  * F6 — OHNE PERSONEN-ZEILE FAELLT NUR DIE NEUE NACHRICHT AUS, NICHT DIE
  * ERINNERUNG. Deren Zustand steht in `rec_dispo_assignments`, nicht in
@@ -250,8 +251,11 @@ class EinsatzPruefung extends Command
 
     protected $description = 'Einsatz-Trigger: prueft vor einem gebuchten Einsatz, was dem Menschen fehlt, meldet es ihm und oeffnet bei fehlender Arbeitserlaubnis einen HR-Fall';
 
-    /** ET-24: der Schluessel der Laufsperre — ein Lauf im ganzen Haus. */
-    private const LAUF_SPERRE = 'recruiting:einsatz-pruefung:lauf';
+    /**
+     * ET-24: der Schluessel der Laufsperre — ein Lauf im ganzen Haus.
+     * Oeffentlich: auch HR-"Erneut erinnern" nimmt diese Sperre (Spec HR-Bereich §3.3).
+     */
+    public const LAUF_SPERRE = 'recruiting:einsatz-pruefung:lauf';
 
     /**
      * Die Marke, mit der die Pause der ERINNERUNG ueber dieselbe geprueften
@@ -432,7 +436,7 @@ class EinsatzPruefung extends Command
                 // entschied die kleinste Kennung UNTER DEN KANDIDATEN, also
                 // der Zufall, wo gerade gebucht ist: derselbe Mensch bekam je
                 // nach Reihenfolge alles oder gar nichts.
-                $bote = $this->bote($umfang['ids']);
+                $bote = Bote::fuer($umfang['ids']);
                 $amAltenPortal = $bote === null;
 
                 // ---- F2: NICHT NUR DER NAECHSTE EINSATZ. OffenePunkte
@@ -1290,41 +1294,6 @@ class EinsatzPruefung extends Command
             ->max('aufgaben_erinnert_at');
 
         return $wert === null ? null : (string) $wert;
-    }
-
-    /**
-     * F4: die Anstellung, ueber die dieser MENSCH sein Portal erreicht.
-     *
-     * `portal_v2_since` steht an der ANSTELLUNG, nicht am Menschen, und
-     * umgestellt wird je Zeile (`recruiting:portal-umstellen --ids`). Bei
-     * einem Doppelbeschaeftigten RG+MA ist "eine Zeile umgestellt, eine
-     * nicht" der Normalfall einer Pilotumstellung. Gefragt wird deshalb der
-     * ganze Personen-Umfang, und zwar nach der kleinsten Kennung — damit die
-     * Antwort nicht davon abhaengt, an welcher Anstellung gerade eine
-     * Einbuchung haengt.
-     *
-     * An dieser Anstellung haengen Rufnummer, Kanal und Portal-Token der
-     * Nachricht; sie muessen zusammen passen, denn die Nachricht verweist
-     * auf GENAU DIESES Portal.
-     *
-     * FOLGE FUER --team, und sie gehoert in die Deploy-Notiz: die Flagge
-     * zaeunt seitdem den SENDEKANAL nicht mehr ein. Liegt die Buchung an
-     * einer Anstellung in Team 3 und das Portal an der Zeile in Team 7,
-     * laeuft der Mensch bei `--team=3` mit, und als Absender erscheint Team
-     * 7. Das ist fachlich richtig — Nummer, Kanal und Token muessen zum
-     * EXISTIERENDEN Portal passen, sonst fuehrt der Link ins Leere —, aber
-     * operativ ueberraschend. `--team` grenzt den ZIELKREIS ein, nicht den
-     * Absender.
-     *
-     * @param  list<int>  $umfangIds
-     */
-    private function bote(array $umfangIds): ?RecEmployee
-    {
-        return RecEmployee::query()
-            ->whereIn('id', $umfangIds)
-            ->whereNotNull('portal_v2_since')
-            ->orderBy('id')
-            ->first();
     }
 
     /**

@@ -6,9 +6,9 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\EinladungsRiegel;
 use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
-use Platform\Recruiting\Support\PhoneE164;
 use Throwable;
 
 /**
@@ -84,24 +84,14 @@ final class KontoEinladen extends Command
 
     protected $description = 'Konto-Einladungen erzeugen und den Stand der Umstellung zeigen (eingeladen, registriert, nicht erreichbar)';
 
-    private const GRUND_KEINE_NUMMER = 'keine Nummer';
+    private const GRUND_KEINE_NUMMER = EinladungsRiegel::KEINE_NUMMER;
 
-    private const GRUND_KEIN_GEBURTSDATUM = 'kein Geburtsdatum';
+    private const GRUND_KEIN_GEBURTSDATUM = EinladungsRiegel::KEIN_GEBURTSDATUM;
 
-    private const GRUND_KEIN_WHATSAPP = 'kein WhatsApp';
+    private const GRUND_KEIN_WHATSAPP = EinladungsRiegel::KEIN_WHATSAPP;
 
-    /**
-     * Die Reihenfolge, in der die Gruende geprueft werden — der erste
-     * zutreffende gewinnt. Sie ist nicht beliebig: "keine Nummer" ist der
-     * Grund, der alle anderen erst gar nicht zur Frage macht.
-     *
-     * @var list<string>
-     */
-    private const GRUENDE = [
-        self::GRUND_KEINE_NUMMER,
-        self::GRUND_KEIN_GEBURTSDATUM,
-        self::GRUND_KEIN_WHATSAPP,
-    ];
+    /** Pruefreihenfolge: EinladungsRiegel::GRUENDE (eine Regel fuer Kommando und Konto-Kasten). */
+    private const GRUENDE = EinladungsRiegel::GRUENDE;
 
     public function handle(): int
     {
@@ -604,124 +594,22 @@ final class KontoEinladen extends Command
      */
     private function grund(object $person, array $ohneGeburtsdatum, array $ohneWhatsapp): ?string
     {
-        $personId = (int) $person->id;
-
-        if (trim((string) $person->phone) === '') {
-            return self::GRUND_KEINE_NUMMER;
-        }
-
-        if (isset($ohneGeburtsdatum[$personId])) {
-            return self::GRUND_KEIN_GEBURTSDATUM;
-        }
-
-        if (isset($ohneWhatsapp[$personId])) {
-            return self::GRUND_KEIN_WHATSAPP;
-        }
-
-        return null;
+        return EinladungsRiegel::grund(
+            (string) $person->phone,
+            isset($ohneGeburtsdatum[(int) $person->id]),
+            isset($ohneWhatsapp[(int) $person->id]),
+        );
     }
 
     /**
-     * Wessen Nummer im CRM als 'unavailable' bekannt ist (Spec §3: "Ohne
-     * WhatsApp — bekommen kein Konto").
-     *
-     * NUR DAS BEKANNTE NEIN SPERRT. 'unknown' ist die Vorgabe der Spalte
-     * (Migration 2025_02_18_000001) und steht an fast jeder Nummer, die nie
-     * angeschrieben wurde; wer daraus ein Nein machte, schloesse den Bestand
-     * von der Umstellung aus. Und ein 'available'/'opted_in' an derselben
-     * Nummer hebt ein 'unavailable' auf: dann ist die Nummer nachweislich
-     * erreichbar, und die andere Zeile ist der veraltete Eintrag.
-     *
-     * DIE SCHREIBWEISEN SIND DIE DES BESTANDES, nicht die reine Lehre —
-     * nachgelesen in ContactPhoneSync::syncEmployee(), das seit dem Vorfall
-     * RG19734 genau so sucht: linkable_type mit LIKE '%RecEmployee' (es gibt
-     * kein Morph-Kuerzel fuer rec_employee), phoneable_type entweder als
-     * Kuerzel 'crm_contact' (Morph-Karte des CrmServiceProvider) ODER als
-     * voller Klassenname. Wer nur eine der beiden Formen abfragt, findet je
-     * nach Alter der Zeile nichts und haelt niemanden auf.
-     *
-     * VERGLICHEN WIRD UEBER PhoneE164::suffix() — die letzten neun Ziffern.
-     * Dieselbe Kruecke wie in ContactPhoneSync, und aus demselben Grund: im
-     * CRM stehen "+49 151 …", "0151 …" und E.164 nebeneinander, und
-     * normalisieren scheitert an unvollstaendigen Nummern.
+     * Ausgezogen nach EinladungsRiegel::ohneWhatsapp().
      *
      * @param  list<object>  $personen
      * @return list<int>
      */
     private function ohneWhatsapp(array $personen): array
     {
-        if ($personen === []) {
-            return [];
-        }
-
-        $personIds = array_map(static fn (object $p): int => (int) $p->id, $personen);
-
-        /** @var array<int, int> $anstellungZuPerson */
-        $anstellungZuPerson = DB::table('rec_employees')
-            ->whereIn('rec_person_id', $personIds)
-            ->pluck('rec_person_id', 'id')
-            ->map(static fn ($v): int => (int) $v)
-            ->all();
-
-        if ($anstellungZuPerson === []) {
-            return [];
-        }
-
-        /** @var array<int, list<int>> $kontaktZuPersonen */
-        $kontaktZuPersonen = [];
-        foreach (DB::table('crm_contact_links')
-            ->where('linkable_type', 'LIKE', '%RecEmployee')
-            ->whereIn('linkable_id', array_keys($anstellungZuPerson))
-            ->get(['linkable_id', 'contact_id']) as $link) {
-            $personId = $anstellungZuPerson[(int) $link->linkable_id] ?? null;
-            if ($personId === null) {
-                continue;
-            }
-            $kontaktZuPersonen[(int) $link->contact_id][] = $personId;
-        }
-
-        if ($kontaktZuPersonen === []) {
-            return [];
-        }
-
-        /** @var array<int, list<string>> $statusJePerson */
-        $statusJePerson = [];
-
-        $suffixe = [];
-        foreach ($personen as $person) {
-            $suffixe[(int) $person->id] = PhoneE164::suffix((string) $person->phone);
-        }
-
-        foreach (DB::table('crm_phone_numbers')
-            ->whereIn('phoneable_id', array_keys($kontaktZuPersonen))
-            ->where(fn ($q) => $q->where('phoneable_type', 'crm_contact')
-                ->orWhere('phoneable_type', 'LIKE', '%CrmContact'))
-            ->where('is_active', 1)
-            ->get(['phoneable_id', 'international', 'raw_input', 'whatsapp_status']) as $nummer) {
-            foreach ($kontaktZuPersonen[(int) $nummer->phoneable_id] ?? [] as $personId) {
-                $suffix = $suffixe[$personId] ?? '';
-                if ($suffix === '') {
-                    continue;
-                }
-                if (PhoneE164::suffix((string) $nummer->international) !== $suffix
-                    && PhoneE164::suffix((string) $nummer->raw_input) !== $suffix) {
-                    continue;
-                }
-                $statusJePerson[$personId][] = (string) $nummer->whatsapp_status;
-            }
-        }
-
-        $ohne = [];
-        foreach ($statusJePerson as $personId => $status) {
-            if (array_intersect(['available', 'opted_in'], $status) !== []) {
-                continue;
-            }
-            if (in_array('unavailable', $status, true)) {
-                $ohne[] = $personId;
-            }
-        }
-
-        return $ohne;
+        return EinladungsRiegel::ohneWhatsapp($personen);
     }
 
     // ----------------------------------------------------------------- Ausgabe

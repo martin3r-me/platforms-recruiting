@@ -332,6 +332,42 @@ final class PortalAuth
     }
 
     /**
+     * Welche dieser Nummern sind gerade gebremst (Spec HR-Bereich §5.4)?
+     * Der Schluessel bleibt privat hier; EIN many() fuer alle — bei
+     * CACHE_STORE=database ist das eine Abfrage (whereIn), keine je Person.
+     *
+     * @param  list<string>  $nummern
+     * @return array<string, ?string>  nur die gebremsten: Nummer (wie uebergeben) => "frei ab" (ISO) oder null (Altwert true)
+     */
+    public function gebremsteNummern(array $nummern): array
+    {
+        if ($nummern === []) {
+            return [];
+        }
+
+        $jeSchluessel = [];
+        foreach ($nummern as $nummer) {
+            $jeSchluessel[$this->lockoutKey($this->nummernSchluessel((string) $nummer))] = (string) $nummer;
+        }
+
+        $gebremst = [];
+        foreach ($this->store()->many(array_keys($jeSchluessel)) as $schluessel => $wert) {
+            if (!$wert) {
+                continue;
+            }
+            $gebremst[$jeSchluessel[$schluessel]] = is_string($wert) ? $wert : null;
+        }
+
+        return $gebremst;
+    }
+
+    /** HR loest die Nummern-Bremse (Spec §5.4). Die IP-Bremse bleibt unberuehrt. */
+    public function loeseNummernBremse(string $nummer): void
+    {
+        $this->clearFailures($this->nummernSchluessel($nummer));
+    }
+
+    /**
      * Ein Fehlversuch auf einem Schluessel.
      *
      * Grenze und Dauer sind Parameter mit Vorgabewerten, damit die IP-Bremse
@@ -349,7 +385,10 @@ final class PortalAuth
         $this->store()->put($this->attemptsKey($token), $versuche, now()->addMinutes($minuten));
 
         if ($versuche >= $grenze) {
-            $this->store()->put($this->lockoutKey($token), true, now()->addMinutes($minuten));
+            // Der Wert ist das ENDE der Sperre (Spec HR-Bereich §3.2: "frei ab 14:32").
+            // Wahr wie zuvor true — isRateLimited() und das alte Portal lesen (bool).
+            $ende = now()->addMinutes($minuten);
+            $this->store()->put($this->lockoutKey($token), $ende->toIso8601String(), $ende);
         }
 
         return $versuche;
