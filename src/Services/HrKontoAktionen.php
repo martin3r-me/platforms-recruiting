@@ -167,6 +167,17 @@ final class HrKontoAktionen
         return self::ERINNERN_SPERRE . $bezug;
     }
 
+    /**
+     * Die Personen-Zeile gehoert diesem Team — ohne Akten-Bedingung. Nur fuer
+     * "Antrag stoppen": der Antrag einer aktenlosen Person ist sichtbar und
+     * muss stoppbar bleiben (Ruling Fix-Runde 1 zu Aufgabe 6, M2).
+     */
+    public static function antragsPersonImTeam(int $teamId, ?int $personId): bool
+    {
+        return $personId !== null && $personId > 0
+            && DB::table('rec_persons')->where('id', $personId)->where('team_id', $teamId)->exists();
+    }
+
     public static function sichtbar(int $teamId, ?int $personId, ?int $employeeId): bool
     {
         return $personId !== null
@@ -196,7 +207,7 @@ final class HrKontoAktionen
         // Stoppen ist IMMER erlaubt (Ruling Fix-Runde 1 zu Aufgabe 6, M2): die Zeile
         // muss nur diesem Team gehoeren — eine Akte im Team braucht es hier nicht,
         // sonst laege der Antrag einer aktenlosen Person sichtbar, aber unstoppbar.
-        if ($personId <= 0 || !DB::table('rec_persons')->where('id', $personId)->where('team_id', $teamId)->exists()) {
+        if (!self::antragsPersonImTeam($teamId, $personId)) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
 

@@ -53,7 +53,7 @@ final class HrMitarbeiterListen
 
     /**
      * @param  iterable<object>  $akten  nach id sortiert
-     * @return array<string, array{schluessel:string, person_id:?int, employee_id:int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>}>
+     * @return array<string, array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>}>
      */
     public static function menschen(iterable $akten): array
     {
@@ -81,6 +81,13 @@ final class HrMitarbeiterListen
 
     // ------------------------------------------------------------ 3.1 Konto-Antraege
 
+    /**
+     * Eine Zeile je offenem Antrag. ACHTUNG: employee_id ist null und akten
+     * leer, wenn die Person keine Akte im Team hat (Zustand OHNE_AKTE, Name
+     * "Person #id") — daraus nie einen Akten-Link bauen; nur stoppbar.
+     *
+     * @return list<array{schluessel:string, person_id:int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, alt:string, neu:string, beantragt_at:string, beantragt:string, wirksam:string, quelle:string, quelle_text:string, zustand:string, kann_freigeben:bool}>
+     */
     public function antraege(int $teamId, string $suche = ''): array
     {
         $offene = KontoWriter::offeneNummernwechsel($teamId);

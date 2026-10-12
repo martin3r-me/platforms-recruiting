@@ -12,6 +12,27 @@
     </x-slot>
 
     <x-ui-page-container width="full">
+        @php
+            $mitarbeiterZahl = $this->mitarbeiterAbzeichen;
+            $reiterAktiv = 'border-blue-600 text-blue-700';
+            $reiterInaktiv = 'border-transparent text-gray-500 hover:text-gray-700';
+        @endphp
+        <div class="mb-4 flex items-center gap-1 border-b border-gray-200">
+            <button type="button" wire:click="$set('tab', 'faelle')"
+                    class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{ $tab === 'faelle' ? $reiterAktiv : $reiterInaktiv }}">Fälle</button>
+            <button type="button" wire:click="$set('tab', 'mitarbeiter')"
+                    class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{ $tab === 'mitarbeiter' ? $reiterAktiv : $reiterInaktiv }}">
+                Mitarbeiter
+                @if ($mitarbeiterZahl > 0)
+                    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700 tabular-nums">{{ $mitarbeiterZahl }}</span>
+                @endif
+            </button>
+        </div>
+
+        @if ($tab === 'mitarbeiter')
+            <livewire:recruiting.hr-desk.mitarbeiter lazy />
+        @else
+
         {{-- Dispo-Absagen (Kunde 04.09.): eigener Abschnitt, getrennt von den
              Bewerber-Cases — Dispo-MA sind meist keine Bewerber. --}}
         <livewire:recruiting.dispo.hr-declines />
@@ -504,6 +525,8 @@
                     </div>
                 @endforeach
             </div>
+        @endif
+
         @endif
 
         {{-- Resolve-Modal --}}

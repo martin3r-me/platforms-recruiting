@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\HrDesk;
 
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
@@ -17,6 +18,7 @@ use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractSendEligibility;
 use Platform\Recruiting\Services\HrDeskRoutingService;
+use Platform\Recruiting\Services\HrMitarbeiterListen;
 use Platform\Recruiting\Services\IssueTrainingCertificateService;
 use Platform\Recruiting\Services\TrainingCertificateWhatsAppDelivery;
 use Platform\Recruiting\Support\CertificateIssuanceEligibility;
@@ -45,6 +47,10 @@ class Index extends Component
 {
     /** Filter-Reason-Code; 'all' für keinen Filter */
     public string $reasonFilter = 'all';
+
+    /** Reiter: 'faelle' (Bewerber-Faelle wie bisher) oder 'mitarbeiter' (Spec HR-Bereich §3). */
+    #[Url]
+    public string $tab = 'faelle';
 
     /** Resolve-Modal State */
     public bool $resolveModalShow = false;
@@ -653,6 +659,24 @@ class Index extends Component
     private function attendedBookingIdFor(RecApplicant $applicant): ?int
     {
         return $applicant->interviewBookings()->where('status', 'attended')->orderByDesc('id')->value('id');
+    }
+
+    public function updatedTab(): void
+    {
+        if (!in_array($this->tab, ['faelle', 'mitarbeiter'], true)) {
+            $this->tab = 'faelle';
+        }
+    }
+
+    /**
+     * Zaehler am Reiter "Mitarbeiter": offene Konto-Antraege + Gesperrte
+     * (ohne Drossel — die endet nach 15 Minuten von selbst). Er macht aus den
+     * 24 Stunden von Weg 4 erst ein Stopp-Recht (Spec §3).
+     */
+    #[Computed]
+    public function mitarbeiterAbzeichen(): int
+    {
+        return app(HrMitarbeiterListen::class)->abzeichen((int) Auth::user()->currentTeam->id);
     }
 
     public function render()
