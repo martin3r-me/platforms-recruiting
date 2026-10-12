@@ -66,6 +66,9 @@
                     $wZeit = 'gestartet ' . $w['gestartet']->format('d.m. H:i') . ' · fertig ' . $w['fertig']->format('H:i') . ' Uhr';
                 } elseif ($w['fertig'] !== null) {
                     $wZeit = 'beendet ' . $w['fertig']->format('d.m. H:i') . ' Uhr';
+                } elseif (!$offen && $w['wartet']) {
+                    // Der Job beansprucht Wellen geschlossener Anfragen nicht mehr — kein Fall fuer den Hintergrunddienst.
+                    $wZeit = 'Startet nicht mehr — die Anfrage ist abgeschlossen.';
                 } elseif ($w['geplant'] !== null && $w['geplant']->isFuture()) {
                     $wZeit = 'geplant für ' . $w['geplant']->format('d.m. H:i') . ' Uhr';
                 } elseif ($w['haengt']) {
@@ -73,6 +76,7 @@
                 } else {
                     $wZeit = 'startet gleich';
                 }
+                $wHaengtHinweis = $offen && $w['haengt'];
                 $abbrechenText = 'Welle ' . $w['nr'] . ' abbrechen? Sie wird gelöscht, niemand wird angeschrieben.';
             @endphp
             <div wire:key="welle-{{ $w['id'] }}" class="rounded-lg border border-gray-100 p-3 text-sm">
@@ -86,7 +90,7 @@
                         @endif
                     </div>
                     <div class="flex items-center gap-3 text-xs text-gray-500">
-                        <span @class(['font-medium text-amber-700' => $w['haengt']])>{{ $wZeit }}</span>
+                        <span @class(['font-medium text-amber-700' => $wHaengtHinweis])>{{ $wZeit }}</span>
                         @if ($w['wartet'])
                             <button type="button" wire:click="abbrechen({{ $w['id'] }})" wire:confirm="{{ $abbrechenText }}" class="text-red-600 hover:underline">Abbrechen</button>
                         @endif

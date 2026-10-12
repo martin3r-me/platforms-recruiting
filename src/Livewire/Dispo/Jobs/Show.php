@@ -18,6 +18,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 
 /**
@@ -223,7 +224,8 @@ class Show extends Component
     private function offeneSchichten(RecDispoJobRequest $request): array
     {
         return $request->shifts()->whereNull('closed_at')->whereDate('datum', '>=', now()->toDateString())->get()
-            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit])->all();
+            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
+                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von])->all();
     }
 
     private function zahlenRechnen(): void
@@ -279,6 +281,15 @@ class Show extends Component
         };
         if ($fehler !== null) {
             $this->fehler = $fehler;
+
+            return;
+        }
+
+        // Vorlage je Welle neu pruefen — sie kann seit dem Anlegen bei Meta geaendert oder abgelehnt worden sein.
+        $vorlagenProblem = DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
+        if ($vorlagenProblem !== null) {
+            $this->fehler = 'Mit dieser Vorlage kannst du keine Welle starten: ' . $vorlagenProblem
+                . ' Lege bitte eine neue Anfrage mit einer passenden Vorlage an.';
 
             return;
         }

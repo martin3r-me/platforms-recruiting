@@ -8,7 +8,8 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 
 /**
  * Verknuepft zugesagte Angebots-Schichten mit der aus ZAS angekommenen
- * Einbuchung (gleiche Person-Gruppe, gleiche VA, gleicher Tag, Status Auftrag).
+ * Einbuchung (gleiche Person-Gruppe, gleiche VA, gleicher Tag, Status Auftrag, nicht
+ * verschwunden/zur Loeschung gemeldet/abgesagt — dieselbe Zeilenregel wie ueberall).
  */
 class DispoJobZasAbgleich
 {
@@ -34,7 +35,7 @@ class DispoJobZasAbgleich
                 ->where('rec_dispo_event_id', $os->shift->rec_dispo_event_id)
                 ->whereDate('datum', $os->shift->datum->format('Y-m-d'))
                 ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
-                ->whereNull('missing_since')->whereNull('deletion_marked_at')
+                ->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNull('declined_at')
                 ->orderBy('id')->first(['id']);
             if ($a !== null) {
                 $os->update(['zas_assignment_id' => (int) $a->id]);

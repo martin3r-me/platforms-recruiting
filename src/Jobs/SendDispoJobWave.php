@@ -14,6 +14,8 @@ use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOfferSender;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchonZugesagt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -105,15 +107,28 @@ class SendDispoJobWave implements ShouldQueue
         $wave->refresh();
         $key = self::cacheKey($wave->job_uuid);
 
+        // Vorlage je Welle neu pruefen — sie kann seit dem Anlegen bei Meta geaendert oder abgelehnt worden sein.
+        $vorlagenProblem = DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
+        if ($vorlagenProblem !== null) {
+            $progress = self::initialProgress(0);
+            $progress['done'] = true;
+            $this->keepError($progress, 'Vorlage passt nicht: ' . $vorlagenProblem);
+            $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+            $wave->update(['finished_at' => now(), 'summary' => $progress]);
+
+            return;
+        }
+
         $schichten = $request->shifts()->whereNull('closed_at')->whereDate('datum', '>=', now()->toDateString())->get()
-            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit])->all();
+            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
+                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von])->all();
         $tage = array_values(array_unique(array_column($schichten, 'datum')));
         $daten = DispoJobKandidaten::laden($this->teamId, $tage, now()->format('Y-m'));
         $schon = RecDispoJobOffer::query()->where('request_id', $request->id)->pluck('anchor_employee_id')
             ->mapWithKeys(fn ($v) => [(int) $v => true])->all();
         $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schon, [
             'gruppen' => (array) $wave->gruppen, 'bloecke' => (array) $wave->ma_bloecke, 'nur_passend' => (bool) $wave->nur_passende_taetigkeit,
-        ]);
+        ], DispoJobSchonZugesagt::laden((int) $request->team_id));
 
         $progress = self::initialProgress(count($plan['recipients']));
         $progress['skipped'] = array_sum($plan['skipped']);

@@ -104,6 +104,7 @@ class DispoJobZasAbgleichTest extends TestCase
         $fehlend = $this->offerShift($req, 4, '2026-10-24', 5, true);
         $markiert = $this->offerShift($req, 6, '2026-10-24', 5, true);
         $nichtZugesagt = $this->offerShift($req, 5, '2026-10-24', 5, false);
+        $abgesagt = $this->offerShift($req, 7, '2026-10-24', 5, true);
 
         $this->assignment(1, '2026-10-24', 99);         // andere Person, KLEINERE id als die richtige
         $gut = $this->assignment(1, '2026-10-24', 5);
@@ -114,12 +115,13 @@ class DispoJobZasAbgleichTest extends TestCase
         $this->assignment(4, '2026-10-24', 5, ['missing_since' => now()]);
         $this->assignment(6, '2026-10-24', 5, ['deletion_marked_at' => now()]);
         $this->assignment(5, '2026-10-24', 5);          // passt, aber Zusage fehlt
+        $this->assignment(7, '2026-10-24', 5, ['declined_at' => now()]); // abgesagt -> zaehlt nicht
 
         $run = app(DispoJobZasAbgleich::class);
         $this->assertSame(1, $run->run());
 
         $this->assertSame((int) $gut->id, (int) $treffer->fresh()->zas_assignment_id);
-        foreach ([$andererTag, $andereVa, $storno, $fehlend, $markiert, $nichtZugesagt] as $os) {
+        foreach ([$andererTag, $andereVa, $storno, $fehlend, $markiert, $nichtZugesagt, $abgesagt] as $os) {
             $this->assertNull($os->fresh()->zas_assignment_id);
         }
 

@@ -27,6 +27,8 @@ final class KostenstellenBloeckeTest extends TestCase
         $this->assertNull(KostenstellenBloecke::block(null, null));
         $this->assertNull(KostenstellenBloecke::block('', ''));
         $this->assertSame(0, KostenstellenBloecke::block('0', null));
+        // Eigene Kostenstelle gesetzt, aber nicht numerisch: KEIN Rueckfall auf die Stelle.
+        $this->assertNull(KostenstellenBloecke::block('MGL', '200'));
     }
 
     public function testOptionenGruppierenUndZaehlen(): void

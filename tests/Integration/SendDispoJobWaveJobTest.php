@@ -87,12 +87,14 @@ class SendDispoJobWaveJobTest extends TestCase
     }
 
     /** @return array{0:RecDispoJobRequest,1:RecDispoJobWave,2:string} */
-    private function anfrage(array $wave = []): array
+    private function anfrage(array $wave = [], ?array $components = null): array
     {
+        $components ??= [['type' => 'BODY', 'text' => 'Hi {{name}}'],
+            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ansehen', 'url' => 'https://x/jobs/{{1}}']]]];
         $templateId = (int) Capsule::table('integrations_whatsapp_templates')->insertGetId([
             'uuid' => 'tpl-' . mt_rand(), 'external_id' => 'ext-' . mt_rand(), 'user_id' => 1, 'whatsapp_account_id' => 1,
             'name' => 't_jobs', 'language' => 'de', 'status' => 'APPROVED', 'category' => 'UTILITY',
-            'components' => json_encode([['type' => 'BODY', 'text' => 'Hi {{name}}']]), 'created_at' => now(), 'updated_at' => now(),
+            'components' => json_encode($components), 'created_at' => now(), 'updated_at' => now(),
         ]);
         $datum = Carbon::now()->addDays(10)->toDateString();
         $request = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => $datum, 'zeitraum_bis' => $datum,
@@ -199,6 +201,70 @@ class SendDispoJobWaveJobTest extends TestCase
         $wave->refresh();
         $this->assertNotNull($wave->started_at);
         $this->assertNotEmpty($wave->job_uuid);
+    }
+
+    /** M3: Vorlage ohne Link-Button — die Welle endet sofort mit einer Fehlerzeile, nichts geht raus. */
+    public function test_vorlage_ohne_link_button_sendet_nichts_und_schliesst(): void
+    {
+        [, $wave] = $this->anfrage([], [['type' => 'BODY', 'text' => 'Hi {{name}}']]);
+        $this->employee('Anna', '0176 12345678');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertNotNull($wave->started_at);
+        $this->assertNotNull($wave->finished_at);
+        $this->assertTrue($wave->summary['done']);
+        $this->assertSame(0, $wave->summary['sent']);
+        $this->assertCount(1, $wave->summary['errors']);
+        $this->assertStringStartsWith('Vorlage passt nicht: ', $wave->summary['errors'][0]);
+        $this->assertSame(0, RecDispoJobOffer::count());
+    }
+
+    public function test_nicht_freigegebene_vorlage_sendet_nichts(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        Capsule::table('integrations_whatsapp_templates')->where('id', $request->whatsapp_template_id)->update(['status' => 'REJECTED']);
+        $this->employee('Anna', '0176 12345678');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertStringStartsWith('Vorlage passt nicht: ', $wave->fresh()->summary['errors'][0]);
+    }
+
+    /** T6: Anfrage geschlossen — der Job beansprucht die Welle nicht und sendet nichts. */
+    public function test_geschlossene_anfrage_sendet_nichts(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['status' => RecDispoJobRequest::STATUS_ABGESCHLOSSEN, 'closed_at' => Carbon::now()]);
+        $this->employee('Anna', '0176 12345678');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $this->assertNull($wave->fresh()->started_at);
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(0, RecDispoJobOffer::count());
+    }
+
+    /** I2c: dieselbe Schicht in einer anderen Anfrage schon zugesagt → nicht noch einmal angeboten. */
+    public function test_anderswo_zugesagte_schicht_wird_nicht_angeboten(): void
+    {
+        [$request, $wave, $datum] = $this->anfrage();
+        $anna = $this->employee('Anna', '0176 12345678');
+        $andere = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => $datum, 'zeitraum_bis' => $datum,
+            'modus' => RecDispoJobRequest::MODUS_SAMMELN, 'status' => RecDispoJobRequest::STATUS_LAEUFT]);
+        $shift = $andere->shifts()->create(['rec_dispo_event_id' => 1, 'datum' => $datum, 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 5]);
+        $w = $andere->waves()->create(['nr' => 1, 'ma_bloecke' => [200], 'gruppen' => ['alle'], 'nur_passende_taetigkeit' => false]);
+        $w->offers()->create(['request_id' => $andere->id, 'rec_employee_id' => $anna, 'anchor_employee_id' => $anna])
+            ->shifts()->create(['shift_id' => $shift->id, 'accepted_at' => Carbon::now()]);
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(1, $wave->summary['skipped_toepfe']['schon_zugesagt']);
     }
 
     private static function runMigrations(): void
