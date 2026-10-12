@@ -11,14 +11,12 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Http\Controllers\DokumentDownloadController;
 use Platform\Recruiting\Models\RecEmployee;
-use Platform\Recruiting\Services\PortalAuth;
 
 final class DokumentDownloadControllerTest extends TestCase
 {
     public function test_sitzung_deckt_eigene_oder_schwester_anstellung(): void
     {
-        $sitzung = [PortalAuth::sessionKey(160) => true];
-        $hat = fn (string $key) => isset($sitzung[$key]);
+        $hat = fn (int $id) => $id === 160;
 
         $this->assertTrue(DokumentDownloadController::sitzungDeckt([160, 223], $hat));
         $this->assertTrue(DokumentDownloadController::sitzungDeckt([223, 160], $hat));

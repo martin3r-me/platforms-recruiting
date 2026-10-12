@@ -226,6 +226,8 @@ final class PortalGleichstandTest extends TestCase
             'database/migrations/2026_09_23_000001_add_nationality_to_rec_employees.php',
             'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
             'database/migrations/2026_09_24_000001_add_portal_v2_since_to_rec_employees.php',
+            // Spec HR-Bereich §9.6: PortalAuth::sitzungGueltig() liest rec_person_id.
+            'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
         ] as $datei) {
             (require $eigen . '/' . $datei)->up();
         }
@@ -272,6 +274,7 @@ final class PortalGleichstandTest extends TestCase
 
     protected function tearDown(): void
     {
+        TestPortalSitzung::aufraeumen();
         if ($this->tmpDir !== '' && is_dir($this->tmpDir)) {
             foreach (glob($this->tmpDir . '/*') ?: [] as $rest) {
                 if (is_file($rest)) {
@@ -320,6 +323,9 @@ final class PortalGleichstandTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = $angemeldet ? 'verified' : 'unverified';
+        if ($angemeldet) {
+            TestPortalSitzung::oeffne((int) $ma->id);
+        }
         $shell->duzen = true;
 
         return $shell;

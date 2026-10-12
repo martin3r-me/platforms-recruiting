@@ -38,6 +38,7 @@ final class VertragImPortalTest extends TestCase
 
     protected function tearDown(): void
     {
+        TestPortalSitzung::aufraeumen();
         $this->weltAbbauen();
         parent::tearDown();
     }
@@ -111,7 +112,7 @@ final class VertragImPortalTest extends TestCase
         $fremd = $this->anstellung(['personnel_number' => 'MA9999']);
         $v = $this->unterschrieben($ma);
         $token = $v->getOrCreatePublicFormLink()->token;
-        $sitzung = fn (int $id) => fn (string $key) => $key === PortalAuth::sessionKey($id);
+        $sitzung = fn (int $id) => fn (int $gefragt) => $gefragt === $id;
 
         $vertrag = VertragPdfController::vertragZumToken($token);
         $this->assertSame($v->id, $vertrag?->id);
@@ -222,7 +223,7 @@ final class VertragImPortalTest extends TestCase
         $this->personVerbinden($ma, $rg);
         $v = $this->unterschrieben($rg, 'AV-RG-LOG');
         DB::table('rec_employees')->where('id', $rg->id)->update(['is_active' => false]);
-        $sitzung = fn (int $id) => fn (string $key) => $key === PortalAuth::sessionKey($id);
+        $sitzung = fn (int $id) => fn (int $gefragt) => $gefragt === $id;
 
         $vertrag = VertragPdfController::vertragZumToken($v->getOrCreatePublicFormLink()->token);
         $this->assertSame(200, VertragPdfController::zugriff($vertrag, $sitzung($ma->id)), 'RG->MA-Wechsel: RG-Vertrag bleibt abrufbar');
@@ -254,6 +255,7 @@ final class VertragImPortalTest extends TestCase
 
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $ma->id);
         $shell->oeffneVertrag($fremder->id);
         $this->assertNull($shell->ziel, 'fremde ID aus dem Browser: kein Sprung');
 

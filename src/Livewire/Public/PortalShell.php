@@ -157,7 +157,7 @@ class PortalShell extends Component
             return;
         }
 
-        if (session()->has(PortalAuth::sessionKey($employee->id))) {
+        if (PortalAuth::sitzungGueltig((int) $employee->id)) {
             $this->identitaetLaden($employee);
             $this->state = 'verified';
 
@@ -204,7 +204,7 @@ class PortalShell extends Component
         $ergebnis = $auth->attempt($employee, $this->token, $this->birthDate, $this->idLast4);
 
         if ($ergebnis['status'] === PortalAuth::OK) {
-            session()->put(PortalAuth::sessionKey($employee->id), true);
+            session()->put(PortalAuth::sessionKey($employee->id), PortalAuth::anmeldeWert());
 
             // Denselben Stempel wie das alte Portal setzen — an ihm haengt die
             // Frage „wer nutzt das Portal ueberhaupt?", mit der die Groesse
@@ -1236,6 +1236,16 @@ class PortalShell extends Component
 
         if ($employee->portal_locked_at !== null) {
             $this->state = 'gesperrt';
+
+            return null;
+        }
+
+        // Spec HR-Bereich §9.6: ein zurueckgesetztes Konto beendet auch die
+        // schon offene Seite — nicht erst beim Neuladen.
+        if (!PortalAuth::sitzungGueltig((int) $employee->id)) {
+            $this->state = 'unverified';
+            $this->displayName = '';
+            $this->initialen = '';
 
             return null;
         }

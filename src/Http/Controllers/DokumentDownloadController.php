@@ -30,7 +30,7 @@ class DokumentDownloadController extends Controller
         $employee = $zustellung ? RecEmployee::find($zustellung->rec_employee_id) : null;
 
         $scopeIds = $employee ? app(PersonScopeResolver::class)->forEmployee($employee)['ids'] : [];
-        $sitzungGueltig = self::sitzungDeckt($scopeIds, fn (string $key) => $request->session()->has($key));
+        $sitzungGueltig = self::sitzungDeckt($scopeIds, fn (int $id) => PortalAuth::sitzungGueltig($id, $request->session()));
         $gesperrt = $scopeIds !== []
             && RecEmployee::query()->whereIn('id', $scopeIds)->whereNotNull('portal_locked_at')->exists();
         $gesperrt = self::gesperrt($gesperrt, $employee);
@@ -62,13 +62,17 @@ class DokumentDownloadController extends Controller
     }
 
     /**
+     * Deckt eine gueltige Portal-Sitzung eine der Anstellungen? Die Antwort
+     * je Anstellung kommt aus PortalAuth::sitzungGueltig() (Spec HR-Bereich
+     * §9.6) — hier wird nur ueber den Umfang iteriert.
+     *
      * @param  list<int> $scopeIds
-     * @param  callable(string):bool $hatSitzung
+     * @param  callable(int):bool $gilt
      */
-    public static function sitzungDeckt(array $scopeIds, callable $hatSitzung): bool
+    public static function sitzungDeckt(array $scopeIds, callable $gilt): bool
     {
         foreach ($scopeIds as $id) {
-            if ($hatSitzung(PortalAuth::sessionKey((int) $id))) {
+            if ($gilt((int) $id)) {
                 return true;
             }
         }

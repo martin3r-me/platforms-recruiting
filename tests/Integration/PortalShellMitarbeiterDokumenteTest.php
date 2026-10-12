@@ -47,6 +47,7 @@ final class PortalShellMitarbeiterDokumenteTest extends TestCase
 
     protected function tearDown(): void
     {
+        TestPortalSitzung::aufraeumen();
         $c = Container::getInstance();
         foreach ([DokumentUnterschrift::class, 'router', 'url'] as $n) {
             $c->forgetInstance($n);
@@ -60,6 +61,7 @@ final class PortalShellMitarbeiterDokumenteTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $ma->id);
 
         return $shell;
     }

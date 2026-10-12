@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Support\PhoneE164;
@@ -427,5 +428,73 @@ final class PortalAuth
     public static function sessionKey(int $employeeId): string
     {
         return "employee_portal_verified:{$employeeId}";
+    }
+
+    /**
+     * Was eine frische Portal-Sitzung speichert: den ANMELDEZEITPUNKT statt
+     * true (Spec HR-Bereich §9.6). Eine Stelle fuer alle drei Schreibstellen
+     * (KontoAnmelden, PortalShell, EmployeePortal).
+     */
+    public static function anmeldeWert(): string
+    {
+        return now()->toIso8601String();
+    }
+
+    /**
+     * DIE EINE Pruefstelle: gilt die Portal-Sitzung fuer diese Anstellung noch?
+     *
+     * Gueltig ist sie, wenn ein Sitzungswert existiert UND der
+     * Anmeldezeitpunkt NACH rec_persons.sitzungen_ungueltig_ab der Person
+     * liegt (gesetzt von HrKontoAktionen beim Zuruecksetzen). Ein Altwert
+     * true (Sitzungen von vor §9.6) gilt als Zeitpunkt 0 — er lebt bis zum
+     * ersten Zuruecksetzen und stirbt dann. Ohne Personen-Zeile: gueltig wie
+     * bisher. Ungueltige Schluessel werden verworfen.
+     *
+     * Eine zweite Pruefung mit eigener Logik ist verboten — sonst gibt es
+     * wieder eine Seite, die den Fremden weiter bedient. Die Spalte wird ueber
+     * first() gelesen, damit Testschemata ohne sie wie "nie ungueltig" wirken.
+     *
+     * @param  object|null  $sitzung  Session-Store (Request-Session); ohne Angabe app('session').
+     */
+    public static function sitzungGueltig(int $employeeId, ?object $sitzung = null): bool
+    {
+        $sitzung ??= app('session');
+        $schluessel = self::sessionKey($employeeId);
+        $wert = $sitzung->get($schluessel);
+
+        if ($wert === null || $wert === false) {
+            return false;
+        }
+
+        $personId = DB::table('rec_employees')->where('id', $employeeId)->value('rec_person_id');
+        if ($personId === null) {
+            return true;
+        }
+
+        $person = DB::table('rec_persons')->where('id', (int) $personId)->first();
+        $grenzeRoh = $person->sitzungen_ungueltig_ab ?? null;
+        if ($grenzeRoh === null) {
+            return true;
+        }
+
+        $grenze = strtotime((string) $grenzeRoh);
+        if ($grenze !== false && self::anmeldeZeitpunkt($wert) <= $grenze) {
+            $sitzung->forget($schluessel);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Altwert true und Unlesbares = 0 (die strenge Richtung). */
+    public static function anmeldeZeitpunkt(mixed $wert): int
+    {
+        if (!is_string($wert)) {
+            return 0;
+        }
+        $zeit = strtotime($wert);
+
+        return $zeit === false ? 0 : $zeit;
     }
 }

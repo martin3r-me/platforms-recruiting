@@ -452,7 +452,7 @@ class KontoAnmelden extends Component
         $kennungen = [];
         foreach ($anstellungen as $anstellung) {
             $kennungen[] = (int) $anstellung->id;
-            session()->put(PortalAuth::sessionKey((int) $anstellung->id), true);
+            session()->put(PortalAuth::sessionKey((int) $anstellung->id), PortalAuth::anmeldeWert());
         }
         $this->geoeffnet = $kennungen;
 

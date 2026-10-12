@@ -82,6 +82,8 @@ final class PortalPflichtangabenTest extends TestCase
             'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php',
             'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php',
             'database/migrations/2026_09_24_000001_add_portal_v2_since_to_rec_employees.php',
+            // Spec HR-Bereich §9.6: PortalAuth::sitzungGueltig() liest rec_person_id.
+            'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
             // Der Offen-Zaehler liest auch die Nachweise -- ohne diese
             // Tabelle koennte er gar nicht gebildet werden.
             'database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php',
@@ -110,6 +112,12 @@ final class PortalPflichtangabenTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Facade::clearResolvedInstances();
+    }
+
+    protected function tearDown(): void
+    {
+        TestPortalSitzung::aufraeumen();
+        parent::tearDown();
     }
 
     protected function setUp(): void
@@ -183,6 +191,7 @@ final class PortalPflichtangabenTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $ma->id);
         $shell->duzen = true;
 
         return $shell;

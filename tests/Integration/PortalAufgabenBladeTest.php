@@ -90,6 +90,7 @@ final class PortalAufgabenBladeTest extends TestCase
 
     protected function tearDown(): void
     {
+        TestPortalSitzung::aufraeumen();
         Carbon::setTestNow();
         Model::unsetConnectionResolver();
         Model::clearBootedModels();
@@ -311,6 +312,7 @@ final class PortalAufgabenBladeTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $ma->id);
         $shell->duzen = $duzen;
 
         $ansichtsDaten = $this->privat($shell, 'ansichtsDaten');

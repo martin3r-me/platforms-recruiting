@@ -11,6 +11,7 @@ use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\MainEmployerRequiredGuard;
 use Platform\Recruiting\Support\NationalityRequiredGuard;
@@ -154,7 +155,7 @@ class EmployeePortal extends Component
         // Bereits verifiziert in dieser Session? (Session-Flag basiert
         // auf employeeId — kein dauerhaftes Login, nur fuer aktuellen
         // Browser-Tab solange Session lebt.)
-        if (session()->has($this->sessionKey())) {
+        if (PortalAuth::sitzungGueltig((int) $this->employeeId)) {
             $this->state = 'verified';
             return;
         }
@@ -207,7 +208,7 @@ class EmployeePortal extends Component
         }
 
         // Verifikation erfolgreich — Session-Flag setzen + Audit
-        session()->put($this->sessionKey(), true);
+        session()->put($this->sessionKey(), PortalAuth::anmeldeWert());
         $employee->update(['portal_verified_at' => now()]);
         $this->loadFieldValues($employee->fresh());
         $this->clearFailedAttempts();

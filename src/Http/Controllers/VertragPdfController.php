@@ -9,6 +9,7 @@ use Platform\Recruiting\Http\Controllers\Concerns\RendersContractPdf;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PersonScopeResolver;
+use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Support\DokumentZugriff;
 
 /**
@@ -24,7 +25,7 @@ class VertragPdfController extends Controller
     public function __invoke(Request $request, string $token)
     {
         $vertrag = self::vertragZumToken($token);
-        $code = self::zugriff($vertrag, fn (string $key) => $request->session()->has($key));
+        $code = self::zugriff($vertrag, fn (int $id) => PortalAuth::sitzungGueltig($id, $request->session()));
         abort_if($code !== 200, $code);
 
         // Persoenliches Dokument: nicht im Browser-/Proxy-Cache liegen lassen
@@ -74,8 +75,10 @@ class VertragPdfController extends Controller
      * die Liste zeigt ihn ja auch. Eine Sitzung, die nur an inaktiven
      * Anstellungen haengt, oeffnet nichts — das Portal selbst laesst sie
      * auch nicht mehr hinein (PortalShell::berechtigterMitarbeiter()).
+     *
+     * @param  callable(int):bool $gilt  gilt die Portal-Sitzung dieser Anstellung (PortalAuth::sitzungGueltig)
      */
-    public static function zugriff(?RecContract $vertrag, callable $hatSitzung): int
+    public static function zugriff(?RecContract $vertrag, callable $gilt): int
     {
         $anstellung = $vertrag?->anstellung();
         $scopeIds = $anstellung ? app(PersonScopeResolver::class)->forEmployee($anstellung)['ids'] : [];
@@ -87,7 +90,7 @@ class VertragPdfController extends Controller
 
         return DokumentZugriff::entscheide(
             $vertrag !== null && $anstellung !== null && $vertrag->status === 'completed' && $vertrag->signed_at !== null,
-            DokumentDownloadController::sitzungDeckt($aktiveIds, $hatSitzung),
+            DokumentDownloadController::sitzungDeckt($aktiveIds, $gilt),
             $gesperrt,
             false,
         );

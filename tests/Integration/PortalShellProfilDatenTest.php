@@ -77,6 +77,8 @@ final class PortalShellProfilDatenTest extends TestCase
             'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php',
             // portal_v2_since -- Reihenfolge-Abhaengigkeit (->after())
             'database/migrations/2026_09_24_000001_add_portal_v2_since_to_rec_employees.php',
+            // Spec HR-Bereich §9.6: PortalAuth::sitzungGueltig() liest rec_person_id.
+            'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
@@ -89,6 +91,12 @@ final class PortalShellProfilDatenTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Facade::clearResolvedInstances();
+    }
+
+    protected function tearDown(): void
+    {
+        TestPortalSitzung::aufraeumen();
+        parent::tearDown();
     }
 
     protected function setUp(): void
@@ -117,6 +125,7 @@ final class PortalShellProfilDatenTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $ma->id);
 
         return $shell;
     }

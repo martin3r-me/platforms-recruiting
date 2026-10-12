@@ -125,6 +125,7 @@ final class PortalShellProfilTest extends TestCase
 
     protected function tearDown(): void
     {
+        TestPortalSitzung::aufraeumen();
         Facade::clearResolvedInstances();
         Model::unsetConnectionResolver();
         Model::clearBootedModels();
@@ -151,6 +152,9 @@ final class PortalShellProfilTest extends TestCase
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = $angemeldet ? 'verified' : 'unverified';
+        if ($angemeldet) {
+            TestPortalSitzung::oeffne((int) $ma->id);
+        }
 
         return $shell;
     }
