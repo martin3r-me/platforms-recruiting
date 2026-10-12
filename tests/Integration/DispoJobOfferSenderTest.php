@@ -57,11 +57,15 @@ class DispoJobOfferSenderTest extends TestCase
             public int $calls = 0;
             public array $log = [];
             public array $failFor = [];
+            public array $throwFor = [];
 
             public function sendTemplate($channel, string $to, string $templateName, array $components = [], string $languageCode = 'de', $sender = null, bool $isAutoReply = false): object
             {
                 $this->calls++;
                 $this->log[] = ['to' => $to, 'template' => $templateName, 'components' => $components];
+                if (in_array($to, $this->throwFor, true)) {
+                    throw new \RuntimeException('Netz weg');
+                }
                 if (in_array($to, $this->failFor, true)) {
                     return (object) ['id' => 1, 'status' => 'failed', 'meta_payload' => ['error' => ['message' => 'kaputt']]];
                 }
@@ -143,6 +147,52 @@ class DispoJobOfferSenderTest extends TestCase
         $this->assertSame(1, $this->stub->calls);
         $this->assertSame(1, RecDispoJobOffer::count());
         $this->assertSame(1, RecDispoJobOfferShift::count());
+    }
+
+    public function test_exception_im_versand_wird_gesammelt_und_am_angebot_gestempelt(): void
+    {
+        $templateId = $this->template('Hi');
+        [, $wave, $shift] = $this->anfrageMitWelle();
+        $this->stub->throwFor = ['+491761'];
+
+        $r = (new DispoJobOfferSender())->send($wave, [$this->recipient($shift->id)], $templateId);
+
+        $this->assertSame(0, $r['sent']);
+        $this->assertCount(1, $r['failed']);
+        $this->assertSame('Netz weg', $r['failed'][0]['error']);
+        $offer = RecDispoJobOffer::first();
+        $this->assertSame('Netz weg', $offer->send_error);
+        $this->assertNull($offer->sent_at);
+        $this->assertSame(1, RecDispoJobOfferShift::count());
+    }
+
+    public function test_body_ohne_name_hat_nur_den_button(): void
+    {
+        $templateId = $this->template('Neue Jobs fuer dich');
+        [, $wave, $shift] = $this->anfrageMitWelle();
+
+        (new DispoJobOfferSender())->send($wave, [$this->recipient($shift->id)], $templateId);
+
+        $this->assertCount(1, $this->stub->log[0]['components']);
+        $this->assertSame('button', $this->stub->log[0]['components'][0]['type']);
+    }
+
+    public function test_db_fehler_beim_anlegen_bricht_die_schleife_nicht_ab(): void
+    {
+        $templateId = $this->template('Hi');
+        [, $wave, $shift] = $this->anfrageMitWelle();
+        $bad = $this->recipient($shift->id);
+        $bad['shift_ids'] = [$shift->id, null]; // shift_id NOT NULL -> DB-Fehler
+        $good = $this->recipient($shift->id, '+491762');
+        $good['anchor'] = 6;
+        $good['employee_id'] = 6;
+
+        $r = (new DispoJobOfferSender())->send($wave, [$bad, $good], $templateId);
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame(1, $r['sent']);
+        $this->assertCount(1, $r['failed']);
+        $this->assertSame(5, $r['failed'][0]['anchor']);
     }
 
     public function test_vorlage_nicht_freigegeben_blockt(): void

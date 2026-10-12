@@ -45,42 +45,43 @@ class DispoJobOfferSender
         $failed = [];
 
         foreach ($recipients as $r) {
-            $exists = RecDispoJobOffer::query()
-                ->where('request_id', $request->id)
-                ->where('anchor_employee_id', $r['anchor'])
-                ->exists();
-            if ($exists) {
-                $failed[] = ['anchor' => (int) $r['anchor'], 'error' => 'in dieser Anfrage schon angeschrieben'];
-                continue;
-            }
-
-            $offer = RecDispoJobOffer::create([
-                'wave_id' => $wave->id, 'request_id' => $request->id,
-                'rec_employee_id' => $r['employee_id'], 'anchor_employee_id' => $r['anchor'],
-            ]);
-            foreach ($r['shift_ids'] as $shiftId) {
-                RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $shiftId]);
-            }
-
-            $components = [];
-            if ($usesName) {
-                $components[] = [
-                    'type'       => 'body',
-                    'parameters' => [[
-                        'type'           => 'text',
-                        'parameter_name' => 'name',
-                        'text'           => trim((string) $r['first_name']) !== '' ? trim((string) $r['first_name']) : 'zusammen',
-                    ]],
-                ];
-            }
-            $components[] = [
-                'type'       => 'button',
-                'sub_type'   => 'url',
-                'index'      => 0,
-                'parameters' => [['type' => 'text', 'text' => $r['portal_token']]],
-            ];
-
+            $offer = null;
             try {
+                $exists = RecDispoJobOffer::query()
+                    ->where('request_id', $request->id)
+                    ->where('anchor_employee_id', $r['anchor'])
+                    ->exists();
+                if ($exists) {
+                    $failed[] = ['anchor' => (int) $r['anchor'], 'error' => 'in dieser Anfrage schon angeschrieben'];
+                    continue;
+                }
+
+                $offer = RecDispoJobOffer::create([
+                    'wave_id' => $wave->id, 'request_id' => $request->id,
+                    'rec_employee_id' => $r['employee_id'], 'anchor_employee_id' => $r['anchor'],
+                ]);
+                foreach ($r['shift_ids'] as $shiftId) {
+                    RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $shiftId]);
+                }
+
+                $components = [];
+                if ($usesName) {
+                    $components[] = [
+                        'type'       => 'body',
+                        'parameters' => [[
+                            'type'           => 'text',
+                            'parameter_name' => 'name',
+                            'text'           => trim((string) $r['first_name']) !== '' ? trim((string) $r['first_name']) : 'zusammen',
+                        ]],
+                    ];
+                }
+                $components[] = [
+                    'type'       => 'button',
+                    'sub_type'   => 'url',
+                    'index'      => 0,
+                    'parameters' => [['type' => 'text', 'text' => $r['portal_token']]],
+                ];
+
                 $message = $service->sendTemplate(
                     channel:      $channel,
                     to:           (string) $r['phone'],
@@ -98,8 +99,14 @@ class DispoJobOfferSender
                 $offer->update(['message_id' => $message->id ?? null, 'sent_at' => now()]);
                 $sent++;
             } catch (\Throwable $e) {
-                $offer->update(['send_error' => mb_substr($e->getMessage(), 0, 500)]);
-                $failed[] = ['anchor' => (int) $r['anchor'], 'error' => $e->getMessage()];
+                if ($offer !== null) {
+                    try {
+                        $offer->update(['send_error' => mb_substr($e->getMessage(), 0, 500)]);
+                    } catch (\Throwable) {
+                        // zweiter Fehler beim Stempeln: bewusst geschluckt
+                    }
+                }
+                $failed[] = ['anchor' => (int) ($r['anchor'] ?? 0), 'error' => $e->getMessage()];
             }
         }
 
