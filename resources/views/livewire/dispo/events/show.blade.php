@@ -20,12 +20,15 @@
 
     <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
+            <div class="flex items-center gap-2">
             <h1 class="text-xl font-semibold">
                 {{ $event->name ?? $event->einsatz_ref }}
                 @if ($event->alarmMessage?->status === 'failed')
                     <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 align-middle text-xs text-red-800">Alarm nicht zugestellt</span>
                 @endif
             </h1>
+            @include('recruiting::anleitungen._hilfe', ['route' => 'recruiting.dispo.events.show'])
+            </div>
             <p class="text-sm text-gray-500">
                 {{ $event->einsatz_ref }}
                 @if ($event->starts_on) · {{ $event->starts_on->format('d.m.Y') }}@endif

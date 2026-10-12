@@ -8,6 +8,7 @@
             ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
             ['label' => 'Interview-Termine'],
         ]">
+            @include('recruiting::anleitungen._hilfe', ['route' => 'recruiting.interview-schedule.index'])
             <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
                 @svg('heroicon-o-plus', 'w-4 h-4')
                 <span>Neuer Termin</span>

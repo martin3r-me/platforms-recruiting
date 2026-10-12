@@ -1,6 +1,9 @@
 <div class="p-6 max-w-4xl space-y-6">
     <div>
-        <h1 class="text-xl font-semibold">Dispo-Einstellungen</h1>
+        <div class="flex items-center gap-2">
+            <h1 class="text-xl font-semibold">Dispo-Einstellungen</h1>
+            @include('recruiting::anleitungen._hilfe', ['route' => 'recruiting.dispo.settings'])
+        </div>
         <p class="text-sm text-gray-500">Konfiguration des Bestätigungs-Versands — getrennt von den Bewerber-Einstellungen.</p>
     </div>
 
