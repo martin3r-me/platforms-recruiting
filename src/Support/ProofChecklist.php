@@ -80,7 +80,11 @@ final class ProofChecklist
         return count(array_filter($zeilen, static fn ($z) => $z['status'] !== self::OK));
     }
 
-    private static function laeuftBaldAb(string $code, string $gueltigBis, string $heute): bool
+    /**
+     * EINE Faelligkeits-Regel (gueltig bis <= heute + Vorlauf des Typs) — auch
+     * die HR-Liste "Erinnert" fragt hier (HrMitarbeiterListen, Fix-Runde 1 M4).
+     */
+    public static function laeuftBaldAb(string $code, string $gueltigBis, string $heute): bool
     {
         $vorlauf = ProofTypes::leadDays($code);
         if ($vorlauf === null) {

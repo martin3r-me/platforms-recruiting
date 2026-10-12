@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrVermerk;
+use Platform\Recruiting\Services\HrKontoAktionen;
 use Platform\Recruiting\Services\HrMitarbeiterListen;
 use Platform\Recruiting\Services\OffenePunkte;
 
@@ -24,8 +25,11 @@ final class HrMitarbeiterListenTest extends TestCase
         $this->hrWeltAufbauen();
         $this->punkte = new class extends OffenePunkte {
             public array $liste = [['code' => 'ausweis', 'label' => 'Personalausweis', 'status' => 'fehlt', 'ko' => true]];
+            public int $aufrufe = 0;
             public function fuer(RecEmployee $employee, ?string $heute = null): array
             {
+                $this->aufrufe++;
+
                 return ['punkte' => $this->liste, 'einsatz' => null, 'gesperrt' => false];
             }
         };
@@ -403,5 +407,126 @@ final class HrMitarbeiterListenTest extends TestCase
         $this->person(['locked_at' => now()], $this->akte(['first_name' => 'Ina', 'last_name' => 'Birne']));
 
         $this->assertSame(['Jörg Äpfel'], array_column($this->listen()->gesperrt($this->team, 'äpf'), 'name'));
+    }
+
+    // ------------------------------------------------------------ Fix-Runde 1
+
+    /** I2: ruhende Zeilen kosten keine Live-Pruefung (OffenePunkte nur fuer angezeigte Zeilen). */
+    public function test_ruhende_zeile_ruft_offene_punkte_nicht_auf(): void
+    {
+        $a = $this->akte();
+        $id = $this->person([], $a);
+        $this->erinnert($id, '2026-10-01 10:00:00');
+        RecHrVermerk::anfuegen($this->team, $id, null, 'kontaktiert', 'Angerufen, kommt.', null, 'ok', now()->addDays(3), 42);
+
+        $this->assertSame([], $this->listen()->erinnert($this->team));
+        $this->assertSame(0, $this->punkte->aufrufe, 'ruht: keine Live-Pruefung');
+
+        $this->assertCount(1, $this->listen()->erinnert($this->team, '', true));
+        $this->assertSame(1, $this->punkte->aufrufe, 'ruhende zeigen: dann schon');
+    }
+
+    /** I3: wer keine aktive Anstellung mehr hat, erscheint nicht unter "Erinnert". */
+    public function test_ausgeschiedene_person_ohne_aktive_akte_hat_keinen_aufgaben_chip(): void
+    {
+        $id = $this->person([], $this->akte(['is_active' => false]));
+        $this->erinnert($id);
+
+        $this->assertSame([], $this->listen()->erinnert($this->team));
+        $this->assertSame(0, $this->punkte->aufrufe);
+    }
+
+    /** M1: stillgelegte Zeile und Zielzeile mit je einem Antrag — zwei Zeilen, zwei Schluessel. */
+    public function test_stillgelegter_und_ziel_antrag_haben_verschiedene_schluessel(): void
+    {
+        $ziel = $this->akte(['first_name' => 'Zora']);
+        $zielId = $this->person(['wechsel_neue_nummer' => '+4917000000011', 'wechsel_beantragt_at' => '2026-10-12 09:00:00',
+            'wechsel_wirksam_ab' => '2026-10-13 09:00:00', 'wechsel_quelle' => 'notfall'], $ziel);
+        $still = $this->person(['phone' => '+4915199999998', 'merged_into_person_id' => $zielId, 'wechsel_neue_nummer' => '+4917000000012',
+            'wechsel_beantragt_at' => '2026-10-12 09:00:00', 'wechsel_wirksam_ab' => '2026-10-12 09:30:00', 'wechsel_quelle' => 'notfall']);
+
+        $zeilen = collect($this->listen()->antraege($this->team))->keyBy('person_id');
+
+        $this->assertCount(2, $zeilen);
+        $this->assertSame('p:' . $zielId, $zeilen[$zielId]['schluessel']);
+        $this->assertSame('p:' . $still, $zeilen[$still]['schluessel']);
+        $this->assertSame('stillgelegt, wird nie angewendet', $zeilen[$still]['zustand']);
+        $this->assertSame('Zora Muster', $zeilen[$still]['name']);
+    }
+
+    /** M2: Antrag ohne Akte im Team verschwindet nicht — sichtbar, stoppbar, im Abzeichen. */
+    public function test_antrag_ohne_akte_im_team_bleibt_sichtbar_und_zaehlt(): void
+    {
+        $id = $this->person(['phone' => '+4915199999997', 'wechsel_neue_nummer' => '+4917000000013', 'wechsel_beantragt_at' => '2026-10-12 09:00:00',
+            'wechsel_wirksam_ab' => '2026-10-13 09:00:00', 'wechsel_quelle' => 'notfall']);
+
+        $zeilen = $this->listen()->antraege($this->team);
+
+        $this->assertCount(1, $zeilen);
+        $this->assertSame($id, $zeilen[0]['person_id']);
+        $this->assertSame('p:' . $id, $zeilen[0]['schluessel']);
+        $this->assertSame('Person #' . $id, $zeilen[0]['name']);
+        $this->assertSame([], $zeilen[0]['akten']);
+        $this->assertNull($zeilen[0]['employee_id']);
+        $this->assertSame('keine Akte im Team', $zeilen[0]['zustand']);
+        $this->assertFalse($zeilen[0]['kann_freigeben']);
+        $this->assertSame(1, $this->listen()->abzeichen($this->team));
+
+        $stopp = (new HrKontoAktionen($this->portalAuth()))->stoppeAntrag($id, 'Kein Mitarbeiter mehr.');
+        $this->assertTrue($stopp->istOk(), 'Stoppen ist immer erlaubt — auch ohne Akte im Team');
+        $this->assertSame([], $this->listen()->antraege($this->team));
+    }
+
+    /** M2: Stopp-Vermerk und Notfallsperre einer spaeter stillgelegten bzw. aktenlosen Person bleiben sichtbar. */
+    public function test_gestoppte_ohne_akte_oder_stillgelegt_bleiben_sichtbar(): void
+    {
+        $ziel = $this->akte(['first_name' => 'Zora']);
+        $zielId = $this->person([], $ziel);
+        $still = $this->person(['phone' => '+4915199999996', 'merged_into_person_id' => $zielId, 'notfall_gesperrt_bis' => '2026-10-19 10:00:00']);
+        RecHrVermerk::anfuegen($this->team, $still, null, 'antrag_gestoppt', 'Klang nach Betrug.', null, null, null, 42);
+        $ohne = $this->person(['phone' => '+4915199999995', 'notfall_gesperrt_bis' => '2026-10-19 10:00:00']);
+
+        $g = $this->listen()->gestoppte($this->team);
+
+        $this->assertSame(['Zora Muster'], array_column($g['gestoppt'], 'name'), 'Stopp an stillgelegter Zeile: Name der Zielzeile');
+        $sperren = collect($g['notfallsperren'])->keyBy('person_id');
+        $this->assertSame('Zora Muster', $sperren[$still]['name']);
+        $this->assertSame('Person #' . $ohne, $sperren[$ohne]['name']);
+        $this->assertSame([], $sperren[$ohne]['akten']);
+    }
+
+    /** M3: Akte mit teamfremder Person zaehlt als eigene Akte — Ruhe greift, Pilot behaelt die Zeile. */
+    public function test_akte_mit_teamfremder_person_wird_ueber_die_akte_gefuehrt(): void
+    {
+        $a = $this->akte(['first_name' => 'Fred']);
+        $fremd = $this->person(['team_id' => 8, 'phone' => '+4915199999994', 'locked_at' => now()], $a);
+        $this->nachweis($a);
+        RecHrVermerk::anfuegen($this->team, null, $a->id, 'kontaktiert', 'Angerufen, kommt.', null, 'ok', now()->addDays(3), 42);
+        $l = $this->listen();
+
+        $this->assertSame([], $l->erinnert($this->team), 'Ruhe am e:-Schluessel greift');
+        $ruhend = $l->erinnert($this->team, '', true);
+        $this->assertSame('e:' . $a->id, $ruhend[0]['schluessel']);
+        $this->assertNull($ruhend[0]['person_id']);
+
+        $pilot = $l->pilot($this->team);
+        $this->assertSame(['e:' . $a->id], array_column($pilot['zeilen'], 'schluessel'));
+        $this->assertTrue($pilot['zeilen'][0]['ohne_person']);
+        $this->assertSame(1, $pilot['zahlen']['alle']);
+        $this->assertSame([], $l->gesperrt($this->team), 'fremde Kontosperre wird nicht gelesen');
+        $this->assertStringNotContainsString((string) '"person_id":' . $fremd, json_encode($ruhend));
+    }
+
+    /** M3: Akte an stillgelegter Person (Datenrest) — ebenfalls ueber die Akte. */
+    public function test_akte_an_stillgelegter_person_wird_ueber_die_akte_gefuehrt(): void
+    {
+        $zielId = $this->person([], $this->akte());
+        $a = $this->akte(['first_name' => 'Rest']);
+        $this->person(['phone' => '+4915199999993', 'merged_into_person_id' => $zielId], $a);
+
+        $zeile = collect($this->listen()->pilot($this->team)['zeilen'])->firstWhere('employee_id', $a->id);
+
+        $this->assertNotNull($zeile);
+        $this->assertSame('e:' . $a->id, $zeile['schluessel']);
     }
 }

@@ -193,7 +193,10 @@ final class HrKontoAktionen
         if (($f = self::notizFehler($notiz)) !== null) {
             return HrAktionErgebnis::fehler($f);
         }
-        if (self::personImTeam($teamId, $personId) === null) {
+        // Stoppen ist IMMER erlaubt (Ruling Fix-Runde 1 zu Aufgabe 6, M2): die Zeile
+        // muss nur diesem Team gehoeren — eine Akte im Team braucht es hier nicht,
+        // sonst laege der Antrag einer aktenlosen Person sichtbar, aber unstoppbar.
+        if ($personId <= 0 || !DB::table('rec_persons')->where('id', $personId)->where('team_id', $teamId)->exists()) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
 

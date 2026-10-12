@@ -16,6 +16,7 @@ use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\KontoStatus;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\SperrGruende;
 use Platform\Recruiting\Support\VertragErinnerungsPause;
@@ -27,6 +28,11 @@ use Platform\Recruiting\Support\VertragsHerkunft;
  * (Personen-Klammer rec_persons; Akten ohne Personen-Zeile je eine Zeile).
  * Team-Scope: Personen ueber rec_persons.team_id UND Akte im Team;
  * Nachweise/Dokumente/Vertraege ueber rec_employees.team_id.
+ *
+ * Eine Akte, deren rec_person_id auf eine teamfremde oder stillgelegte
+ * Person zeigt, zaehlt als Akte ohne Person ('e:<id>') — dieselbe Regel wie
+ * HrKontoAktionen::personDerAkteImTeam(), damit z. B. ein "kontaktiert"-
+ * Vermerk (dort an der Akte gespeichert) hier auch greift (Fix-Runde 1, M3).
  */
 final class HrMitarbeiterListen
 {
@@ -34,6 +40,9 @@ final class HrMitarbeiterListen
         'id', 'rec_person_id', 'first_name', 'last_name', 'company', 'is_active', 'phone',
         'portal_v2_since', 'portal_verified_at', 'portal_last_seen_at', 'portal_locked_at', 'portal_locked_reason',
     ];
+
+    /** Zustand eines Antrags, dessen Person keine Akte im Team hat — nur stoppbar. */
+    public const OHNE_AKTE = 'keine Akte im Team';
 
     public function __construct(
         private readonly ?PortalAuth $auth = null,
@@ -92,18 +101,23 @@ final class HrMitarbeiterListen
 
         $zeilen = [];
         foreach ($offene as $z) {
-            $m = $menschen['p:' . $anker[(int) $z->id]] ?? null;
-            if ($m === null) {
-                continue;
-            }
+            // M2: ohne Akte im Team verschwindet der Antrag NICHT (KontoWriter: nie
+            // "unsichtbar UND unstoppbar") — Zeile ohne Akten, nur stoppbar.
+            $m = $menschen['p:' . $anker[(int) $z->id]] ?? self::aktenloserMensch((int) $z->id);
             $zustand = NummernwechselTafel::zustand($z, $wegAn);
+            if ($m['employee_ids'] === [] && in_array($zustand, [NummernwechselTafel::ZUSTAND_OFFEN, NummernwechselTafel::ZUSTAND_NOTFALLWEG_AUS], true)) {
+                $zustand = self::OHNE_AKTE;
+            }
             $wirksam = Carbon::parse((string) $z->wechsel_wirksam_ab);
             $stunden = (int) ceil(($wirksam->getTimestamp() - $jetzt) / 3600);
             $notfall = $z->wechsel_quelle === KontoWriter::ZWECK_NOTFALL;
 
             $zeilen[] = array_merge($m, [
+                // M1: Schluessel = die Antrags-Zeile selbst. Stillgelegte Zeile und Zielzeile
+                // koennen beide einen Antrag haben — zwei Zeilen, nie derselbe Schluessel.
+                'schluessel'     => 'p:' . (int) $z->id,
                 'person_id'      => (int) $z->id,
-                'alt'            => '…' . NummernwechselTafel::kurz((string) ($z->phone ?? '')),
+                'alt'          => '…' . NummernwechselTafel::kurz((string) ($z->phone ?? '')),
                 'neu'            => '…' . NummernwechselTafel::kurz((string) $z->wechsel_neue_nummer),
                 'beantragt_at'   => (string) $z->wechsel_beantragt_at,
                 'beantragt'      => $z->wechsel_beantragt_at !== null ? Carbon::parse((string) $z->wechsel_beantragt_at)->format('d.m., H:i') : '—',
@@ -137,22 +151,28 @@ final class HrMitarbeiterListen
             $gestoppt->pluck('rec_person_id')->filter()->map(fn ($v) => (int) $v)->all(),
             $sperren->pluck('id')->map(fn ($v) => (int) $v)->all(),
         )));
-        $menschen = self::menschen($this->aktenFuerPersonen($teamId, $ids));
+        // M2: spaeter stillgelegte Zeilen zeigen Name und Akten der Zielzeile;
+        // ohne Akte im Team bleibt der Eintrag sichtbar ("Person #id").
+        $anker = $ids === [] ? [] : DB::table('rec_persons')->whereIn('id', $ids)->where('team_id', $teamId)
+            ->get(['id', 'merged_into_person_id'])
+            ->mapWithKeys(fn ($p) => [(int) $p->id => $p->merged_into_person_id !== null ? (int) $p->merged_into_person_id : (int) $p->id])
+            ->all();
+        $menschen = self::menschen($this->aktenFuerPersonen($teamId, array_values(array_unique($anker))));
+        $mensch = fn (int $id) => $menschen['p:' . ($anker[$id] ?? $id)] ?? self::aktenloserMensch($id);
 
         $aus = ['gestoppt' => [], 'notfallsperren' => []];
         foreach ($gestoppt as $v) {
-            $m = $menschen['p:' . (int) $v->rec_person_id] ?? null;
-            if ($m !== null) {
-                $aus['gestoppt'][] = ['name' => $m['name'], 'akten' => $m['akten'], 'am' => Carbon::parse((string) $v->created_at)->format('d.m.Y, H:i'),
-                    'von' => (string) ($v->benutzer ?? '—'), 'notiz' => (string) $v->notiz];
+            if ($v->rec_person_id === null) {
+                continue;
             }
+            $m = $mensch((int) $v->rec_person_id);
+            $aus['gestoppt'][] = ['name' => $m['name'], 'akten' => $m['akten'], 'am' => Carbon::parse((string) $v->created_at)->format('d.m.Y, H:i'),
+                'von' => (string) ($v->benutzer ?? '—'), 'notiz' => (string) $v->notiz];
         }
         foreach ($sperren as $p) {
-            $m = $menschen['p:' . (int) $p->id] ?? null;
-            if ($m !== null) {
-                $aus['notfallsperren'][] = ['person_id' => (int) $p->id, 'name' => $m['name'], 'akten' => $m['akten'],
-                    'bis' => Carbon::parse((string) $p->notfall_gesperrt_bis)->format('d.m.Y')];
-            }
+            $m = $mensch((int) $p->id);
+            $aus['notfallsperren'][] = ['person_id' => (int) $p->id, 'name' => $m['name'], 'akten' => $m['akten'],
+                'bis' => Carbon::parse((string) $p->notfall_gesperrt_bis)->format('d.m.Y')];
         }
 
         return $aus;
@@ -162,7 +182,7 @@ final class HrMitarbeiterListen
 
     public function gesperrt(int $teamId, string $suche = '', bool $mitBremse = true): array
     {
-        $akten = DB::table('rec_employees')->where('team_id', $teamId)->where('is_active', 1)->orderBy('id')->get(self::AKTEN_SPALTEN);
+        $akten = $this->geklammert($teamId, DB::table('rec_employees')->where('team_id', $teamId)->where('is_active', 1)->orderBy('id')->get(self::AKTEN_SPALTEN));
         $menschen = self::menschen($akten);
         $gruende = $this->sperrGruende($teamId, $menschen, $akten, $mitBremse);
 
@@ -279,6 +299,17 @@ final class HrMitarbeiterListen
         $aktenById = $akten->keyBy('id');
         $schluesselJeAkte = $akten->mapWithKeys(fn ($a) => [(int) $a->id => self::schluessel($a)])->all();
 
+        // I2: Ruhe und naechster Einsatz VOR der teuren Live-Pruefung — OffenePunkte
+        // laeuft nur fuer Zeilen, die auch angezeigt werden.
+        $naechster = $this->naechsteEinsaetze($menschen, $heute);
+        $ruhe = $this->ruheBis($teamId);
+        $ruht = [];
+        foreach ($ruhe as $schluessel => $ruheBis) {
+            $einsatz = $naechster[$schluessel] ?? null;
+            // Review Focus 5: eine Ruhe, die ueber den naechsten Einsatz reicht, versteckt nichts.
+            $ruht[$schluessel] = $einsatz === null || $einsatz > substr($ruheBis, 0, 10);
+        }
+
         $gescheitert = $this->gescheiterteNachrichten(
             $aufgaben->pluck('aufgaben_nachricht_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all(),
         );
@@ -286,6 +317,9 @@ final class HrMitarbeiterListen
         $chips = [];
         foreach ($aufgaben as $p) {
             $schluessel = 'p:' . (int) $p->id;
+            if (($ruht[$schluessel] ?? false) && !$ruhendeZeigen) {
+                continue;
+            }
             $rot = $p->aufgaben_nachricht_id !== null && isset($gescheitert[(int) $p->aufgaben_nachricht_id]);
             if (isset($menschen[$schluessel]) && ($chip = $this->aufgabenChip($p, $menschen[$schluessel], $aktenById, $rot)) !== null) {
                 $chips[$schluessel][] = $chip;
@@ -322,17 +356,13 @@ final class HrMitarbeiterListen
             }
         }
 
-        $naechster = $this->naechsteEinsaetze($menschen, $heute);
-        $ruhe = $this->ruheBis($teamId);
-
         $zeilen = [];
         foreach ($chips as $schluessel => $liste) {
             $m = $menschen[$schluessel];
             $einsatz = $naechster[$schluessel] ?? null;
             $ruheBis = $ruhe[$schluessel] ?? null;
-            // Review Focus 5: eine Ruhe, die ueber den naechsten Einsatz reicht, versteckt nichts.
-            $ruht = $ruheBis !== null && ($einsatz === null || $einsatz > substr($ruheBis, 0, 10));
-            if ($ruht && !$ruhendeZeigen) {
+            $ruhtHier = $ruht[$schluessel] ?? false;
+            if ($ruhtHier && !$ruhendeZeigen) {
                 continue;
             }
             $zeilen[] = array_merge($m, [
@@ -341,8 +371,8 @@ final class HrMitarbeiterListen
                 'naechster_text'    => $einsatz !== null ? Carbon::parse($einsatz)->format('d.m.Y') : 'kein Einsatz',
                 'aeltest'           => min(array_column($liste, 'erinnert_at')),
                 'ruhe_bis'          => $ruheBis,
-                'ruht'              => $ruht,
-                'ruhe_hinweis'      => $ruheBis !== null && !$ruht
+                'ruht'              => $ruhtHier,
+                'ruhe_hinweis'      => $ruheBis !== null && !$ruhtHier
                     ? sprintf('kontaktiert — ruht nicht, weil der nächste Einsatz (%s) vor dem Ruhe-Ende liegt', Carbon::parse((string) $einsatz)->format('d.m.Y'))
                     : null,
             ]);
@@ -357,11 +387,13 @@ final class HrMitarbeiterListen
 
     public function pilot(int $teamId, string $suche = '', string $filter = 'alle'): array
     {
-        $pilotAkten = DB::table('rec_employees')->where('team_id', $teamId)->whereNotNull('portal_v2_since')->orderBy('id')->get(self::AKTEN_SPALTEN);
+        $pilotAkten = $this->geklammert($teamId, DB::table('rec_employees')->where('team_id', $teamId)->whereNotNull('portal_v2_since')->orderBy('id')->get(self::AKTEN_SPALTEN));
         $pilotIds = $pilotAkten->pluck('id')->map(fn ($v) => (int) $v)->all();
         $personIds = $pilotAkten->pluck('rec_person_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
         $akten = $this->aktenMitSchwestern($teamId, $pilotIds, $personIds);
         $menschen = self::menschen($akten);
+        // I1: einmal indizieren statt whereIn je Mensch (war O(n²), 0,4 s bei 1500 Akten).
+        $aktenById = $akten->keyBy('id');
         $personen = $personIds === [] ? collect() : DB::table('rec_persons')->whereIn('id', $personIds)->where('team_id', $teamId)
             ->get(['id', 'password_hash', 'registered_at', 'invited_at', 'invite_expires_at', 'invite_used_at', 'letzte_anmeldung_at'])->keyBy('id');
         $jetzt = now()->format('Y-m-d H:i:s');
@@ -374,7 +406,7 @@ final class HrMitarbeiterListen
                 continue;
             }
             $p = $m['person_id'] !== null ? $personen->get($m['person_id']) : $leer;
-            $eigene = $akten->whereIn('id', $m['employee_ids']);
+            $eigene = collect($m['employee_ids'])->map(fn (int $id) => $aktenById[$id]);
             $pilotSeit = $eigene->pluck('portal_v2_since')->filter()->min();
             $altesPortal = $eigene->flatMap(fn ($a) => [$a->portal_verified_at, $a->portal_last_seen_at])->filter()->max();
             $treffer = KontoStatus::filter($p, $jetzt);
@@ -426,11 +458,41 @@ final class HrMitarbeiterListen
     /** @param list<int> $personIds */
     private function aktenFuerPersonen(int $teamId, array $personIds): Collection
     {
-        return $personIds === [] ? collect() : DB::table('rec_employees')
-            ->where('team_id', $teamId)->whereIn('rec_person_id', $personIds)->orderBy('id')->get(self::AKTEN_SPALTEN);
+        return $personIds === [] ? collect() : $this->geklammert($teamId, DB::table('rec_employees')
+            ->where('team_id', $teamId)->whereIn('rec_person_id', $personIds)->orderBy('id')->get(self::AKTEN_SPALTEN));
     }
 
-    /** Die genannten Akten plus alle Schwester-Akten derselben Personen im Team. */
+    /**
+     * M3: rec_person_id bleibt nur stehen, wenn die Person im Team liegt und
+     * nicht stillgelegt ist (Regel von HrKontoAktionen::personDerAkteImTeam —
+     * die Akte selbst liegt hier immer im Team). Sonst wird die Akte als Akte
+     * ohne Person gefuehrt. EINE Abfrage fuer die ganze Menge; Kopien statt
+     * Veraenderung der geladenen Zeilen.
+     */
+    private function geklammert(int $teamId, Collection $akten): Collection
+    {
+        $ids = $akten->pluck('rec_person_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
+        if ($ids === []) {
+            return $akten;
+        }
+        $lebend = DB::table('rec_persons')->whereIn('id', $ids)->where('team_id', $teamId)->whereNull('merged_into_person_id')
+            ->pluck('id')->mapWithKeys(fn ($v) => [(int) $v => true])->all();
+
+        return $akten->map(function (object $a) use ($lebend) {
+            if ($a->rec_person_id !== null && !isset($lebend[(int) $a->rec_person_id])) {
+                $a = clone $a;
+                $a->rec_person_id = null;
+            }
+
+            return $a;
+        })->values();
+    }
+
+    /**
+     * Die genannten Akten plus alle Schwester-Akten derselben (lebenden,
+     * teameigenen) Personen im Team. Akten, die nur ueber eine fremde oder
+     * stillgelegte Person mitkamen, fallen wieder heraus.
+     */
     private function aktenMitSchwestern(int $teamId, array $aktenIds, array $personIds): Collection
     {
         if ($aktenIds !== []) {
@@ -441,30 +503,53 @@ final class HrMitarbeiterListen
             return collect();
         }
 
-        return DB::table('rec_employees')
+        $akten = $this->geklammert($teamId, DB::table('rec_employees')
             ->where('team_id', $teamId)
             ->where(fn ($q) => $q->whereIn('id', $aktenIds === [] ? [0] : $aktenIds)->orWhereIn('rec_person_id', $personIds === [] ? [0] : $personIds))
             ->orderBy('id')
-            ->get(self::AKTEN_SPALTEN);
+            ->get(self::AKTEN_SPALTEN));
+        $genannt = array_fill_keys($aktenIds, true);
+        $personen = array_fill_keys($personIds, true);
+
+        return $akten->filter(fn (object $a) => isset($genannt[(int) $a->id])
+            || ($a->rec_person_id !== null && isset($personen[(int) $a->rec_person_id])))->values();
     }
 
+    /** Zeile fuer eine Person ohne Akte im Team (M2): sichtbar statt verschluckt. */
+    private static function aktenloserMensch(int $personId): array
+    {
+        return [
+            'schluessel'   => 'p:' . $personId,
+            'person_id'    => $personId,
+            'employee_id'  => null,
+            'name'         => 'Person #' . $personId,
+            'akten'        => [],
+            'employee_ids' => [],
+        ];
+    }
+
+    /** M4: die Faelligkeits-Regel steht in ProofChecklist::laeuftBaldAb — hier nur die Vorbedingungen. */
     private static function nachweisNochFaellig(object $n, string $heute): bool
     {
         $code = (string) $n->proof_type_code;
         $bis = substr((string) $n->valid_until, 0, 10);
-        $vorlauf = ProofTypes::leadDays($code);
-        if ($bis === '' || !ProofTypes::exists($code) || !ProofTypes::hasExpiry($code) || $vorlauf === null) {
+        if ($bis === '' || !ProofTypes::exists($code) || !ProofTypes::hasExpiry($code)) {
             return false;
         }
 
-        return $bis <= date('Y-m-d', (int) strtotime($heute . ' +' . $vorlauf . ' days'));
+        return ProofChecklist::laeuftBaldAb($code, $bis, $heute);
     }
 
     private function aufgabenChip(object $p, array $mensch, Collection $aktenById, bool $rot): ?array
     {
         $aktiv = array_values(array_filter($mensch['employee_ids'], fn (int $id) => (bool) $aktenById[$id]->is_active));
+        // I3: ohne aktive Anstellung keine Live-Pruefung an einer beendeten Akte —
+        // Ausgeschiedene erscheinen nicht unter "Erinnert" (wie Gesperrt/Nachweis).
+        if ($aktiv === []) {
+            return null;
+        }
         $bote = Bote::fuer($aktiv);
-        $leser = $bote ?? RecEmployee::find($aktiv[0] ?? $mensch['employee_id']);
+        $leser = $bote ?? RecEmployee::find($aktiv[0]);
         $punkte = $leser !== null ? ($this->offenePunkte ?? app(OffenePunkte::class))->fuer($leser)['punkte'] : [];
         if ($punkte === []) {
             return null;
