@@ -124,6 +124,17 @@ class RecApplicantSettings extends Model
         // auto_pilot_wa_account_id (siehe resolveChannelFor). Schluesselname
         // steht in Services/ProofReminderSender::SETTINGS_KEY.
         'proof_reminder_wa_template_id' => null,
+        // Mitarbeiterportal-Vorlagen (Support/PortalVorlagen): Einmalcode je Zweck,
+        // Hinweis an die alte Nummer, Aufgaben-Nachrichten. Nicht gesetzt = kein
+        // Versand (Logzeile mit Grund), kein Rueckfall auf .env.
+        'konto_code_passwort_wa_template_id' => null,
+        'konto_code_nummernwechsel_wa_template_id' => null,
+        'konto_code_notfall_wa_template_id' => null,
+        'konto_hinweis_alte_nummer_wa_template_id' => null,
+        'aufgaben_neu_wa_template_id' => null,
+        'aufgaben_erinnerung_wa_template_id' => null,
+        // Einsatz-Pruefung im Portal: Team-Schalter, Vorgabe aus.
+        'einsatz_pruefung_aktiv' => false,
         // Kommunikations-Übersicht / Eskalation (WhatsApp 24h-Fenster).
         // Restzeit-Schwellen IM offenen Fenster (NICHT "Stunden seit Eingang"):
         // grün > yellow, gelb <= yellow, rot <= red, verpasst = Fenster zu.
