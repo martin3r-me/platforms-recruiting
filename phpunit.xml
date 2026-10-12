@@ -44,4 +44,13 @@
             <directory>tests/Integration</directory>
         </testsuite>
     </testsuites>
+    <!--
+      Speicher: die Suite lag am Standard-Limit von 512M (Spitze 532,5 MB,
+      2026-10-12) — jeder Integrationstest faehrt alle Modul-Migrationen in
+      SQLite. Folge-Ticket: Harness-Properties im Abbau nullen und Speicher
+      je Testklasse messen.
+    -->
+    <php>
+        <ini name="memory_limit" value="1G"/>
+    </php>
 </phpunit>

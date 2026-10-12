@@ -95,7 +95,8 @@ use Platform\Recruiting\Support\ProofTypes;
  */
 class SendProofReminders extends Command
 {
-    private const LOCK_KEY = 'recruiting:nachweise-erinnern:lock';
+    /** Public: "Erneut erinnern" im HR-Bereich nimmt dieselbe Sperre (kein Versand parallel zum Lauf). */
+    public const LOCK_KEY = 'recruiting:nachweise-erinnern:lock';
 
     /** Grosszuegig: ~540 Einzel-HTTP-Aufrufe an Meta koennen dauern. */
     private const LOCK_SECONDS = 1800;

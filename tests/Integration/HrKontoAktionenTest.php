@@ -356,6 +356,18 @@ final class HrKontoAktionenTest extends TestCase
         $this->assertNotNull($zeile->notfall_gesperrt_bis);
         $this->assertNotSame([], $this->portalAuth()->gebremsteNummern([self::ALT]), 'Bremse bleibt');
         $this->assertCount(0, $this->vermerke());
+
+        // Die Akte selbst liegt im Team: Portal entsperren wirkt, der Vermerk
+        // bleibt aber an der Akte und nie an der teamfremden Person.
+        DB::table('rec_employees')->where('id', $akte->id)->update(['portal_locked_at' => now()]);
+        Container::getInstance()->instance(DispoIdentityResolver::class, new class extends DispoIdentityResolver {
+            public function __construct() {}
+            public function groupFor(int $employeeId): array { return [$employeeId]; }
+        });
+        $this->assertTrue($a->entsperrePortal($akte->id, self::NOTIZ)->istOk());
+        $v = $this->vermerke()->sole();
+        $this->assertNull($v->rec_person_id, 'nicht an Person ' . $id);
+        $this->assertSame($akte->id, (int) $v->rec_employee_id);
     }
 
     /** Ruling: die Bremse haengt an der Nummer und gilt in jedem Team — fremde Nummer wird nicht geloest. */
@@ -456,5 +468,98 @@ final class HrKontoAktionenTest extends TestCase
         $v = $this->vermerke()->sole();
         $this->assertNull($v->rec_person_id, 'nicht an Person ' . $fremd);
         $this->assertSame($akte->id, (int) $v->rec_employee_id);
+    }
+
+    /** Fix-Runde 1, Minor 5: stillgelegte Zeile — nur "Antrag stoppen" geht. */
+    public function test_stillgelegte_person_nur_stoppen(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17']);
+        $ziel = $this->person([], $akte);
+        $tot = $this->person([
+            'phone' => self::ALT, 'merged_into_person_id' => $ziel,
+            'locked_at' => now(), 'notfall_gesperrt_bis' => '2026-10-19 00:00:00',
+            'aufgaben_signatur' => 'alt', 'aufgaben_gemeldet_at' => '2026-10-01 10:00:00',
+            'wechsel_neue_nummer' => self::NEU, 'wechsel_beantragt_at' => '2026-10-12 09:00:00',
+            'wechsel_wirksam_ab' => '2026-10-13 09:00:00', 'wechsel_quelle' => 'notfall',
+        ]);
+        for ($i = 0; $i < 5; $i++) {
+            $this->portalAuth()->anmeldenMitNummer(null, self::ALT, 'falsch-' . $i);
+        }
+        $a = $this->aktionen();
+
+        foreach ([
+            $a->gibAntragFrei($tot, '2026-10-12 09:00:00', self::NOTIZ),
+            $a->entsperreKonto($tot, self::NOTIZ),
+            $a->loeseBremse($tot, self::NOTIZ),
+            $a->hebeNotfallSperreAuf($tot, self::NOTIZ),
+            $a->kontaktiert($tot, null, self::NOTIZ),
+            $a->erinnereErneut($tot, null, 'aufgaben'),
+        ] as $nr => $ergebnis) {
+            $this->assertSame(HrAktionErgebnis::FEHLER, $ergebnis->stufe, "Aktion {$nr}");
+            $this->assertSame(HrKontoAktionen::STILLGELEGT, $ergebnis->meldung, "Aktion {$nr}");
+        }
+        $zeile = $this->personZeile($tot);
+        $this->assertNotNull($zeile->locked_at);
+        $this->assertNotNull($zeile->notfall_gesperrt_bis);
+        $this->assertNotSame([], $this->portalAuth()->gebremsteNummern([self::ALT]));
+        $this->assertCount(0, $this->vermerke());
+
+        $this->assertTrue($a->stoppeAntrag($tot, self::NOTIZ)->istOk(), 'Stoppen bleibt erlaubt');
+        $this->assertNull($this->personZeile($tot)->wechsel_neue_nummer);
+        $this->assertSame(['antrag_gestoppt'], $this->vermerke()->pluck('art')->all());
+    }
+
+    /** Fix-Runde 1, Minor 7: Unicode-Leerraum (NBSP, Zero-Width, BOM, Em-Space) zaehlt nicht als Notiz. */
+    public function test_notiz_aus_unicode_leerraum_ist_leer(): void
+    {
+        foreach ([
+            str_repeat("\u{00A0}", 5),
+            str_repeat("\u{200B}", 5),
+            "\u{FEFF}\u{2003}\u{3000}\u{200C}\u{200D}\u{2009}",
+            "ab\u{00A0}\u{200B}\u{200B}\u{200B}",
+        ] as $notiz) {
+            $this->assertNotNull(HrKontoAktionen::notizFehler($notiz), bin2hex($notiz));
+        }
+        $this->assertNull(HrKontoAktionen::notizFehler(str_repeat("\u{200B}", 3), false), 'optional: leer bleibt leer');
+
+        [$id] = $this->menschMitAntrag();
+        $this->assertSame(HrAktionErgebnis::FEHLER, $this->aktionen()->stoppeAntrag($id, str_repeat("\u{00A0}", 6))->stufe);
+        $this->assertTrue($this->aktionen()->stoppeAntrag($id, "\u{00A0}\u{FEFF}" . self::NOTIZ . "\u{200B} ")->istOk());
+        $this->assertSame(self::NOTIZ, $this->vermerke()->sole()->notiz, 'gespeichert ohne Rand-Leerraum');
+    }
+
+    /** Fix-Runde 1, Minor 8: die Dispo-Gruppe darf ueber das Team hinausreichen, entsperrt wird nur im Team. */
+    public function test_portal_entsperren_nur_im_eigenen_team(): void
+    {
+        $ma = $this->akte(['portal_locked_at' => '2026-10-10 16:00:00']);
+        $fremd = $this->akte(['team_id' => 8, 'portal_locked_at' => '2026-10-10 16:00:00']);
+        Container::getInstance()->instance(DispoIdentityResolver::class, new class((int) $ma->id, (int) $fremd->id) extends DispoIdentityResolver {
+            public function __construct(private int $a, private int $b) {}
+            public function groupFor(int $employeeId): array { return [$this->a, $this->b]; }
+        });
+
+        $e = $this->aktionen()->entsperrePortal($ma->id, self::NOTIZ);
+
+        $this->assertSame('Portal entsperrt.', $e->meldung);
+        $this->assertNull(DB::table('rec_employees')->where('id', $ma->id)->value('portal_locked_at'));
+        $this->assertNotNull(DB::table('rec_employees')->where('id', $fremd->id)->value('portal_locked_at'), 'Team 8 bleibt gesperrt');
+    }
+
+    /** Fix-Runde 1, Minor 6: nur die Nummern-Weigerung wird als Konflikt erklaert; ein DB-Fehler fliegt weiter. */
+    public function test_freigabe_wirft_fremde_fehler_weiter(): void
+    {
+        [$id] = $this->menschMitAntrag();
+        DB::statement("CREATE TRIGGER kaputt BEFORE UPDATE ON rec_persons BEGIN SELECT RAISE(ABORT, 'kaputt'); END");
+
+        try {
+            $this->aktionen()->gibAntragFrei($id, '2026-10-12 09:00:00', self::NOTIZ);
+            $this->fail('DB-Fehler darf nicht als Nummernkonflikt verschluckt werden');
+        } catch (\Illuminate\Database\QueryException) {
+            $this->addToAssertionCount(1);
+        } finally {
+            DB::statement('DROP TRIGGER kaputt');
+        }
+        $this->assertSame([], $this->logZeilen('recruiting.konto.hr_nummernwechsel_fehler'));
+        $this->assertSame(self::NEU, $this->personZeile($id)->wechsel_neue_nummer);
     }
 }

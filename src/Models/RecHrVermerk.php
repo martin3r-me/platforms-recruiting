@@ -60,6 +60,23 @@ class RecHrVermerk extends Model
         'erneut_erinnert'          => 'Erneut erinnert',
     ];
 
+    /** Rand-Leerraum, der fuer Menschen unsichtbar ist: ASCII, \p{Z} (u. a. NBSP), Zero-Width, BOM. */
+    private const RAND_LEERRAUM = '/^[\s\p{Z}\x{200B}-\x{200D}\x{FEFF}]+|[\s\p{Z}\x{200B}-\x{200D}\x{FEFF}]+$/u';
+
+    /**
+     * Notiz ohne unsichtbaren Rand. Fuenf NBSP oder Zero-Width-Zeichen sind
+     * keine Notiz (Fix-Runde 1 Task 5). Ungueltiges UTF-8: preg_replace
+     * liefert null — dann bleibt es beim ASCII-trim.
+     */
+    public static function bereinige(?string $text): ?string
+    {
+        if ($text === null) {
+            return null;
+        }
+
+        return preg_replace(self::RAND_LEERRAUM, '', $text) ?? trim($text);
+    }
+
     public static function anfuegen(
         int $teamId,
         ?int $personId,
@@ -77,7 +94,7 @@ class RecHrVermerk extends Model
         if ($personId === null && $employeeId === null) {
             throw new InvalidArgumentException('Ein Vermerk braucht eine Person oder eine Akte.');
         }
-        $notiz = $notiz === null ? null : trim($notiz);
+        $notiz = self::bereinige($notiz);
         if (($notiz === null || $notiz === '') && $art !== 'erneut_erinnert') {
             throw new InvalidArgumentException("Vermerk \"{$art}\" ohne Notiz — die Notiz ist Pflicht (Spec §7.1).");
         }

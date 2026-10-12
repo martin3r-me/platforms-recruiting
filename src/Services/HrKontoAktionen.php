@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Console\Commands\EinsatzPruefung;
+use Platform\Recruiting\Console\Commands\SendProofReminders;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
@@ -59,6 +60,18 @@ final class HrKontoAktionen
      */
     public const ANTRAG_ENTFERNT = 'offener Nummernwechsel-Antrag entfernt';
 
+    /**
+     * Stillgelegte Personen-Zeile (merged_into_person_id): nur "Antrag
+     * stoppen" geht (Spec §3.1/§4.1) — jede andere Aktion prueft das neu,
+     * egal was die Liste angezeigt hat (§9.1).
+     */
+    public const STILLGELEGT = 'Diese Personen-Zeile ist stillgelegt — die Akten hängen an einer anderen Zeile. Hier geht nur „Antrag stoppen“.';
+
+    /** Sperre je Erinnerungs-Bezug (Dokument/Vertrag): zwei parallele Klicks verschicken nicht doppelt. */
+    public const ERINNERN_SPERRE = 'recruiting:hr-erinnern:';
+
+    private const SPERRE_SEKUNDEN = 120;
+
     /** HR-taugliche Texte zu Sender-Status (Spec §3.3: Fehlschlag gelb mit Grund). */
     private const STATUS_TEXT = [
         'nicht_konfiguriert'           => 'Vorlage fehlt',
@@ -87,7 +100,7 @@ final class HrKontoAktionen
 
     public static function notizFehler(string $notiz, bool $pflicht = true): ?string
     {
-        $laenge = mb_strlen(trim($notiz));
+        $laenge = mb_strlen((string) RecHrVermerk::bereinige($notiz));
         if ($laenge === 0 && !$pflicht) {
             return null;
         }
@@ -132,6 +145,26 @@ final class HrKontoAktionen
         }
 
         return RecEmployee::query()->where('team_id', $teamId)->find($employeeId);
+    }
+
+    /**
+     * Die Person einer Akte — aber nur, wenn sie im Team liegt und nicht
+     * stillgelegt ist. Sonst null: der Vermerk bleibt dann an der Akte und
+     * landet nie an einer teamfremden Person (Fix-Runde 1, Minor 4).
+     */
+    public static function personDerAkteImTeam(int $teamId, RecEmployee $akte): ?int
+    {
+        if ($akte->rec_person_id === null) {
+            return null;
+        }
+        $person = self::personImTeam($teamId, (int) $akte->rec_person_id);
+
+        return $person !== null && $person->merged_into_person_id === null ? (int) $person->id : null;
+    }
+
+    public static function erinnernSperre(string $bezug): string
+    {
+        return self::ERINNERN_SPERRE . $bezug;
     }
 
     public static function sichtbar(int $teamId, ?int $personId, ?int $employeeId): bool
@@ -189,9 +222,9 @@ final class HrKontoAktionen
         if (($f = self::notizFehler($notiz)) !== null) {
             return HrAktionErgebnis::fehler($f);
         }
-        $person = self::personImTeam($teamId, $personId);
-        if ($person === null) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+        $person = self::lebendePerson($teamId, $personId);
+        if ($person instanceof HrAktionErgebnis) {
+            return $person;
         }
         if ($person->wechsel_neue_nummer !== null && $person->wechsel_quelle !== KontoWriter::ZWECK_NOTFALL) {
             return HrAktionErgebnis::fehler('Freigeben gibt es nur für Notfall-Anträge („Nummer und Passwort verloren“). Diesen Antrag können Sie nur stoppen.');
@@ -200,10 +233,13 @@ final class HrKontoAktionen
 
         try {
             $ergebnis = KontoWriter::gibNummernwechselFrei($personId, $erwartetBeantragtAt);
-        } catch (\Throwable $e) {
-            // NIE $e->getMessage(): PersonLinker::setzeNummer() setzt die volle
-            // Nummer woertlich in seine Ausnahme (Task-3-Befund). Ins Log
-            // gehen nur die Ausnahme-Klasse und die letzten vier Stellen.
+        } catch (\InvalidArgumentException $e) {
+            // NUR die Weigerung aus PersonLinker::setzeNummer() ("Nummer gehoert
+            // im Team schon Person X") — andere Fehler (DB, Sperre) fliegen
+            // weiter und werden nicht als Nummernkonflikt erklaert.
+            // NIE $e->getMessage(): setzeNummer() setzt die volle Nummer
+            // woertlich in seine Ausnahme (Task-3-Befund). Ins Log gehen nur
+            // die Ausnahme-Klasse und die letzten vier Stellen.
             Log::warning('recruiting.konto.hr_nummernwechsel_fehler', [
                 'person_id'        => $personId,
                 'nummer_endet_auf' => $neuKurz,
@@ -240,8 +276,8 @@ final class HrKontoAktionen
         if (($f = self::notizFehler($notiz)) !== null) {
             return HrAktionErgebnis::fehler($f);
         }
-        if (self::personImTeam($teamId, $personId) === null) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+        if (($p = self::lebendePerson($teamId, $personId)) instanceof HrAktionErgebnis) {
+            return $p;
         }
         if (!KontoWriter::entsperreKontoDurchHr($personId)) {
             return HrAktionErgebnis::hinweis('Das Konto war nicht (mehr) gesperrt.');
@@ -257,25 +293,17 @@ final class HrKontoAktionen
         if (($f = self::notizFehler($notiz)) !== null) {
             return HrAktionErgebnis::fehler($f);
         }
-        $person = self::personImTeam($teamId, $personId);
-        if ($person === null) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+        // Die Bremse haengt an der NUMMER und gilt in jedem Team
+        // (PortalAuth::loeseNummernBremse). Die Absicherung ist, dass die
+        // Nummer aus der im Team geladenen Personen-Zeile kommt (nie aus dem
+        // Request). Restrisiko, so akzeptiert: traegt eine Person in einem
+        // anderen Team dieselbe Nummer, wird deren Bremse mit geloest.
+        $person = self::lebendePerson($teamId, $personId);
+        if ($person instanceof HrAktionErgebnis) {
+            return $person;
         }
         $nummer = (string) $person->phone;
-        // Die Bremse haengt an der NUMMER und gilt in jedem Team
-        // (PortalAuth::loeseNummernBremse). Geloest wird darum nur eine
-        // Nummer, die nachweislich einer Person DIESES Teams gehoert — die
-        // geladene Zeile allein ist die Pruefung, nicht eine Nummer aus dem
-        // Request.
-        $nummerImTeam = $nummer !== '' && DB::table('rec_persons')
-            ->where('id', $personId)
-            ->where('team_id', $teamId)
-            ->where('phone', $nummer)
-            ->exists();
-        if (!$nummerImTeam) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
-        }
-        if ($this->portalAuth()->gebremsteNummern([$nummer]) === []) {
+        if ($nummer === '' || $this->portalAuth()->gebremsteNummern([$nummer]) === []) {
             return HrAktionErgebnis::hinweis('Die Anmeldung war nicht (mehr) gebremst.');
         }
         $this->portalAuth()->loeseNummernBremse($nummer);
@@ -290,8 +318,8 @@ final class HrKontoAktionen
         if (($f = self::notizFehler($notiz)) !== null) {
             return HrAktionErgebnis::fehler($f);
         }
-        if (self::personImTeam($teamId, $personId) === null) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+        if (($p = self::lebendePerson($teamId, $personId)) instanceof HrAktionErgebnis) {
+            return $p;
         }
         if (!KontoWriter::hebeNotfallSperreAuf($personId)) {
             return HrAktionErgebnis::hinweis('Der Notfallweg war nicht (mehr) gesperrt.');
@@ -313,11 +341,12 @@ final class HrKontoAktionen
         if ($akte === null) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
-        $anzahl = app(PortalEntsperrung::class)->fuerAnstellung($employeeId);
+        // Nur Akten des eigenen Teams — die Dispo-Gruppe kann darueber hinausreichen.
+        $anzahl = app(PortalEntsperrung::class)->fuerAnstellung($employeeId, $teamId);
         if ($anzahl === 0) {
             return HrAktionErgebnis::hinweis('Das Portal war nicht (mehr) gesperrt.');
         }
-        $personId = $akte->rec_person_id !== null ? (int) $akte->rec_person_id : null;
+        $personId = self::personDerAkteImTeam($teamId, $akte);
         $this->vermerk($teamId, $personId, $employeeId, 'portal_entsperrt', $notiz, null, (string) $anzahl);
 
         return HrAktionErgebnis::ok($anzahl > 1
@@ -356,7 +385,7 @@ final class HrKontoAktionen
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
         if ($person->merged_into_person_id !== null) {
-            return HrAktionErgebnis::fehler('Diese Personen-Zeile ist stillgelegt — die Akten hängen an einer anderen Zeile.');
+            return HrAktionErgebnis::fehler(self::STILLGELEGT);
         }
         if ($person->locked_at !== null) {
             return HrAktionErgebnis::fehler('Das Konto ist gesperrt — bitte erst entsperren.');
@@ -398,8 +427,8 @@ final class HrKontoAktionen
             return HrAktionErgebnis::fehler($f);
         }
         if ($personId !== null) {
-            if (self::personImTeam($teamId, $personId) === null) {
-                return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+            if (($p = self::lebendePerson($teamId, $personId)) instanceof HrAktionErgebnis) {
+                return $p;
             }
             $employeeId = null;
         } else {
@@ -407,10 +436,10 @@ final class HrKontoAktionen
             if ($akte === null) {
                 return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
             }
-            if ($akte->rec_person_id !== null && self::personImTeam($teamId, (int) $akte->rec_person_id) !== null) {
-                // Ein Mensch = eine Zeile: die Ruhe gehoert an die Person —
-                // aber nur an eine Person DIESES Teams; sonst bleibt sie an der Akte.
-                $personId = (int) $akte->rec_person_id;
+            // Ein Mensch = eine Zeile: die Ruhe gehoert an die Person — aber
+            // nur an eine Person DIESES Teams; sonst bleibt sie an der Akte.
+            $personId = self::personDerAkteImTeam($teamId, $akte);
+            if ($personId !== null) {
                 $employeeId = null;
             }
         }
@@ -443,27 +472,34 @@ final class HrKontoAktionen
 
     private function erinnereAufgaben(int $teamId, ?int $personId, string $notiz): HrAktionErgebnis
     {
-        $person = self::personImTeam($teamId, $personId);
-        if ($person === null) {
-            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
-        }
-        if (($pause = $this->inPause($person->aufgaben_gemeldet_at)) !== null) {
-            return $pause;
-        }
-        $umfang = DB::table('rec_employees')->where('rec_person_id', $personId)->where('team_id', $teamId)
-            ->where('is_active', 1)->orderBy('id')->pluck('id')->map(fn ($v) => (int) $v)->all();
-        $bote = Bote::fuer($umfang);
-        if ($bote === null) {
-            return HrAktionErgebnis::hinweis('Nicht verschickt: nicht im neuen Portal — die Erinnerung führt ins neue Portal.');
+        if (($p = self::lebendePerson($teamId, $personId)) instanceof HrAktionErgebnis) {
+            return $p;
         }
 
-        // Dieselbe Laufsperre wie die Einsatz-Pruefung: nie zwei Nachrichten im selben Augenblick.
-        $sperre = Cache::lock(EinsatzPruefung::LAUF_SPERRE, 120);
+        // Dieselbe Laufsperre wie die Einsatz-Pruefung: nie zwei Nachrichten
+        // im selben Augenblick. ERST die Sperre, DANN Stempel und Pause lesen
+        // (Fix-Runde 1, Important 1): wer vorher liest, verpasst den Stempel,
+        // den der Stundenlauf waehrenddessen setzt, und schickt doppelt.
+        $sperre = Cache::lock(EinsatzPruefung::LAUF_SPERRE, self::SPERRE_SEKUNDEN);
         if (!$sperre->get()) {
             return HrAktionErgebnis::hinweis('Gerade läuft die Einsatz-Prüfung — bitte in ein paar Minuten erneut versuchen.');
         }
 
         try {
+            $person = self::lebendePerson($teamId, $personId);
+            if ($person instanceof HrAktionErgebnis) {
+                return $person;
+            }
+            if (($pause = $this->inPause($person->aufgaben_gemeldet_at)) !== null) {
+                return $pause;
+            }
+            $umfang = DB::table('rec_employees')->where('rec_person_id', $personId)->where('team_id', $teamId)
+                ->where('is_active', 1)->orderBy('id')->pluck('id')->map(fn ($v) => (int) $v)->all();
+            $bote = Bote::fuer($umfang);
+            if ($bote === null) {
+                return HrAktionErgebnis::hinweis('Nicht verschickt: nicht im neuen Portal — die Erinnerung führt ins neue Portal.');
+            }
+
             $stand = app(OffenePunkte::class)->fuer($bote);
             if ($stand['punkte'] === []) {
                 return HrAktionErgebnis::hinweis('Inzwischen ist nichts mehr offen — keine Erinnerung nötig.');
@@ -489,82 +525,143 @@ final class HrKontoAktionen
 
     private function erinnereNachweis(int $teamId, int $proofId, string $notiz): HrAktionErgebnis
     {
-        $zeile = DB::table('rec_employee_proofs as p')
+        $lies = fn () => DB::table('rec_employee_proofs as p')
             ->join('rec_employees as e', 'e.id', '=', 'p.rec_employee_id')
             ->where('p.id', $proofId)
             ->where('e.team_id', $teamId)
             ->whereNull('p.superseded_at')
-            ->first(['p.id', 'p.rec_employee_id', 'p.proof_type_code', 'p.valid_until', 'p.reminded_at', 'e.rec_person_id', 'e.portal_v2_since']);
-        if ($zeile === null) {
+            ->first(['p.id', 'p.rec_employee_id', 'p.proof_type_code', 'p.valid_until', 'p.reminded_at', 'e.portal_v2_since']);
+        if ($lies() === null) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
-        if ($zeile->portal_v2_since === null) {
-            return HrAktionErgebnis::hinweis('Nicht verschickt: nicht im neuen Portal — Nachweis-Erinnerungen gehen nur dorthin.');
-        }
-        if (($pause = $this->inPause($zeile->reminded_at)) !== null) {
-            return $pause;
-        }
 
-        $ma = RecEmployee::find((int) $zeile->rec_employee_id);
-        $r = app(ProofReminderSender::class)->send($ma, [
-            'proof_id'        => (int) $zeile->id,
-            'rec_employee_id' => (int) $zeile->rec_employee_id,
-            'code'            => (string) $zeile->proof_type_code,
-            'valid_until'     => substr((string) $zeile->valid_until, 0, 10),
-        ]);
-        $status = (string) $r['status'];
-        if ($status === ProofReminderSender::STATUS_SENT) {
-            DB::table('rec_employee_proofs')->where('id', $proofId)->update(['reminded_at' => now()]);
-        }
-        $this->vermerk($teamId, $zeile->rec_person_id !== null ? (int) $zeile->rec_person_id : null, (int) $zeile->rec_employee_id, 'erneut_erinnert', $notiz, 'nachweis:' . $proofId, $status);
+        // Dieselbe Sperre wie recruiting:nachweise-erinnern: kein Versand
+        // parallel zum Lauf; reminded_at erst unter der Sperre lesen.
+        return $this->unterSperre(SendProofReminders::LOCK_KEY, 'Gerade läuft die Nachweis-Erinnerung — bitte in ein paar Minuten erneut versuchen.', function () use ($lies, $teamId, $proofId, $notiz) {
+            $zeile = $lies();
+            if ($zeile === null) {
+                return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+            }
+            if ($zeile->portal_v2_since === null) {
+                return HrAktionErgebnis::hinweis('Nicht verschickt: nicht im neuen Portal — Nachweis-Erinnerungen gehen nur dorthin.');
+            }
+            if (($pause = $this->inPause($zeile->reminded_at)) !== null) {
+                return $pause;
+            }
 
-        return $this->versandErgebnis($status);
+            $ma = RecEmployee::find((int) $zeile->rec_employee_id);
+            $r = app(ProofReminderSender::class)->send($ma, [
+                'proof_id'        => (int) $zeile->id,
+                'rec_employee_id' => (int) $zeile->rec_employee_id,
+                'code'            => (string) $zeile->proof_type_code,
+                'valid_until'     => substr((string) $zeile->valid_until, 0, 10),
+            ]);
+            $status = (string) $r['status'];
+            if ($status === ProofReminderSender::STATUS_SENT) {
+                DB::table('rec_employee_proofs')->where('id', $proofId)->update(['reminded_at' => now()]);
+            }
+            $this->vermerk($teamId, self::personDerAkteImTeam($teamId, $ma), (int) $ma->id, 'erneut_erinnert', $notiz, 'nachweis:' . $proofId, $status);
+
+            return $this->versandErgebnis($status);
+        });
     }
 
     private function erinnereDokument(int $teamId, int $recipientId, string $notiz): HrAktionErgebnis
     {
-        $z = RecDocumentRecipient::query()
+        $lies = fn () => RecDocumentRecipient::query()
             ->whereKey($recipientId)
             ->whereIn('rec_employee_id', fn ($q) => $q->select('id')->from('rec_employees')->where('team_id', $teamId))
             ->first();
-        if ($z === null) {
+        if ($lies() === null) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
-        if (($pause = $this->inPause($z->notified_at?->format('Y-m-d H:i:s'))) !== null) {
-            return $pause;
-        }
-        $status = (string) app(DokumentService::class)->erneutSenden($z);
-        $personId = DB::table('rec_employees')->where('id', $z->rec_employee_id)->value('rec_person_id');
-        $this->vermerk($teamId, $personId !== null ? (int) $personId : null, (int) $z->rec_employee_id, 'erneut_erinnert', $notiz, 'dokument:' . $recipientId, $status);
+        $bezug = 'dokument:' . $recipientId;
 
-        return $this->versandErgebnis($status);
+        // notified_at stempelt der Sender erst NACH dem Versand — darum Sperre
+        // je Bezug und unter ihr neu lesen; ein paralleler Klick weicht.
+        return $this->unterSperre(self::erinnernSperre($bezug), self::GERADE_IN_ARBEIT, function () use ($lies, $teamId, $bezug, $notiz) {
+            $z = $lies();
+            if ($z === null) {
+                return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+            }
+            if (($pause = $this->inPause($z->notified_at?->format('Y-m-d H:i:s'))) !== null) {
+                return $pause;
+            }
+            $status = (string) app(DokumentService::class)->erneutSenden($z);
+            $akte = RecEmployee::find((int) $z->rec_employee_id);
+            $this->vermerk($teamId, self::personDerAkteImTeam($teamId, $akte), (int) $akte->id, 'erneut_erinnert', $notiz, $bezug, $status);
+
+            return $this->versandErgebnis($status);
+        });
     }
 
     private function erinnereVertrag(int $teamId, int $contractId, string $notiz): HrAktionErgebnis
     {
-        $v = RecContract::query()
+        $lies = fn () => RecContract::query()
             ->whereKey($contractId)
             ->whereIn('rec_employee_id', fn ($q) => $q->select('id')->from('rec_employees')->where('team_id', $teamId))
             ->first();
+        $v = $lies();
         if ($v === null || $v->status !== 'sent' || !VertragsHerkunft::ausAkte($v)) {
             return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
         }
-        // Die Pausen-Regel steht an EINER Stelle (Ruling R3) — dieselbe fragen die Listen.
-        $stempel = VertragErinnerungsPause::stempel(
-            $v->sent_at,
-            VertragErinnerungsPause::letzteErinnerungen($teamId, [$contractId])[$contractId] ?? null,
-        );
-        if (($pause = $this->inPause($stempel)) !== null) {
-            return $pause;
-        }
-        $anstellung = RecEmployee::find((int) $v->rec_employee_id);
-        $status = (string) app(VertragHinweisSender::class)->sende($anstellung);
-        $this->vermerk($teamId, $anstellung->rec_person_id !== null ? (int) $anstellung->rec_person_id : null, (int) $anstellung->id, 'erneut_erinnert', $notiz, VertragErinnerungsPause::bezug($contractId), $status);
+        $bezug = VertragErinnerungsPause::bezug($contractId);
 
-        return $this->versandErgebnis($status);
+        return $this->unterSperre(self::erinnernSperre($bezug), self::GERADE_IN_ARBEIT, function () use ($lies, $teamId, $contractId, $bezug, $notiz) {
+            $v = $lies();
+            if ($v === null || $v->status !== 'sent') {
+                return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+            }
+            // Die Pausen-Regel steht an EINER Stelle (Ruling R3) — dieselbe fragen die Listen.
+            $stempel = VertragErinnerungsPause::stempel(
+                $v->sent_at,
+                VertragErinnerungsPause::letzteErinnerungen($teamId, [$contractId])[$contractId] ?? null,
+            );
+            if (($pause = $this->inPause($stempel)) !== null) {
+                return $pause;
+            }
+            $anstellung = RecEmployee::find((int) $v->rec_employee_id);
+            $status = (string) app(VertragHinweisSender::class)->sende($anstellung);
+            $this->vermerk($teamId, self::personDerAkteImTeam($teamId, $anstellung), (int) $anstellung->id, 'erneut_erinnert', $notiz, $bezug, $status);
+
+            return $this->versandErgebnis($status);
+        });
     }
 
     // ------------------------------------------------------------ intern
+
+    private const GERADE_IN_ARBEIT = 'Diese Erinnerung wird gerade schon verschickt — bitte gleich die Liste neu ansehen.';
+
+    /**
+     * Person im Team UND nicht stillgelegt — sonst das passende Ergebnis
+     * ("Nicht gefunden." bzw. STILLGELEGT).
+     */
+    private static function lebendePerson(int $teamId, ?int $personId): object
+    {
+        $person = self::personImTeam($teamId, $personId);
+        if ($person === null) {
+            return HrAktionErgebnis::fehler(self::NICHT_GEFUNDEN);
+        }
+        if ($person->merged_into_person_id !== null) {
+            return HrAktionErgebnis::fehler(self::STILLGELEGT);
+        }
+
+        return $person;
+    }
+
+    /** Fuehrt $tu unter einer Cache-Sperre aus; ist sie belegt, gelber Hinweis statt Warten. */
+    private function unterSperre(string $schluessel, string $besetzt, callable $tu): HrAktionErgebnis
+    {
+        $sperre = Cache::lock($schluessel, self::SPERRE_SEKUNDEN);
+        if (!$sperre->get()) {
+            return HrAktionErgebnis::hinweis($besetzt);
+        }
+        try {
+            return $tu();
+        } finally {
+            $sperre->release();
+        }
+    }
 
     private function inPause(?string $stempel): ?HrAktionErgebnis
     {

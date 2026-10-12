@@ -18,13 +18,20 @@ final class PortalEntsperrung
 {
     public function __construct(private readonly ?DispoIdentityResolver $resolver = null) {}
 
-    /** @return int Anzahl entsperrter Akten (0 = war nicht gesperrt) */
-    public function fuerAnstellung(int $employeeId): int
+    /**
+     * $nurTeamId: die Dispo-Gruppe haengt am Inbound-Team und kann ueber das
+     * Team des Handelnden hinausreichen — HR entsperrt dann nur Akten des
+     * eigenen Teams (HrKontoAktionen, Fix-Runde 1 Task 5).
+     *
+     * @return int Anzahl entsperrter Akten (0 = war nicht gesperrt)
+     */
+    public function fuerAnstellung(int $employeeId, ?int $nurTeamId = null): int
     {
         $ids = ($this->resolver ?? app(DispoIdentityResolver::class))->groupFor($employeeId);
 
         return DB::table('rec_employees')
             ->whereIn('id', $ids)
+            ->when($nurTeamId !== null, fn ($q) => $q->where('team_id', $nurTeamId))
             ->whereNotNull('portal_locked_at')
             ->update(['portal_locked_at' => null, 'portal_locked_reason' => null]);
     }

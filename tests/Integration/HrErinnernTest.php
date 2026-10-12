@@ -5,8 +5,10 @@ namespace Platform\Recruiting\Tests\Integration;
 use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Console\Commands\EinsatzPruefung;
+use Platform\Recruiting\Console\Commands\SendProofReminders;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\AufgabenSender;
@@ -252,5 +254,102 @@ final class HrErinnernTest extends TestCase
 
         \Platform\Recruiting\Models\RecHrVermerk::anfuegen($this->team, null, $ma->id, 'erneut_erinnert', null, 'vertrag:' . $v2->id, 'sent');
         $this->assertSame([$v2->id => '2026-10-12 10:00:00'], VertragErinnerungsPause::letzteErinnerungen($this->team, [$v1->id, $v2->id]));
+    }
+
+    /**
+     * Fix-Runde 1, Important 1: der Stundenlauf stempelt, waehrend HR auf die
+     * Laufsperre wartet. Die Pause muss UNTER der Sperre gelesen werden —
+     * sonst geht eine zweite Nachricht raus.
+     */
+    public function test_aufgaben_pause_wird_unter_der_laufsperre_gelesen(): void
+    {
+        $id = $this->erinnertePerson();
+        $store = new class($id) extends \Illuminate\Cache\ArrayStore {
+            public function __construct(private int $personId)
+            {
+                parent::__construct();
+            }
+
+            public function lock($name, $seconds = 0, $owner = null)
+            {
+                if ($name === EinsatzPruefung::LAUF_SPERRE) {
+                    // Der Stundenlauf war schneller: verschickt und gestempelt.
+                    DB::table('rec_persons')->where('id', $this->personId)->update(['aufgaben_gemeldet_at' => '2026-10-12 09:59:00']);
+                }
+
+                return parent::lock($name, $seconds, $owner);
+            }
+        };
+        Container::getInstance()->instance('cache', new \Illuminate\Cache\Repository($store));
+        Facade::clearResolvedInstance('cache');
+
+        $e = $this->aktionen()->erinnereErneut($id, null, 'aufgaben');
+
+        $this->assertSame(HrAktionErgebnis::HINWEIS, $e->stufe);
+        $this->assertStringContainsString('ab 19.10.2026', $e->meldung);
+        $this->assertCount(0, $this->aufgaben->versandt, 'kein Doppelversand');
+        $this->assertCount(0, $this->vermerke());
+    }
+
+    /** Fix-Runde 1, Minor 3: Nachweis-Erinnerung respektiert die Sperre von recruiting:nachweise-erinnern. */
+    public function test_nachweis_respektiert_die_laufsperre_des_crons(): void
+    {
+        $ma = $this->akte();
+        $proof = (int) DB::table('rec_employee_proofs')->insertGetId([
+            'uuid' => 'pr-l', 'team_id' => $this->team, 'rec_employee_id' => $ma->id, 'proof_type_code' => 'ausweis',
+            'valid_until' => '2026-10-20', 'version' => 1, 'reminded_at' => '2026-10-01 10:00:00',
+        ]);
+        $sperre = Cache::lock(SendProofReminders::LOCK_KEY, 60);
+        $this->assertTrue($sperre->get());
+
+        $e = $this->aktionen()->erinnereErneut(null, $ma->id, 'nachweis:' . $proof);
+
+        $this->assertSame(HrAktionErgebnis::HINWEIS, $e->stufe);
+        $this->assertSame([], $this->nachweis->gesendet);
+        $sperre->release();
+        $this->assertTrue($this->aktionen()->erinnereErneut(null, $ma->id, 'nachweis:' . $proof)->istOk());
+    }
+
+    /** Fix-Runde 1, Minor 3: Dokument/Vertrag laufen unter einer Sperre je Bezug — ein paralleler Klick wartet nicht, er weicht. */
+    public function test_dokument_und_vertrag_unter_sperre_je_bezug(): void
+    {
+        $ma = $this->akte();
+        $this->person([], $ma);
+        $dok = (int) DB::table('rec_documents')->insertGetId([
+            'team_id' => $this->team, 'uuid' => 'd-2', 'title' => 'Hausordnung', 'category' => 'other', 'action' => 'sign',
+            'disk' => 'local', 'stored_path' => 'x.pdf', 'original_filename' => 'x.pdf', 'file_sha256' => str_repeat('0', 64), 'file_size' => 1,
+        ]);
+        $empf = (int) DB::table('rec_document_recipients')->insertGetId([
+            'team_id' => $this->team, 'uuid' => 'r-2', 'rec_document_id' => $dok, 'rec_employee_id' => $ma->id, 'notified_at' => '2026-10-01 10:00:00',
+        ]);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-L'), ['sent_at' => '2026-10-01 10:00:00'], ['herkunft' => 'akte']);
+
+        foreach (['dokument:' . $empf, 'vertrag:' . $v->id] as $bezug) {
+            $sperre = Cache::lock(HrKontoAktionen::erinnernSperre($bezug), 60);
+            $this->assertTrue($sperre->get());
+            $this->assertSame(HrAktionErgebnis::HINWEIS, $this->aktionen()->erinnereErneut(null, $ma->id, $bezug)->stufe, $bezug);
+            $sperre->release();
+        }
+        $this->assertSame([], $this->dokument->gesendet);
+        $this->assertSame([], $this->vertrag->gesendet);
+        $this->assertCount(0, $this->vermerke());
+    }
+
+    /** Fix-Runde 1, Minor 4: Vermerk nie an einer teamfremden Person, auch nicht ueber den Bezug. */
+    public function test_erinnern_ueber_akte_mit_fremder_person_vermerkt_nur_an_der_akte(): void
+    {
+        $ma = $this->akte();
+        $this->person(['team_id' => 8], $ma);
+        $proof = (int) DB::table('rec_employee_proofs')->insertGetId([
+            'uuid' => 'pr-x', 'team_id' => $this->team, 'rec_employee_id' => $ma->id, 'proof_type_code' => 'ausweis',
+            'valid_until' => '2026-10-20', 'version' => 1, 'reminded_at' => '2026-10-01 10:00:00',
+        ]);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-X'), ['sent_at' => '2026-10-01 10:00:00'], ['herkunft' => 'akte']);
+
+        $this->assertTrue($this->aktionen()->erinnereErneut(null, $ma->id, 'nachweis:' . $proof)->istOk());
+        $this->assertTrue($this->aktionen()->erinnereErneut(null, $ma->id, 'vertrag:' . $v->id)->istOk());
+
+        $this->assertSame([null, null], $this->vermerke()->pluck('rec_person_id')->all());
+        $this->assertSame([$ma->id, $ma->id], $this->vermerke()->pluck('rec_employee_id')->map(fn ($x) => (int) $x)->all());
     }
 }
