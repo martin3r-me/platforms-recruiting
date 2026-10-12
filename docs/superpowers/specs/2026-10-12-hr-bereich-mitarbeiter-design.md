@@ -24,7 +24,7 @@ Nach diesem Paket gilt:
      Pflichtnotiz.
   3. **Erinnert, aber keine Reaktion** — Markus' Eskalationsstufe aus Canvas A3:
      erinnert vor mehr als X Tagen, Punkt immer noch offen; sortiert nach dem nächsten
-     Einsatz. „Angerufen“ (mit Notiz, Zeile ruht N Tage) und „Erneut erinnern“.
+     Einsatz. „Kontaktiert“ (mit Notiz, Zeile ruht N Tage) und „Erneut erinnern“.
   4. **Pilot-Überblick** — wer im neuen Portal ist, wer eingeladen, registriert, wann
      zuletzt angemeldet.
 - **Die Mitarbeiterakte bekommt einen Konto-Kasten**: Status (eingeladen / registriert /
@@ -187,8 +187,8 @@ Vier Quellen, jede als Chip mit Alter („Aufgaben · erinnert vor 6 Tagen“):
 
 **Aktionen**
 
-- **„Angerufen“** (je Zeile): Modal mit Pflichtnotiz → Vermerk `angerufen` mit
-  `ruhe_bis = now + N Tage` (Team-Einstellung `hr_angerufen_ruhe_tage`, Vorgabe 3).
+- **„Kontaktiert“** (je Zeile): Modal mit Pflichtnotiz → Vermerk `kontaktiert` mit
+  `ruhe_bis = now + N Tage` (Team-Einstellung `hr_kontaktiert_ruhe_tage`, Vorgabe 3).
   Die **ganze Zeile** ruht bis dahin; Schalter „Ruhende zeigen“ blendet sie grau ein.
   Ist danach noch etwas offen, kommt sie von selbst zurück.
 - **„Erneut erinnern“** (je Chip, Notiz optional): verschickt über den **bestehenden**
@@ -394,7 +394,7 @@ Ein-Stelle-Regel: die Frage „ist Weg 4 für Person X an?“ beantwortet
 
 **Warum eine Tabelle:** Verlauf und Ruhe brauchen einen Ort an Person *oder* Anstellung,
 auch ohne Bewerbung. `rec_auto_pilot_logs` hängt per FK an `rec_applicants` (fehlt beim
-ZAS-Bestand), `rec_hr_desk_cases` ist ein Fall-Modell mit Zählern (ein „angerufen“ als
+ZAS-Bestand), `rec_hr_desk_cases` ist ein Fall-Modell mit Zählern (ein „kontaktiert“ als
 Fall verfälschte die Reiter-Zahlen), Spalten an `rec_persons` hielten nur den letzten
 Stand und keine Geschichte, und `rec_employees` scheidet wegen ZAS aus.
 
@@ -404,11 +404,11 @@ Stand und keine Geschichte, und `rec_employees` scheidet wegen ZAS aus.
 | `team_id` | unsignedBigInteger, index | Scope |
 | `rec_person_id` | unsignedBigInteger, null, index | Mensch (Normalfall) |
 | `rec_employee_id` | unsignedBigInteger, null, index | Akte (ohne Personen-Zeile, oder Akte, aus der gehandelt wurde) |
-| `art` | string(40) | `antrag_gestoppt`, `antrag_freigegeben`, `konto_entsperrt`, `portal_entsperrt`, `bremse_geloest`, `notfallsperre_aufgehoben`, `einladung_neu`, `konto_zurueckgesetzt`, `angerufen`, `erneut_erinnert` |
+| `art` | string(40) | `antrag_gestoppt`, `antrag_freigegeben`, `konto_entsperrt`, `portal_entsperrt`, `bremse_geloest`, `notfallsperre_aufgehoben`, `einladung_neu`, `konto_zurueckgesetzt`, `kontaktiert`, `erneut_erinnert` |
 | `bezug` | string(60), null | `aufgaben`, `nachweis:<id>`, `dokument:<recipient_id>`, `vertrag:<contract_id>`, `nummernwechsel` |
 | `notiz` | text, null | Pflicht bei allen Arten außer `erneut_erinnert` (dort optional) |
 | `ergebnis` | string(40), null | Sender-Status (`sent`, `failed`, `nicht_konfiguriert` …) bzw. `ok` |
-| `ruhe_bis` | timestamp, null | nur `angerufen` |
+| `ruhe_bis` | timestamp, null | nur `kontaktiert` |
 | `user_id` | unsignedBigInteger, null | wer |
 | `created_at` | timestamp, useCurrent | wann |
 
@@ -424,7 +424,7 @@ Migration mit `hasTable`-Wache, `down()` = drop.
 |---|---|---|---|
 | `konto_notfall_weg_aktiv` | `false` | Checkbox | `(bool)` |
 | `hr_erinnert_tage` | `5` | `x-ui-input-text type="number" min=1 max=60` | `max(1, min(60, (int)))` |
-| `hr_angerufen_ruhe_tage` | `3` | `x-ui-input-text type="number" min=1 max=30` | `max(1, min(30, (int)))` |
+| `hr_kontaktiert_ruhe_tage` | `3` | `x-ui-input-text type="number" min=1 max=30` | `max(1, min(30, (int)))` |
 
 Neuer Abschnitt „Mitarbeiterkonto & Erinnerungen“ im Modal. Keine Selects.
 
@@ -514,7 +514,7 @@ Integration mit Capsule/SQLite (`tests/Integration`, Konvention 08/2026), Livewi
 - Erinnert: Grenze genau X Tage (X−1 nicht, X ja); Signatur geräumt → weg; Nachweis mit
   neuerer Version (`superseded_at`) → weg; Dokument unterschrieben → weg; Vertrag nicht
   aus der Akte → nicht gelistet; Sortierung nach nächstem Einsatz, ohne Einsatz ans Ende;
-  angerufen → ruht N Tage, danach wieder da.
+  kontaktiert → ruht N Tage, danach wieder da.
 - Pilot: Filter-Zahlen stimmen mit Zeilen; „abgelaufen“ genau an `invite_expires_at`.
 
 **Aktionen**
@@ -595,8 +595,8 @@ Notfall-Antrag bleibt dann wie heute nur per Kommando sichtbar.
    der WhatsApp-Versand wird ein eigener kleiner Schritt, sobald die Vorlage da ist.
 2. **Darf „Erneut erinnern“ die 7-Tage-Pause unterschreiten?** Mit X = 5 erscheint die
    Zeile an Tag 5, der Knopf geht erst an Tag 7 (Pause wie freigegeben respektiert). —
-   *Empfehlung:* Pause respektieren wie freigegeben; „Angerufen“ geht sofort.
-3. **Ruhezeit nach „Angerufen“: N = 3 Tage, für die ganze Zeile** (nicht je Chip). —
+   *Empfehlung:* Pause respektieren wie freigegeben; „Kontaktiert“ geht sofort.
+3. **Ruhezeit nach „Kontaktiert“: N = 3 Tage, für die ganze Zeile** (nicht je Chip). —
    *Empfehlung:* 3 Tage, ganze Zeile; als Team-Einstellung änderbar.
 4. **Zwei Riegel für den Notfallweg** (Server-`.env` UND Team-Haken) statt nur Team-Haken.
    — *Empfehlung:* beide behalten; der Server-Riegel ist der Not-Aus für alle Teams.
