@@ -44,6 +44,9 @@ class Inbox extends Component
 
     /** Reiter "Weitergeleitet" (Spec 02.10.2026) statt Chat-Liste. */
     public bool $showForwards = false;
+
+    /** Reiter "Nicht zugestellt" statt Chat-Liste. */
+    public bool $showUndelivered = false;
     public ?int $selectedThreadId = null;
     public int $perPage = 50;
     public bool $selectMode = false;
@@ -131,6 +134,7 @@ class Inbox extends Component
         $this->level = ($this->level === $level) ? 'all' : $level;
         $this->showHandled = false;
         $this->showForwards = false;
+        $this->showUndelivered = false;
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
@@ -146,6 +150,7 @@ class Inbox extends Component
     {
         $this->showHandled = !$this->showHandled;
         $this->showForwards = false;
+        $this->showUndelivered = false;
         $this->level = 'all';
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
@@ -154,7 +159,31 @@ class Inbox extends Component
     public function toggleForwardsView(): void
     {
         $this->showForwards = !$this->showForwards;
+        $this->showUndelivered = false;
         $this->selectedThreadId = null;
+    }
+
+    public function toggleUndeliveredView(): void
+    {
+        $this->showUndelivered = !$this->showUndelivered;
+        $this->showForwards = false;
+        $this->selectedThreadId = null;
+    }
+
+    #[On('undelivered-changed')]
+    public function refreshUndeliveredCount(): void
+    {
+        unset($this->undeliveredCount);
+    }
+
+    /**
+     * Personen, bei denen unsere letzte WhatsApp nicht ankam — die stehen in
+     * der Chat-Liste nicht (keine Antwort = kein Eingang), deshalb Zahl am Reiter.
+     */
+    #[Computed]
+    public function undeliveredCount(): int
+    {
+        return app(\Platform\Recruiting\Services\Comms\UndeliveredQuery::class)->count($this->teamId());
     }
 
     #[On('forward-open-thread')]
@@ -164,6 +193,7 @@ class Inbox extends Component
             return;
         }
         $this->showForwards = false;
+        $this->showUndelivered = false;
         $this->level = 'all';
         $this->showHandled = false;
         $this->select($threadId);

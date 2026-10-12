@@ -80,6 +80,15 @@
                         class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showForwards ? 'border-gray-900 bg-gray-900 text-white' : 'border-violet-200 bg-white text-violet-700' }}">
                     Weitergeleitet {{ $this->openForwardCount }}
                 </button>
+                {{-- Nicht zugestellt: eigene Abfrage (UndeliveredQuery) — diese Personen
+                     haben nie geantwortet und stehen deshalb in keiner Chat-Liste. --}}
+                @php
+                    $undeliveredCount = $this->undeliveredCount;
+                @endphp
+                <button type="button" wire:click="toggleUndeliveredView"
+                        class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showUndelivered ? 'border-gray-900 bg-gray-900 text-white' : ($undeliveredCount > 0 ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-500') }}">
+                    ✕ Nicht zugestellt {{ $undeliveredCount }}
+                </button>
 
                 {{-- Abwesenheitsmodus: Zustand IMMER aus OooMode (3 Zustaende), nie aus dem
                      rohen Flag. Auf der alten Seite ein Vollbreiten-Banner, hier ein Panel
@@ -169,6 +178,8 @@
 
     @if ($showForwards)
         <livewire:recruiting.conversations.forwards wire:key="forwards-view" />
+    @elseif ($showUndelivered)
+        <livewire:recruiting.conversations.undelivered wire:key="undelivered-view" />
     @else
     <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
 

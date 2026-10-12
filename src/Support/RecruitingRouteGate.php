@@ -43,6 +43,17 @@ final class RecruitingRouteGate
     ];
 
     /**
+     * Anleitungen (12.10.2026): lesen duerfen alle, auch eingeschraenkte
+     * Konten. Reine Leseseiten ohne Aktionen und ohne Personendaten.
+     */
+    private const ANLEITUNG_ROUTES = [
+        'recruiting.anleitungen.index',
+        'recruiting.anleitungen.show',
+        'recruiting.anleitungen.druck',
+        'recruiting.anleitungen.bild',
+    ];
+
+    /**
      * Core-Landeseiten: fuer eingeschraenkte Konten direkt zur erlaubten
      * Ansicht (Kunde 03.09.: nach dem SSO-Login nicht erst durchs Dashboard
      * klicken). Bewusst NUR diese Namen — Logout, Profil und Team-Wechsel
@@ -65,6 +76,7 @@ final class RecruitingRouteGate
         $erlaubt = array_merge(
             $eventOnly ? self::EVENT_ROUTES : [],
             $trainingLeader ? self::TRAINING_ROUTES : [],
+            self::ANLEITUNG_ROUTES,
         );
 
         $istRecruiting = str_starts_with($routeName, 'recruiting.');

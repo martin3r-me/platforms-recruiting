@@ -129,6 +129,16 @@
                                         : ($person['applicant'] ? route('recruiting.applicants.show', $person['applicant']) : '#') }}"
                                    class="text-[color:var(--ui-primary)] hover:underline">{{ $person['name'] }}</a>
                                 @if ($versandZeile !== null)
+                                    {{-- Zeilen-Chip wie im Kampagnen-Modal (UX-Paket 12.10.): folgt dem Haken. --}}
+                                    @if (!$versandLaeuft)
+                                        @if (!$versandZeile['selectable'])
+                                            <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)] line-through">keine Nachricht</span>
+                                        @elseif (!empty($this->noAssignmentSelection[$person['id']]))
+                                            <span class="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-900">bekommt Nachfrage</span>
+                                        @else
+                                            <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">nicht angehakt</span>
+                                        @endif
+                                    @endif
                                     @foreach ($versandZeile['badges'] as $badge)
                                         <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">{{ $badge }}</span>
                                     @endforeach

@@ -142,3 +142,17 @@ Route::get('/dispo-dress-packages', \Platform\Recruiting\Livewire\Dispo\DressPac
     ->name('recruiting.dispo.dress-packages');
 Route::get('/dispo-kommunikation', \Platform\Recruiting\Livewire\Dispo\Conversations\Index::class)
     ->name('recruiting.dispo.conversations');
+
+// Anleitungen (Spec 2026-10-12): Quelle docs/anleitungen/<slug>.md, fuer alle lesbar.
+Route::get('/anleitungen', \Platform\Recruiting\Livewire\Anleitungen\Index::class)
+    ->name('recruiting.anleitungen.index');
+Route::get('/anleitungen/{slug}', \Platform\Recruiting\Livewire\Anleitungen\Show::class)
+    ->name('recruiting.anleitungen.show')
+    ->where('slug', '[a-z0-9-]+');
+Route::get('/anleitungen/{slug}/druck', \Platform\Recruiting\Http\Controllers\AnleitungDruckController::class)
+    ->name('recruiting.anleitungen.druck')
+    ->where('slug', '[a-z0-9-]+');
+Route::get('/anleitungen/{slug}/bild/{datei}', \Platform\Recruiting\Http\Controllers\AnleitungBildController::class)
+    ->name('recruiting.anleitungen.bild')
+    ->where('slug', '[a-z0-9-]+')
+    ->where('datei', '[A-Za-z0-9][A-Za-z0-9._-]*');
