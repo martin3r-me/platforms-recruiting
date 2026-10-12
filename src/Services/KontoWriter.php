@@ -1017,7 +1017,7 @@ final class KontoWriter
         $ergebnis = DB::transaction(function () use ($personId, $erwartetBeantragtAt) {
             $person = self::sperrAbfrage($personId)->first();
 
-            if ($person === null || $person->locked_at !== null || $person->merged_into_person_id !== null) {
+            if ($person === null || !self::istOffen($person)) {
                 return null;
             }
             if ($person->wechsel_quelle !== self::ZWECK_NOTFALL
@@ -1061,24 +1061,54 @@ final class KontoWriter
      * eingeloggt. Hier und nicht erst im Aufrufer, damit es keinen Weg gibt,
      * das Konto zurueckzusetzen und die Sitzungen zu vergessen.
      *
-     * @return string der Klartext-Token der neuen Einladung (nur fuer die Einmal-Anzeige)
+     * EINE EINHEIT (Fix-Runde 1): Vorbedingungen (Pfeffer) werden VOR jedem
+     * Schreiben geprueft, Ruecksetzung und neue Einladung laufen in EINER
+     * Transaktion mit Zeilensperre. Scheitert die Einladung, bleibt das Konto
+     * wie es war — kein halb zurueckgesetztes Konto ohne gueltige Einladung.
+     *
+     * OFFENER NUMMERNWECHSEL-ANTRAG WIRD MIT ABGERAEUMT: HR setzt zurueck,
+     * wenn eine Uebernahme vermutet wird — ein liegender Antrag (Weg 4) ist
+     * dann genau der Weg des Fremden. Er wird in derselben Transaktion
+     * geloescht (der Stundenlauf findet danach nichts), OHNE Notfallsperre
+     * (das bleibt eine eigene HR-Entscheidung). Ob einer lag, meldet
+     * antrag_entfernt — der Aufrufer schreibt es in den Vermerk.
+     *
+     * @return array{token: string, antrag_entfernt: bool} token = Klartext der neuen Einladung (nur fuer die Einmal-Anzeige)
      */
-    public static function setzeKontoZurueckDurchHr(int $personId): string
+    public static function setzeKontoZurueckDurchHr(int $personId): array
     {
-        self::offeneZeile($personId);
+        // Vorbedingung vor jedem Schreiben: ohne Pfeffer keine Einladung.
+        self::pfeffer();
 
-        DB::table('rec_persons')->where('id', $personId)->update([
-            'password_hash'    => null,
-            'code_hash'        => null,
-            'code_expires_at'  => null,
-            'code_zweck'       => null,
-            'code_neue_nummer' => null,
-            'code_versuche'    => 0,
-            'sitzungen_ungueltig_ab' => now(),
-            'updated_at'       => now(),
-        ]);
+        $ergebnis = DB::transaction(function () use ($personId) {
+            $person = self::pruefeOffen(self::sperrAbfrage($personId)->first(), $personId);
 
-        return self::ladeEin($personId);
+            $antragEntfernt = $person->wechsel_neue_nummer !== null || $person->wechsel_wirksam_ab !== null;
+
+            DB::table('rec_persons')->where('id', $personId)->update([
+                'password_hash'          => null,
+                'code_hash'              => null,
+                'code_expires_at'        => null,
+                'code_zweck'             => null,
+                'code_neue_nummer'       => null,
+                'code_versuche'          => 0,
+                'wechsel_neue_nummer'    => null,
+                'wechsel_beantragt_at'   => null,
+                'wechsel_wirksam_ab'     => null,
+                'wechsel_quelle'         => null,
+                'sitzungen_ungueltig_ab' => now(),
+                'updated_at'             => now(),
+            ]);
+
+            return ['token' => self::ladeEin($personId), 'antrag_entfernt' => $antragEntfernt];
+        });
+
+        if ($ergebnis['antrag_entfernt']) {
+            // Ohne Nummern, ohne Token — nur dass einer lag.
+            Log::warning('recruiting.konto.antrag_beim_zuruecksetzen_entfernt', ['person_id' => $personId]);
+        }
+
+        return $ergebnis;
     }
 
     /**
@@ -1237,11 +1267,25 @@ final class KontoWriter
         return self::pruefeOffen(DB::table('rec_persons')->where('id', $personId)->first(), $personId);
     }
 
+    /**
+     * DIE Regel "an dieser Zeile darf ein Konto-Vorgang geschehen": weder
+     * gesperrt noch stillgelegt. pruefeOffen() wirft mit Begruendung, die
+     * Freigabe antwortet still mit null — beide fragen HIER.
+     */
+    private static function istOffen(object $person): bool
+    {
+        return $person->locked_at === null && $person->merged_into_person_id === null;
+    }
+
     /** Dieselbe Regel wie offeneZeile(), fuer eine schon (gesperrt) gelesene Zeile. */
     private static function pruefeOffen(?object $person, int $personId): object
     {
         if ($person === null) {
             throw new InvalidArgumentException("Person {$personId} existiert nicht.");
+        }
+
+        if (self::istOffen($person)) {
+            return $person;
         }
 
         if ($person->locked_at !== null) {

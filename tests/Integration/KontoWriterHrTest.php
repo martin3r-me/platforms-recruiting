@@ -141,7 +141,9 @@ final class KontoWriterHrTest extends TestCase
             'code_zweck' => 'passwort', 'code_versuche' => 3,
         ], $ma);
 
-        $token = KontoWriter::setzeKontoZurueckDurchHr($id);
+        $ergebnis = KontoWriter::setzeKontoZurueckDurchHr($id);
+        $token = $ergebnis['token'];
+        $this->assertFalse($ergebnis['antrag_entfernt'], 'kein Antrag offen');
 
         $zeile = $this->personZeile($id);
         $this->assertNull($zeile->password_hash);
@@ -244,8 +246,75 @@ final class KontoWriterHrTest extends TestCase
     public function test_zuruecksetzen_schreibt_den_token_in_kein_log(): void
     {
         $id = $this->person(['phone' => '+4915100000002'], $this->akte(['phone' => '+4915100000002']));
-        $token = KontoWriter::setzeKontoZurueckDurchHr($id);
+        $token = KontoWriter::setzeKontoZurueckDurchHr($id)['token'];
 
         $this->assertStringNotContainsString($token, json_encode($this->log->zeilen));
+    }
+
+    /** Fix-Runde 1: scheitert die Einladung, bleibt das Konto ganz (keine halbe Ruecksetzung). */
+    public function test_zuruecksetzen_ist_eine_einheit_scheitert_die_einladung_bleibt_alles(): void
+    {
+        $hash = \Illuminate\Support\Facades\Hash::make('ganz-geheim-2026');
+        $id = $this->mitAntrag([
+            'password_hash' => $hash,
+            'code_hash' => str_repeat('a', 64), 'code_zweck' => 'passwort', 'code_versuche' => 3,
+        ]);
+
+        DB::connection()->listen(function ($abfrage) {
+            if (str_contains($abfrage->sql, 'invite_token_hash') && str_starts_with(strtolower(ltrim($abfrage->sql)), 'update')) {
+                throw new \RuntimeException('Einladung scheitert');
+            }
+        });
+
+        try {
+            KontoWriter::setzeKontoZurueckDurchHr($id);
+            $this->fail('erwartet RuntimeException');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Einladung scheitert', $e->getMessage());
+        }
+
+        $zeile = $this->personZeile($id);
+        $this->assertSame($hash, $zeile->password_hash, 'Passwort unveraendert');
+        $this->assertSame(str_repeat('a', 64), $zeile->code_hash, 'Code unveraendert');
+        $this->assertSame(3, (int) $zeile->code_versuche);
+        $this->assertNull($zeile->sitzungen_ungueltig_ab, 'Sitzungsgrenze unveraendert');
+        $this->assertSame(self::NEU, $zeile->wechsel_neue_nummer, 'Antrag unveraendert');
+    }
+
+    /** Fix-Runde 1: Vorbedingung (Pfeffer) vor jedem Schreiben. */
+    public function test_zuruecksetzen_ohne_pfeffer_schreibt_nichts(): void
+    {
+        $hash = \Illuminate\Support\Facades\Hash::make('ganz-geheim-2026');
+        $id = $this->person(['phone' => '+4915100000003', 'password_hash' => $hash], $this->akte(['phone' => '+4915100000003']));
+        $config = \Illuminate\Container\Container::getInstance()->make('config');
+        $config->set('recruiting.konto.pepper', '');
+        $config->set('app.key', '');
+
+        try {
+            KontoWriter::setzeKontoZurueckDurchHr($id);
+            $this->fail('erwartet InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+            $this->addToAssertionCount(1);
+        }
+        $this->assertSame($hash, $this->personZeile($id)->password_hash);
+        $this->assertNull($this->personZeile($id)->sitzungen_ungueltig_ab);
+    }
+
+    /** Fix-Runde 1: Zuruecksetzen bei Verdacht auf Uebernahme raeumt den offenen Notfall-Antrag ab. */
+    public function test_zuruecksetzen_raeumt_offenen_antrag_ab_und_meldet_es(): void
+    {
+        $id = $this->mitAntrag([], '2026-10-12 08:00:00');
+
+        $ergebnis = KontoWriter::setzeKontoZurueckDurchHr($id);
+
+        $this->assertTrue($ergebnis['antrag_entfernt']);
+        $zeile = $this->personZeile($id);
+        $this->assertNull($zeile->wechsel_neue_nummer);
+        $this->assertNull($zeile->wechsel_beantragt_at);
+        $this->assertNull($zeile->wechsel_wirksam_ab);
+        $this->assertNull($zeile->wechsel_quelle);
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($id), 'der Stundenlauf findet nichts mehr');
+        $this->assertSame(self::ALT, $this->personZeile($id)->phone);
+        $this->assertStringNotContainsString($ergebnis['token'], json_encode($this->log->zeilen));
     }
 }
