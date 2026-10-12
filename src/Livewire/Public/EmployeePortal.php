@@ -256,7 +256,7 @@ class EmployeePortal extends Component
      */
     public function saveAll(): void
     {
-        if ($this->state !== 'verified' || $this->portalLocked) {
+        if ($this->state !== 'verified' || $this->portalLocked || !$this->sitzungLebt()) {
             return;
         }
         $employee = $this->employee();
@@ -432,7 +432,7 @@ class EmployeePortal extends Component
      */
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {
-        if ($this->state !== 'verified' || $this->portalLocked) {
+        if ($this->state !== 'verified' || $this->portalLocked || !$this->sitzungLebt()) {
             return;
         }
         $employee = $this->employee();
@@ -762,7 +762,26 @@ class EmployeePortal extends Component
 
     private function sessionKey(): string
     {
-        return "employee_portal_verified:{$this->employeeId}";
+        return PortalAuth::sessionKey((int) $this->employeeId);
+    }
+
+    /**
+     * Lebt die Portal-Sitzung noch (Spec HR-Bereich §9.6)? Der #[Locked]-
+     * $state allein reicht nicht: ein von HR zurueckgesetztes Konto muss
+     * auch einen schon offenen Tab beenden. Pruefung NUR ueber
+     * PortalAuth::sitzungGueltig() — keine eigene Logik. Jede schreibende
+     * Aktion ruft das zuerst.
+     */
+    private function sitzungLebt(): bool
+    {
+        if ($this->employeeId !== null && PortalAuth::sitzungGueltig((int) $this->employeeId)) {
+            return true;
+        }
+
+        $this->state = 'unverified';
+        $this->fieldValues = [];
+
+        return false;
     }
 
     private function attemptCacheKey(): string

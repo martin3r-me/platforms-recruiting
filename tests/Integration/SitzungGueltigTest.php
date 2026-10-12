@@ -112,10 +112,18 @@ final class SitzungGueltigTest extends TestCase
 
         DB::table('rec_persons')->where('id', $personId)->update(['sitzungen_ungueltig_ab' => now()]);
 
+        // Offene Gruppe/Dokument mit Daten — muss mit dem Ende der Sitzung weg.
+        $offen->profilGruppe = 'Bank';
+        $offen->profilWerte = ['iban' => 'DE89370400440532013000'];
+        $offen->dokumentId = 77;
+
         // Die schon offene Seite: die naechste Aktion beendet sie (berechtigterMitarbeiter).
         $offen->oeffneDokument(999999);
         $this->assertSame('unverified', $offen->state);
         $this->assertSame('', $offen->displayName);
+        $this->assertNull($offen->profilGruppe);
+        $this->assertSame([], $offen->profilWerte);
+        $this->assertNull($offen->dokumentId);
 
         // Neu laden: mount sieht keine gueltige Sitzung mehr.
         $neu = new PortalShell();
@@ -156,5 +164,26 @@ final class SitzungGueltigTest extends TestCase
         $this->assertSame(0, PortalAuth::anmeldeZeitpunkt(true));
         $this->assertSame(0, PortalAuth::anmeldeZeitpunkt('kaputt'));
         $this->assertSame(strtotime('2026-10-12T10:00:00+00:00'), PortalAuth::anmeldeZeitpunkt('2026-10-12T10:00:00+00:00'));
+    }
+
+    /**
+     * Haertung: ohne Personen-Kennung (NULL, 0) keine Abfrage auf rec_persons.
+     * Die 0 entsteht auch, wenn SQLite eine fehlende Spalte als String-Literal
+     * liefert ("rec_person_id" -> (int) 0).
+     */
+    public function test_personen_kennung_null_oder_0_fragt_rec_persons_nicht(): void
+    {
+        $ma = $this->akte();
+        DB::table('rec_employees')->where('id', $ma->id)->update(['rec_person_id' => 0]);
+        $this->sitzung->put(PortalAuth::sessionKey($ma->id), true);
+        DB::connection()->enableQueryLog();
+        DB::connection()->flushQueryLog();
+
+        $this->assertTrue(PortalAuth::sitzungGueltig($ma->id));
+        $sqls = array_column(DB::connection()->getQueryLog(), 'query');
+        DB::connection()->disableQueryLog();
+        foreach ($sqls as $sql) {
+            $this->assertStringNotContainsString('rec_persons', $sql);
+        }
     }
 }

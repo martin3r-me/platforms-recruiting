@@ -1246,6 +1246,10 @@ class PortalShell extends Component
             $this->state = 'unverified';
             $this->displayName = '';
             $this->initialen = '';
+            // Offene Gruppe/Dokument tragen Daten in den Snapshot — mit weg.
+            $this->profilGruppe = null;
+            $this->profilWerte = [];
+            $this->dokumentId = null;
 
             return null;
         }

@@ -63,6 +63,12 @@ class PortalNationalityRequiredTest extends TestCase
         Facade::clearResolvedInstances();
     }
 
+    protected function tearDown(): void
+    {
+        TestPortalSitzung::aufraeumen();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         Capsule::table('rec_employees')->delete();
@@ -127,6 +133,8 @@ class PortalNationalityRequiredTest extends TestCase
         $portal->state = 'verified';
         $portal->employeeId = $employee->id;
         $portal->fieldValues = $fieldValues;
+        // Spec HR-Bereich §9.6: saveAll() fragt PortalAuth::sitzungGueltig().
+        TestPortalSitzung::oeffne((int) $employee->id);
 
         return $portal;
     }

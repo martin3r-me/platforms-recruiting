@@ -466,12 +466,14 @@ final class PortalAuth
             return false;
         }
 
-        $personId = DB::table('rec_employees')->where('id', $employeeId)->value('rec_person_id');
-        if ($personId === null) {
+        // (int): NULL und Unsinn werden 0 — auch der String, den SQLite fuer
+        // eine fehlende Spalte liefert. 0 ist keine Person: wie bisher gueltig.
+        $personId = (int) DB::table('rec_employees')->where('id', $employeeId)->value('rec_person_id');
+        if (!$personId) {
             return true;
         }
 
-        $person = DB::table('rec_persons')->where('id', (int) $personId)->first();
+        $person = DB::table('rec_persons')->where('id', $personId)->first();
         $grenzeRoh = $person->sitzungen_ungueltig_ab ?? null;
         if ($grenzeRoh === null) {
             return true;
