@@ -49,8 +49,6 @@ Leitsatz: **ein Mensch = eine Zeile**, auch mit RG- und MA-Akte (Personen-Klamme
 - **Kein „Sperren“-Knopf.** Nur Entsperren. `locked_at` hat heute keinen Schreiber (§2),
   und ein Sperren-Knopf ist eine eigene Entscheidung (wer darf, wann automatisch).
 - **Keine Arbeitserlaubnis-Fälle.** Die bleiben als `REASON_WORK_PERMIT` im Reiter „Fälle“.
-- **Kein Beenden laufender Portal-Sitzungen** bei Zurücksetzen oder Sperre (§9.6 — die
-  Sitzung hat heute keinen serverseitigen Gegenpart; offene Frage 5).
 - **Keine Mail an HR** bei neuem Notfall-Antrag. Sichtbar wird er über das Zähler-Abzeichen
   am Reiter und die Liste; die Log-Zeile `recruiting.konto.nummernwechsel_beantragt` bleibt.
 - **Keine Änderung am ZAS-Export.** Alle Schreibzugriffe an `rec_employees` laufen über den
@@ -418,6 +416,12 @@ created_at)`, `(rec_person_id, art, ruhe_bis)`. Kein FK (Muster
 null`, kein Bearbeiten, kein Löschen in der Oberfläche. Kein `updated_at`.
 Migration mit `hasTable`-Wache, `down()` = drop.
 
+### 7.2 Neue Spalte `rec_persons.sitzungen_ungueltig_ab`
+
+`timestamp nullable`, eigene Migration (`hasColumn`-Wache, `down()` = dropColumn).
+Gesetzt nur von `HrKontoAktionen` (Zurücksetzen, Entsperren nach Notfallsperre), gelesen
+nur von `PortalAuth::sitzungGueltig()` (§9.6). Schreibzugriff per Query-Builder.
+
 ### 7.2 Einstellungen (`RecApplicantSettings::DEFAULT_SETTINGS`)
 
 | Schlüssel | Vorgabe | Eingabe | Lesen |
@@ -484,11 +488,30 @@ Knöpfe mit `wire:loading.attr="disabled"` und `wire:target`.
    `KontoWriter`).
 5. **Geheimnisse.** Einladungs-Klartext nur im Modal; nie in Log, Vermerk, Flash oder
    URL-Query. Nummern nur vierstellig. Notizen nur escaped (`{{ }}`), nicht ins Log.
-6. **Laufende Sitzungen.** Das Portal-Sitzungskennzeichen
-   (`employee_portal_verified:<id>`) hat keinen serverseitigen Gegenpart; Zurücksetzen
-   und Konto-Entsperren/-Sperren wirken ab der **nächsten** Anmeldung. Die Dispo-Sperre
-   wirkt sofort (wird je Aufruf geprüft). Ebenso öffnet der alte Token-Weg
-   (`/mitarbeiter/…`) weiter unabhängig von `locked_at` — unverändert, hier nur genannt.
+6. **Laufende Sitzungen werden beendet** (Entscheidung Sebastian 12.10.: ein
+   zurückgesetztes Konto darf keinen Fremden eingeloggt lassen). Mechanik:
+   - Neue Spalte `rec_persons.sitzungen_ungueltig_ab` (timestamp, nullable; Migration
+     §7). `HrKontoAktionen` setzt sie bei **Konto zurücksetzen** und bei **Entsperren
+     nach Notfallsperre** auf `now()` (nicht bei „Einladung neu" — die ändert kein
+     Geheimnis; nicht bei Dispo-Entsperrung — die öffnet, sie schließt nicht).
+   - Die Portal-Sitzung speichert statt `true` den **Anmeldezeitpunkt**
+     (`session()->put(PortalAuth::sessionKey($id), now()->toIso8601String())`), an
+     allen drei Schreibstellen: `KontoAnmelden` (~:455), `PortalShell` (~:207),
+     `EmployeePortal` (~:210). Ein Altwert `true` gilt als Zeitpunkt 0 (vor jeder
+     Ungültigkeit) — bestehende Sitzungen bleiben bis zum ersten Zurücksetzen gültig.
+   - **Eine Prüfstelle:** `PortalAuth::sitzungGueltig(int $employeeId): bool` liest den
+     Sitzungswert und `sitzungen_ungueltig_ab` der Person (über die Anstellung →
+     `rec_person_id`; ohne Person: gültig wie heute). Ist der Anmeldezeitpunkt ≤
+     `sitzungen_ungueltig_ab`, wird der Sitzungsschlüssel verworfen und `false`
+     geliefert. Alle `session()->has(PortalAuth::sessionKey(…))`-Stellen rufen
+     stattdessen diese Methode: `PortalShell::mount` (~:160) und
+     `berechtigterMitarbeiter()`, `EmployeePortal` (~:157), `KontoAnmelden`-Weiche,
+     `DokumentZugriff`, `VertragPdfController`, Download-Controller der Nachweise.
+     Eine zweite Prüfung mit eigener Logik ist verboten — sonst gibt es wieder eine
+     Seite, die den Fremden weiter bedient.
+   - Die Dispo-Sperre wirkt wie heute sofort (wird je Aufruf geprüft). Der alte
+     Token-Weg (`/mitarbeiter/…`) läuft über dieselbe Prüfstelle und wird damit ebenfalls
+     beendet.
 7. **„Nummer mehrdeutig“** verrät dem Team nur, *dass* die Nummer anderswo existiert —
    keinen Namen, kein Team. Nötig, weil sonst niemand erklären kann, warum die Anmeldung
    scheitert.
@@ -600,7 +623,8 @@ Notfall-Antrag bleibt dann wie heute nur per Kommando sichtbar.
    *Empfehlung:* 3 Tage, ganze Zeile; als Team-Einstellung änderbar.
 4. **Zwei Riegel für den Notfallweg** (Server-`.env` UND Team-Haken) statt nur Team-Haken.
    — *Empfehlung:* beide behalten; der Server-Riegel ist der Not-Aus für alle Teams.
-5. **Laufende Portal-Sitzungen beim Zurücksetzen/Entsperren beenden?** Heute nicht
-   möglich ohne neue Spalte an `rec_persons` und Prüfung in jeder Portal-Seite. —
-   *Empfehlung:* nicht in diesem Paket; Sitzungen enden mit der Leerlaufzeit des Wirts.
-   Eigenes Ticket, falls ein Übernahme-Fall auftritt.
+5. **Laufende Portal-Sitzungen beim Zurücksetzen/Entsperren beenden?** —
+   **Entschieden (Sebastian 12.10.): ja**, siehe §9.6. Spalte `sitzungen_ungueltig_ab`
+   an `rec_persons`, eine Prüfstelle `PortalAuth::sitzungGueltig()`.
+
+Entscheidungen 1–4: wie empfohlen (Sebastian 12.10.). Knopf heißt „Kontaktiert".
