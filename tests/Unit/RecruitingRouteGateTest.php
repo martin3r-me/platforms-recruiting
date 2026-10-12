@@ -118,4 +118,15 @@ class RecruitingRouteGateTest extends TestCase
             RecruitingRouteGate::redirectTo(eventOnly: false, trainingLeader: true, routeName: 'recruiting.dispo.settings')
         );
     }
+
+    public function test_nur_veranstaltungen_kommt_nicht_an_jobs_anbieten(): void
+    {
+        $this->assertSame('recruiting.dispo.events.index', RecruitingRouteGate::redirectTo(eventOnly: true, trainingLeader: false, routeName: 'recruiting.dispo.jobs.index'));
+        $this->assertSame('recruiting.dispo.events.index', RecruitingRouteGate::redirectTo(eventOnly: true, trainingLeader: false, routeName: 'recruiting.dispo.jobs.create'));
+    }
+
+    public function test_normaler_nutzer_darf_jobs_anbieten(): void
+    {
+        $this->assertNull(RecruitingRouteGate::redirectTo(eventOnly: false, trainingLeader: false, routeName: 'recruiting.dispo.jobs.show'));
+    }
 }
