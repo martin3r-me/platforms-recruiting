@@ -3,11 +3,13 @@
 namespace Platform\Recruiting\Livewire\HrDesk;
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\HrKontoAktionen;
 use Platform\Recruiting\Services\HrMitarbeiterListen;
 use Platform\Recruiting\Support\HrAktionErgebnis;
@@ -48,6 +50,14 @@ class Mitarbeiter extends Component
 
     public const SEITE = 50;
 
+    /** Nach jeder wirksamen Aktion: der Schreibtisch (Index) zaehlt sein Abzeichen neu. */
+    public const EVENT_GEAENDERT = 'hr-mitarbeiter-geaendert';
+
+    /** Cache-Schluessel (+ Team-Id) und Lebensdauer der Zaehler. */
+    public const CACHE_ZAHLEN = 'recruiting:hr-mitarbeiter:zahlen:';
+    public const CACHE_ABZEICHEN = 'recruiting:hr-mitarbeiter:abzeichen:';
+    public const ZAEHLER_SEKUNDEN = 60;
+
     #[Url] public string $liste = 'antraege';
     #[Url] public string $pilotFilter = 'alle';
     public string $suche = '';
@@ -67,6 +77,9 @@ class Mitarbeiter extends Component
 
     #[Locked] public string $meldung = '';
     #[Locked] public string $meldungStufe = '';
+
+    /** @var array<string, array> gesperrt() je Request (Suche|Drossel) */
+    private array $gesperrtJeAnfrage = [];
 
     public function placeholder(): string
     {
@@ -102,15 +115,17 @@ class Mitarbeiter extends Component
         $this->seite = 1;
     }
 
-    public function blaettern(int $seite): void
+    /** Parameter aus dem Browser sind Eingabe: Muell -> Seite 1, nie ein TypeError. */
+    public function blaettern(mixed $seite): void
     {
-        $this->seite = max(1, $seite);
+        $this->seite = max(1, self::ganzzahl($seite));
     }
 
     public function seitenZeilen(array $zeilen): array
     {
         // Nach einer Aktion kann die Liste kuerzer sein als die gemerkte Seite.
-        $seite = min($this->seite, $this->seitenAnzahl($zeilen));
+        // $seite ist oeffentlich ($wire.set) — auch nach unten klemmen.
+        $seite = max(1, min($this->seite, $this->seitenAnzahl($zeilen)));
 
         return array_slice($zeilen, ($seite - 1) * self::SEITE, self::SEITE);
     }
@@ -136,7 +151,11 @@ class Mitarbeiter extends Component
     public function gesperrt(): array
     {
         // Die Drossel (Cache) erst, wenn der Unter-Reiter offen ist (Spec §3.2).
-        return $this->listen()->gesperrt($this->teamId(), $this->suche, $this->liste === 'gesperrt');
+        // Je Request gemerkt (privat = nicht im Livewire-Zustand): zahlen() ruft
+        // die Methode direkt und baut die Liste so nicht ein zweites Mal.
+        $schluessel = $this->suche . '|' . ($this->liste === 'gesperrt' ? '1' : '0');
+
+        return $this->gesperrtJeAnfrage[$schluessel] ??= $this->listen()->gesperrt($this->teamId(), $this->suche, $this->liste === 'gesperrt');
     }
 
     #[Computed]
@@ -151,27 +170,70 @@ class Mitarbeiter extends Component
         return $this->listen()->pilot($this->teamId(), $this->suche, $this->pilotFilter);
     }
 
-    /** @return array<string,int> Zahl je Unter-Reiter (ohne Suche). */
+    /**
+     * Zahl je Unter-Reiter ohne Suche — teuer (vier volle Listen), deshalb je
+     * Team ZAEHLER_SEKUNDEN im Cache und nach jeder Aktion (von jedem HR-
+     * Benutzer des Teams) geleert. Gesperrt hier ohne Drossel: deren
+     * Cache-Abfrage nur bei offenem Reiter (Spec §3.2).
+     *
+     * @return array{antraege:int, gesperrt:int, erinnert:int, pilot:int}
+     */
+    public function grundZahlen(): array
+    {
+        $teamId = $this->teamId();
+
+        return Cache::remember(self::CACHE_ZAHLEN . $teamId, self::ZAEHLER_SEKUNDEN, function () use ($teamId) {
+            $l = $this->listen();
+
+            return [
+                'antraege' => count($l->antraege($teamId)),
+                'gesperrt' => count($l->gesperrt($teamId, '', false)),
+                'erinnert' => count($l->erinnert($teamId)),
+                'pilot'    => $l->pilot($teamId)['zahlen']['alle'],
+            ];
+        });
+    }
+
+    /** Leert die zwischengespeicherten Zaehler des Teams (Reiter-Zahlen + Abzeichen). */
+    public static function zaehlerVergessen(int $teamId): void
+    {
+        Cache::forget(self::CACHE_ZAHLEN . $teamId);
+        Cache::forget(self::CACHE_ABZEICHEN . $teamId);
+    }
+
+    /**
+     * Zahlen fuer die Unter-Reiter: der offene Reiter zaehlt live aus seiner
+     * ohnehin gebauten Liste (ohne Suche), die anderen aus grundZahlen.
+     *
+     * @return array<string,int>
+     */
     #[Computed]
     public function zahlen(): array
     {
-        $teamId = $this->teamId();
-        $l = $this->listen();
+        $z = $this->grundZahlen();
+        // Gesperrt bei offenem Reiter mit Drossel — die Liste ist ohnehin gebaut
+        // (gesperrt() merkt sie je Request, kein zweiter Lauf).
+        if ($this->liste === 'gesperrt' && $this->suche === '') {
+            $z['gesperrt'] = count($this->gesperrt());
+        }
 
-        return [
-            'antraege' => count($l->antraege($teamId)),
-            'gesperrt' => count($l->gesperrt($teamId, '', $this->liste === 'gesperrt')),
-            'erinnert' => count($l->erinnert($teamId)),
-            'pilot'    => $l->pilot($teamId)['zahlen']['alle'],
-        ];
+        return $z;
     }
 
-    public function oeffne(string $aktion, ?int $personId = null, ?int $employeeId = null, string $bezug = ''): void
+    /**
+     * Die Parameter kommen aus dem Browser ($wire.call) und sind Eingabe:
+     * deshalb mixed + Normalisierung statt ?int (Muell -> "Nicht gefunden",
+     * nie ein TypeError-500).
+     */
+    public function oeffne(mixed $aktion, mixed $personId = null, mixed $employeeId = null, mixed $bezug = ''): void
     {
         $this->schliesse();
-        if (!array_key_exists($aktion, self::AKTIONEN)) {
+        if (!is_string($aktion) || !array_key_exists($aktion, self::AKTIONEN)) {
             return;
         }
+        $personId = $personId === null ? null : self::ganzzahl($personId);
+        $employeeId = $employeeId === null ? null : self::ganzzahl($employeeId);
+        $bezug = is_string($bezug) ? $bezug : '';
         $teamId = $this->teamId();
         // Stoppen braucht nur die Personen-Zeile im Team (Antraege ohne Akte im
         // Team, HrMitarbeiterListen::OHNE_AKTE); alles andere die volle Sichtbarkeit.
@@ -186,9 +248,16 @@ class Mitarbeiter extends Component
         }
 
         if ($aktion === 'freigeben') {
-            $antrag = DB::table('rec_persons')->where('id', $personId)->first(['wechsel_beantragt_at', 'wechsel_neue_nummer']);
+            $antrag = DB::table('rec_persons')->where('id', $personId)->first(['wechsel_beantragt_at', 'wechsel_neue_nummer', 'wechsel_quelle']);
             if ($antrag === null || $antrag->wechsel_beantragt_at === null) {
                 $this->meldung = 'Der Antrag ist nicht mehr offen.';
+                $this->meldungStufe = HrAktionErgebnis::HINWEIS;
+
+                return;
+            }
+            // Kein Gefahren-Modal fuer einen Antrag, den der Dienst ohnehin abweist.
+            if ($antrag->wechsel_quelle !== KontoWriter::ZWECK_NOTFALL) {
+                $this->meldung = 'Freigeben gibt es nur für Notfall-Anträge („Nummer und Passwort verloren“). Diesen Antrag können Sie nur stoppen.';
                 $this->meldungStufe = HrAktionErgebnis::HINWEIS;
 
                 return;
@@ -236,7 +305,10 @@ class Mitarbeiter extends Component
         $this->schliesse();
         $this->meldung = $e->meldung;
         $this->meldungStufe = $e->stufe;
+        self::zaehlerVergessen($this->teamId());
+        $this->gesperrtJeAnfrage = [];
         unset($this->antraege, $this->gestoppte, $this->gesperrt, $this->erinnert, $this->pilot, $this->zahlen);
+        $this->dispatch(self::EVENT_GEAENDERT);
     }
 
     public function schliesse(): void
@@ -257,6 +329,16 @@ class Mitarbeiter extends Component
     public function render()
     {
         return view('recruiting::livewire.hr-desk.mitarbeiter');
+    }
+
+    /** Positive Ganzzahl aus Browser-Eingabe — sonst 0 (findet nie etwas). */
+    private static function ganzzahl(mixed $wert): int
+    {
+        if (is_int($wert)) {
+            return max(0, $wert);
+        }
+
+        return is_string($wert) && ctype_digit($wert) && strlen($wert) <= 18 ? (int) $wert : 0;
     }
 
     private function listen(): HrMitarbeiterListen

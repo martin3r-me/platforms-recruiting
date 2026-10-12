@@ -3,7 +3,9 @@
 namespace Platform\Recruiting\Livewire\HrDesk;
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
@@ -661,6 +663,12 @@ class Index extends Component
         return $applicant->interviewBookings()->where('status', 'attended')->orderByDesc('id')->value('id');
     }
 
+    /** ?tab= ist Eingabe — schon beim ersten Laden bereinigen, nicht erst bei updatedTab(). */
+    public function mount(): void
+    {
+        $this->updatedTab();
+    }
+
     public function updatedTab(): void
     {
         if (!in_array($this->tab, ['faelle', 'mitarbeiter'], true)) {
@@ -672,11 +680,28 @@ class Index extends Component
      * Zaehler am Reiter "Mitarbeiter": offene Konto-Antraege + Gesperrte
      * (ohne Drossel — die endet nach 15 Minuten von selbst). Er macht aus den
      * 24 Stunden von Weg 4 erst ein Stopp-Recht (Spec §3).
+     * Je Team Mitarbeiter::ZAEHLER_SEKUNDEN im Cache (sonst baut jede
+     * Faelle-Aktion zwei volle Listen); Aktionen im Reiter leeren ihn und
+     * melden es per Event, damit das Abzeichen sofort neu zaehlt.
      */
     #[Computed]
     public function mitarbeiterAbzeichen(): int
     {
-        return app(HrMitarbeiterListen::class)->abzeichen((int) Auth::user()->currentTeam->id);
+        $teamId = (int) Auth::user()->currentTeam->id;
+
+        return (int) Cache::remember(
+            Mitarbeiter::CACHE_ABZEICHEN . $teamId,
+            Mitarbeiter::ZAEHLER_SEKUNDEN,
+            fn () => app(HrMitarbeiterListen::class)->abzeichen($teamId),
+        );
+    }
+
+    #[On(Mitarbeiter::EVENT_GEAENDERT)]
+    public function mitarbeiterGeaendert(): void
+    {
+        // Das Kind hat den Cache schon geleert; doppelt haelt besser (Reihenfolge der Requests).
+        Mitarbeiter::zaehlerVergessen((int) Auth::user()->currentTeam->id);
+        unset($this->mitarbeiterAbzeichen);
     }
 
     public function render()

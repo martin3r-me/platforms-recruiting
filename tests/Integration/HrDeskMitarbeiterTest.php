@@ -30,13 +30,14 @@ final class HrDeskMitarbeiterTest extends TestCase
         $c = Container::getInstance();
         $c->forgetInstance(HrKontoAktionen::class);
         $c->forgetInstance(HrMitarbeiterListen::class);
+        $c->forgetInstance(\Livewire\Mechanisms\DataStore::class);
         $this->hrWeltAbbauen();
         parent::tearDown();
     }
 
-    private function mitAntrag(int $team = 7): int
+    private function mitAntrag(int $team = 7, string $alt = '+4915111111111'): int
     {
-        $akte = $this->akte(['team_id' => $team, 'phone' => '+4915111111111']);
+        $akte = $this->akte(['team_id' => $team, 'phone' => $alt]);
 
         return $this->person(['team_id' => $team, 'wechsel_neue_nummer' => '+4917098765432', 'wechsel_beantragt_at' => '2026-10-12 09:00:00',
             'wechsel_wirksam_ab' => '2026-10-13 09:00:00', 'wechsel_quelle' => 'notfall'], $akte);
@@ -252,6 +253,128 @@ final class HrDeskMitarbeiterTest extends TestCase
 
         $c->blaettern(5);
         $this->assertCount(3, $c->seitenZeilen([1, 2, 3]));
+    }
+
+    // ------------------------------------------------------------ Fix-Runde 1
+
+    /** @return list<string> Namen der Livewire-Events, die die Komponente ausgeloest hat. */
+    private function ausgeloest(object $komponente): array
+    {
+        return array_map(fn ($e) => $e->serialize()['name'], (array) \Livewire\store($komponente)->get('dispatched', []));
+    }
+
+    /** Minor 1: nach einer Aktion meldet das Kind dem Schreibtisch die Aenderung — das Abzeichen wird neu gezaehlt. */
+    public function test_aktion_meldet_die_aenderung_an_den_schreibtisch(): void
+    {
+        // Livewire-Datenspeicher (sonst je Aufruf neu, ohne ServiceProvider) — dort landen dispatch()-Events.
+        Container::getInstance()->instance(\Livewire\Mechanisms\DataStore::class, new \Livewire\Mechanisms\DataStore());
+        $id = $this->mitAntrag();
+        $c = new Mitarbeiter();
+        $c->oeffne('stoppen', $id);
+        $c->notiz = 'kurz';
+        $c->bestaetige();
+        $this->assertSame([], $this->ausgeloest($c), 'Fehler aendert nichts — kein Event');
+
+        $c->notiz = 'Telefonat, Antrag war nicht von ihr.';
+        $c->bestaetige();
+        $this->assertSame([Mitarbeiter::EVENT_GEAENDERT], $this->ausgeloest($c));
+
+        $methode = new \ReflectionMethod(Index::class, 'mitarbeiterGeaendert');
+        $on = $methode->getAttributes(\Livewire\Attributes\On::class);
+        $this->assertCount(1, $on);
+        $this->assertSame(Mitarbeiter::EVENT_GEAENDERT, $on[0]->getArguments()[0]);
+
+        $index = new Index();
+        $vorher = $index->mitarbeiterAbzeichen();
+        $this->mitAntrag(7, '+4915144444444');
+        $this->assertSame($vorher, $index->mitarbeiterAbzeichen(), 'zwischengespeichert');
+        $index->mitarbeiterGeaendert();
+        $this->assertSame($vorher + 1, $index->mitarbeiterAbzeichen(), 'Event leert den Zaehler');
+    }
+
+    /** Minor 2: ?tab=quatsch wird schon beim ersten Laden bereinigt. */
+    public function test_index_mount_bereinigt_den_reiter(): void
+    {
+        $index = new Index();
+        $index->tab = 'quatsch';
+        $index->mount();
+        $this->assertSame('faelle', $index->tab);
+
+        $index->tab = 'mitarbeiter';
+        $index->mount();
+        $this->assertSame('mitarbeiter', $index->tab);
+    }
+
+    /** Minor 3: Zaehler kommen je Team aus dem Cache und werden nach einer Aktion geleert. */
+    public function test_zaehler_sind_zwischengespeichert_und_aktionen_leeren_sie(): void
+    {
+        $id = $this->mitAntrag();
+        $this->person(['locked_at' => now()], $this->akte());
+        $c = new Mitarbeiter();
+        $index = new Index();
+        $this->assertSame(['antraege' => 1, 'gesperrt' => 1, 'erinnert' => 0, 'pilot' => $c->grundZahlen()['pilot']], $c->grundZahlen());
+        $this->assertSame(2, $index->mitarbeiterAbzeichen());
+
+        // Neue Sperre: zwischengespeichert, die Zahl bleibt (60 s) stehen ...
+        $this->person(['locked_at' => now()], $this->akte());
+        $this->assertSame(1, $c->grundZahlen()['gesperrt']);
+        $this->assertSame(2, $index->mitarbeiterAbzeichen());
+        // ... der offene Reiter zaehlt aber live aus seiner Liste.
+        $c->zeigeListe('gesperrt');
+        $this->assertSame(2, $c->zahlen()['gesperrt']);
+        $this->person(['locked_at' => now()], $this->akte());
+        $this->assertCount(2, $c->gesperrt(), 'je Request gemerkt — kein zweiter Listenbau');
+
+        // Eine Aktion leert beide Zaehler des Teams.
+        $c->oeffne('stoppen', $id);
+        $c->notiz = 'Telefonat, Antrag war nicht von ihr.';
+        $c->bestaetige();
+        $this->assertSame(0, $c->grundZahlen()['antraege']);
+        // 3 Sperren + die frische Notfallsperre des gestoppten Antrags — neu gezaehlt.
+        $this->assertSame(4, $c->grundZahlen()['gesperrt']);
+        $frisch = (new HrMitarbeiterListen($this->portalAuth()))->abzeichen($this->team);
+        $this->assertNotSame(2, $frisch, 'Probe: der frische Wert unterscheidet sich vom alten');
+        $this->assertSame($frisch, $index->mitarbeiterAbzeichen());
+    }
+
+    /** Minor 4: Muell aus dem Browser fuehrt zu "Nicht gefunden" bzw. Seite 1, nie zu einem 500er. */
+    public function test_muell_parameter_aus_dem_browser(): void
+    {
+        $id = $this->mitAntrag();
+        $c = new Mitarbeiter();
+
+        foreach (['abc', [1], '1.5', -4, true] as $muell) {
+            $c->oeffne('stoppen', $muell);
+            $this->assertFalse($c->modalOffen);
+            $this->assertSame(HrKontoAktionen::NICHT_GEFUNDEN, $c->meldung, var_export($muell, true));
+        }
+        $c->oeffne('portal_entsperren', null, 'abc');
+        $this->assertSame(HrKontoAktionen::NICHT_GEFUNDEN, $c->meldung);
+
+        $c->oeffne('stoppen', (string) $id);
+        $this->assertTrue($c->modalOffen, 'Ziffern-String ist eine gueltige Id');
+        $this->assertSame($id, $c->aktionPersonId);
+
+        $c->seite = -3;
+        $this->assertSame([1, 2, 3], $c->seitenZeilen([1, 2, 3]));
+        $c->blaettern('abc');
+        $this->assertSame(1, $c->seite);
+    }
+
+    /** Minor 5: kein Gefahren-Modal fuer einen Antrag, der gar nicht freigebbar ist. */
+    public function test_freigeben_oeffnet_kein_modal_fuer_nicht_notfall_antrag(): void
+    {
+        $akte = $this->akte(['phone' => '+4915133333333']);
+        $id = $this->person(['wechsel_neue_nummer' => '+4917098765432', 'wechsel_beantragt_at' => '2026-10-12 09:00:00',
+            'wechsel_wirksam_ab' => '2026-10-13 09:00:00', 'wechsel_quelle' => 'nummernwechsel'], $akte);
+        $c = new Mitarbeiter();
+
+        $c->oeffne('freigeben', $id);
+
+        $this->assertFalse($c->modalOffen);
+        $this->assertSame('', $c->aktionWarnung);
+        $this->assertSame(HrAktionErgebnis::HINWEIS, $c->meldungStufe);
+        $this->assertStringContainsString('nur stoppen', $c->meldung);
     }
 
     private function rendereMensch(array $z): string
