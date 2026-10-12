@@ -11,6 +11,7 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
@@ -111,35 +112,45 @@ class JobOffers extends Component
             ->selectRaw('shift_id, count(*) as n')->groupBy('shift_id')
             ->pluck('n', 'shift_id');
 
-        $rows = $offerShifts->map(fn ($os) => [
-            'offer_shift_id' => (int) $os->id,
-            'datum'          => $os->shift->datum->toDateString(),
-            'laeuft'         => $os->shift->request->laeuft(),
-            'closed'         => $os->shift->closed_at !== null,
-            'accepted'       => $os->accepted_at !== null,
-            'os'             => $os,
-        ])->all();
-
-        $groups = [];
-        foreach (JobOffersSichtbarkeit::filtern($rows, $gebucht, now()->toDateString()) as $row) {
-            $os = $row['os'];
+        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht) {
             $shift = $os->shift;
-            $event = $shift->event;
             $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
 
-            $groups[$shift->rec_dispo_event_id] ??= [
+            return [
+                'offer_shift_id' => (int) $os->id,
+                'event'          => (int) $shift->rec_dispo_event_id,
+                'datum'          => $shift->datum->toDateString(),
+                'von'            => $shift->von,
+                'taetigkeit'     => $shift->taetigkeit,
+                'laeuft'         => $shift->request->laeuft(),
+                'closed'         => $shift->closed_at !== null,
+                'accepted'       => $os->accepted_at !== null,
+                'zuerst'         => $zuerst,
+                'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
+                'os'             => $os,
+            ];
+        })->all();
+
+        // Spec §9: dieselbe Schicht aus mehreren Anfragen nur einmal (Knopf auf der Repraesentantin).
+        $sichtbar = JobOffersBuendelung::buendeln(JobOffersSichtbarkeit::filtern($rows, $gebucht, now()->toDateString()));
+
+        $groups = [];
+        foreach ($sichtbar as $row) {
+            $event = $row['os']->shift->event;
+
+            $groups[$row['event']] ??= [
                 'name' => $event?->name ?? $event?->einsatz_ref ?? 'Einsatz',
                 'ort'  => $event?->venue_text ?: $event?->ort,
                 'days' => [],
             ];
-            $groups[$shift->rec_dispo_event_id]['days'][$row['datum']][] = [
+            $groups[$row['event']]['days'][$row['datum']][] = [
                 'offer_shift_id' => $row['offer_shift_id'],
-                'von'            => $shift->von,
-                'taetigkeit'     => $shift->taetigkeit,
+                'von'            => $row['von'],
+                'taetigkeit'     => $row['taetigkeit'],
                 'accepted'       => $row['accepted'],
-                'zuerst'         => $zuerst,
-                'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
-                'voll'           => $row['closed'] && !$row['accepted'],
+                'zuerst'         => $row['zuerst'],
+                'frei'           => $row['zuerst'] ? $row['frei'] : null,
+                'voll'           => $row['voll'],
             ];
         }
 

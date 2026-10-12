@@ -109,4 +109,78 @@ class JobOffersPageTest extends TestCase
         $this->assertSame('weg', JobOffersZusage::ausfuehren(999999, [5]));
         $this->assertNull(RecDispoJobOfferShift::find($os5)->accepted_at);
     }
+
+    /** Eine Anfrage mit EINER Schicht (VA $event, in 5 Tagen, 17:00, Zapfer), angeboten an $emps. @return array{0:\Platform\Recruiting\Models\RecDispoJobShift, 1:array<int,int>} */
+    private function anfrageMitSchicht(string $modus, int $gesucht, int $event, array $emps): array
+    {
+        $request = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => '2026-10-20', 'zeitraum_bis' => '2099-11-17',
+            'modus' => $modus, 'status' => RecDispoJobRequest::STATUS_LAEUFT, 'created_by_user_id' => 1]);
+        $shift = $request->shifts()->create(['rec_dispo_event_id' => $event, 'datum' => now()->addDays(5)->toDateString(), 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => $gesucht]);
+        $wave = $request->waves()->create(['nr' => 1, 'ma_bloecke' => [200], 'gruppen' => ['0'], 'nur_passende_taetigkeit' => true]);
+        $os = [];
+        foreach ($emps as $emp) {
+            $offer = $wave->offers()->create(['request_id' => $request->id, 'rec_employee_id' => $emp, 'anchor_employee_id' => $emp]);
+            $os[$emp] = (int) $offer->shifts()->create(['shift_id' => $shift->id])->id;
+        }
+
+        return [$shift, $os];
+    }
+
+    /**
+     * I1: Zaehlung serialisiert ueber die Schicht-Sperre. SQLite kennt weder
+     * REPEATABLE READ noch FOR UPDATE — der Wettlauf selbst ist hier nicht
+     * nachstellbar. Gedeckt ist die Regel in Folge: gesucht=2 → zwei ok, die
+     * zweite schliesst, die dritte ist voll.
+     */
+    public function test_zuerst_mit_zwei_gesucht_dritte_ist_voll(): void
+    {
+        [$shift, $os] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_ZUERST, 2, 500, [5, 6, 7]);
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($os[5], [5]));
+        $this->assertNull($shift->fresh()->closed_at);
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($os[6], [6]));
+        $this->assertNotNull($shift->fresh()->closed_at);
+        $this->assertSame('voll', JobOffersZusage::ausfuehren($os[7], [7]));
+        $this->assertSame(2, RecDispoJobOfferShift::query()->where('shift_id', $shift->id)->whereNotNull('accepted_at')->count());
+    }
+
+    /** I2 / Spec §9: dieselbe Schicht aus zwei Anfragen — ein Klick sagt in beiden zu. */
+    public function test_zusage_zaehlt_in_beiden_anfragen(): void
+    {
+        [$shiftA, $osA] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_SAMMELN, 3, 501, [5]);
+        [$shiftB, $osB] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_ZUERST, 1, 501, [5, 6]);
+        [, $osAndere] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_SAMMELN, 3, 502, [5]); // andere VA
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($osA[5], [5]));
+
+        $this->assertNotNull(RecDispoJobOfferShift::find($osA[5])->accepted_at);
+        $this->assertNotNull(RecDispoJobOfferShift::find($osB[5])->accepted_at, 'Zusage zaehlt auch in der zweiten Anfrage');
+        $this->assertNotNull($shiftB->fresh()->closed_at, 'Modus zuerst der Schwester: voll → geschlossen');
+        $this->assertNull(RecDispoJobOfferShift::find($osB[6])->accepted_at, 'nur die eigene Person');
+        $this->assertNull(RecDispoJobOfferShift::find($osAndere[5])->accepted_at, 'andere VA bleibt offen');
+        $this->assertNull($shiftA->fresh()->closed_at);
+    }
+
+    public function test_volle_zuerst_schwester_bleibt_unberuehrt(): void
+    {
+        [, $osA] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_SAMMELN, 3, 503, [5]);
+        [$shiftB, $osB] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_ZUERST, 1, 503, [5, 6]);
+        RecDispoJobOfferShift::query()->whereKey($osB[6])->update(['accepted_at' => now()]); // voll, aber noch nicht geschlossen
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($osA[5], [5]));
+
+        $this->assertNotNull(RecDispoJobOfferShift::find($osA[5])->accepted_at);
+        $this->assertNull(RecDispoJobOfferShift::find($osB[5])->accepted_at, 'volle Schwester im Modus zuerst: keine Ueber-Zusage');
+        $this->assertSame(1, RecDispoJobOfferShift::query()->where('shift_id', $shiftB->id)->whereNotNull('accepted_at')->count());
+    }
+
+    public function test_schwester_in_geschlossener_anfrage_bleibt_unberuehrt(): void
+    {
+        [, $osA] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_SAMMELN, 3, 504, [5]);
+        [$shiftB, $osB] = $this->anfrageMitSchicht(RecDispoJobRequest::MODUS_SAMMELN, 3, 504, [5]);
+        $shiftB->request->update(['status' => RecDispoJobRequest::STATUS_ABGESCHLOSSEN, 'closed_at' => now()]);
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($osA[5], [5]));
+        $this->assertNull(RecDispoJobOfferShift::find($osB[5])->accepted_at);
+    }
 }

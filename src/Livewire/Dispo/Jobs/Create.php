@@ -482,7 +482,7 @@ class Create extends Component
         $schichten = [];
         foreach ($this->gewaehlteSchichten as $i => $s) {
             if ($s['gesucht'] > 0 && $s['datum'] >= $heute) {
-                $schichten[] = ['id' => $i + 1, 'datum' => $s['datum'], 'taetigkeit' => $s['taetigkeit']];
+                $schichten[] = ['id' => $i + 1, 'datum' => $s['datum'], 'taetigkeit' => $s['taetigkeit'], 'event' => (int) $s['event'], 'von' => (string) $s['von']];
             }
         }
         $this->zahlen = DispoJobZahlen::berechnen($this->teamId(), $schichten, [], $this->auswahl());

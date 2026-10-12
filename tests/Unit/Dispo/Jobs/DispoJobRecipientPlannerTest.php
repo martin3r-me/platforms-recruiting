@@ -59,7 +59,7 @@ final class DispoJobRecipientPlannerTest extends TestCase
         ];
         $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [5 => ['2026-10-24' => true, '2026-10-25' => true]], [1 => true], self::auswahl(['nur_passend' => true]));
         $this->assertSame([], $r['recipients']);
-        $this->assertSame(['schon_angeschrieben' => 1, 'portal_gesperrt' => 1, 'ohne_nummer' => 1, 'ohne_taetigkeit' => 1, 'alle_tage_gebucht' => 1], $r['skipped']);
+        $this->assertSame(['schon_angeschrieben' => 1, 'portal_gesperrt' => 1, 'ohne_nummer' => 1, 'ohne_taetigkeit' => 1, 'alle_tage_gebucht' => 1, 'schon_zugesagt' => 0], $r['skipped']);
         $this->assertSame([2], $r['skipped_ids']['portal_gesperrt'], 'gesperrt vor ohne Nummer');
     }
 
@@ -75,5 +75,34 @@ final class DispoJobRecipientPlannerTest extends TestCase
         $k = [self::kandidat(1, ['taetigkeiten' => []])];
         $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['nur_passend' => false]));
         $this->assertSame([11, 12], $r['recipients'][0]['shift_ids']);
+    }
+
+    /** Spec §9: dieselbe Schicht (VA, Tag, Beginn, Taetigkeit) schon in einer anderen Anfrage zugesagt. */
+    public function testSchonAnderswoZugesagteSchichtFaelltWeg(): void
+    {
+        $schichten = [
+            ['id' => 11, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer'],
+            ['id' => 12, 'event' => 1, 'datum' => '2026-10-25', 'von' => '17:00', 'taetigkeit' => 'Zapfer'],
+        ];
+        $schon = [
+            1 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', 'zapfer ')],
+            2 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', 'Zapfer'), DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-25', '17:00', 'Zapfer')],
+            3 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '18:00', 'Zapfer')], // anderer Beginn: zaehlt nicht
+        ];
+        $r = DispoJobRecipientPlanner::plan([self::kandidat(1), self::kandidat(2), self::kandidat(3)], $schichten, [], [], [], self::auswahl(), $schon);
+
+        $this->assertSame([1, 3], array_column($r['recipients'], 'anchor'));
+        $this->assertSame([12], $r['recipients'][0]['shift_ids']);
+        $this->assertSame([11, 12], $r['recipients'][1]['shift_ids']);
+        $this->assertSame(1, $r['skipped']['schon_zugesagt']);
+        $this->assertSame([2], $r['skipped_ids']['schon_zugesagt']);
+        $this->assertSame('hat diese Schicht schon zugesagt', DispoJobRecipientPlanner::TOEPFE['schon_zugesagt']);
+    }
+
+    public function testOhneZusagenKarteBleibtAllesWieGehabt(): void
+    {
+        $r = DispoJobRecipientPlanner::plan([self::kandidat(1)], self::schichten(), [], [], [], self::auswahl());
+        $this->assertSame([11, 12], $r['recipients'][0]['shift_ids']);
+        $this->assertSame(0, $r['skipped']['schon_zugesagt']);
     }
 }

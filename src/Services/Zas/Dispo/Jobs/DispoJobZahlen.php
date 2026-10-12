@@ -13,7 +13,7 @@ final class DispoJobZahlen
     public const OHNE = 'ohne';
 
     /**
-     * @param list<array{id:int, datum:string, taetigkeit:string}> $schichten
+     * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
      * @param array<int,true> $schonAngeschrieben
      * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
      * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int}
@@ -26,17 +26,21 @@ final class DispoJobZahlen
         $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
         $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
 
-        return self::ausDaten($daten, $schichten, $schonAngeschrieben, $auswahl);
+        return self::ausDaten($daten, $schichten, $schonAngeschrieben, $auswahl, DispoJobSchonZugesagt::laden($teamId));
     }
 
-    /** Rein: aus geladenen Kandidaten. */
-    public static function ausDaten(array $daten, array $schichten, array $schonAngeschrieben, array $auswahl): array
+    /**
+     * Rein: aus geladenen Kandidaten.
+     *
+     * @param array<int,list<string>> $schonZugesagt Anker => anderswo zugesagte Schichten (DispoJobSchonZugesagt)
+     */
+    public static function ausDaten(array $daten, array $schichten, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = []): array
     {
-        $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben, $auswahl);
+        $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben, $auswahl, $schonZugesagt);
         $mitPassend = !empty($auswahl['nur_passend'])
             ? count($plan['recipients'])
             : count(DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben,
-                ['nur_passend' => true] + $auswahl)['recipients']);
+                ['nur_passend' => true] + $auswahl, $schonZugesagt)['recipients']);
 
         $namen = [];
         foreach ($daten['kandidaten'] as $k) {

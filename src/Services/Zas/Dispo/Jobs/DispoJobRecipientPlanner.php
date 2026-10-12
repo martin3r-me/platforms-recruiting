@@ -10,7 +10,10 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
  * Block- und Gruppenfilter sind die GRUNDMENGE (so hat der Disponent gewaehlt),
  * kein Topf. Die Toepfe erklaeren, warum jemand aus der Grundmenge nichts
  * bekommt. Reihenfolge: schon angeschrieben, Portal gesperrt, ohne Nummer,
- * ohne passende Taetigkeit, an allen Tagen gebucht.
+ * ohne passende Taetigkeit, an allen Tagen gebucht, schon anderswo zugesagt.
+ *
+ * Spec §9: Hat die Person dieselbe Schicht (VA, Tag, Beginn, Taetigkeit) schon
+ * in einer anderen Anfrage zugesagt, faellt sie aus ihrem Angebot heraus.
  */
 final class DispoJobRecipientPlanner
 {
@@ -20,18 +23,26 @@ final class DispoJobRecipientPlanner
         'ohne_nummer'         => 'ohne Handynummer',
         'ohne_taetigkeit'     => 'ohne passende Tätigkeit',
         'alle_tage_gebucht'   => 'an allen gewählten Tagen schon gebucht',
+        'schon_zugesagt'      => 'hat diese Schicht schon zugesagt',
     ];
+
+    /** Gleiche Schicht ueber Anfragen hinweg: VA | Tag | Beginn | Taetigkeit (case-/trim-unempfindlich). */
+    public static function schichtSchluessel(int|string|null $event, string $datum, ?string $von, ?string $taetigkeit): string
+    {
+        return (int) $event . '|' . substr($datum, 0, 10) . '|' . trim((string) $von) . '|' . mb_strtolower(trim((string) $taetigkeit));
+    }
 
     /**
      * @param list<array{anchor:int, employee_id:int, phone:?string, first_name:string, portal_token:string, block:?int, portal_locked:bool, taetigkeiten:list<string>}> $kandidaten
-     * @param list<array{id:int, datum:string, taetigkeit:string}> $schichten
+     * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
      * @param array<int,int> $einsaetze Anker => Einsaetze im Monat
      * @param array<int,array<string,true>> $gebucht Anker => gebuchte Tage
      * @param array<int,true> $schonAngeschrieben Anker => true
      * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
+     * @param array<int,list<string>> $schonZugesagt Anker => schichtSchluessel() der anderswo zugesagten Schichten
      * @return array{recipients: list<array{anchor:int, employee_id:int, phone:string, first_name:string, portal_token:string, shift_ids:list<int>}>, skipped: array<string,int>, skipped_ids: array<string,list<int>>}
      */
-    public static function plan(array $kandidaten, array $schichten, array $einsaetze, array $gebucht, array $schonAngeschrieben, array $auswahl): array
+    public static function plan(array $kandidaten, array $schichten, array $einsaetze, array $gebucht, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = []): array
     {
         $skipped = array_fill_keys(array_keys(self::TOEPFE), 0);
         $skippedIds = array_fill_keys(array_keys(self::TOEPFE), []);
@@ -78,6 +89,17 @@ final class DispoJobRecipientPlanner
             if ($frei === []) {
                 self::topf($skipped, $skippedIds, 'alle_tage_gebucht', $anchor);
                 continue;
+            }
+
+            $zugesagt = array_fill_keys($schonZugesagt[$anchor] ?? [], true);
+            if ($zugesagt !== []) {
+                $frei = array_values(array_filter($frei, fn ($s) => !isset($zugesagt[self::schichtSchluessel(
+                    $s['event'] ?? 0, (string) $s['datum'], $s['von'] ?? '', (string) $s['taetigkeit']
+                )])));
+                if ($frei === []) {
+                    self::topf($skipped, $skippedIds, 'schon_zugesagt', $anchor);
+                    continue;
+                }
             }
 
             $recipients[] = [
