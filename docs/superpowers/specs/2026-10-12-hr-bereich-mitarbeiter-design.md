@@ -272,7 +272,7 @@ rufen dieselbe.
 Nach Erfolg zeigt ein Modal Link (`route('recruiting.public.konto-anlegen', $token)`) und
 Code, mit dem Satz aus dem Kommando: „Der Code ist ein Geheimnis: nur an den Menschen
 selbst, nicht in eine Gruppen-Unterhaltung. Er gilt sieben Tage und wird nicht noch einmal
-angezeigt.“ Die Property ist `#[Locked]`, wird beim Schließen geleert, steht nie im Log
+angezeigt.“ Link und Code liegen in privaten Livewire-Feldern (nicht `#[Locked]`, nicht im Snapshot), gelten nur für die eine Antwort, werden beim Schließen verworfen, steht nie im Log
 und nie im Vermerk. Wer sie verliert, drückt den Knopf erneut (neue Einladung entwertet
 die alte — bewusst, wie im Kommando).
 
@@ -303,9 +303,9 @@ Alle über `DB::table`, Kontofelder bleiben außerhalb von `$fillable`
 - **`stoppeNummerwechsel()`** — liest ebenfalls mit `lockForUpdate()` in einer
   Transaktion. Kein Erwartungswert: Stoppen nimmt nur weg und ist immer sicher. Rückgabe
   `false` = „war schon weg“ (angewendet, freigegeben oder gestoppt).
-- **`setzeKontoZurueckDurchHr(int $personId): string`** — `offeneZeile`; `password_hash`,
+- **`setzeKontoZurueckDurchHr(int $personId): array{token: string, antrag_entfernt: bool}`** — `offeneZeile`; `password_hash`,
   `code_hash`, `code_expires_at`, `code_zweck`, `code_neue_nummer` → `null`,
-  `code_versuche = 0`; dann `ladeEin()`; Rückgabe Klartext-Token. `registered_at` bleibt
+  `code_versuche = 0`; dann `ladeEin()`; Rückgabe Klartext-Token plus Angabe, ob ein offener Nummernwechsel-Antrag entfernt wurde. `registered_at` bleibt
   (Beleg). Ab sofort scheitert das alte Passwort (`pruefeAnmeldung` rechnet gegen den
   Leerlauf-Hash). Kein Passwort durch HR (Weg-5-Regel: kein Generalschlüssel).
 - **`entsperreKontoDurchHr(int $personId): bool`** — `locked_at = null` nur wenn gesetzt
@@ -333,7 +333,7 @@ Rückgabe: Anzahl entsperrter Akten (für den Text „… auch für 1 verknüpft
 
 Der Schlüssel bleibt privat in `PortalAuth` (eine Stelle, die ihn bildet):
 
-- `gebremsteNummern(array $nummern): array<string,bool>` — bildet je Nummer
+- `gebremsteNummern(array $nummern): array<string,?string>` (Nummer → „frei ab“ als ISO-Zeitpunkt, `null` = Altwert ohne Ende) — bildet je Nummer
   `lockoutKey(nummernSchluessel(...))`, ein `store()->many()`.
 - `loeseNummernBremse(string $nummer): void` — `clearFailures(nummernSchluessel(...))`.
   Die IP-Bremse bleibt unberührt.
@@ -425,7 +425,7 @@ Gesetzt nur von `KontoWriter` (Konto zurücksetzen und Notfallsperre aufheben, i
 nur von `PortalAuth::sitzungGueltig()` (§9.6). Schreibzugriff per Query-Builder.
 Migrationen: `2026_10_12_000002_create_rec_hr_vermerke_table` und `2026_10_12_000003_add_sitzungen_ungueltig_ab_to_rec_persons` (`_000001` ist auf main belegt).
 
-### 7.2 Einstellungen (`RecApplicantSettings::DEFAULT_SETTINGS`)
+### 7.3 Einstellungen (`RecApplicantSettings::DEFAULT_SETTINGS`)
 
 | Schlüssel | Vorgabe | Eingabe | Lesen |
 |---|---|---|---|
@@ -435,7 +435,7 @@ Migrationen: `2026_10_12_000002_create_rec_hr_vermerke_table` und `2026_10_12_00
 
 Neuer Abschnitt „Mitarbeiterkonto & Erinnerungen“ im Modal. Keine Selects. Leer/unlesbar → Vorgabe (nicht 1).
 
-### 7.3 Keine Änderung an
+### 7.4 Keine Änderung an
 
 Keine Änderung an `rec_employees`, `rec_employee_proofs`, `rec_document_recipients`, `rec_contracts`; an `rec_persons` nur die neue Spalte `sitzungen_ungueltig_ab` (§7.2 Spalte).
 
@@ -461,7 +461,7 @@ Keine Änderung an `rec_employees`, `rec_employee_proofs`, `rec_document_recipie
 | `src/Support/KontoStatus.php`, `EinladungsRiegel.php`, `Bote.php`, `SperrGruende.php` | neu | reine Regeln, ohne Framework testbar |
 | `src/Support/NummernwechselTafel.php` | geändert | Zustand „Notfallweg aus“ |
 | `src/Models/RecHrVermerk.php` + Migration | neu | §7.1 |
-| `src/Models/RecApplicantSettings.php`, `ApplicantSettingsModal` + View | geändert | §7.2, Log beim Kippen |
+| `src/Models/RecApplicantSettings.php`, `ApplicantSettingsModal` + View | geändert | §7.3, Log beim Kippen |
 
 **Blade-Hausregeln:** kein `@if` in Komponenten-Attributen, keine `:required="… ?? …"`,
 Zustände vorher in `@php … @endphp`-Blöcken berechnen, Direktiven nie an Wortzeichen
@@ -478,7 +478,7 @@ Knöpfe mit `wire:loading.attr="disabled"` und `wire:target`.
    Aktion prüft neu (§5.5), egal was die Liste angezeigt hat. Personen mit
    `team_id = null` erscheinen nirgends (fail closed).
 2. **Livewire.** Kontext offener Modals (`aktionPersonId`, `aktionEmployeeId`, `aktion`,
-   `aktionBezug`, `erwartetBeantragtAt`, `einladungsLink`) ist `#[Locked]` und wird nur
+   `aktionBezug`, `erwartetBeantragtAt`, `einladungsLink`) ist `#[Locked]` — außer Einladungslink und -code: die liegen in privaten Feldern (nie im Snapshot) — und wird nur
    serverseitig beim Öffnen gesetzt; `KontoKasten::$employeeId` ist `#[Locked]`. Methoden-
    Parameter (`oeffne(int $personId, …)`) gelten als Eingabe und werden geprüft.
    Erlaubte `aktion`-Werte als geschlossene Liste.
@@ -629,6 +629,18 @@ Notfall-Antrag bleibt dann wie heute nur per Kommando sichtbar.
    an `rec_persons`, eine Prüfstelle `PortalAuth::sitzungGueltig()`.
 
 Entscheidungen 1–4: wie empfohlen (Sebastian 12.10.). Knopf heißt „Kontaktiert".
+
+6. **Grenze von „Konto zurücksetzen“ (I1, Schlussprüfung).** Das Zurücksetzen löscht das
+   Passwort und beendet Sitzungen, ändert aber die gespeicherte Nummer nicht; „Passwort
+   vergessen“ (Weg 3) braucht kein Passwort und schickt den Code an die gespeicherte
+   Nummer. Hat ein Fremder die Nummer geändert, kommt er so wieder hinein. Bewusst
+   akzeptiert (Weg 5 bleibt Kommando); das Modal zeigt die Nummer (…1234) und nennt den
+   Weg: erst `recruiting:konto-zuruecksetzen --person=<id> --nummer=<neue Nummer>`.
+   *Folgeticket:* „Nummer ändern in der Akte“ (HR-Oberfläche); alternativ sperrt das
+   Zurücksetzen Weg 3, bis die Einladung eingelöst ist.
+7. **Folgeticket I2: Reiter „Erinnert“ skaliert schlecht.** SQL-Vorfilter je Aktion
+   (`signed_at IS NULL` bzw. `acknowledged_at IS NULL`; `DokumentStatus::istErledigt` bleibt
+   der letzte Richter) und 60-s-Cache der ungefilterten Basisliste je Team, Suche darüber.
 
 ---
 

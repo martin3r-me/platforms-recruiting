@@ -484,7 +484,7 @@ final class PortalAuth
      *
      * Gueltig ist sie, wenn ein Sitzungswert existiert UND der
      * Anmeldezeitpunkt NACH rec_persons.sitzungen_ungueltig_ab der Person
-     * liegt (gesetzt von HrKontoAktionen beim Zuruecksetzen). Ein Altwert
+     * liegt (gesetzt von KontoWriter: HR-Zuruecksetzen, Aufheben der Notfallsperre). Ein Altwert
      * true (Sitzungen von vor §9.6) gilt als Zeitpunkt 0 — er lebt bis zum
      * ersten Zuruecksetzen und stirbt dann. Ohne Personen-Zeile: gueltig wie
      * bisher. Ungueltige Schluessel werden verworfen.

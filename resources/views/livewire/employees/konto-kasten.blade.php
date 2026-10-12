@@ -30,7 +30,7 @@
     @if ($k === null)
         <p class="mt-2 text-sm text-[var(--ui-muted)]">Keine Konto-Daten.</p>
     @elseif ($k['ohne_person'])
-        <p class="mt-2 text-sm text-amber-900">Diese Akte hat noch keine Personen-Zeile — Konto-Funktionen erst nach <code>recruiting:personen-anlegen</code>.</p>
+        <p class="mt-2 text-sm text-amber-900">Kein Konto in diesem Team. Falls die Akte noch keine Personen-Zeile hat: <code>recruiting:personen-anlegen</code>.</p>
     @else
         @if ($k['stillgelegt_ziel'] !== null)
             <p class="mt-2 text-sm text-amber-900">Diese Personen-Zeile ist stillgelegt; die Anstellungen hängen jetzt an Personen-Zeile #{{ $k['stillgelegt_ziel'] }}.</p>

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Ab wann laufende Portal-Sitzungen dieser Person nicht mehr gelten (Spec
  * HR-Bereich §9.6, Entscheidung 12.10.: ein zurueckgesetztes Konto darf
- * keinen Fremden eingeloggt lassen). Gesetzt nur von HrKontoAktionen,
+ * keinen Fremden eingeloggt lassen). Gesetzt nur von KontoWriter (HR-Zuruecksetzen, Aufheben der Notfallsperre),
  * gelesen nur von PortalAuth::sitzungGueltig(). Eigene Migration, weil die
  * Konto-Migrationen auf der Demo schon gelaufen sein koennen.
  */

@@ -50,6 +50,15 @@ class KontoKasten extends Component
         . 'Ein offener Nummernwechsel-Antrag wird dabei entfernt. '
         . 'Der Mensch registriert sich neu — mit dem neuen Code und seinem Geburtsdatum.';
 
+    /**
+     * Zusatz im Zuruecksetzen-Modal (I1): "Passwort vergessen" geht an die
+     * gespeicherte Nummer; das Zuruecksetzen aendert sie nicht. %1$s = Nummer
+     * maskiert (…1234), %2$d = Personen-ID.
+     */
+    public const HINWEIS_NUMMER = 'Gespeicherte Nummer: %1$s. „Passwort vergessen“ schickt den Code an diese Nummer. '
+        . 'Hat jemand anderes die Nummer geändert (Verdacht auf Übernahme), hilft das Zurücksetzen allein nicht: '
+        . 'Zuerst die Nummer korrigieren mit recruiting:konto-zuruecksetzen --person=%2$d --nummer=<neue Nummer>.';
+
     /** Der rote Kasten "MA-Portal-Zugang gesperrt" in show.blade.php oeffnet dieses Modal. */
     public const EVENT_PORTAL_ENTSPERREN = 'konto-kasten-portal-entsperren';
 
@@ -107,7 +116,8 @@ class KontoKasten extends Component
             $this->aktionEmployeeId = (int) ($grund['employee_id'] ?? $this->employeeId);
         }
         if ($aktion === 'konto_zuruecksetzen') {
-            $this->aktionWarnung = self::WARNUNG_ZURUECKSETZEN;
+            $this->aktionWarnung = self::WARNUNG_ZURUECKSETZEN . ' '
+                . sprintf(self::HINWEIS_NUMMER, (string) $kasten['nummer'], (int) $kasten['person_id']);
         }
         $this->aktion = $aktion;
         $this->modalOffen = true;

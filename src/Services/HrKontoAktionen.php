@@ -421,7 +421,7 @@ final class HrKontoAktionen
             $token = $r['token'];
             $ergebnis = $r['antrag_entfernt'] ? self::ANTRAG_ENTFERNT : 'ok';
             $this->vermerk($teamId, $personId, $employeeId, 'konto_zurueckgesetzt', $notiz, null, $ergebnis);
-            $meldung = 'Konto zurückgesetzt. Das alte Passwort gilt nicht mehr, laufende Anmeldungen sind beendet.'
+            $meldung = 'Konto zurückgesetzt. Das alte Passwort gilt nicht mehr, laufende Anmeldungen sind beendet. Die gespeicherte Telefonnummer bleibt unverändert.'
                 . ($r['antrag_entfernt'] ? ' Dabei wurde ein ' . self::ANTRAG_ENTFERNT . '.' : '');
         } else {
             $token = KontoWriter::ladeEin($personId);

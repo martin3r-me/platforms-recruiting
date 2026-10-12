@@ -214,6 +214,23 @@ final class KontoKastenTest extends TestCase
         $this->assertSame('im neuen Portal seit 01.10.2026', $daten['pilot']);
     }
 
+    /** I1: Das Modal nennt die gespeicherte Nummer nur maskiert und den Weg bei Verdacht auf Uebernahme. */
+    public function test_zuruecksetzen_modal_zeigt_nummer_maskiert_und_hinweis(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17', 'phone' => '+4915123456789']);
+        $personId = $this->person(['password_hash' => Hash::make('ganz-geheim-2026'), 'registered_at' => '2026-10-05 10:00:00'], $akte);
+        $k = $this->kasten($akte->id);
+
+        $k->oeffne('konto_zuruecksetzen');
+
+        $this->assertStringContainsString('…6789', $k->aktionWarnung);
+        $this->assertStringNotContainsString('+4915123456789', $k->aktionWarnung);
+        $this->assertStringNotContainsString('15123456789', $k->aktionWarnung);
+        $this->assertStringNotContainsString('0151234', $k->aktionWarnung);
+        $this->assertStringContainsString('Passwort vergessen', $k->aktionWarnung);
+        $this->assertStringContainsString('recruiting:konto-zuruecksetzen --person=' . $personId . ' --nummer=', $k->aktionWarnung);
+    }
+
     /** Die Bestaetigung warnt: Sitzungen enden, ein offener Nummernwechsel-Antrag wird entfernt. */
     public function test_zuruecksetzen_warnt_vor_sitzungen_und_antrag(): void
     {

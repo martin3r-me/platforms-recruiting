@@ -499,7 +499,7 @@ final class HrMitarbeiterListen
             'stillgelegt_ziel'   => $stillgelegt,
             'person_id'          => $person !== null ? (int) $person->id : null,
             'status_code'        => $person !== null ? KontoStatus::code($person, $jetzt) : null,
-            'status_text'        => $person !== null ? KontoStatus::text($person, $jetzt) : 'keine Personen-Zeile',
+            'status_text'        => $person !== null ? KontoStatus::text($person, $jetzt) : 'Kein Konto in diesem Team',
             'nummer'             => $person !== null && $person->phone !== null ? '…' . NummernwechselTafel::kurz((string) $person->phone) : '—',
             'letzte_anmeldung'   => $person !== null && $person->letzte_anmeldung_at !== null ? Carbon::parse((string) $person->letzte_anmeldung_at)->format('d.m.Y, H:i') : '—',
             'altes_portal'       => $altesPortal !== null ? Carbon::parse((string) $altesPortal)->format('d.m.Y, H:i') : '—',
