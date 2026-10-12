@@ -38,9 +38,12 @@ und eine Zusage ist noch keine Einbuchung.
   Kombinationen einer VA sind genau die Werte, die der Spaltenfilter (`DispoRowFilters::options`) schon anbietet.
 - **Mitarbeiterfiliale.** Der Mitarbeiter hat **kein Filial-Feld**. ZAS liefert aber die Kostenstelle
   (`rec_employees.cost_center`, Rückfall `position->cost_center`), und die trägt dieselben Nummern wie die
-  Filialen (100/200/…; so auch im ZAS-Export, `ZasEmployeeFieldResolver` „Kostenstelle“). **Vorflug vor dem
-  Bau:** `SELECT cost_center, COUNT(*) FROM rec_employees WHERE is_active = 1 GROUP BY 1` auf Prod — die
-  Verteilung muss zu den Filialen passen, sonst braucht die Zuordnung eine Tabelle.
+  Filialen (100/200/…; so auch im ZAS-Export, `ZasEmployeeFieldResolver` „Kostenstelle“). Die Auswahl ist
+  **dynamisch**: angeboten werden die Kostenstellen, die bei aktiven Mitarbeitern vorkommen; bekannte Nummern
+  mit Filialnamen (`Filialen::code`), unbekannte mit der Nummer, dazu „ohne Kostenstelle“. Neue Kostenstellen
+  erscheinen ohne Code-Änderung. Vorbelegt wird die Kostenstelle, die der Veranstaltungsfiliale entspricht.
+  **Vorflug:** Verteilung der Kostenstellen auf Prod (S. Haustein fragt ab) — prüft nur, ob die Vorbelegung
+  greift (Format „200“ vs. „MGL“, Anteil leer).
 - **Qualifikation.** Seit 08.10. liegen die ZAS-Tätigkeiten je Mitarbeiter in
   `rec_employee_hr_data.dispo_taetigkeiten` (JSON-Liste von Bezeichnungen, Abgleich über den Namen).
 - **Handynummer, Token, Versand.** `DispoEmployeeGateway::contacts()` liefert Nummer (E.164) und
@@ -87,7 +90,8 @@ Platz für Markus' Antwort: Trägt eine Schicht RG0/RG14-Zeilen, zeigt die Zeile
 „laut ZAS N unbesetzt“ (nur Anzeige, keine Vorbelegung, bis Markus bestätigt).
 
 ### 4.5 Empfänger
-- **Mitarbeiterfiliale:** vorbelegt mit §4.1, umstellbar, Mehrfachauswahl (z. B. MGL + DUS).
+- **Mitarbeiterfiliale:** dynamische Liste der vorkommenden Kostenstellen (siehe §3), vorbelegt mit der zu
+  §4.1 passenden, umstellbar, Mehrfachauswahl (z. B. MGL + DUS, auch „ohne Kostenstelle“).
 - **Gruppen nach Einsätzen im laufenden Monat:** `0` · `1–4` („weniger als 5“) · `5–9` („weniger als 10“) ·
   `10–19` („weniger als 20“) · `alle`. Mehrfachauswahl = Vereinigung. Die Bänder sind **disjunkt**, damit
   „nächste Gruppe“ in Welle 2 nicht dieselben Leute trifft wie Welle 1. Beschriftung behält das Kundenwort
@@ -241,4 +245,4 @@ Test-VA mit der eigenen Nummer.
 
 1. Stehen RG0/RG14 in ZAS immer für unbesetzte Plätze? (→ Vorbelegung „gesucht“.)
 2. Gruppen als disjunkte Bänder (0 / 1–4 / 5–9 / 10–19) — passt das zu „nächste Gruppe“?
-3. Ist die Kostenstelle des Mitarbeiters die richtige „Mitarbeiterfiliale“? (→ Vorflug-Abfrage.)
+3. Ist die Kostenstelle des Mitarbeiters die richtige „Mitarbeiterfiliale“? (Technisch dynamisch gelöst; offen ist nur die fachliche Bestätigung.)
