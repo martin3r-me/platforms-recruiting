@@ -93,6 +93,17 @@ final class HrKontoAktionenTest extends TestCase
         $this->assertSame(HrKontoAktionen::NICHT_GEFUNDEN, $this->aktionen()->entsperreKonto($id, self::NOTIZ)->meldung);
     }
 
+    /** Person gehoert Team 8, ihre Akte liegt in Team 7: Team 7 darf sie nicht anfassen (Person-Team-Filter, nicht nur Akten-Team). */
+    public function test_person_eines_fremden_teams_mit_akte_im_eigenen_team_ist_nicht_gefunden(): void
+    {
+        $akteHier = $this->akte(['team_id' => 7, 'phone' => self::ALT]);
+        $id = $this->person(['team_id' => 8, 'phone' => self::ALT, 'locked_at' => now()], $akteHier);
+
+        $this->assertSame(HrKontoAktionen::NICHT_GEFUNDEN, $this->aktionen()->entsperreKonto($id, self::NOTIZ)->meldung);
+        $this->assertNotNull($this->personZeile($id)->locked_at);
+        $this->assertCount(0, $this->vermerke());
+    }
+
     public function test_notiz_pflicht_5_bis_500_zeichen(): void
     {
         [$id] = $this->menschMitAntrag();
