@@ -16,6 +16,8 @@ use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\Comms\AufgabenSender;
+use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * Der Versand der Aufgaben-Nachricht — der Hinweis, dass im MA-Portal etwas
@@ -104,23 +106,11 @@ final class AufgabenSenderTest extends TestCase
         };
         $container->instance('log', $this->log);
 
-        $container->instance('config', new ConfigRepository([
-            'recruiting' => [
-                'aufgaben' => [
-                    'vorlagen' => [
-                        'neu' => [
-                            'name' => self::VORLAGE_NEU, 'sprache' => 'de', 'platzhalter' => ['anzahl'],
-                        ],
-                        'erinnerung' => [
-                            'name' => self::VORLAGE_ERINNERUNG, 'sprache' => 'de', 'platzhalter' => ['anzahl', 'datum'],
-                        ],
-                    ],
-                ],
-            ],
-        ]));
+        $container->instance('config', new ConfigRepository([]));
 
         $this->meta = $this->metaAttrappe();
         $container->instance(WhatsAppMetaService::class, $this->meta);
+        $container->instance(HoldingTemplateSender::class, new HoldingTemplateSender(new class extends WhatsAppMetaService {}));
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -178,6 +168,7 @@ final class AufgabenSenderTest extends TestCase
         $container->forgetInstance('log');
         $container->forgetInstance('config');
         $container->forgetInstance(WhatsAppMetaService::class);
+        $container->forgetInstance(HoldingTemplateSender::class);
         Facade::clearResolvedInstances();
         parent::tearDown();
     }
@@ -186,7 +177,7 @@ final class AufgabenSenderTest extends TestCase
 
     public function testOhneVorlageWirdNichtsVerschickt(): void
     {
-        $this->vorlageSetzen('neu', ['name' => '']);
+        $this->feldSetzen('neu', null);
 
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
@@ -195,27 +186,75 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
-    public function testDieAusgelieferteKonfigurationKenntBeideAnlaesse(): void
+    // ------------------------------------------------ Vorlage aus der Einstellung
+
+    public function testEinGeleertesFeldVerhindertDenVersandUndNenntFeldUndOrt(): void
     {
-        $datei = require dirname(__DIR__, 2) . '/config/recruiting.php';
+        $this->feldSetzen('erinnerung', null);
 
-        $this->assertArrayHasKey('aufgaben', $datei);
-        $this->assertArrayHasKey('vorlagen', $datei['aufgaben']);
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'erinnerung');
 
-        foreach (['neu' => ['anzahl'], 'erinnerung' => ['anzahl', 'datum']] as $anlass => $platzhalter) {
-            $this->assertArrayHasKey($anlass, $datei['aufgaben']['vorlagen'], "Anlass {$anlass} fehlt.");
-            $eintrag = $datei['aufgaben']['vorlagen'][$anlass];
-            $this->assertArrayHasKey('name', $eintrag);
-            $this->assertArrayHasKey('sprache', $eintrag);
-            $this->assertSame($platzhalter, array_values(array_map('strval', $eintrag['platzhalter'])));
-        }
+        $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
+        $grund = (string) $this->log->zeilen[0]['daten']['grund'];
+        $this->assertStringContainsString(PortalVorlagen::ORT, $grund);
+        $this->assertStringContainsString('Offene Aufgaben — Erinnerung', $grund);
+    }
+
+    public function testEineAbgelehnteVorlageVerhindertDenVersand(): void
+    {
+        DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->update(['status' => 'REJECTED']);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
+    }
+
+    public function testEinUnbekannterAnlassIstNichtKonfiguriert(): void
+    {
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'quatsch');
+
+        $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
+    }
+
+    public function testDerVornameBefuelltDenNamensPlatzhalterKleinGeschrieben(): void
+    {
+        $this->rumpfSetzen(self::VORLAGE_NEU, 'Hallo {{Vorname}}, du hast {{anzahl}} offene Punkte.');
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 3), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
+        $this->assertSame(
+            ['type' => 'body', 'parameters' => [
+                ['type' => 'text', 'parameter_name' => 'vorname', 'text' => 'Gregor'],
+                ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '3'],
+            ]],
+            $this->meta->calls[0]['components'][0],
+        );
+    }
+
+    public function testEinLeererVornameIstUnbefuellbar(): void
+    {
+        $this->rumpfSetzen(self::VORLAGE_NEU, 'Hallo {{vorname}}, {{anzahl}} Punkte.');
+        DB::table('rec_employees')->where('id', $this->ma->id)->update(['first_name' => ' ']);
+
+        $status = (new AufgabenSender())->sende(RecEmployee::find($this->ma->id), $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.platzhalter_unbefuellbar', $this->logGrund());
     }
 
     // ------------------------------------------------------------- Platzhalter
 
     public function testEinUnbefuellbarerPlatzhalterVerhindertDenVersand(): void
     {
-        $this->vorlageSetzen('neu', ['platzhalter' => ['gibt_es_nicht']]);
+        $this->rumpfSetzen(self::VORLAGE_NEU, 'Du hast {{gibt_es_nicht}} offene Punkte.');
 
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
@@ -267,7 +306,7 @@ final class AufgabenSenderTest extends TestCase
      */
     public function testEinGrossGeschriebenerPlatzhalterWirdKleinVerschickt(): void
     {
-        $this->vorlageSetzen('neu', ['platzhalter' => ['Anzahl']]);
+        $this->rumpfSetzen(self::VORLAGE_NEU, 'Du hast {{Anzahl}} offene Punkte.');
 
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 3), 'neu');
 
@@ -418,75 +457,6 @@ final class AufgabenSenderTest extends TestCase
     // ------------------------------------------------- F1: der Portal-Link
 
     /**
-     * ET-29 — DIE VIER BETRIEBSLAGEN MUESSEN UNTERSCHEIDBAR BLEIBEN.
-     *
-     * Vorher teilten sich vier Lagen eine Zeichenkette, und drei Tests
-     * sicherten dieselbe zu — der Status allein sagt nur „irgendwas mit der
-     * Vorlage" und schickt am Deploy-Tag jemanden in die falsche Richtung.
-     * Dieser Test ist die GESCHLOSSENE Form davon: ein einziger Mutant, der
-     * zwei dieser Zeilen gleich macht, faellt hier auf, auch wenn er die
-     * Einzeltests ueberlebt.
-     */
-    public function testJedeVorlagenLageHatIhreEigeneLogZeile(): void
-    {
-        $lagen = [
-            'vorlage_fehlt_ganz' => function (): void {
-                DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->delete();
-            },
-            'vorlage_falsche_sprache' => function (): void {
-                $this->vorlageSetzen('neu', ['sprache' => 'fr']);
-            },
-            'vorlage_nicht_genehmigt' => function (): void {
-                DB::table('integrations_whatsapp_templates')
-                    ->where('name', self::VORLAGE_NEU)->update(['status' => 'PENDING']);
-            },
-            'vorlage_nicht_eindeutig' => function (): void {
-                DB::table('integrations_whatsapp_templates')->insert([
-                    'uuid' => 'tpl-zweit', 'external_id' => 'ext-zweit',
-                    'name' => self::VORLAGE_NEU, 'language' => 'de', 'status' => 'APPROVED',
-                    'category' => 'UTILITY', 'components' => json_encode($this->vorlagenAufbau()),
-                    'whatsapp_account_id' => 2, 'user_id' => 1,
-                    'created_at' => self::ANGEFASST, 'updated_at' => self::ANGEFASST,
-                ]);
-            },
-        ];
-
-        $gemessen = [];
-
-        foreach ($lagen as $erwartet => $herstellen) {
-            // Jede Lage auf einem frischen Stand: die vorige zurueckdrehen.
-            DB::table('integrations_whatsapp_templates')->delete();
-            $this->vorlageSetzen('neu', ['sprache' => 'de']);
-            $this->metaVorlagenAnlegen();
-            $this->log->zeilen = [];
-
-            $herstellen();
-
-            $this->assertSame(
-                AufgabenSender::STATUS_VORLAGE_UNTAUGLICH,
-                (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu'),
-                "Lage {$erwartet}: es muss verweigert werden.",
-            );
-            $gemessen[$erwartet] = $this->logGrund();
-        }
-
-        $this->assertSame(
-            [
-                'vorlage_fehlt_ganz'      => 'recruiting.aufgaben.vorlage_fehlt_ganz',
-                'vorlage_falsche_sprache' => 'recruiting.aufgaben.vorlage_falsche_sprache',
-                'vorlage_nicht_genehmigt' => 'recruiting.aufgaben.vorlage_nicht_genehmigt',
-                'vorlage_nicht_eindeutig' => 'recruiting.aufgaben.vorlage_nicht_eindeutig',
-            ],
-            $gemessen,
-        );
-
-        // Und die Gegenrichtung: wirklich VIER verschiedene, nicht viermal
-        // dieselbe. Ohne diese Zeile waere der Vergleich oben schon mit
-        // einem Namen je Lage erfuellt, der zufaellig passt.
-        $this->assertCount(4, array_unique($gemessen));
-    }
-
-    /**
      * F1 — OHNE LINK GEHT NICHTS RAUS. Wortgleich zur Begruendung in
      * `ProofReminderSender`: „ohne Link waere die Erinnerung eine
      * Sackgasse". Die Nachricht sagt „schau ins Portal" — eine Vorlage ohne
@@ -503,73 +473,6 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls, 'es darf nicht einmal ein Versuch bei Meta entstehen');
         $this->assertSame('recruiting.aufgaben.vorlage_ohne_link', $this->logGrund());
-    }
-
-    /**
-     * Und wenn es die genehmigte Vorlage gar nicht gibt. Der Aufruf ginge
-     * sonst mit einem Rumpf ohne Knopf raus; traegt die echte Vorlage einen,
-     * lehnt Meta ab — und der Aufrufer bremste sieben Tage und versuchte es
-     * wieder. Eine woechentliche Fehlschlag-Schleife ueber den Bestand.
-     */
-    public function testEineUnbekannteVorlageVerhindertDenVersand(): void
-    {
-        DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->delete();
-
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
-
-        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
-        $this->assertSame([], $this->meta->calls);
-
-        // DER GRUND MUSS UNTERSCHEIDBAR SEIN, und darum steht diese Zeile
-        // hier: ohne die eigene Wache faengt die URL-Knopf-Pruefung den Fall
-        // ebenfalls ab (eine fehlende Vorlage hat keine Komponenten, also
-        // auch keinen Knopf) — mit demselben Status, aber mit der falschen
-        // Logzeile. Wer am Deploy-Tag ins Protokoll schaut, muss wissen, ob
-        // die Vorlage fehlt oder ob ihr der Knopf fehlt: das sind zwei
-        // verschiedene Handgriffe.
-        $this->assertSame('recruiting.aufgaben.vorlage_fehlt_ganz', $this->logGrund());
-    }
-
-    /** Eine nicht genehmigte Vorlage zaehlt nicht — auch nicht als „irgendwas". */
-    public function testEineNichtGenehmigteVorlageVerhindertDenVersand(): void
-    {
-        DB::table('integrations_whatsapp_templates')
-            ->where('name', self::VORLAGE_NEU)
-            ->update(['status' => 'PENDING']);
-
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
-
-        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
-        $this->assertSame([], $this->meta->calls);
-        $this->assertSame('recruiting.aufgaben.vorlage_nicht_genehmigt', $this->logGrund());
-    }
-
-    /**
-     * Zwei genehmigte Vorlagen desselben Namens (zwei WABAs) — es wird NICHT
-     * geraten. Der Knopf koennte in der anderen Fassung woanders sitzen, und
-     * dann fuehrte der Link ins Leere.
-     */
-    public function testZweiGleichnamigeVorlagenVerhindernDenVersand(): void
-    {
-        DB::table('integrations_whatsapp_templates')->insert([
-            'uuid'                => 'tpl-zweitwaba',
-            'external_id'         => 'ext-zweitwaba',
-            'name'                => self::VORLAGE_NEU,
-            'language'            => 'de',
-            'status'              => 'APPROVED',
-            'category'            => 'UTILITY',
-            'components'          => json_encode($this->vorlagenAufbau()),
-            'whatsapp_account_id' => 2,
-            'user_id'             => 1,
-            'created_at'          => self::ANGEFASST,
-            'updated_at'          => self::ANGEFASST,
-        ]);
-
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
-
-        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
-        $this->assertSame([], $this->meta->calls);
-        $this->assertSame('recruiting.aufgaben.vorlage_nicht_eindeutig', $this->logGrund());
     }
 
     /**
@@ -630,8 +533,9 @@ final class AufgabenSenderTest extends TestCase
 
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
-        $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
         $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
@@ -688,7 +592,6 @@ final class AufgabenSenderTest extends TestCase
      */
     public function testKonfigurierteSpracheWirdWeitergereicht(): void
     {
-        $this->vorlageSetzen('neu', ['sprache' => 'en']);
         // Und die genehmigte Vorlage muss es in GENAU dieser Sprache geben:
         // der Aufbau (und damit die Knopf-Position) haengt an der
         // Sprachfassung, nicht nur am Namen.
@@ -700,23 +603,6 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_SENT, $status);
         $this->assertSame('en', $this->meta->calls[0]['languageCode']);
-    }
-
-    /**
-     * Die Gegenprobe dazu, und sie ist kein Randfall: steht in der
-     * Konfiguration eine Sprache, zu der es keine genehmigte Vorlage gibt,
-     * wird NICHT geraten. Sonst ginge der Knopf-Parameter an eine
-     * Sprachfassung, deren Knopf woanders sitzt.
-     */
-    public function testEineSpracheOhneGenehmigteVorlageVerhindertDenVersand(): void
-    {
-        $this->vorlageSetzen('neu', ['sprache' => 'fr']);
-
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
-
-        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
-        $this->assertSame([], $this->meta->calls);
-        $this->assertSame('recruiting.aufgaben.vorlage_falsche_sprache', $this->logGrund());
     }
 
     // ------------------------------------------------------- ET-9: das Log
@@ -822,11 +708,21 @@ final class AufgabenSenderTest extends TestCase
         return json_encode($this->log->zeilen, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
     }
 
-    /** @param array<string, mixed> $aenderung */
-    private function vorlageSetzen(string $anlass, array $aenderung): void
+    /** Die Team-Einstellung fuer den Anlass auf diese Vorlagen-ID (oder leer) setzen. */
+    private function feldSetzen(string $anlass, ?int $vorlageId): void
     {
-        $pfad = "recruiting.aufgaben.vorlagen.{$anlass}";
-        config()->set($pfad, array_merge((array) config($pfad), $aenderung));
+        $zeile = DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->first();
+        $settings = json_decode((string) $zeile->settings, true) ?: [];
+        $settings[PortalVorlagen::AUFGABEN_SCHLUESSEL[$anlass]] = $vorlageId;
+        DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->update(['settings' => json_encode($settings)]);
+    }
+
+    /** Den Rumpftext der Meta-Vorlage ersetzen; der URL-Knopf bleibt. */
+    private function rumpfSetzen(string $name, string $text): void
+    {
+        $aufbau = $this->vorlagenAufbau();
+        $aufbau[0]['text'] = $text;
+        DB::table('integrations_whatsapp_templates')->where('name', $name)->update(['components' => json_encode($aufbau)]);
     }
 
     /**
@@ -838,24 +734,13 @@ final class AufgabenSenderTest extends TestCase
      */
     private function metaAttrappe(): object
     {
-        return new class(self::VORLAGE_NEU, self::VORLAGE_ERINNERUNG) {
+        return new class {
             /** @var list<array<string, mixed>> */
             public array $calls = [];
-
-            /** @var array<string, list<string>> */
-            public array $genehmigt = [];
 
             private bool $lehntAb = false;
 
             private ?\Throwable $wirft = null;
-
-            public function __construct(string $neu, string $erinnerung)
-            {
-                $this->genehmigt = [
-                    $neu        => ['anzahl'],
-                    $erinnerung => ['anzahl', 'datum'],
-                ];
-            }
 
             public function lehntAb(): void
             {
@@ -908,7 +793,13 @@ final class AufgabenSenderTest extends TestCase
                     }
                 }
 
-                $erwartet = $this->genehmigt[$templateName] ?? null;
+                // Erwartet wird, was der BODY der gespeicherten Vorlage
+                // verlangt (klein geschrieben, wie Meta es will).
+                $zeile = DB::table('integrations_whatsapp_templates')->where('name', $templateName)->first();
+                $erwartet = $zeile === null ? null : array_map(
+                    'strtolower',
+                    PortalVorlagen::rumpfPlatzhalter((array) json_decode((string) $zeile->components, true)),
+                );
                 if ($erwartet === null || $namen !== $erwartet) {
                     return $this->abgelehnt('Template oder Parameter unbekannt: ' . $templateName);
                 }
@@ -949,27 +840,28 @@ final class AufgabenSenderTest extends TestCase
     private function metaVorlagenAnlegen(array $ueberschreiben = []): void
     {
         foreach ([self::VORLAGE_NEU, self::VORLAGE_ERINNERUNG] as $name) {
-            DB::table('integrations_whatsapp_templates')->insert(array_merge([
+            $id = (int) DB::table('integrations_whatsapp_templates')->insertGetId(array_merge([
                 'uuid'                => 'tpl-'.$name,
                 'external_id'         => 'ext-'.$name,
                 'name'                => $name,
                 'language'            => 'de',
                 'status'              => 'APPROVED',
                 'category'            => 'UTILITY',
-                'components'          => json_encode($this->vorlagenAufbau()),
+                'components'          => json_encode($this->vorlagenAufbau(rumpf: $name === self::VORLAGE_ERINNERUNG ? 'Du hast {{anzahl}} offene Punkte, Einsatz am {{datum}}.' : 'Du hast {{anzahl}} offene Punkte.')),
                 'whatsapp_account_id' => 1,
                 'user_id'             => 1,
                 'created_at'          => self::ANGEFASST,
                 'updated_at'          => self::ANGEFASST,
             ], $ueberschreiben));
+            $this->feldSetzen($name === self::VORLAGE_NEU ? 'neu' : 'erinnerung', $id);
         }
     }
 
     /** @return list<array<string, mixed>> Rumpf plus ein dynamischer URL-Knopf an Position 0. */
-    private function vorlagenAufbau(bool $mitDynamischemKnopf = true): array
+    private function vorlagenAufbau(bool $mitDynamischemKnopf = true, string $rumpf = 'Du hast {{anzahl}} offene Punkte.'): array
     {
         return [
-            ['type' => 'BODY', 'text' => 'Du hast {{anzahl}} offene Punkte.'],
+            ['type' => 'BODY', 'text' => $rumpf],
             ['type' => 'BUTTONS', 'buttons' => [[
                 'type' => 'URL',
                 'text' => 'Zum Portal',

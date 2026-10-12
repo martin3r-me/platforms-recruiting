@@ -4,11 +4,10 @@ namespace Platform\Recruiting\Services\Comms;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
-use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\PhoneE164;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 
 /**
@@ -100,6 +99,9 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  */
 final class AufgabenSender
 {
+    /** Platzhalter, die mit dem Vornamen befuellt werden (wie in den anderen Portal-Sendern). */
+    private const NAME_PLATZHALTER = ['name', 'vorname', '1'];
+
     /** Die Nachricht ist bei Meta angenommen. */
     public const STATUS_SENT = 'sent';
 
@@ -164,19 +166,31 @@ final class AufgabenSender
         // Lauf wuerde den Status einer fremden Nachricht nachlesen.
         $this->letzteNachrichtId = null;
 
-        $vorlage = (array) config("recruiting.aufgaben.vorlagen.{$anlass}", []);
-        $name = trim((string) ($vorlage['name'] ?? ''));
+        // Vorlage UND Kanal aus der Team-Einstellung (PortalVorlagen), ueber
+        // dieselbe Kette wie die anderen Portal-Sender. Kein Rueckfall auf
+        // .env/Config. Kein stiller Fehlschlag: ohne genehmigte Vorlage kann
+        // niemand erreicht werden, und das Log nennt das Feld.
+        $feld = PortalVorlagen::AUFGABEN_SCHLUESSEL[$anlass] ?? null;
+        $ziel = $feld === null
+            ? ['error' => "Unbekannter Anlass \"{$anlass}\"", 'template' => null, 'channel' => null]
+            : app(HoldingTemplateSender::class)->resolveTarget((int) $employee->team_id, $feld);
 
-        if ($name === '') {
-            // Kein stiller Fehlschlag: ohne Vorlage kann niemand erreicht
-            // werden, und das ist bis zur Freigabe bei Meta der Normalfall.
+        if ($ziel['error'] !== null) {
+            $feldname = PortalVorlagen::FELDNAMEN[$feld] ?? (string) $anlass;
             Log::error('recruiting.aufgaben.vorlage_fehlt', [
                 'anlass'      => $anlass,
                 'mitarbeiter' => $employee->id,
+                'grund'       => 'Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})",
             ]);
 
             return self::STATUS_NICHT_KONFIGURIERT;
         }
+
+        $vorlageZeile  = $ziel['template'];
+        $kanal         = $ziel['channel'];
+        $name          = (string) $vorlageZeile->name;
+        $sprache       = (string) ($vorlageZeile->language ?: 'de');
+        $vorlagenTeile = (array) ($vorlageZeile->components ?? []);
 
         $anzahl = count($stand['punkte'] ?? []);
         if ($anzahl === 0) {
@@ -197,9 +211,14 @@ final class AufgabenSender
             'anzahl' => (string) $anzahl,
             'datum'  => $this->menschlichesDatum((string) ($stand['einsatz']['datum'] ?? '')),
         ];
+        // Der Vorname fuer die Name-Platzhalter; leer = unbefuellbar (FAILED).
+        $vorname = trim((string) $employee->first_name);
+        foreach (self::NAME_PLATZHALTER as $nameKey) {
+            $werte[$nameKey] = $vorname;
+        }
 
         $komponenten = [];
-        foreach ((array) ($vorlage['platzhalter'] ?? []) as $platzhalter) {
+        foreach (PortalVorlagen::rumpfPlatzhalter($vorlagenTeile) as $platzhalter) {
             $platzhalter = (string) $platzhalter;
             $schluessel  = strtolower($platzhalter);
 
@@ -239,44 +258,10 @@ final class AufgabenSender
             return self::STATUS_FAILED;
         }
 
-        $kanal = $this->kanal((int) $employee->team_id);
-        if ($kanal === null) {
-            Log::error('recruiting.aufgaben.kein_kanal', [
-                'anlass'      => $anlass,
-                'mitarbeiter' => $employee->id,
-            ]);
-
-            return self::STATUS_FAILED;
-        }
-
-        $sprache = trim((string) ($vorlage['sprache'] ?? 'de')) ?: 'de';
-
-        // F1: der Portal-Link. Erst die genehmigte Vorlage nachschlagen,
-        // dann pruefen, dass sie einen dynamischen URL-Knopf hat, dann den
-        // Token hineinlegen. Jeder dieser Schritte kann VERWEIGERN — eine
-        // Portal-Nachricht ohne Weg ins Portal geht nicht raus.
-        $nachschlag = $this->vorlageNachschlagen($name, $sprache);
-        if ($nachschlag['vorlage'] === null) {
-            // ET-29: VIER BETRIEBSLAGEN, VIER LOGZEILEN. An dieser Zeile
-            // haengt am Deploy-Tag ein Handgriff, und die vier sind
-            // verschiedene: die Vorlage ist gar nicht da (Meta-Abgleich
-            // laufen lassen) · sie ist nicht genehmigt (bei Meta nachhaken)
-            // · sie gibt es nur in einer anderen Sprache (env korrigieren)
-            // · es gibt zwei gleichnamige genehmigte (die falsche WABA
-            // aufraeumen). „Irgendwas mit der Vorlage" schickt jemanden in
-            // die falsche Richtung.
-            Log::error('recruiting.aufgaben.'.$nachschlag['grund'], [
-                'anlass'      => $anlass,
-                'vorlage'     => $name,
-                'sprache'     => $sprache,
-                'mitarbeiter' => $employee->id,
-            ]);
-
-            return self::STATUS_VORLAGE_UNTAUGLICH;
-        }
-
-        $vorlagenTeile = (array) ($nachschlag['vorlage']->components ?? []);
-
+        // F1: der Portal-Link. Die gewaehlte Vorlage MUSS genau einen
+        // dynamischen URL-Knopf tragen, in den der Token passt. Jeder dieser
+        // Schritte kann VERWEIGERN — eine Portal-Nachricht ohne Weg ins Portal
+        // geht nicht raus.
         if (WhatsAppTemplateUrlButtons::dynamicIndexes($vorlagenTeile) === []) {
             // Wortgleich zur Begruendung in ProofReminderSender: ohne Link
             // waere die Nachricht eine Sackgasse.
@@ -385,78 +370,6 @@ final class AufgabenSender
         } catch (\Throwable) {
             return $iso;
         }
-    }
-
-    /**
-     * Die genehmigte Meta-Vorlage zu diesem Namen — gebraucht wird nur ihr
-     * Aufbau (`components`), um den dynamischen URL-Knopf zu finden.
-     *
-     * NAME UND SPRACHE, UND EINDEUTIG: gibt es zu einem Namen mehr als eine
-     * genehmigte Vorlage (zwei WABAs mit gleichnamigen Vorlagen), wird NICHT
-     * geraten — dann koennte der Knopf an der falschen Position sitzen und
-     * der Link ins Leere fuehren. Dieselbe Strenge wie bei
-     * `buildTokenComponents()`, das bei zwei dynamischen Knoepfen ebenfalls
-     * abbricht statt zu raten.
-     *
-     * Der Name kommt aus der Konfiguration (env), nicht aus einer
-     * Team-Einstellung wie bei `ProofReminderSender` — das ist der Stand aus
-     * Aufgabe 9 und bleibt so; nachgeschlagen wird hier nur der AUFBAU.
-     *
-     * ET-29: der GRUND kommt mit zurueck, nicht nur ein null. Die vier Wege
-     * hierher sind vier verschiedene Handgriffe (siehe Aufrufstelle).
-     *
-     * @return array{vorlage: ?IntegrationsWhatsAppTemplate, grund: ?string}
-     */
-    private function vorlageNachschlagen(string $name, string $sprache): array
-    {
-        $fehlt = fn (string $grund) => ['vorlage' => null, 'grund' => $grund];
-
-        if (!class_exists(IntegrationsWhatsAppTemplate::class)) {
-            return $fehlt('vorlage_fehlt_ganz');
-        }
-
-        // EINMAL ueber den Namen, dann in PHP einengen: so kann jede Stufe
-        // sagen, WORAN es lag. Mit drei where() auf der Abfrage waere am
-        // Ende nur bekannt, dass nichts passt.
-        $mitNamen = IntegrationsWhatsAppTemplate::query()
-            ->where('name', $name)
-            ->orderBy('id')
-            ->get();
-
-        if ($mitNamen->isEmpty()) {
-            return $fehlt('vorlage_fehlt_ganz');
-        }
-
-        $inSprache = $mitNamen->where('language', $sprache);
-        if ($inSprache->isEmpty()) {
-            return $fehlt('vorlage_falsche_sprache');
-        }
-
-        $genehmigt = $inSprache->where('status', 'APPROVED')->values();
-        if ($genehmigt->isEmpty()) {
-            return $fehlt('vorlage_nicht_genehmigt');
-        }
-
-        if ($genehmigt->count() > 1) {
-            return $fehlt('vorlage_nicht_eindeutig');
-        }
-
-        return ['vorlage' => $genehmigt->first(), 'grund' => null];
-    }
-
-    /**
-     * Der WhatsApp-Kanal des Teams — ueber RecruitingChannelResolver, also
-     * ueber dasselbe Kanal-Set wie der Rest der Kommunikation (Muster
-     * EinmalcodeSender::kanal()).
-     */
-    private function kanal(int $teamId): ?CommsChannel
-    {
-        $ids = RecruitingChannelResolver::channelIds($teamId);
-        if ($ids === []) {
-            return null;
-        }
-
-        return CommsChannel::query()->find($ids[0]);
     }
 
     /** Die letzten vier Stellen — NIE die volle Nummer ins Log. */
