@@ -112,6 +112,18 @@ final class EmployeePortalSitzungTest extends TestCase
         $this->assertSame([], $portal->fieldValues);
     }
 
+    public function test_naechster_aufruf_nach_dem_zuruecksetzen_zeigt_nichts(): void
+    {
+        [, $personId, $portal] = $this->offenesPortal();
+
+        $this->zuruecksetzen($personId);
+        $portal->hydrate();
+
+        $this->assertSame('unverified', $portal->state);
+        $this->assertSame([], $portal->fieldValues);
+        $this->assertSame('', $portal->displayName);
+    }
+
     public function test_sitzungsschluessel_kommt_aus_portal_auth(): void
     {
         $code = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Public/EmployeePortal.php');

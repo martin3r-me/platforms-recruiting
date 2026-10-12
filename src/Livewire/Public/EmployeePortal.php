@@ -166,6 +166,20 @@ class EmployeePortal extends Component
         $this->state = 'unverified';
     }
 
+    /**
+     * Livewire-Hook vor JEDEM Folgeaufruf ($refresh, wire:model.live,
+     * Aktionen). Der #[Locked]-$state kommt aus dem Client-Snapshot und laeuft
+     * nie ab — ohne diese Pruefung zeigte ein alter 'verified'-Snapshot nach
+     * Logout im anderen Tab, abgelaufener Laravel-Sitzung oder HR-Reset
+     * weiter frische Daten (IBAN, Vertragslinks).
+     */
+    public function hydrate(): void
+    {
+        if ($this->state === 'verified') {
+            $this->sitzungLebt();
+        }
+    }
+
     public function verify(): void
     {
         if ($this->isRateLimited()) {
@@ -782,18 +796,30 @@ class EmployeePortal extends Component
      * $state allein reicht nicht: ein von HR zurueckgesetztes Konto muss
      * auch einen schon offenen Tab beenden. Pruefung NUR ueber
      * PortalAuth::sitzungGueltig() — keine eigene Logik. Jede schreibende
-     * Aktion ruft das zuerst.
+     * Aktion und hydrate() ruft das zuerst. Faellt die Antwort negativ aus,
+     * verschwinden alle Personendaten aus dem Snapshot.
      */
     private function sitzungLebt(): bool
     {
-        if ($this->employeeId !== null && PortalAuth::sitzungGueltig((int) $this->employeeId)) {
+        if ($this->employeeId !== null && $this->sitzungVorhanden()) {
             return true;
         }
 
         $this->state = 'unverified';
         $this->fieldValues = [];
+        $this->displayName = '';
 
         return false;
+    }
+
+    /**
+     * Die EINE Zeile, die fragt, ob eine Sitzung da ist — bewusst isoliert:
+     * auf main (ohne Sitzungsgrenze) fragt diese Zeile nur, ob der
+     * Sitzungsschluessel existiert (has auf sessionKey()).
+     */
+    private function sitzungVorhanden(): bool
+    {
+        return PortalAuth::sitzungGueltig((int) $this->employeeId);
     }
 
     private function attemptCacheKey(): string

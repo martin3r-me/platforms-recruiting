@@ -155,4 +155,40 @@ final class EmployeePortalVorAnmeldungTest extends TestCase
         $this->assertSame([], $portal->fieldValues);
         $this->assertStringNotContainsString(self::IBAN, $this->snapshot($portal));
     }
+
+    /**
+     * Der #[Locked]-$state steht im Client-Snapshot und laeuft nie ab. Ist die
+     * Sitzung weg (Logout im anderen Tab, abgelaufene Laravel-Sitzung), darf
+     * der naechste Aufruf mit dem alten 'verified'-Snapshot keine Daten mehr
+     * zeigen. hydrate() ist der Livewire-Hook, der bei jedem Folgeaufruf laeuft.
+     */
+    public function test_alter_verified_snapshot_ohne_sitzung_zeigt_beim_naechsten_aufruf_nichts(): void
+    {
+        $ma = $this->mitarbeiter();
+        $this->sitzung->put('employee_portal_verified:' . $ma->id, true);
+        $portal = new EmployeePortal();
+        $portal->mount('tok-vor-anmeldung');
+        $this->assertSame('verified', $portal->state, 'Vorbedingung');
+
+        $this->sitzung->forget('employee_portal_verified:' . $ma->id);
+        $portal->hydrate();
+
+        $this->assertSame('unverified', $portal->state);
+        $this->assertSame([], $portal->fieldValues);
+        $this->assertSame('', $portal->displayName);
+        $this->assertStringNotContainsString(self::IBAN, $this->snapshot($portal));
+    }
+
+    public function test_mit_lebender_sitzung_laesst_hydrate_alles_stehen(): void
+    {
+        $ma = $this->mitarbeiter();
+        $this->sitzung->put('employee_portal_verified:' . $ma->id, true);
+        $portal = new EmployeePortal();
+        $portal->mount('tok-vor-anmeldung');
+
+        $portal->hydrate();
+
+        $this->assertSame('verified', $portal->state);
+        $this->assertSame(self::IBAN, $portal->fieldValues['iban'] ?? null);
+    }
 }
