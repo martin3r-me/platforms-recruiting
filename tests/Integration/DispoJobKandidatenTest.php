@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 
 class DispoJobKandidatenTest extends TestCase
@@ -87,6 +88,42 @@ class DispoJobKandidatenTest extends TestCase
         $o = DispoJobKandidaten::blockOptionen(3);
         $this->assertSame([200, null], array_column($o, 'block'));
         $this->assertSame('ohne Kostenstelle', $o[1]['label']);
+    }
+
+    public function test_gruppe_wird_zu_einer_zeile_mit_zusammengefuehrten_feldern(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            $a = $this->employee(['first_name' => 'Alt', 'phone' => null, 'cost_center' => null, 'portal_token' => 'tok-a']);
+            $b = $this->employee(['first_name' => 'Neu', 'phone' => '0176 12345678', 'cost_center' => '201', 'portal_token' => 'tok-b', 'portal_locked_at' => '2026-10-01 00:00:00']);
+            foreach ([$a, $b] as $id) {
+                Capsule::table('crm_contact_links')->insert([
+                    'uuid' => (string) \Illuminate\Support\Str::uuid(), 'contact_id' => 77, 'team_id' => 3, 'created_by_user_id' => 1,
+                    'linkable_id' => $id, 'linkable_type' => (new RecEmployee())->getMorphClass(), 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+            foreach ([[$a, ['Zapfer']], [$b, ['Koch']]] as [$id, $t]) {
+                Capsule::table('rec_employee_hr_data')->insert(['uuid' => (string) \Illuminate\Support\Str::uuid(), 'team_id' => 3, 'rec_employee_id' => $id, 'dispo_taetigkeiten' => json_encode($t), 'created_at' => now(), 'updated_at' => now()]);
+            }
+            $event = RecDispoEvent::create(['einsatz_ref' => 'E1']);
+            RecDispoAssignment::create(['ds_ref' => 'dg', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'x', 'rec_employee_id' => $a, 'datum' => '2026-10-24', 'status_id' => 1, 'taetigkeit' => 'Zapfer']);
+
+            $r = DispoJobKandidaten::laden(3, ['2026-10-24'], '2026-10');
+
+            $this->assertCount(1, $r['kandidaten']);
+            $k = $r['kandidaten'][0];
+            $this->assertSame($a, $k['anchor']);
+            $this->assertSame($b, $k['employee_id']);
+            $this->assertSame('tok-b', $k['portal_token']);
+            $this->assertSame('Neu', $k['first_name']);
+            $this->assertStringStartsWith('+49', $k['phone']);
+            $this->assertSame(200, $k['block']);
+            $this->assertTrue($k['portal_locked']);
+            $this->assertSame(['Zapfer', 'Koch'], $k['taetigkeiten']);
+            $this->assertSame([$a => ['2026-10-24' => true]], $r['gebucht']);
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
     }
 
     private static function runMigrations(): void

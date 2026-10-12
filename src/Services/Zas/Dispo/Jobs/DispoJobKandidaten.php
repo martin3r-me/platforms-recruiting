@@ -67,7 +67,7 @@ final class DispoJobKandidaten
 
         $assignments = RecDispoAssignment::query()
             ->whereIn('rec_employee_id', $ids)
-            ->where(fn ($q) => $q->whereBetween('datum', [$monat . '-01', $monat . '-31'])->orWhereIn('datum', $tage))
+            ->where(fn ($q) => $q->whereBetween('datum', [$monat . '-01', \Carbon\Carbon::parse($monat . '-01')->endOfMonth()->toDateString()])->orWhereIn('datum', $tage))
             ->get(['rec_employee_id', 'datum', 'status_id', 'missing_since', 'deletion_marked_at', 'declined_at'])
             ->map(fn ($a) => ['employee_id' => (int) $a->rec_employee_id, 'datum' => $a->datum?->format('Y-m-d') ?? '',
                 'status_id' => (int) $a->status_id, 'missing_since' => $a->missing_since, 'deletion_marked_at' => $a->deletion_marked_at, 'declined_at' => $a->declined_at])
