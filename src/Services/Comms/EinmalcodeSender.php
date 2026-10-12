@@ -338,12 +338,6 @@ final class EinmalcodeSender
      * Wo HR das Feld findet — Teil der Fehlermeldung, Wortlaut wie im
      * Einstellungs-Fenster. Schluessel wie PortalVorlagen::CODE_SCHLUESSEL.
      */
-    private const FELDNAMEN = [
-        'passwort'       => 'Code: Passwort vergessen',
-        'nummernwechsel' => 'Code: neue Nummer bestätigen',
-        'notfall'        => 'Code: Notfall-Weg',
-    ];
-
     /**
      * Vorlagenname, Sprache, Platzhalter und Kanal — AUS DER TEAM-EINSTELLUNG
      * ueber HoldingTemplateSender::resolveTarget().
@@ -368,7 +362,7 @@ final class EinmalcodeSender
 
         $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, $schluessel);
         if ($ziel['error'] !== null) {
-            $feldname = self::FELDNAMEN[$zweck] ?? $schluessel;
+            $feldname = PortalVorlagen::FELDNAMEN[$schluessel] ?? $schluessel;
 
             return $fehler('Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})");
         }

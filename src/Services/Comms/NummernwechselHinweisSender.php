@@ -4,9 +4,9 @@ namespace Platform\Recruiting\Services\Comms;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Support\PhoneE164;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * Der Hinweis AN DIE ALTE NUMMER, nachdem die Handynummer eines Kontos
@@ -74,9 +74,6 @@ use Platform\Recruiting\Support\PhoneE164;
  */
 final class NummernwechselHinweisSender
 {
-    /** Der Konfigurationspfad der Vorlage. */
-    public const KONFIG = 'recruiting.konto.hinweis_vorlage';
-
     /** Die Nachricht ist bei Meta angenommen. */
     public const STATUS_SENT = 'sent';
 
@@ -124,15 +121,12 @@ final class NummernwechselHinweisSender
             return $this->fertig($personId, $nummer, self::STATUS_FAILED, 'Alte und neue Nummer sind dieselbe.');
         }
 
-        $vorlage = $this->vorlage();
+        $vorlage = $this->vorlage((int) $person->team_id);
         if ($vorlage['fehler'] !== null) {
             return $this->fertig($personId, $nummer, self::STATUS_FAILED, $vorlage['fehler'], 'error');
         }
 
-        $kanal = $this->kanal((int) $person->team_id);
-        if ($kanal === null) {
-            return $this->fertig($personId, $nummer, self::STATUS_FAILED, 'Kein aktiver WhatsApp-Kanal fuer das Team.', 'error');
-        }
+        $kanal = $vorlage['kanal'];
 
         $parameter = [];
         foreach ($vorlage['platzhalter'] as $name) {
@@ -179,39 +173,31 @@ final class NummernwechselHinweisSender
     // ------------------------------------------------------------- Vorlage
 
     /**
-     * Vorlagenname, Sprache und Platzhalter — aus der Konfiguration, aus
-     * demselben Grund wie beim Einmalcode-Sender: die Meta-Vorlagen sind noch
-     * nicht genehmigt.
-     *
-     * @return array{fehler: ?string, name: string, sprache: string, platzhalter: list<string>}
+     * Vorlage, Sprache, Platzhalter und Kanal — aus der Team-Einstellung
+     * (PortalVorlagen::HINWEIS_ALTE_NUMMER), kein Rueckfall auf Config.
      */
-    private function vorlage(): array
+    private function vorlage(int $teamId): array
     {
-        $eintrag = config(self::KONFIG);
+        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => [], 'kanal' => null];
 
-        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => []];
+        // Vorlage UND Kanal in einem Schritt: ein fehlender Kanal am Account
+        // der Vorlage ist ein Vorlagen-Fehler wie jeder andere.
+        $schluessel = PortalVorlagen::HINWEIS_ALTE_NUMMER;
+        $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, $schluessel);
+        if ($ziel['error'] !== null) {
+            $feldname = PortalVorlagen::FELDNAMEN[$schluessel] ?? $schluessel;
 
-        if (!is_array($eintrag)) {
-            return $fehler('Kein Eintrag unter ' . self::KONFIG . ' — ohne Vorlage kein Hinweis.');
+            return $fehler('Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})");
         }
 
-        $name = trim((string) ($eintrag['name'] ?? ''));
-        if ($name === '') {
-            return $fehler(
-                'Kein Meta-Vorlagenname unter ' . self::KONFIG . '.name — bis zur Freigabe bei Meta geht '
-                .'der Hinweis an die alte Nummer nicht raus.',
-            );
-        }
+        $template = $ziel['template'];
+        $teile = (array) ($template->components ?? []);
+        $name = (string) $template->name;
+        $platzhalter = PortalVorlagen::rumpfPlatzhalter($teile);
 
-        $platzhalter = array_values(array_map('strval', (array) ($eintrag['platzhalter'] ?? [])));
-
-        // Dieselbe Strenge wie beim Einmalcode-Sender, und aus demselben
-        // Grund: HoldingTemplateComponents::build() setzt bei einem
-        // unbekannten Platzhalter still den Vornamen ein, Meta naehme es an,
-        // und der Versand gaelte als Erfolg. Hier kann dabei zwar kein
-        // Geheimnis danebengehen — aber ein Hinweis, der an der falschen
-        // Stelle den Vornamen traegt, ist trotzdem eine Nachricht, die
-        // niemand versteht.
+        // Dieselbe Strenge wie beim Einmalcode-Sender: HoldingTemplateComponents::build()
+        // setzt bei einem unbekannten Platzhalter still den Vornamen ein, Meta
+        // naehme es an, und der Versand gaelte als Erfolg.
         $unbekannt = [];
         foreach ($platzhalter as $einzeln) {
             if (!in_array(strtolower($einzeln), self::NAME_PLATZHALTER, true) && !in_array($einzeln, $unbekannt, true)) {
@@ -230,11 +216,16 @@ final class NummernwechselHinweisSender
             ));
         }
 
+        if (PortalVorlagen::hatKnopfMitParameter($teile)) {
+            return $fehler('Die Vorlage hat einen Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.');
+        }
+
         return [
             'fehler'      => null,
             'name'        => $name,
-            'sprache'     => trim((string) ($eintrag['sprache'] ?? 'de')) ?: 'de',
+            'sprache'     => (string) ($template->language ?: 'de'),
             'platzhalter' => $platzhalter,
+            'kanal'       => $ziel['channel'],
         ];
     }
 
@@ -250,17 +241,6 @@ final class NummernwechselHinweisSender
             ->value('first_name');
 
         return trim((string) $wert);
-    }
-
-    /** Derselbe Kanal-Weg wie ueberall im Modul — keine zweite Aufloesungskette. */
-    private function kanal(int $teamId): ?CommsChannel
-    {
-        $ids = RecruitingChannelResolver::channelIds($teamId);
-        if ($ids === []) {
-            return null;
-        }
-
-        return CommsChannel::query()->find($ids[0]);
     }
 
     /**

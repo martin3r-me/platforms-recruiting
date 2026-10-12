@@ -29,6 +29,19 @@ final class PortalVorlagen
     /** Anlass → Schluessel. */
     public const AUFGABEN_SCHLUESSEL = ['neu' => self::AUFGABEN_NEU, 'erinnerung' => self::AUFGABEN_ERINNERUNG];
 
+    /** Schluessel → Feldname in den Einstellungen; Teil jeder Fehlermeldung der Sender. */
+    public const FELDNAMEN = [
+        'konto_code_passwort_wa_template_id'       => 'Code: Passwort vergessen',
+        'konto_code_nummernwechsel_wa_template_id' => 'Code: neue Nummer bestätigen',
+        'konto_code_notfall_wa_template_id'        => 'Code: Notfall-Weg',
+        'konto_hinweis_alte_nummer_wa_template_id' => 'Hinweis an die alte Nummer',
+        'aufgaben_neu_wa_template_id'              => 'Offene Aufgaben — neu',
+        'aufgaben_erinnerung_wa_template_id'       => 'Offene Aufgaben — Erinnerung',
+        'proof_reminder_wa_template_id'            => 'Nachweis läuft ab (Fristenlauf)',
+        'document_wa_template_id'                  => 'Dokument liegt im Portal',
+        'employee_contract_wa_template_id'         => 'Vertrag zur Unterschrift',
+    ];
+
     /** Wo HR das Feld findet — Teil jeder Fehlermeldung. */
     public const ORT = 'Einstellungen → Kommunikation → Mitarbeiterportal';
 

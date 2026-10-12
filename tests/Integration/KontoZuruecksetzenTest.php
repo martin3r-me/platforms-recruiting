@@ -196,11 +196,8 @@ final class KontoZuruecksetzenTest extends TestCase
                     // Versuch antwortet, steht weiter unten in eigenen
                     // Tests — die stellen ihn ausdruecklich wieder ab.
                     'weg4_aktiv'    => true,
-                    // Die Code-Vorlagen stehen in der Team-Einstellung
-                    // (kanalAufsetzen()), nicht mehr hier.
-                    'hinweis_vorlage' => [
-                        'name' => self::VORLAGE_HINWEIS, 'sprache' => 'de', 'platzhalter' => [],
-                    ],
+                    // Code- und Hinweis-Vorlagen stehen in der
+                    // Team-Einstellung (kanalAufsetzen()), nicht mehr hier.
                 ],
                 // Der Team-Anker des DispoIdentityResolver — ohne ihn
                 // gruppiert er fail closed gar nicht.
@@ -467,6 +464,21 @@ final class KontoZuruecksetzenTest extends TestCase
             'updated_at'          => self::ANGEFASST,
         ]);
 
+        // Der Hinweis an die alte Nummer: eigene genehmigte Vorlage ohne Platzhalter.
+        $hinweisId = (int) DB::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid'                => 'tpl-konto-hinweis',
+            'external_id'         => 'ext-konto-hinweis',
+            'name'                => self::VORLAGE_HINWEIS,
+            'language'            => 'de',
+            'status'              => 'APPROVED',
+            'category'            => 'UTILITY',
+            'components'          => json_encode([['type' => 'BODY', 'text' => 'Deine Nummer wurde geaendert.']]),
+            'whatsapp_account_id' => $kontoId,
+            'user_id'             => 1,
+            'created_at'          => self::ANGEFASST,
+            'updated_at'          => self::ANGEFASST,
+        ]);
+
         DB::table('rec_applicant_settings')->insert([
             'team_id'  => self::TEAM,
             // Spec HR-Bereich §6: Weg 4 braucht Server-Riegel UND Team-Schalter.
@@ -475,6 +487,7 @@ final class KontoZuruecksetzenTest extends TestCase
             'settings' => json_encode(
                 ['auto_pilot_wa_account_id' => $kontoId, 'konto_notfall_weg_aktiv' => true]
                 + array_fill_keys(array_values(PortalVorlagen::CODE_SCHLUESSEL), $vorlageId)
+                + [PortalVorlagen::HINWEIS_ALTE_NUMMER => $hinweisId]
             ),
         ]);
     }
