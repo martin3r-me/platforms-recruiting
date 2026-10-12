@@ -6,15 +6,14 @@ Chat-Liste nicht. Dafür gibt es jetzt den Reiter **„Nicht zugestellt“**.
 
 ## So gehst du vor
 
-1. Links im Menü siehst du bei **Kommunikation** ein rotes **✕ mit einer Zahl**, sobald es nicht zugestellte
-   Nachrichten gibt.
-2. Öffne **Kommunikation** und klicke oben auf **„✕ Nicht zugestellt“**.
-3. Links steht die Liste: Name, welche Nachricht nicht ankam, wann, und wer zuständig ist.
-4. Klicke einen Eintrag an. Rechts steht in Rot, **warum** die Nachricht nicht ankam und was du tun kannst,
+1. Öffne **Kommunikation**. Oben steht der Reiter **„✕ Nicht zugestellt“** mit der Anzahl — rot, sobald es
+   nicht zugestellte Nachrichten gibt. Klicke darauf.
+2. Links steht die Liste: Name, welche Nachricht nicht ankam, wann, und wer zuständig ist.
+3. Klicke einen Eintrag an. Rechts steht in Rot, **warum** die Nachricht nicht ankam und was du tun kannst,
    darunter der bisherige Verlauf.
-5. Kümmere dich um die Person — meistens anrufen (die Nummer ist anklickbar) oder per E-Mail melden. Über
+4. Kümmere dich um die Person — meistens anrufen (die Nummer ist anklickbar) oder per E-Mail melden. Über
    **„Bewerberakte ↗“** kannst du z. B. eine falsche Nummer korrigieren.
-6. Klicke auf **„Erledigt“**. Der Eintrag verschwindet aus der Liste.
+5. Klicke auf **„Erledigt“**. Der Eintrag verschwindet aus der Liste.
 
 ## Gut zu wissen
 
