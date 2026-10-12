@@ -22,7 +22,7 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 
 1. Links unter **Disposition** auf **Einstellungen** gehen.
 2. In der Zeile eurer Filiale den Haken **„prüfen“** setzen.
-3. Prüfen, ob ein **Diensthandy** eingetragen ist (mit +49, z. B. +49 170 1234567).
+3. Prüfen, ob ein **Diensthandy** eingetragen ist, z. B. 0170 1234567 oder +49 170 1234567.
 4. Auf **„Speichern“** in dieser Zeile klicken. Daneben steht jetzt „heute ab … bis 24:00“.
 
 > Der Haken gilt nur heute. Um Mitternacht geht er von selbst aus. Bei mehrtägigen Veranstaltungen jeden Morgen neu setzen.
@@ -34,7 +34,7 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 
 1. Das Diensthandy bekommt: **Name**, **Veranstaltung** und die **betroffenen Tage**.
 2. Mit **„Veranstaltung öffnen“** springt ihr direkt in die Veranstaltung.
-3. Pro Nachricht gibt es genau einen Alarm.
+3. Pro Nachricht und Veranstaltung gibt es genau einen Alarm.
 
 > Kommt kein Alarm, obwohl eine Meldung in der Veranstaltung steht: Diensthandy-Nummer und Vorlage in den Einstellungen prüfen.
 
@@ -44,7 +44,7 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 <!-- shot: seite=/recruiting/dispo-events klicks="TEST — Dispo-Bestaetigung" ausschnitt="css:table" markieren="mögliche Absage" -->
 
 1. In der Übersicht der Veranstaltungen steht bei betroffenen Veranstaltungen ein **⚠** mit der Anzahl.
-2. In der Veranstaltung zeigt der Filter **„⚠ Mögliche Absage“** nur diese Mitarbeiter.
+2. In der Veranstaltung zeigt der Filter **„⚠ Mögliche Absage“** nur diese Mitarbeiter. Der Filter erscheint nur, solange es offene Meldungen gibt.
 3. In der Zeile steht **„⚠ mögliche Absage“**. Ein Klick darauf öffnet den Chat.
 
 ## Dispo · In der Veranstaltung | Absage erfassen oder verwerfen
@@ -63,7 +63,7 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 ![Zeile mit violetter Sprechblase und Hinweis „„Wo bist du?“ gesendet um …“](sprechblase-violett.png)
 <!-- shot: seite=/recruiting/dispo-events klicks="TEST — Dispo-Bestaetigung" ausschnitt="css:table" markieren="css:.bg-violet-100" -->
 
-1. Schickt ihr einem Mitarbeiter aus dem Chat die Vorlage **„Wo bist du?“**, wird seine Sprechblase in der Zeile dieses Tages **violett**.
+1. Schickt ihr einem Mitarbeiter aus dem Chat die Vorlage **„Wo bist du?“**, wird seine Sprechblase **violett**, und zwar in der Zeile des Einsatztags, an dem ihr die Nachricht geschickt habt.
 2. Mit der Maus auf der Blase seht ihr, um wie viel Uhr sie rausging.
 3. Eine **blaue** Blase heißt weiterhin: neue Nachricht, bitte lesen. Blau geht vor.
 
@@ -74,5 +74,5 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 | Wer wird geprüft | Nur Mitarbeiter mit Bestätigungsanfrage, in einer Filiale mit Haken, für kommende Einsätze. |
 | Was wird nicht geprüft | Sprachnachrichten und Bilder ohne Text. Nachrichten von vor dem Einschalten. |
 | Wie lange | Nur am Tag des Einschaltens, bis 24:00. Maßgeblich ist, wann die Nachricht reinkam. |
-| Zähler | In den Einstellungen steht je Filiale, wie viele Nachrichten diesen Monat geprüft und gemeldet wurden. Rot: Nachrichten, die die KI nicht prüfen konnte. |
+| Zähler | In den Einstellungen steht je Filiale, wie viele Nachrichten die KI diesen Monat geprüft und als mögliche Absage gemeldet hat. Reine Zusagen wie „ok“ zählen nicht mit. Rot: Nachrichten, die die KI nicht prüfen konnte. |
 | Absagen | Abgesagt wird nur, wenn ihr „Absage erfassen“ speichert. Die KI ändert nie etwas an der Einbuchung. |

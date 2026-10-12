@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rezepteAus } from './rezepte.mjs';
+import { ziel, ausschnittElement } from './ziele.mjs';
 
 const BASIS = (process.env.RG_ANLEITUNGEN_BASIS || 'https://demo.bhgdigital.de').replace(/\/$/, '');
 const SITZUNG = join(homedir(), '.config', 'rg-anleitungen', 'sitzung.json');
@@ -26,19 +27,6 @@ async function anmelden() {
     await ctx.storageState({ path: SITZUNG });
     await browser.close();
     console.log(`Sitzung gespeichert: ${SITZUNG}`);
-}
-
-function ziel(page, wert) {
-    return wert.startsWith('css:') ? page.locator(wert.slice(4)).first() : page.getByText(wert, { exact: false }).first();
-}
-
-// Ausschnitt per Text: der naechste umschliessende Kasten (Karte, Tabelle, Fenster).
-async function ausschnittElement(page, wert) {
-    if (wert.startsWith('css:')) {
-        return page.locator(wert.slice(4)).first();
-    }
-    return page.getByText(wert, { exact: false }).first()
-        .locator('xpath=ancestor-or-self::*[self::table or self::section or @role="dialog" or contains(@class,"rounded-lg") or contains(@class,"rounded-xl")][1]');
 }
 
 async function aufnehmen(browser, slug, bild) {
