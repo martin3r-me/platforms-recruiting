@@ -138,7 +138,9 @@ final class DumpPseudonymTest extends TestCase
 
         preg_match_all('/^DELETE .*$/m', $sql, $m);
         $this->assertSame(
-            ["DELETE FROM core_extra_field_values WHERE fieldable_type IN ('rec_contract', 'Platform\\\\Recruiting\\\\Models\\\\RecContract');"],
+            ["DELETE FROM core_extra_field_values WHERE fieldable_type IN ('rec_contract', 'Platform\\\\Recruiting\\\\Models\\\\RecContract')"
+                . " AND definition_id IN (SELECT d.id FROM core_extra_field_definitions d WHERE d.team_id = 6"
+                . " AND d.name IN ('vertragsbeginn', 'vertragsende', 'zuschlag', 'herkunft'));"],
             $m[0]
         );
         // Reihenfolge: Zusatzfelder nach den Tabellen, vor FK=1.
@@ -206,5 +208,182 @@ final class DumpPseudonymTest extends TestCase
         [$exit, $sql] = $this->lauf('--team=6');
         $this->assertSame(1, $exit);
         $this->assertSame('', $sql);
+    }
+
+    // ----- Review 12.10.2026 -----------------------------------------------
+
+    public function test_geburtsdaten_gleich_bleibt_gleich_abstand_nicht_konstant(): void
+    {
+        $ordner = $this->kopie();
+        // Dritter MA mit einem dritten Geburtsdatum; MA 1 und 3 teilen 1990-01-15.
+        $csv = file_get_contents($ordner . '/rec_employees.csv');
+        $csv .= "4,9b1d2c3e-aaaa-4bbb-8ccc-444444444444,3,,Ottokar,Fluegelschlag,,2001-12-31,o@privat-mail.de,0170 1112223,Gasse 1,DE11120300000000202051,RG400,RG,1,,,,2026-01-04 10:00:00\n";
+        file_put_contents($ordner . '/rec_employees.csv', $csv);
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringNotContainsString('137', $sql);
+        preg_match_all("/^\('(\d+)', '00000000-[^']+', '6', (?:'\d+'|NULL), '[^']*', '[^']*', (?:'[^']*'|NULL), '(\d{4}-\d{2}-\d{2})'/m", $sql, $m, PREG_SET_ORDER);
+        $neu = [];
+        foreach ($m as $treffer) {
+            $neu[(int) $treffer[1]] = $treffer[2];
+        }
+        $this->assertCount(4, $neu, $sql);
+        $original = [1 => '1990-01-15', 2 => '1985-06-30', 3 => '1990-01-15', 4 => '2001-12-31'];
+        $this->assertSame($neu[1], $neu[3], 'gleiches Geburtsdatum bleibt gleich');
+        $abstaende = [];
+        foreach ([1, 2, 4] as $id) {
+            $this->assertNotSame($original[$id], $neu[$id]);
+            $tage = (int) (new \DateTimeImmutable($original[$id]))->diff(new \DateTimeImmutable($neu[$id]))->format('%r%a');
+            $this->assertGreaterThanOrEqual(30, abs($tage));
+            $this->assertLessThanOrEqual(330, abs($tage));
+            $abstaende[] = $tage;
+        }
+        $this->assertGreaterThan(1, count(array_unique($abstaende)), 'Abstand zum Original darf nicht konstant sein');
+        $this->assertStringContainsString('Geburtsdaten verschieden vorher: 3, nachher: 3', $meldung);
+        $this->assertStringContainsString('Geburtsdatum aus der Demo-DB ablesen', $sql);
+    }
+
+    public function test_email_im_eventnamen_bricht_ab_ohne_sql(): void
+    {
+        $ordner = $this->kopie();
+        $csv = str_replace('Messe Sommerfest', 'Messe Sommerfest erika@kunde.de',
+            file_get_contents($ordner . '/rec_dispo_events.csv'));
+        file_put_contents($ordner . '/rec_dispo_events.csv', $csv);
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(1, $exit);
+        $this->assertSame('', $sql);
+        $this->assertStringContainsString('E-Mail-Muster in Textspalte rec_dispo_events.name (id 7)', $meldung);
+        $this->assertStringNotContainsString('erika', $meldung);
+    }
+
+    public function test_fremde_telefonnummer_in_katalogspalte_bricht_ab(): void
+    {
+        $ordner = $this->kopie();
+        // Eine Nummer, die KEIN Mitarbeiter hat — die alte Pruefung kannte sie nicht.
+        $csv = str_replace('Messe GmbH', 'Messe GmbH Tel. 0211 / 456 78 90',
+            file_get_contents($ordner . '/rec_dispo_events.csv'));
+        file_put_contents($ordner . '/rec_dispo_events.csv', $csv);
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(1, $exit);
+        $this->assertSame('', $sql);
+        $this->assertStringContainsString('Telefonartige Ziffernfolge in Textspalte rec_dispo_events.einsatzfirma (id 7)', $meldung);
+        $this->assertStringNotContainsString('456', $meldung);
+    }
+
+    public function test_venue_text_kommt_nicht_mit(): void
+    {
+        $ordner = $this->kopie();
+        $csv = str_replace(',Halle 3,', ',"Treffpunkt Halle 3, Erika Kundin 0171 9998877, erika@kunde.de",',
+            file_get_contents($ordner . '/rec_dispo_events.csv'));
+        file_put_contents($ordner . '/rec_dispo_events.csv', $csv);
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        foreach (['Halle 3', 'Treffpunkt', 'Erika', '9998877', 'kunde.de'] as $echt) {
+            $this->assertStringNotContainsString($echt, $sql);
+        }
+        $this->assertStringContainsString("'E4711', 'Messe Sommerfest', NULL, 'Duesseldorf'", $sql);
+    }
+
+    public function test_zuschlag_mit_telefonform_und_unbekannte_herkunft_werden_verworfen(): void
+    {
+        $ordner = $this->kopie();
+        file_put_contents($ordner . '/contract_extra_fields.csv',
+            "fieldable_id,fieldable_type,name,value\n"
+            . "31,rec_contract,zuschlag,0151 2345678\n"
+            . "31,rec_contract,herkunft,Telefonat mit Mutter\n"
+            . "31,rec_contract,vertragsende,01.03.2026\n"
+            . "31,rec_contract,vertragsbeginn,2026-02-01\n");
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        foreach (['2345678', 'Telefonat', 'Mutter', '01.03.2026'] as $echt) {
+            $this->assertStringNotContainsString($echt, $sql);
+            $this->assertStringNotContainsString($echt, $meldung);
+        }
+        $this->assertStringContainsString('3 unerwartete Wertform', $meldung);
+        $this->assertStringContainsString('zuschlag: 1 Wert(e)', $meldung);
+        $this->assertStringContainsString('herkunft: 1 Wert(e)', $meldung);
+        $this->assertStringContainsString("d.name = 'vertragsbeginn' ORDER BY d.id LIMIT 1), 'rec_contract', 31, '2026-02-01'", $sql);
+        $this->assertStringContainsString('erwartet 1 Werte', $sql);
+    }
+
+    public function test_herkunft_akte_bleibt(): void
+    {
+        $ordner = $this->kopie();
+        file_put_contents($ordner . '/contract_extra_fields.csv',
+            "fieldable_id,fieldable_type,name,value\n31,rec_contract,herkunft,akte\n");
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringContainsString("d.name = 'herkunft' ORDER BY d.id LIMIT 1), 'rec_contract', 31, 'akte'", $sql);
+    }
+
+    public function test_art9_felder_kommen_nicht_mit(): void
+    {
+        $ordner = $this->kopie();
+        $zeilen = explode("\n", rtrim(file_get_contents($ordner . '/rec_employees.csv'), "\n"));
+        $zeilen[0] .= ',religion,marital_status,number_of_children';
+        for ($i = 1; $i < count($zeilen); $i++) {
+            $zeilen[$i] .= ',Pastafarianisch,verwitwet,7';
+        }
+        file_put_contents($ordner . '/rec_employees.csv', implode("\n", $zeilen) . "\n");
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringNotContainsString('Pastafarianisch', $sql);
+        $this->assertStringNotContainsString('verwitwet', $sql);
+        // bekannt (geleert), nicht unbekannt
+        $this->assertDoesNotMatchRegularExpression('/UNBEKANNTE SPALTEN.*religion/', $meldung);
+        $this->assertMatchesRegularExpression("/'RG', '1', 'dump-00000001', NULL, '2026-01-01 10:00:00', NULL, NULL, NULL\\)/", $sql);
+    }
+
+    public function test_backslash_quote_und_zeilenumbruch_ueberstehen_den_roundtrip(): void
+    {
+        $ordner = $this->kopie();
+        $inhalt = "ANFANG<p>O'Brien \\ C:\\pfad\\n kein Umbruch\\'x</p>\nzweite Zeile\r\ndritte ENDE";
+        $griff = fopen($ordner . '/rec_contract_templates.csv', 'w');
+        fputcsv($griff, ['id', 'uuid', 'name', 'code', 'content', 'type', 'company'], ',', '"', '');
+        fputcsv($griff, ['21', 'tpl-uuid-echt', 'Arbeitsvertrag RG', 'AV-RG', $inhalt, 'contract', 'RG'], ',', '"', '');
+        fclose($griff);
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringContainsString("SET SESSION sql_mode = REPLACE(", $sql);
+        $this->assertLessThan(strpos($sql, 'TRUNCATE'), strpos($sql, 'NO_BACKSLASH_ESCAPES'));
+        $this->assertStringNotContainsString('\\n', str_replace('\\\\n', '', $sql), 'kein \\n-Escape mehr');
+
+        $start = strpos($sql, "'ANFANG");
+        $this->assertNotFalse($start);
+        // Literal so lesen, wie MySQL es mit Backslash-Escapes tut.
+        $gelesen = '';
+        for ($i = $start + 1; ; $i++) {
+            $c = $sql[$i];
+            if ($c === '\\') {
+                $n = $sql[++$i];
+                $gelesen .= match ($n) { 'n' => "\n", 'r' => "\r", '0' => "\0", 't' => "\t", default => $n };
+            } elseif ($c === "'") {
+                if (($sql[$i + 1] ?? '') === "'") {
+                    $gelesen .= "'";
+                    $i++;
+                } else {
+                    break;
+                }
+            } else {
+                $gelesen .= $c;
+            }
+        }
+        $this->assertSame($inhalt, $gelesen);
     }
 }

@@ -35,6 +35,38 @@
  * TELEFONNUMMERN: siehe Konstante TELEFON_PRAEFIX — gueltiges Format, der
  * Schutz ist die Umgebung (keine Meta-Vorlagen auf der Demo).
  *
+ * GEBURTSDATEN (Review 12.10.2026): KEINE feste Verschiebung mehr — eine
+ * einzige bekannte Zahl haette jedes Datum zurueckrechenbar gemacht. Jedes
+ * Original-Datum bekommt seine eigene Verschiebung von 30 bis 330 Tagen,
+ * vorwaerts oder rueckwaerts, abgeleitet per HMAC-SHA256 aus dem Datum und
+ * einem Geheimnis, das bei jedem Lauf neu gewuerfelt und nirgends ausgegeben
+ * oder gespeichert wird. Gleiches Datum rein → gleiches Datum raus (innerhalb
+ * eines Laufs), die Gleichheitsgruppen bleiben also erhalten (Selbstpruefung:
+ * Zahl der verschiedenen Daten vorher = nachher). Zwei Laeufe ergeben
+ * verschiedene Daten.
+ * FOLGEN: (1) Die Anmeldung im alten Portal auf der Demo braucht das
+ * Geburtsdatum AUS DER DEMO-DB (rec_employees.birth_date ablesen) + Ausweis-
+ * Endziffern 4711 — ausrechnen laesst es sich nicht. (2) Das Alter weicht um
+ * bis zu ~11 Monate ab: Minderjaehrigen-/Altersgrenzen (U18, Jugendschutz)
+ * koennen auf der Demo anders ausfallen als auf prod — wer genau an der
+ * Grenze liegt, kann kippen. Fuer Grenz-Tests eigene Testdaten nehmen.
+ * rec_applicants hat keine Geburtsdatums-Spalte (liegt in CRM/Zusatzfeldern,
+ * die nicht mitkommen); kaeme dort eine an, waere sie unbekannt → geleert.
+ *
+ * ART.-9-/FAMILIEN-FELDER: religion, marital_status, number_of_children
+ * werden NULL. Folge: personendaten-abgleich (PersonenFelder::SPIEGELN)
+ * findet auf der Demo bei diesen drei Feldern keine Abweichungen mehr — die
+ * Zahl der Abweichungen kann deshalb unter der von prod liegen.
+ *
+ * KONTAKTDATEN IN TEXTSPALTEN: Jede uebernommene Textspalte (behalten,
+ * Kennwort, Katalog — aller Tabellen, auch die Zusatzfelder) wird auf
+ * E-Mail-Muster und telefonartige Ziffernfolgen (>= 8 Ziffern, Trenner
+ * erlaubt) geprueft. Ein Treffer ist ein FEHLER (keine SQL), nicht nur eine
+ * Warnung — auch bei fremden Nummern (Kunden, Ansprechpartner), die die
+ * Selbstpruefung sonst nicht kennt. Spalten, die per Name Datum/Zahl/
+ * Kennung sind, werden nicht geprueft; Datums-/Uhrzeit-Teile in Texten
+ * (2026-10-20, 20.10.2026, 08:00) werden vor der Pruefung ausgeblendet.
+ *
  * NICHT MITGENOMMEN: hochgeladene Dateien (Ausweiskopien, Selfies). Die
  * *_file_id-Spalten bleiben erhalten, damit die Nachweis-Logik etwas zu sehen
  * hat; die Dateien selbst liegen nicht auf der Demo. Das ist Absicht — sie
@@ -138,11 +170,17 @@ ini_set('display_errors', 'stderr');
 // auf prod. Beide Klassen sind reines PHP ohne Laravel.
 require_once __DIR__ . '/../src/Support/ZasPersonnelNumber.php';
 require_once __DIR__ . '/../src/Services/Zas/Dispo/ZasDispoMatcher.php';
+// Nur fuer die Konstante AKTE (gueltige Werte des Zusatzfelds herkunft);
+// die Methoden der Klasse werden hier nicht aufgerufen.
+require_once __DIR__ . '/../src/Support/VertragsHerkunft.php';
 
 use Platform\Recruiting\Services\Zas\Dispo\ZasDispoMatcher;
+use Platform\Recruiting\Support\VertragsHerkunft;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
-const GEBURTSTAG_VERSCHIEBUNG = 137;      // Tage; Gleichheit bleibt, Identitaet geht
+// Geburtsdaten: Verschiebung je Original-Datum (siehe Kopf und geburtsdatum()).
+const GEBURTSTAG_MIN_TAGE     = 30;
+const GEBURTSTAG_MAX_TAGE     = 330;
 const AUSWEIS_EINHEITLICH     = 'L01X00T4711';  // Anmeldung: Geburtsdatum + 4711
 const PERSONALNUMMER_PRAEFIX  = 'DUMP-';
 // 30.09.2026 berichtigt: der alte Praefix '+49000' war zwar nicht waehlbar,
@@ -185,11 +223,19 @@ const ERSATZ_NUMMERN_BASIS = 9000000;
 // wird zu 1000000000 + Ersatz(kurze Nummer). Dann ist die gekuerzte Form des
 // Ersatzes wieder der Ersatz der gekuerzten Form.
 const KUERZUNGS_SCHWELLE = 1000000000;
-// Platzhalter fuer unbesetzte Plaetze in der Dispo (RG0, RG14 — RG14 trifft
-// auf prod sogar einen echten Mitarbeiter). Bleiben, wie sie sind; ihre
-// Ziffern sind deshalb auch in der Mitarbeiter-Karte Fixpunkte, sonst traefe
-// RG14 auf der Demo jemand anderen als auf prod. Eine nackte 0 oder 14 sagt
-// ueber niemanden etwas.
+// Platzhalter fuer unbesetzte Plaetze in der Dispo (RG0, RG14). Bleiben, wie
+// sie sind; ihre Ziffern sind deshalb auch in der Mitarbeiter-Karte
+// Fixpunkte, sonst traefe RG14 auf der Demo jemand anderen als auf prod.
+//
+// BEWUSST (Review 12.10.2026): 14 ist auf prod AUCH die echte Nummer eines
+// Mitarbeiters (RG14/MA14 trifft dort eine reale Person). Sie bleibt trotzdem
+// stehen, weil ZAS "RG14" als Platzhalter fuer unbesetzte Plaetze benutzt —
+// die Dispo-Logik (Abgleich, Zaehlung offener Plaetze) haengt an genau dieser
+// Zeichenfolge, und mit einer Ersatzziffer wuerde die Generalprobe die
+// Platzhalter-Semantik nicht mehr pruefen. Was dadurch durchsickert, ist nur
+// "die Anstellung mit dieser Kennung traegt Personalnummer 14" — Name,
+// Kontakt, Geburtsdatum usw. dieser Zeile werden wie bei allen anderen
+// ersetzt. Eine nackte 0 oder 14 sagt fuer sich ueber niemanden etwas.
 const PLATZHALTER   = ['RG0', 'RG14'];
 const FESTE_ZIFFERN = ['0', '14'];
 
@@ -206,7 +252,11 @@ const BEHALTEN = [
     'id', 'is_active', 'company', 'employment_type',
     'employment_classification', 'art_der_tatigkeit', 'umfang_der_tatigkeit',
     'is_eu_citizen', 'nationality', 'birth_country',
-    'gender', 'marital_status', 'religion', 'number_of_children', 'tax_class',
+    // religion, marital_status, number_of_children stehen bewusst NICHT hier
+    // (Art. 9 DSGVO bzw. Familienverhaeltnisse, Review 12.10.2026) — sie
+    // stehen in LEEREN. Kein Kommando der Generalprobe braucht sie;
+    // personendaten-abgleich vergleicht sie nur (siehe Kopf).
+    'gender', 'tax_class',
     'health_insurance', 'is_main_employer',
     'shirt_size', 'pants_size', 'shoe_size', 'has_car', 'drivers_license_class',
     'is_first_aider', 'is_safety_officer',
@@ -262,6 +312,8 @@ const LEEREN = [
     'rec_position_id', 'rec_zas_inbound_file_id',
     'created_by_user_id', 'zas_id',
     'payroll_data_changed_at', 'payroll_data_changed_fields',
+    // Art. 9 / Familie — siehe BEHALTEN.
+    'religion', 'marital_status', 'number_of_children',
 ];
 
 // ---------------------------------------------------------------------------
@@ -314,12 +366,12 @@ const TABELLEN = [
         'katalog'  => ['qualifications', 'dispo_taetigkeiten', 'linen_package_items'],
     ],
     // Veranstaltungen sind Kunden-/Eventdaten: Name, Ort, Zeitraum bleiben.
-    // Freitexte (Anfahrt, Dresscode, Hinweis) koennen Ansprechpartner samt
+    // Freitexte (Anfahrt, Dresscode, Hinweis, Treffpunkt) koennen Ansprechpartner samt
     // Handynummer tragen — die Generalprobe braucht sie nicht, also weg.
     // source_meta ist die rohe ZAS-Zeile (mitarbeiter_info, interne_bem).
     'rec_dispo_events' => [
         'behalten' => [
-            'id', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma',
+            'id', 'einsatz_ref', 'name', 'ort', 'einsatzfirma',
             'starts_on', 'ends_on', 'created_at', 'updated_at', 'vorlauf_minuten',
             'filiale', 'filial_nr', 'escalation_day', 'escalation_time_1',
             'escalation_time_2', 'escalation_time_3', 'escalation_date',
@@ -327,10 +379,12 @@ const TABELLEN = [
         ],
         'kennwort' => [],
         'ersetzen' => ['uuid'],
+        // venue_text (Review 12.10.2026): Freitext "Ort/Treffpunkt", in dem
+        // auf prod Ansprechpartner samt Handynummer und E-Mail stehen.
         'leeren'   => ['anfahrt', 'dresscode', 'hinweis', 'dresscode_ack', 'source_meta',
-                       'ansprechpartner', 'alarm_message_id'],
+                       'ansprechpartner', 'alarm_message_id', 'venue_text'],
         'pflicht'  => ['einsatz_ref' => ''],
-        'katalog'  => ['name', 'venue_text', 'ort', 'einsatzfirma', 'filiale'],
+        'katalog'  => ['name', 'ort', 'einsatzfirma', 'filiale'],
     ],
     // Einsaetze: Datum, Zeiten, Status, Taetigkeit und alle Zustands-
     // Zeitstempel (sonst schickt der Trigger auf der Demo alles noch einmal
@@ -462,13 +516,38 @@ const REIHENFOLGE = [
 // Vertrags-Zusatzfelder
 // ---------------------------------------------------------------------------
 
-/** Nur diese vier; Wertform je Feld — passt ein Wert nicht, wird er verworfen und gemeldet. */
+/**
+ * Nur diese vier; Wertform je Feld, STRENG (Review 12.10.2026) — passt ein
+ * Wert nicht, wird er verworfen und je Feld gemeldet (nie der Wert selbst).
+ * Frueher liess zuschlag Leerzeichen und 20 Zeichen zu — "0151 2345678" kam
+ * durch. Datum nur Y-m-d (so schreibt die App), Zuschlag nur ein Betrag,
+ * herkunft nur die Werte, die VertragsHerkunft kennt.
+ */
 const ZUSATZFELDER = [
-    'vertragsbeginn' => '/^(\d{4}-\d{2}-\d{2}([ T][\d:.]+)?|\d{1,2}\.\d{1,2}\.\d{4})$/',
-    'vertragsende'   => '/^(\d{4}-\d{2}-\d{2}([ T][\d:.]+)?|\d{1,2}\.\d{1,2}\.\d{4})$/',
-    'zuschlag'       => '/^[\d.,\s€]{0,20}$/u',
-    'herkunft'       => '/^[a-z_]{1,30}$/',
+    'vertragsbeginn' => '/^\d{4}-\d{2}-\d{2}$/',
+    'vertragsende'   => '/^\d{4}-\d{2}-\d{2}$/',
+    'zuschlag'       => '/^\d{1,4}([.,]\d{1,2})?$/',
+    'herkunft'       => null,   // feste Liste, siehe HERKUNFT_WERTE
 ];
+const HERKUNFT_WERTE = [VertragsHerkunft::AKTE];
+
+/** Passt der Wert in die Form des Zusatzfelds? */
+function zusatzWertGueltig(string $name, string $wert): bool
+{
+    if ($name === 'herkunft') {
+        return in_array($wert, HERKUNFT_WERTE, true);
+    }
+    if (!preg_match(ZUSATZFELDER[$name], $wert)) {
+        return false;
+    }
+    if ($name === 'vertragsbeginn' || $name === 'vertragsende') {
+        [$j, $m, $t] = array_map('intval', explode('-', $wert));
+
+        return checkdate($m, $t, $j);
+    }
+
+    return true;
+}
 // Beide Formen, in denen fieldable_type auf prod steht: der Morph-Alias
 // (RecruitingServiceProvider, so schreibt die App heute) und der volle
 // Klassenname (aeltere Zeilen; auch context_type der Definitionen, so legt
@@ -492,7 +571,7 @@ $nachnamen = ['Adler','Bergmann','Clemens','Dohmen','Ebert','Faber','Gerlach','H
 const ORTE = ['Musterstadt','Beispielheim','Testdorf','Probstadt'];
 
 $karten = ['vorname' => [], 'nachname' => [], 'telefon' => [], 'ort' => [],
-           'pnr' => [], 'pnr_unbekannt' => []];
+           'pnr' => [], 'pnr_unbekannt' => [], 'geburt' => [], 'geburt_belegt' => []];
 
 /**
  * Eindeutig zuordnende Ersetzung: gleicher Wert rein -> gleicher Wert raus,
@@ -631,6 +710,61 @@ function einsatzNummer(?string $wert, array &$karten): ?string
     return $teile[0] . ersatzZiffern($teile[1], $karten['pnr']);
 }
 
+/**
+ * Geheimnis fuer die Geburtsdatums-Verschiebung: bei jedem Lauf neu, lebt nur
+ * im Speicher dieses Prozesses, wird nie ausgegeben oder gespeichert.
+ */
+function geheimnis(): string
+{
+    static $geheimnis = null;
+
+    return $geheimnis ??= random_bytes(32);
+}
+
+/**
+ * Geburtsdatum: je ORIGINAL-Datum eine eigene Verschiebung von
+ * GEBURTSTAG_MIN_TAGE..GEBURTSTAG_MAX_TAGE Tagen, Richtung nach einem Bit —
+ * beides aus HMAC-SHA256(Datum, Geheimnis). Gleiches Datum → gleiches Datum
+ * (Karte). Traefe ein Ersatz zufaellig schon ein ANDERES Original, wuerden
+ * zwei Gruppen verschmelzen → neuer Versuch mit Zaehler im HMAC.
+ * Nicht lesbare Werte werden NULL (nie das Original durchreichen).
+ */
+function geburtsdatum(?string $wert, array &$karte, array &$belegt): ?string
+{
+    $original = normiertesDatum($wert);
+    if ($original === null) {
+        return null;
+    }
+    if (isset($karte[$original])) {
+        return $karte[$original];
+    }
+
+    $spanne = GEBURTSTAG_MAX_TAGE - GEBURTSTAG_MIN_TAGE + 1;
+    for ($versuch = 0; $versuch < 1000; $versuch++) {
+        $h = hash_hmac('sha256', $original . '|' . $versuch, geheimnis(), true);
+        $tage = GEBURTSTAG_MIN_TAGE + (unpack('N', substr($h, 0, 4))[1] % $spanne);
+        $richtung = (ord($h[4]) & 1) === 1 ? '-' : '+';
+        $neu = (new DateTimeImmutable($original))->modify("{$richtung}{$tage} days")->format('Y-m-d');
+        if (!isset($belegt[$neu])) {
+            $belegt[$neu] = true;
+
+            return $karte[$original] = $neu;
+        }
+    }
+
+    throw new RuntimeException('Geburtsdatum: kein freier Ersatz gefunden');
+}
+
+/** 'Y-m-d' (auch mit Uhrzeit dahinter) → 'Y-m-d'; alles andere → null. */
+function normiertesDatum(?string $wert): ?string
+{
+    if ($wert === null || !preg_match('/^(\d{4})-(\d{2})-(\d{2})/', trim($wert), $m)) {
+        return null;
+    }
+
+    return checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? "{$m[1]}-{$m[2]}-{$m[3]}" : null;
+}
+
 /** Deterministische Ersatz-UUID; je Tabelle eindeutig, weil die id es ist. */
 function ersatzUuid(int $id): string
 {
@@ -642,7 +776,14 @@ function leer($wert): bool
     return $wert === null || trim((string) $wert) === '';
 }
 
-/** Anfuehrungszeichen fuer SQL, ohne dass eine Datenbankverbindung noetig waere. */
+/**
+ * Anfuehrungszeichen fuer SQL, ohne dass eine Datenbankverbindung noetig waere.
+ * Backslash wird verdoppelt, das Anfuehrungszeichen verdoppelt. Zeilenumbrueche
+ * bleiben WOERTLICH stehen (Review 12.10.2026) — in MySQL-Strings erlaubt, und
+ * ein "\n" als Escape waere unter NO_BACKSLASH_ESCAPES als zwei Zeichen
+ * angekommen. Damit das Verdoppeln des Backslash stimmt, schaltet der Kopf
+ * der SQL NO_BACKSLASH_ESCAPES fuer die Sitzung ab (siehe SQL_MODUS).
+ */
 function sqlWert(?string $wert): string
 {
     if ($wert === null) {
@@ -650,11 +791,14 @@ function sqlWert(?string $wert): string
     }
 
     return "'" . str_replace(
-        ['\\', "'", "\n", "\r", "\0", "\x1a"],
-        ['\\\\', "''", '\\n', '\\r', '', ''],
+        ['\\', "'", "\0", "\x1a"],
+        ['\\\\', "''", '', ''],
         $wert
     ) . "'";
 }
+
+/** Erste Zeile nach dem Kopf: Backslash-Escaping gilt sicher, egal wie der Server eingestellt ist. */
+const SQL_MODUS = "SET SESSION sql_mode = REPLACE(REPLACE(REPLACE(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES', ''), 'NO_BACKSLASH_ESCAPES,', ''), 'NO_BACKSLASH_ESCAPES', '');";
 
 /**
  * CSV mit Kopfzeile lesen. Zeilen mit falscher Feldzahl werden uebersprungen
@@ -799,8 +943,7 @@ function ersetze(string $tabelle, string $spalte, $wert, array $zeile, array &$k
         'first_name'    => leer($wert) ? $wert : ausPool((string) $wert, $vornamen, $karten['vorname']),
         'last_name'     => leer($wert) ? $wert : ausPool((string) $wert, $nachnamen, $karten['nachname']),
         'birth_name'    => leer($wert) ? $wert : ausPool((string) $wert, $nachnamen, $karten['nachname']),
-        'birth_date'    => $wert === null ? null
-                             : date('Y-m-d', strtotime((string) $wert . ' +' . GEBURTSTAG_VERSCHIEBUNG . ' days')),
+        'birth_date'    => geburtsdatum($wert, $karten['geburt'], $karten['geburt_belegt']),
         'birth_place'   => leer($wert) ? $wert : ausPool((string) $wert, ORTE, $karten['ort']),
         'phone'         => telefon($wert, $karten['telefon']),
         'email'         => leer($wert) ? $wert : "demo{$id}@example.invalid",
@@ -825,6 +968,54 @@ function ersetze(string $tabelle, string $spalte, $wert, array $zeile, array &$k
         'rec_applicant_id'           => $mitBewerbern ? $wert : null,
         default                      => null,
     };
+}
+
+// Kontaktmuster fuer die Selbstpruefung (Review 12.10.2026).
+const MUSTER_EMAIL   = '/[^\s@]+@[^\s@]+\.[a-z]{2,}/i';
+const MUSTER_TELEFON = '/\+?\d[\d\s\/().-]{7,}\d/';
+
+/**
+ * Spalten, die per NAME Datum, Zeit, Zahl, Kennung oder Ersatzwert sind —
+ * dort waere ein Ziffernmuster kein Telefon. uuid/person_key: UUIDs haben
+ * lange Ziffernlaeufe mit Bindestrichen.
+ */
+function istNichtText(string $spalte): bool
+{
+    return in_array($spalte, ['id', 'uuid', 'person_key', 'team_id', 'datum', 'von', 'bis',
+            'ds_ref', 'einsatz_ref', 'progress', 'sort_order', 'star_rating', 'vorlauf_minuten',
+            'filial_nr', 'escalation_day'], true)
+        || preg_match('/(_id|_at|_on|_date|_since|_until|_year|_datum|_von|_bis|_minuten)$/', $spalte) === 1
+        || preg_match('/^(is_|has_|rating_|short_term_days_|escalation_time_|requires_|declined_portal_locked)/', $spalte) === 1;
+}
+
+/**
+ * Textspalten einer Tabelle, die UNVERAENDERT aus prod kommen (behalten,
+ * Kennwort, Katalog) — nur dort kann ein fremder Kontakt durchrutschen. Bei
+ * den Zusatzfeldern alle vier.
+ *
+ * @return list<string>
+ */
+function textSpalten(string $tabelle): array
+{
+    if ($tabelle === 'core_extra_field_values') {
+        return array_keys(ZUSATZFELDER);
+    }
+    $r = TABELLEN[$tabelle];
+
+    return array_values(array_filter(
+        array_unique(array_merge($r['behalten'], $r['kennwort'], $r['katalog'])),
+        fn ($s) => !istNichtText($s)
+    ));
+}
+
+/** Datums- und Uhrzeit-Teile ausblenden, bevor auf Telefonmuster geprueft wird. */
+function ohneDatumUndZeit(string $w): string
+{
+    return preg_replace([
+        '/\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?/',
+        '/\b\d{1,2}\.\d{1,2}\.\d{2,4}\b/',
+        '/\b\d{1,2}:\d{2}(?::\d{2})?\b/',
+    ], ' D ', $w);
 }
 
 /** Kennwort: Code-artiger Wert (status, reason …), kein Freitext. */
@@ -899,6 +1090,8 @@ foreach (REIHENFOLGE as $tabelle) {
 // ----- Zusatzfelder -----
 $zusatz = [];
 $zusatzVerworfen = ['fremdes_feld' => 0, 'fremder_typ' => 0, 'wertform' => 0, 'ohne_vertrag' => 0];
+/** @var array<string,int> $zusatzWertformJeFeld verworfene Werte je Feldname (nie der Wert) */
+$zusatzWertformJeFeld = [];
 if ($zusatzQuelle !== null) {
     [$zSpalten, $zZeilen, $zKaputt] = $zusatzQuelle;
     foreach (['fieldable_id', 'name', 'value'] as $pflichtSpalte) {
@@ -925,8 +1118,9 @@ if ($zusatzQuelle !== null) {
             $zusatzVerworfen['fremder_typ']++;
             continue;
         }
-        if ($wert !== null && !preg_match(ZUSATZFELDER[$name], $wert)) {
+        if ($wert !== null && !zusatzWertGueltig($name, $wert)) {
             $zusatzVerworfen['wertform']++;
+            $zusatzWertformJeFeld[$name] = ($zusatzWertformJeFeld[$name] ?? 0) + 1;
             continue;
         }
         if (!ctype_digit((string) $z['fieldable_id'])) {
@@ -991,6 +1185,26 @@ if ($vorherPaare !== $nachherPaare) {
     $fehler[] = 'Die Zahl der geteilten Nummern hat sich veraendert — die Ersetzung ist nicht eindeutig zuordnend.';
 }
 
+// --- 2b. Geburtsdatums-Gruppen: verschiedene Daten vorher = nachher ---
+$geburtVorher = [];
+$geburtNachher = [];
+foreach ($mitarbeiter as $i => $z) {
+    $d = normiertesDatum($z['birth_date'] ?? null);
+    if ($d !== null) {
+        $geburtVorher[$d] = true;
+        $geburtNachher[(string) ($mitarbeiterNeu[$i]['birth_date'] ?? '')] = true;
+    }
+}
+if (count($geburtVorher) !== count($geburtNachher)) {
+    $fehler[] = 'Die Zahl der verschiedenen Geburtsdaten hat sich veraendert — Gruppen verschmolzen oder zerfallen.';
+}
+foreach ($mitarbeiter as $i => $z) {
+    $d = normiertesDatum($z['birth_date'] ?? null);
+    if ($d !== null && ($mitarbeiterNeu[$i]['birth_date'] ?? null) === $d) {
+        $fehler[] = "Geburtsdatum nicht verschoben (rec_employees id {$z['id']})";
+    }
+}
+
 // --- 3. Echte Werte, die nirgends mehr auftauchen duerfen ---
 // Namen: Woerter (Buchstabenfolgen) ab 4 Zeichen aus Vor-, Nach- und
 // Geburtsnamen. rec_applicants hat keine Namensspalten (Namen liegen in CRM
@@ -1039,9 +1253,18 @@ foreach ($quellen['rec_dispo_assignments'][1] ?? [] as $z) {
     }
 }
 
+// Die Zusatzfeld-Werte laufen durch dieselbe Pruefung (Namen, Telefon,
+// E-Mail, IBAN, Kontaktmuster) — als Schein-Tabelle, id = Vertrags-id.
+$geprueft = $ergebnis;
+if ($zusatz !== []) {
+    $geprueft['core_extra_field_values'] = ['werte' => array_map(
+        fn ($z) => ['id' => $z['id'], $z['name'] => $z['wert']], $zusatz)];
+}
+
 $katalogTreffer = [];
-foreach ($ergebnis as $tabelle => $e) {
-    $katalog = TABELLEN[$tabelle]['katalog'];
+foreach ($geprueft as $tabelle => $e) {
+    $katalog = TABELLEN[$tabelle]['katalog'] ?? [];
+    $textSpalten = textSpalten($tabelle);
     foreach ($e['werte'] as $z) {
         foreach ($z as $spalte => $w) {
             if ($w === null || $w === '') {
@@ -1094,6 +1317,17 @@ foreach ($ergebnis as $tabelle => $e) {
                     if (isset($echteIban[preg_replace('/\s+/', '', $iban)])) {
                         $fehler[] = "Echte IBAN in {$ort}";
                     }
+                }
+            }
+
+            // Kontaktdaten ueberhaupt (auch fremde: Kunden, Ansprechpartner)
+            // in uebernommenen Textspalten → FEHLER. Nur Tabelle.Spalte + id.
+            if (in_array($spalte, $textSpalten, true)) {
+                if (preg_match(MUSTER_EMAIL, $w)) {
+                    $fehler[] = "E-Mail-Muster in Textspalte {$ort}";
+                }
+                if (preg_match(MUSTER_TELEFON, ohneDatumUndZeit($w))) {
+                    $fehler[] = "Telefonartige Ziffernfolge in Textspalte {$ort}";
                 }
             }
         }
@@ -1199,6 +1433,9 @@ if ($zusatzQuelle !== null) {
     fwrite(STDERR, sprintf("%-24s %6d Werte uebernommen; verworfen: %d fremdes Feld, %d fremder Typ, %d unerwartete Wertform, %d ohne exportierten Vertrag\n",
         'contract_extra_fields', count($zusatz), $zusatzVerworfen['fremdes_feld'], $zusatzVerworfen['fremder_typ'],
         $zusatzVerworfen['wertform'], $zusatzVerworfen['ohne_vertrag']));
+    foreach ($zusatzWertformJeFeld as $feld => $n) {
+        fwrite(STDERR, "   !! {$feld}: {$n} Wert(e) mit unerwarteter Form verworfen (Wert wird nicht genannt)\n");
+    }
 }
 if (array_filter(array_column($ergebnis, 'unbekannt')) !== []) {
     fwrite(STDERR, "   Pruef, ob eine unbekannte Spalte fuer den Test gebraucht wird, und trag sie\n");
@@ -1211,6 +1448,7 @@ if (!$mitBewerbern) {
 fwrite(STDERR, "\n--- Selbstpruefung ---\n");
 fwrite(STDERR, sprintf("Nummerngruppen vorher: %d, nachher: %d %s\n",
     $vorherPaare, $nachherPaare, $vorherPaare === $nachherPaare ? '(gleich, gut)' : '!! WEICHT AB'));
+fwrite(STDERR, sprintf("Geburtsdaten verschieden vorher: %d, nachher: %d\n", count($geburtVorher), count($geburtNachher)));
 fwrite(STDERR, sprintf("Namenswoerter geprueft: %d (%d stehen selbst im Ersatz-Pool und sind ausgenommen)\n",
     count($echteNamen), $poolGleich));
 if ($einsatzStatistik !== null) {
@@ -1238,11 +1476,12 @@ if ($fehler !== []) {
 
 echo "-- Pseudonymisierter Bestands-Dump, erzeugt am " . date('Y-m-d H:i') . "\n";
 echo "-- Tabellen: " . implode(', ', array_keys($ergebnis)) . ($zusatzQuelle !== null ? ', Vertrags-Zusatzfelder' : '') . "\n";
-echo "-- Geburtsdaten sind um " . GEBURTSTAG_VERSCHIEBUNG . " Tage verschoben.\n";
-echo "-- Anmeldung im alten Portal: Token dump-<id>, verschobenes Geburtsdatum + Ausweis-Endziffern 4711\n";
+echo "-- Geburtsdaten sind je Datum unterschiedlich verschoben (nicht rueckrechenbar).\n";
+echo "-- Anmeldung im alten Portal: Token dump-<id>, Geburtsdatum aus der Demo-DB ablesen + Ausweis-Endziffern 4711\n";
 echo "-- Telefonnummern liegen im Bereich " . TELEFON_PRAEFIX . " (gueltiges Format! Demo ohne Meta-Vorlagen lassen).\n";
 echo "-- Personalnummern: Firmen-Praefix echt, Ziffern ab " . ERSATZ_NUMMERN_BASIS . "; " . implode('/', PLATZHALTER) . " unveraendert.\n";
 echo "-- Alle Datensaetze haengen an Mandant " . $zielTeam . ".\n\n";
+echo SQL_MODUS . "\n";
 echo "SET FOREIGN_KEY_CHECKS = 0;\n\n";
 
 foreach ($ergebnis as $tabelle => $e) {
@@ -1273,7 +1512,11 @@ if ($zusatzQuelle !== null) {
     echo "-- Bricht das INSERT mit \"Column 'definition_id' cannot be null\" ab, fehlen die\n";
     echo "-- Definitionen: php artisan recruiting:seed-rec-contract-extra-fields, dann die\n";
     echo "-- ganze Datei noch einmal einspielen (sie ist wiederholbar).\n";
-    echo "DELETE FROM core_extra_field_values WHERE fieldable_type IN ({$typen});\n\n";
+    // Nur die Werte der vier Felder des Zielteams — nicht alles, was an
+    // irgendeinem Vertrag haengt (andere Felder/Teams bleiben unberuehrt).
+    $namen = implode(', ', array_map('sqlWert', array_keys(ZUSATZFELDER)));
+    echo "DELETE FROM core_extra_field_values WHERE fieldable_type IN ({$typen})"
+        . " AND definition_id IN (SELECT d.id FROM core_extra_field_definitions d WHERE d.team_id = {$zielTeam} AND d.name IN ({$namen}));\n\n";
     // Je Zeile eine Unterabfrage statt einer abgeleiteten Tabelle aus
     // Literalen: so wird der Name direkt gegen die Spalte verglichen und
     // uebernimmt deren Kollation — eine abgeleitete Tabelle kann auf MySQL 8
