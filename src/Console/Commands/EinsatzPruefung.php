@@ -19,6 +19,7 @@ use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
 use Platform\Recruiting\Support\Bote;
 use Platform\Recruiting\Support\EinsatzBezug;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\TriggerRegeln;
 use Platform\Recruiting\Support\VertragsDeckung;
 use Platform\Recruiting\Support\VertragsVorbelegung;
@@ -322,7 +323,10 @@ class EinsatzPruefung extends Command
             $dryRun ? ' · TROCKENLAUF' : '',
         ));
 
-        $gruppen = $this->gruppen($this->kandidaten($teamId, $ids, $heute));
+        // Task 6: der Team-Schalter, VOR jedem Pfad, der schreibt (HR-Faelle,
+        // Signatur-Raeumen, Vertragspruefung, Versand). --ids hat keine
+        // Hintertuer; nur der Trockenlauf sieht durch den Schalter hindurch.
+        $gruppen = $this->gruppen($this->nurEingeschalteteTeams($this->kandidaten($teamId, $ids, $heute), $dryRun));
 
         $z = [
             'menschen'        => count($gruppen),
@@ -759,6 +763,58 @@ class EinsatzPruefung extends Command
             });
 
         return $gruppen;
+    }
+
+    /**
+     * Der Team-Schalter einsatz_pruefung_aktiv (Vorgabe aus). Im scharfen
+     * Lauf fallen die Kandidaten ausgeschalteter Teams heraus, bevor
+     * irgendetwas geschrieben wird; der Trockenlauf behaelt sie (er soll die
+     * Zahlen zeigen, BEVOR jemand einschaltet) und sagt nur dazu, dass der
+     * scharfe Lauf sie ueberspringen wuerde. Gelesen wird OHNE
+     * getOrCreateForTeam() — eine Pruefung legt keine Zeilen an.
+     *
+     * @param  list<int>  $kandidaten
+     * @return list<int>
+     */
+    private function nurEingeschalteteTeams(array $kandidaten, bool $dryRun): array
+    {
+        if ($kandidaten === []) {
+            return [];
+        }
+
+        /** @var array<int, int> $teamJeId */
+        $teamJeId = [];
+        foreach (array_chunk($kandidaten, 500) as $stueck) {
+            foreach (DB::table('rec_employees')->whereIn('id', $stueck)->pluck('team_id', 'id') as $id => $team) {
+                $teamJeId[(int) $id] = (int) $team;
+            }
+        }
+
+        $teams = array_values(array_unique($teamJeId));
+        sort($teams);
+
+        $aus = [];
+        foreach ($teams as $team) {
+            if (PortalVorlagen::einsatzPruefungAktivOhneAnlage($team)) {
+                continue;
+            }
+            $aus[$team] = true;
+
+            if ($dryRun) {
+                $this->line(sprintf('Team %d: Schalter aus — im scharfen Lauf uebersprungen', $team));
+            } else {
+                $this->warn(sprintf('Team %d: Einsatz-Pruefung ist aus (%s) — uebersprungen', $team, PortalVorlagen::ORT));
+            }
+        }
+
+        if ($dryRun || $aus === []) {
+            return $kandidaten;
+        }
+
+        return array_values(array_filter(
+            $kandidaten,
+            static fn (int $id) => isset($teamJeId[$id]) && !isset($aus[$teamJeId[$id]]),
+        ));
     }
 
     /** @return list<int>|null */

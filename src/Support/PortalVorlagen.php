@@ -94,8 +94,23 @@ final class PortalVorlagen
     /** Team-Schalter Einsatz-Pruefung, strikt bool ('false'/'0' duerfen nicht per (bool)-Cast zu true werden). */
     public static function einsatzPruefungAktiv(int $teamId): bool
     {
-        $wert = RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting(self::EINSATZ_PRUEFUNG_AKTIV);
+        return self::istAn(RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting(self::EINSATZ_PRUEFUNG_AKTIV));
+    }
 
+    /**
+     * Derselbe Schalter, aber OHNE eine Einstellungszeile anzulegen — fuer
+     * recruiting:einsatz-pruefung, dessen Trockenlauf verspricht, nichts zu
+     * schreiben. Keine Zeile = Vorgabe = aus.
+     */
+    public static function einsatzPruefungAktivOhneAnlage(int $teamId): bool
+    {
+        $zeile = RecApplicantSettings::query()->where('team_id', $teamId)->first();
+
+        return $zeile !== null && self::istAn($zeile->getSetting(self::EINSATZ_PRUEFUNG_AKTIV));
+    }
+
+    private static function istAn(mixed $wert): bool
+    {
         return $wert === true || $wert === 1
             || in_array(is_string($wert) ? strtolower(trim($wert)) : $wert, ['1', 'true', 'on'], true);
     }

@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Console\Commands\EinsatzPruefung;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
@@ -108,6 +109,12 @@ final class EinsatzPruefungTest extends TestCase
         Facade::clearResolvedInstances();
 
         $this->schemaBauen();
+
+        // Task 6: der Team-Schalter ist per Vorgabe AUS. Die Tests dieser
+        // Klasse pruefen die Regeln bei eingeschaltetem Schalter — fuer
+        // beide Teams, die hier vorkommen.
+        $this->schalter(self::TEAM, true);
+        $this->schalter(self::TEAM + 1, true);
 
         $this->sender = $this->senderAttrappe();
         $container->instance(AufgabenSender::class, $this->sender);
@@ -1804,6 +1811,128 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     // =================================================================
+    // Task 6: der Team-Schalter einsatz_pruefung_aktiv (Vorgabe aus)
+    // =================================================================
+
+    private const ZEILE_AUS = 'Team 3: Einsatz-Pruefung ist aus (Einstellungen → Kommunikation → Mitarbeiterportal) — uebersprungen';
+
+    private const ZEILE_TROCKEN = 'Team 3: Schalter aus — im scharfen Lauf uebersprungen';
+
+    public function test_schalter_aus_kein_hr_fall_kein_versand_und_eine_berichtszeile(): void
+    {
+        $this->schalter(self::TEAM, false);
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(0, RecHrDeskCase::query()->count(), 'kein HR-Fall fuer ein ausgeschaltetes Team');
+        $this->assertSame([], $this->sender->versandt);
+        $this->assertNull($this->person($ma)->aufgaben_signatur);
+        $this->assertNull($this->person($ma)->aufgaben_gemeldet_at);
+        $this->assertSame(1, substr_count($this->letzteAusgabe, self::ZEILE_AUS));
+        $this->assertStringContainsString('Geprueft: 0 Mensch(en)', $this->letzteAusgabe);
+    }
+
+    public function test_ohne_einstellungszeile_ist_der_schalter_aus_und_es_entsteht_keine_zeile(): void
+    {
+        DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->delete();
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+        $this->assertSame([], $this->sender->versandt);
+        $this->assertStringContainsString(self::ZEILE_AUS, $this->ausgabe);
+        $this->assertStringContainsString(self::ZEILE_TROCKEN, $this->letzteAusgabe);
+        $this->assertSame(0, DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->count(),
+            'die Pruefung legt keine Einstellungszeile an');
+    }
+
+    public function test_schalter_aus_raeumt_keine_signatur(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-01-20', 'status_id' => 1]);
+        $this->laufe('2026-01-01');
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur, 'Vorflug');
+
+        $this->alleNachweiseErbringen($ma, '2026-01-30', '2026-07-19');
+        $this->schalter(self::TEAM, false);
+        $this->laufe('2026-01-30');
+
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur, 'ausgeschaltet heisst: nichts schreiben');
+    }
+
+    public function test_schalter_aus_mit_dry_run_zeigt_dieselben_zahlen_wie_an(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->mehrereMitAuftrag(2);
+
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+        $an = $this->letzteAusgabe;
+
+        $this->schalter(self::TEAM, false);
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+        $aus = $this->letzteAusgabe;
+
+        $this->assertStringNotContainsString(self::ZEILE_TROCKEN, $an);
+        $this->assertSame(1, substr_count($aus, self::ZEILE_TROCKEN));
+        $this->assertStringNotContainsString(self::ZEILE_AUS, $aus);
+        $this->assertSame($an, str_replace(self::ZEILE_TROCKEN."\n", '', $aus), 'der Trockenlauf ignoriert den Schalter');
+        $this->assertStringContainsString('Geprueft: 3 Mensch(en)', $aus);
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+    }
+
+    public function test_schalter_aus_gilt_auch_fuer_ids(): void
+    {
+        $this->schalter(self::TEAM, false);
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01', ['--welle' => 10, '--ids' => (string) $ma->id]);
+
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+        $this->assertSame([], $this->sender->versandt);
+        $this->assertStringContainsString(self::ZEILE_AUS, $this->letzteAusgabe);
+    }
+
+    /** Review Focus 3: Team A an, Team B aus — ein Lauf ohne --team bearbeitet nur A. */
+    public function test_zwei_teams_nur_das_eingeschaltete_wird_bearbeitet(): void
+    {
+        $this->schalter(self::TEAM + 1, false);
+        $meiner  = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $fremder = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'team_id' => self::TEAM + 1]);
+        $this->einbuchung($meiner, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->einbuchung($fremder, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01', ['--welle' => 10]);
+
+        $faelle = RecHrDeskCase::query()->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->all();
+        $this->assertSame([$meiner->id], $faelle);
+        $this->assertSame([$meiner->id], array_column($this->sender->versandt, 'ma'));
+        $this->assertStringContainsString(
+            'Team 4: Einsatz-Pruefung ist aus (Einstellungen → Kommunikation → Mitarbeiterportal) — uebersprungen',
+            $this->letzteAusgabe,
+        );
+        $this->assertStringNotContainsString(self::ZEILE_AUS, $this->letzteAusgabe);
+    }
+
+    public function test_der_zeitplan_kommentar_nennt_den_schalter(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2).'/src/RecruitingServiceProvider.php');
+        $anfang = strpos($quelle, '// DER EINSATZ-TRIGGER.');
+        $ende = strpos($quelle, "Schedule::command('recruiting:einsatz-pruefung'");
+        $this->assertNotFalse($anfang);
+        $kommentar = substr($quelle, $anfang, $ende - $anfang);
+
+        $this->assertStringContainsString('einsatz_pruefung_aktiv', $kommentar);
+        $this->assertStringContainsString('No-op', $kommentar);
+    }
+
+    // =================================================================
     // Werkzeug
     // =================================================================
 
@@ -1820,6 +1949,15 @@ final class EinsatzPruefungTest extends TestCase
      *
      * @return int Rueckgabewert des Kommandos
      */
+    private function schalter(int $team, bool $an): void
+    {
+        DB::table('rec_applicant_settings')->where('team_id', $team)->delete();
+        DB::table('rec_applicant_settings')->insert([
+            'team_id'  => $team,
+            'settings' => json_encode([PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => $an]),
+        ]);
+    }
+
     private function laufe(string $datum, array $optionen = []): int
     {
         return $this->laufRoh($datum, $optionen + ['--welle' => 100]);

@@ -65,4 +65,19 @@ class PortalVorlagenEinsatzPruefungTest extends TestCase
             $this->assertFalse(PortalVorlagen::einsatzPruefungAktiv(self::TEAM), var_export($aus, true));
         }
     }
+
+    public function test_ohne_anlage_liest_ohne_eine_zeile_anzulegen(): void
+    {
+        $this->assertFalse(PortalVorlagen::einsatzPruefungAktivOhneAnlage(self::TEAM));
+        $this->assertSame(0, Capsule::table('rec_applicant_settings')->count(), 'kein firstOrCreate');
+
+        foreach ([true, 1, '1', 'true'] as $an) {
+            $this->setze($an);
+            $this->assertTrue(PortalVorlagen::einsatzPruefungAktivOhneAnlage(self::TEAM), var_export($an, true));
+        }
+        foreach ([false, 0, '0', 'false', null, ''] as $aus) {
+            $this->setze($aus);
+            $this->assertFalse(PortalVorlagen::einsatzPruefungAktivOhneAnlage(self::TEAM), var_export($aus, true));
+        }
+    }
 }

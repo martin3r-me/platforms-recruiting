@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Services\Comms\AufgabenSender;
 use Platform\Recruiting\Services\OffenePunkte;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -256,7 +257,10 @@ final class EinsatzPruefungVertragTest extends TestCase
     /** Probe: Standard wieder ['MA'] → ein Fall, rot. */
     public function test_ohne_einstellung_ist_die_pruefung_aus(): void
     {
+        // Ohne contract_check_companies — der Einsatz-Pruefungs-Schalter
+        // (Task 6) bleibt an, sonst liefe der Test aus dem falschen Grund gruen.
         DB::table('rec_applicant_settings')->where('team_id', $this->team)->delete();
+        DB::table('rec_applicant_settings')->insert(['team_id' => $this->team, 'settings' => json_encode([PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => true])]);
         $ma = $this->maAnstellung();
         $this->einbuchung($ma, '2026-10-20', 'MA4711');
 
@@ -264,6 +268,20 @@ final class EinsatzPruefungVertragTest extends TestCase
 
         $this->assertCount(0, $this->vertragsFaelle());
         $this->assertStringContainsString('Vertragsprüfung: 0 Buchungen geprüft', $ausgabe);
+    }
+
+    /** Task 6: Schalter aus → auch die Vertragspruefung oeffnet nichts. */
+    public function test_schalter_aus_oeffnet_keinen_vertragsfall(): void
+    {
+        $this->einstellung(['MA'], false);
+        $ma = $this->maAnstellung();
+        $this->einbuchung($ma, '2026-10-20', 'MA4711');
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertCount(0, $this->vertragsFaelle());
+        $this->assertStringContainsString('Vertragsprüfung: 0 Buchungen geprüft', $ausgabe);
+        $this->assertStringContainsString('Einsatz-Pruefung ist aus (Einstellungen → Kommunikation → Mitarbeiterportal) — uebersprungen', $ausgabe);
     }
 
     /** Probe: Horizont entfernen → der Einsatz in 31 Tagen oeffnet einen Fall, rot. */
@@ -618,10 +636,13 @@ final class EinsatzPruefungVertragTest extends TestCase
         ], $set));
     }
 
-    private function einstellung(array $firmen): void
+    private function einstellung(array $firmen, bool $einsatzPruefung = true): void
     {
         DB::table('rec_applicant_settings')->where('team_id', $this->team)->delete();
-        DB::table('rec_applicant_settings')->insert(['team_id' => $this->team, 'settings' => json_encode(['contract_check_companies' => $firmen])]);
+        DB::table('rec_applicant_settings')->insert(['team_id' => $this->team, 'settings' => json_encode([
+            'contract_check_companies'             => $firmen,
+            PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => $einsatzPruefung,
+        ])]);
     }
 
     private function hrSchliesst(RecHrDeskCase $fall): void

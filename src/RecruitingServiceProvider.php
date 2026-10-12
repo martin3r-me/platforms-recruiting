@@ -327,6 +327,12 @@ class RecruitingServiceProvider extends ServiceProvider
         // trifft. Wer hier --welle ergaenzt, schaltet den Versand scharf —
         // das ist eine Entscheidung und kein Versehen.
         //
+        // UND DER TEAM-SCHALTER: ohne einsatz_pruefung_aktiv (Einstellungen →
+        // Kommunikation → Mitarbeiterportal, Vorgabe aus) ueberspringt der
+        // Lauf das Team vollstaendig — keine HR-Faelle, kein Raeumen, keine
+        // Vertragspruefung, kein Versand. Ist kein Team eingeschaltet, ist
+        // dieser Eintrag ein No-op (nur der Bericht mit "uebersprungen").
+        //
         // withoutOverlapping, weil der Lauf ueber den ganzen Bestand geht und
         // zwei gleichzeitige Laeufe denselben Menschen zweimal anschreiben
         // koennten (die Signatur wird erst NACH dem Versand geschrieben).
