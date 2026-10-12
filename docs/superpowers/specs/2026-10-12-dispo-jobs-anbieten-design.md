@@ -37,13 +37,14 @@ und eine Zusage ist noch keine Einbuchung.
 - **Schichten.** `rec_dispo_assignments` trägt je Zeile `datum`, `von`, `bis`, `taetigkeit`. Die vorkommenden
   Kombinationen einer VA sind genau die Werte, die der Spaltenfilter (`DispoRowFilters::options`) schon anbietet.
 - **Mitarbeiterfiliale.** Der Mitarbeiter hat **kein Filial-Feld**. ZAS liefert aber die Kostenstelle
-  (`rec_employees.cost_center`, Rückfall `position->cost_center`), und die trägt dieselben Nummern wie die
-  Filialen (100/200/…; so auch im ZAS-Export, `ZasEmployeeFieldResolver` „Kostenstelle“). Die Auswahl ist
-  **dynamisch**: angeboten werden die Kostenstellen, die bei aktiven Mitarbeitern vorkommen; bekannte Nummern
-  mit Filialnamen (`Filialen::code`), unbekannte mit der Nummer, dazu „ohne Kostenstelle“. Neue Kostenstellen
-  erscheinen ohne Code-Änderung. Vorbelegt wird die Kostenstelle, die der Veranstaltungsfiliale entspricht.
-  **Vorflug:** Verteilung der Kostenstellen auf Prod (S. Haustein fragt ab) — prüft nur, ob die Vorbelegung
-  greift (Format „200“ vs. „MGL“, Anteil leer).
+  (`rec_employees.cost_center`, Rückfall `position->cost_center`). Prod-Abfrage 12.10. (aktive MA):
+  100 ×440, 200 ×377, 400 ×337, 401 ×153, 201 ×67, 101–103 je ×3, 202 ×2, 402/403/203 je ×1, über die
+  Stelle 200 ×136 / 100 ×130 / 400 ×101, leer ×17. Die Kostenstellen sind also **Hunderterblöcke mit
+  Unternummern**; der Block ist die Filiale (`Filialen::code`: 100 DUS & ES, 200 MGL, 400 CGN).
+  Regel: `block = intdiv((int) kostenstelle, 100) * 100`; eigene Kostenstelle vor der der Stelle. Die
+  Auswahl ist **dynamisch**: ein Eintrag je vorkommendem Block mit Filialnamen (unbekannter Block → „#500“)
+  und den enthaltenen Nummern als Untertitel, dazu „ohne Kostenstelle“. Neue Nummern erscheinen ohne
+  Code-Änderung. Vorbelegt wird der Block, der der Veranstaltungsfiliale entspricht.
 - **Qualifikation.** Seit 08.10. liegen die ZAS-Tätigkeiten je Mitarbeiter in
   `rec_employee_hr_data.dispo_taetigkeiten` (JSON-Liste von Bezeichnungen, Abgleich über den Namen).
 - **Handynummer, Token, Versand.** `DispoEmployeeGateway::contacts()` liefert Nummer (E.164) und
@@ -245,4 +246,4 @@ Test-VA mit der eigenen Nummer.
 
 1. Stehen RG0/RG14 in ZAS immer für unbesetzte Plätze? (→ Vorbelegung „gesucht“.)
 2. Gruppen als disjunkte Bänder (0 / 1–4 / 5–9 / 10–19) — passt das zu „nächste Gruppe“?
-3. Ist die Kostenstelle des Mitarbeiters die richtige „Mitarbeiterfiliale“? (Technisch dynamisch gelöst; offen ist nur die fachliche Bestätigung.)
+3. Ist der Hunderterblock der Kostenstelle die richtige „Mitarbeiterfiliale“ (401 → CGN, 201 → MGL)? (Technisch dynamisch gelöst; offen ist nur die fachliche Bestätigung.)
