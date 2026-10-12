@@ -109,7 +109,8 @@ final class PortalVorlagen
         return $zeile !== null && self::istAn($zeile->getSetting(self::EINSATZ_PRUEFUNG_AKTIV));
     }
 
-    private static function istAn(mixed $wert): bool
+    /** Strikt: nur true/1/'1'/'true'/'on' sind an — auch fuer das Speichern im Einstellungsfenster. */
+    public static function istAn(mixed $wert): bool
     {
         return $wert === true || $wert === 1
             || in_array(is_string($wert) ? strtolower(trim($wert)) : $wert, ['1', 'true', 'on'], true);

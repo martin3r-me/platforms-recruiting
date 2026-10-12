@@ -179,23 +179,6 @@
                             wire:model.live="settings.training_certificate_wa_template_id"
                         />
                     @endif
-                    @if(!empty($this->availableWhatsAppTemplates))
-                        <x-ui-input-select
-                            :value="$settings['document_wa_template_id'] ?? null"
-                            name="settings.document_wa_template_id"
-                            label="Dokumente — WhatsApp-Template mit Portal-Link"
-                            :options="$this->availableWhatsAppTemplates"
-                            optionValue="id"
-                            optionLabel="label"
-                            :nullable="true"
-                            nullLabel="– Template wählen –"
-                            wire:model.live="settings.document_wa_template_id"
-                        />
-                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">
-                            Geht raus, wenn HR ein Dokument zur Kenntnisnahme oder Unterschrift bereitstellt.
-                            Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.
-                        </p>
-                    @endif
                     {{-- Die Form der Button-URL wird aus der Route abgeleitet, nicht als getippter
                          String gepflegt: Host, Praefix und Pfad stehen damit nur an einer Stelle.
                          Der Ausdruck steht bewusst EINMAL in dieser Datei — er ist der Anker, mit
@@ -238,25 +221,6 @@
                         nullLabel="Kein Standard-Ansprechpartner"
                         wire:model.live="settings.default_contact_user_id"
                     />
-
-                    @if(!empty($this->availableWhatsAppTemplates))
-                        <x-ui-input-select
-                            :value="$settings['employee_contract_wa_template_id'] ?? null"
-                            name="settings.employee_contract_wa_template_id"
-                            label="Vertrag zur Unterschrift — WhatsApp-Template mit Portal-Link"
-                            :options="$this->availableWhatsAppTemplates"
-                            optionValue="id"
-                            optionLabel="label"
-                            :nullable="true"
-                            nullLabel="– wie Dokumente –"
-                            wire:model.live="settings.employee_contract_wa_template_id"
-                        />
-                        <p class="text-xs text-[var(--ui-muted)] -mt-2">
-                            Geht raus, wenn HR in der Mitarbeiterakte einen Vertrag erstellt. Leer gelassen wird das
-                            Dokumente-Template genommen. Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf,
-                            dessen Variable am Ende steht.
-                        </p>
-                    @endif
 
                     {{-- Auto-Assign Owner --}}
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
@@ -1138,6 +1102,59 @@
                         Keine WhatsApp Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.
                     </div>
                 @endif
+
+                {{-- Mitarbeiterportal (Spec Portal-Vorlagen §2/§7): neun Vorlagen plus der
+                     Schalter Einsatz-Pruefung. Feldliste, Beschriftung und Hinweise kommen
+                     fertig aus ApplicantSettingsModal::portalVorlagenFelder() (Beschriftung =
+                     PortalVorlagen::FELDNAMEN, derselbe Text wie in den Sender-Logs), daher
+                     hier eine Schleife statt neun Kopien. Alle Schluessel stehen in
+                     DEFAULT_SETTINGS, das entangle der Selects findet sie also schon beim
+                     Seitenaufbau. Festgenagelt in SettingsModalPortalVorlagenTest. --}}
+                <div class="space-y-4 border-t border-[var(--ui-border)]/40 pt-5">
+                    <div>
+                        <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Mitarbeiterportal</h3>
+                        <p class="text-sm text-[var(--ui-muted)] mt-1">
+                            WhatsApp-Vorlagen und Schalter für das neue Mitarbeiterportal. Ohne gewählte Vorlage geht die jeweilige Nachricht nicht raus — der Grund steht im Log.
+                        </p>
+                    </div>
+
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        @foreach($this->portalVorlagenFelder() as $feld)
+                            <div wire:key="portal-vorlage-{{ $feld['key'] }}">
+                                <x-ui-input-select
+                                    :value="$settings[$feld['key']] ?? null"
+                                    name="settings.{{ $feld['key'] }}"
+                                    label="{{ $feld['label'] }}"
+                                    :options="$this->availableWhatsAppTemplates"
+                                    optionValue="id"
+                                    optionLabel="label"
+                                    :nullable="true"
+                                    nullLabel="{{ $feld['nullLabel'] }}"
+                                    wire:model.live="settings.{{ $feld['key'] }}"
+                                />
+                                <p class="text-xs text-[var(--ui-muted)] mt-1">{!! $feld['hinweis'] !!}</p>
+                            </div>
+                        @endforeach
+                    @else
+                        <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
+                            Keine genehmigten WhatsApp-Vorlagen gefunden.
+                        </div>
+                    @endif
+
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model="settings.einsatz_pruefung_aktiv"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Einsatz-Prüfung läuft</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                    Stündliche Prüfung der kommenden Einsätze: legt HR-Fälle an (z. B. Arbeitserlaubnis fehlt) und bereitet die Aufgaben-Nachrichten vor. Erst einschalten, wenn der Nachweis-Umzug und der Trockenlauf erledigt sind.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
             </div>
             @endif
         </div>

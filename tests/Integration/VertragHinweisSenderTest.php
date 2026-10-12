@@ -143,13 +143,16 @@ final class VertragHinweisSenderTest extends TestCase
         $this->assertArrayHasKey(VertragHinweisSender::SETTINGS_KEY, RecApplicantSettings::DEFAULT_SETTINGS);
         $this->assertNull(RecApplicantSettings::DEFAULT_SETTINGS[VertragHinweisSender::SETTINGS_KEY]);
 
-        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
-        $select = strpos($blade, 'name="settings.employee_contract_wa_template_id"');
-        $anker = strpos($blade, 'wire:model.live="settings.default_contact_user_id"');
-        $this->assertIsInt($select);
-        $this->assertIsInt($anker);
-        $this->assertGreaterThan($anker, $select, 'Hausregel: Neues kommt unter das Ansprechpartner-Select');
-        $this->assertStringContainsString('Vertrag zur Unterschrift — WhatsApp-Template mit Portal-Link', $blade);
+        // Seit 12.10. in der Sektion „Mitarbeiterportal" (Reiter Kommunikation),
+        // gerendert aus portalVorlagenFelder(); das Rendern selbst prueft
+        // SettingsModalPortalVorlagenTest.
+        $feld = array_values(array_filter(
+            (new \Platform\Recruiting\Livewire\Applicant\ApplicantSettingsModal())->portalVorlagenFelder(),
+            fn (array $f) => $f['key'] === VertragHinweisSender::SETTINGS_KEY
+        ));
+        $this->assertCount(1, $feld, 'Das Vertrags-Select fehlt in der Sektion Mitarbeiterportal');
+        $this->assertSame('Vertrag zur Unterschrift', $feld[0]['label']);
+        $this->assertSame('– wie Dokumente –', $feld[0]['nullLabel'], 'Leer = wie Dokumente muss im Select stehen');
     }
 
     private function mitarbeiter(): RecEmployee

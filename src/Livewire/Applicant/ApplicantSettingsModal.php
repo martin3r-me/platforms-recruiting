@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Support\HrEinstellungen;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 class ApplicantSettingsModal extends Component
 {
@@ -286,6 +287,15 @@ class ApplicantSettingsModal extends Component
         $this->settings[HrEinstellungen::ERINNERT_TAGE] = HrEinstellungen::begrenze($this->settings[HrEinstellungen::ERINNERT_TAGE] ?? null, 1, 60, 5);
         $this->settings[HrEinstellungen::RUHE_TAGE] = HrEinstellungen::begrenze($this->settings[HrEinstellungen::RUHE_TAGE] ?? null, 1, 30, 3);
 
+        // Mitarbeiterportal (Spec Portal-Vorlagen §7): Vorlagen-IDs als int|null
+        // (leere Auswahl kommt als '' an und darf nicht als '' liegen bleiben),
+        // der Schalter Einsatz-Pruefung strikt bool ('false' ist aus).
+        foreach (array_keys(PortalVorlagen::FELDNAMEN) as $schluessel) {
+            $this->settings[$schluessel] = self::vorlagenId($this->settings[$schluessel] ?? null);
+        }
+        $pruefungVorher = PortalVorlagen::istAn($this->settingsModel->getSetting(PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV));
+        $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] = PortalVorlagen::istAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] ?? false);
+
         $this->settingsModel->settings = $this->settings;
         $this->settingsModel->save();
 
@@ -297,7 +307,67 @@ class ApplicantSettingsModal extends Component
             ]);
         }
 
+        if ($pruefungVorher !== $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV]) {
+            Log::notice('recruiting.einsatz_pruefung.schalter', [
+                'team_id' => (int) $this->settingsModel->team_id,
+                'user_id' => Auth::id(),
+                'an'      => $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV],
+            ]);
+        }
+
         $this->modalShow = false;
+    }
+
+    /** Vorlagen-ID aus einem Select: leer, '0' oder kein positiver Zahlwert → null. */
+    private static function vorlagenId(mixed $wert): ?int
+    {
+        $id = is_numeric($wert) ? (int) $wert : 0;
+
+        return $id > 0 ? $id : null;
+    }
+
+    /**
+     * Die Felder der Sektion „Mitarbeiterportal" (Reiter Kommunikation), in
+     * Anzeigereihenfolge. Die Beschriftung kommt aus PortalVorlagen::FELDNAMEN —
+     * derselbe Text, den die Sender in ihre Fehlermeldungen schreiben, damit HR
+     * das Feld aus der Logzeile wiederfindet. Die Hinweise sind fertiges HTML
+     * (Platzhalter als Entities, damit keine Template-Engine sie anfasst).
+     *
+     * @return list<array{key: string, label: string, hinweis: string, nullLabel: string}>
+     */
+    public function portalVorlagenFelder(): array
+    {
+        $code = 'Vorlage mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname. Kein Knopf mit Variable. Kategorie UTILITY.';
+
+        $hinweise = [
+            PortalVorlagen::CODE_PASSWORT       => $code,
+            PortalVorlagen::CODE_NUMMERNWECHSEL => $code,
+            PortalVorlagen::CODE_NOTFALL        => $code . ' Geht nur raus, wenn der Notfall-Weg freigeschaltet ist.',
+            PortalVorlagen::HINWEIS_ALTE_NUMMER => 'Ohne Platzhalter oder nur mit Vorname. Nennt die neue Nummer bewusst nicht.',
+            PortalVorlagen::AUFGABEN_NEU        => '&#123;&#123;anzahl&#125;&#125;, optional Vorname, und ein URL-Knopf, dessen Variable am Ende steht.',
+            PortalVorlagen::AUFGABEN_ERINNERUNG => '&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;, optional Vorname, URL-Knopf wie oben.',
+            // Anforderungen aus ProofReminderSender::send(): nur diese Platzhalter
+            // sind befuellbar, und buildTokenComponents verlangt genau einen
+            // dynamischen URL-Knopf.
+            'proof_reminder_wa_template_id'     => 'Geht raus, wenn ein Nachweis bald abläuft: Platzhalter nur &#123;&#123;nachweis&#125;&#125;, '
+                . '&#123;&#123;datum&#125;&#125; und optional Vorname, dazu genau ein URL-Knopf mit Variable für den Portal-Link — sonst geht nichts raus.',
+            'document_wa_template_id'           => 'Geht raus, wenn HR ein Dokument zur Kenntnisnahme oder Unterschrift bereitstellt. '
+                . 'Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.',
+            'employee_contract_wa_template_id'  => 'Geht raus, wenn HR in der Mitarbeiterakte einen Vertrag erstellt. Leer gelassen wird das '
+                . 'Dokumente-Template genommen. Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.',
+        ];
+
+        $felder = [];
+        foreach (PortalVorlagen::FELDNAMEN as $key => $label) {
+            $felder[] = [
+                'key'       => $key,
+                'label'     => $label,
+                'hinweis'   => $hinweise[$key],
+                'nullLabel' => $key === 'employee_contract_wa_template_id' ? '– wie Dokumente –' : '– Template wählen –',
+            ];
+        }
+
+        return $felder;
     }
 
     public function addServiceHours(): void
