@@ -250,18 +250,14 @@
         @php
             $bloecke = $this->blockOptionen;
             $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
-            $zahlen = $this->zahlen;
+            $zahlen = $this->zahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0];
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
-            $vorlageGewaehlt = $this->vorlage !== null;
-            $problemKlasse = $vorlageGewaehlt ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800';
             $kartenOffen = ($problem !== null && $vorlagen !== []) ? 'true' : 'false';
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
-            $startText = $startModus === 'spaeter'
-                ? 'in ' . (ctype_digit(trim($minuten)) ? (int) trim($minuten) : '?') . ' Minuten'
-                : 'jetzt';
-            $bestaetigung = 'Anfrage anlegen und Welle 1 ' . $startText . ' starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
+            // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
+            $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
             $sendenGesperrt = $problem !== null;
         @endphp
 
@@ -308,12 +304,12 @@
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
                     <div class="font-medium text-gray-700">Wie zählen die Zusagen?</div>
                     <label class="flex cursor-pointer items-start gap-2 text-sm">
-                        <input type="radio" value="sammeln" wire:model.live="modus" class="mt-0.5 border-gray-300">
+                        <input type="radio" value="sammeln" wire:model="modus" class="mt-0.5 border-gray-300">
                         <span><span class="font-medium">Alle Zusagen sammeln</span>
                             <span class="block text-xs text-gray-500">Jeder kann zusagen, auch wenn schon genug da sind. Du suchst danach aus, wen du in ZAS einträgst.</span></span>
                     </label>
                     <label class="flex cursor-pointer items-start gap-2 text-sm">
-                        <input type="radio" value="zuerst" wire:model.live="modus" class="mt-0.5 border-gray-300">
+                        <input type="radio" value="zuerst" wire:model="modus" class="mt-0.5 border-gray-300">
                         <span><span class="font-medium">Wer zuerst kommt</span>
                             <span class="block text-xs text-gray-500">Ist eine Schicht voll, kann niemand mehr dafür zusagen.</span></span>
                     </label>
@@ -325,7 +321,7 @@
                 <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm" x-data="{ aendern: {{ $kartenOffen }} }">
                     <div class="font-medium text-gray-700">Nachricht</div>
                     @if ($vorlagen === [])
-                        <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                             {{ $problem }}
                             <a href="{{ route('recruiting.dispo.settings') }}" class="ml-1 font-medium underline">Zu den Einstellungen</a>
                         </div>
@@ -340,7 +336,7 @@
                                 <button type="button" class="underline" x-on:click="aendern = !aendern" x-text="aendern ? 'Auswahl schließen' : 'Vorlage ändern'">Vorlage ändern</button>
                             </div>
                         @else
-                            <div class="rounded-lg border px-3 py-2 {{ $problemKlasse }}">{{ $problem }}</div>
+                            <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{{ $problem }}</div>
                         @endif
                         <div x-show="aendern" style="display: none;">
                             <select wire:model.live="templateId" class="w-full rounded border border-gray-300 px-2 py-1 text-sm">
@@ -374,13 +370,13 @@
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
                     <div class="font-medium text-gray-700">Wann senden?</div>
                     <label class="flex cursor-pointer items-center gap-2">
-                        <input type="radio" value="jetzt" wire:model.live="startModus" class="border-gray-300">
+                        <input type="radio" value="jetzt" wire:model="startModus" class="border-gray-300">
                         <span>Jetzt senden</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2">
-                        <input type="radio" value="spaeter" wire:model.live="startModus" class="border-gray-300">
+                        <input type="radio" value="spaeter" wire:model="startModus" class="border-gray-300">
                         <span>In</span>
-                        <input type="number" min="1" max="1440" inputmode="numeric" wire:model.live.debounce.500ms="minuten" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
+                        <input type="number" min="1" max="1440" inputmode="numeric" wire:model="minuten" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
                         <span>Minuten senden</span>
                     </label>
                 </div>

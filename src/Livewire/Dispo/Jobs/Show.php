@@ -33,6 +33,9 @@ class Show extends Component
     /** Reihenfolge der disjunkten Baender fuer den Vorschlag „naechste Gruppe“. */
     private const BAND_FOLGE = ['0', '1-4', '5-9', '10-19', '20+'];
 
+    /** Ab so vielen Minuten Verzug gilt eine faellige, ungestartete Welle als haengend. */
+    public const HAENGT_MINUTEN = 10;
+
     #[Locked]
     public int $requestId = 0;
 
@@ -175,6 +178,7 @@ class Show extends Component
         $out = [];
         foreach ($this->vorgang->waves()->orderBy('nr')->get() as $w) {
             $laeuft = $w->started_at !== null && $w->finished_at === null;
+            $faellig = $w->started_at === null && $w->finished_at === null && ($w->scheduled_for === null || !$w->scheduled_for->isFuture());
             $fortschritt = $laeuft && $w->job_uuid ? Cache::get(SendDispoJobWave::cacheKey($w->job_uuid)) : null;
             $out[] = [
                 'id'          => (int) $w->id,
@@ -186,7 +190,9 @@ class Show extends Component
                 'gestartet'   => $w->started_at,
                 'fertig'      => $w->finished_at,
                 'wartet'      => $w->started_at === null && $w->finished_at === null,
-                'faellig'     => $w->started_at === null && $w->finished_at === null && ($w->scheduled_for === null || !$w->scheduled_for->isFuture()),
+                'faellig'     => $faellig,
+                // Faellig, aber seit ueber HAENGT_MINUTEN nicht gestartet: der Hintergrunddienst laeuft vermutlich nicht.
+                'haengt'      => $faellig && ($w->scheduled_for ?? $w->created_at)?->lt(now()->subMinutes(self::HAENGT_MINUTEN)) === true,
                 'laeuft'      => $laeuft,
                 'stand'       => $laeuft ? (is_array($fortschritt) ? $fortschritt : null) : (is_array($w->summary) ? $w->summary : null),
             ];
@@ -196,7 +202,7 @@ class Show extends Component
     }
 
     /** @return list<array{block:?int, label:string, nummern:list<string>, count:int}> */
-    #[Computed]
+    #[Computed(persist: true, seconds: 300)]
     public function blockOptionen(): array
     {
         return DispoJobKandidaten::blockOptionen($this->teamId());
@@ -204,7 +210,7 @@ class Show extends Component
 
     private function auswahl(): array
     {
-        $erlaubt = array_map(fn ($o) => $o['block'] === null ? DispoJobZahlen::OHNE : (string) $o['block'], $this->blockOptionen());
+        $erlaubt = array_map(fn ($o) => $o['block'] === null ? DispoJobZahlen::OHNE : (string) $o['block'], $this->blockOptionen);
 
         return [
             'gruppen'     => DispoJobZahlen::gruppen($this->wGruppen),

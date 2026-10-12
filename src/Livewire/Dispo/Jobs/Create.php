@@ -17,6 +17,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTemplateSettings;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
@@ -74,6 +75,14 @@ class Create extends Component
     #[Locked]
     public bool $bloeckeVorbelegt = false;
 
+    /** Vorschau „Sendet an N“ — siehe zahlenRechnen(). */
+    #[Locked]
+    public ?array $zahlen = null;
+
+    /** Zuletzt angebotene Tage je VA — damit neue Tage nach einer Zeitraum-Aenderung aktiv dazukommen. @var array<int, list<string>> */
+    #[Locked]
+    public array $tageBekannt = [];
+
     public function mount(): void
     {
         $morgen = now()->addDay()->toDateString();
@@ -81,7 +90,7 @@ class Create extends Component
         $this->bis = now()->addDays(28)->toDateString();
         $this->filialNr = (string) (session(self::SESSION_FILIALE) ?? '');
 
-        $vorlagen = array_keys($this->vorlagen());
+        $vorlagen = array_keys($this->vorlagen);
         if (count($vorlagen) === 1) {
             $this->templateId = (string) $vorlagen[0];
         }
@@ -129,6 +138,7 @@ class Create extends Component
         }
         if ($this->schritt === 5) {
             $this->bloeckeVorbelegen();
+            $this->zahlenRechnen();
         }
     }
 
@@ -151,6 +161,7 @@ class Create extends Component
     {
         $this->eventIds = [];
         $this->tage = [];
+        $this->tageBekannt = [];
         $this->gesucht = [];
         $this->andere = [];
         $this->maBloecke = [];
@@ -175,7 +186,7 @@ class Create extends Component
         $taet = trim($this->neuTaetigkeit);
         $gesucht = ctype_digit(trim($this->neuGesucht)) ? (int) trim($this->neuGesucht) : 0;
 
-        if (!in_array($datum, $this->eventTage()[$eventId] ?? [], true)) {
+        if (!in_array($datum, $this->eventTage[$eventId] ?? [], true)) {
             $this->fehler = 'Bitte wähle Veranstaltung und Tag der Schicht.';
 
             return;
@@ -185,7 +196,7 @@ class Create extends Component
 
             return;
         }
-        if (!in_array($taet, $this->taetigkeitKatalog(), true)) {
+        if (!in_array($taet, $this->taetigkeitKatalog, true)) {
             $this->fehler = 'Bitte wähle eine Tätigkeit aus der Liste.';
 
             return;
@@ -208,13 +219,16 @@ class Create extends Component
         $this->andere = array_values($this->andere);
     }
 
+    /**
+     * Tag-Pillen an den (evtl. geaenderten) Zeitraum angleichen: weggefallene
+     * Tage raus, neue Tage aktiv dazu, abgewaehlte bestehende bleiben abgewaehlt.
+     */
     private function tageVorbelegen(): void
     {
-        $optionen = $this->schichtOptionen();
-        foreach ($optionen as $eventId => $tage) {
-            if (!isset($this->tage[$eventId])) {
-                $this->tage[$eventId] = array_keys($tage);
-            }
+        foreach ($this->schichtOptionen as $eventId => $tage) {
+            $verfuegbar = array_keys($tage);
+            $this->tage[$eventId] = DispoJobTage::angleichen($this->tage[$eventId] ?? [], $verfuegbar, $this->tageBekannt[$eventId] ?? []);
+            $this->tageBekannt[$eventId] = $verfuegbar;
         }
     }
 
@@ -227,7 +241,7 @@ class Create extends Component
         if ($this->maBloecke !== []) {
             return;
         }
-        foreach ($this->blockOptionen() as $o) {
+        foreach ($this->blockOptionen as $o) {
             if ($o['block'] !== null && (string) $o['block'] === $this->filialNr) {
                 $this->maBloecke = [(string) $o['block']];
             }
@@ -280,14 +294,14 @@ class Create extends Component
     {
         $ids = array_map('intval', $this->eventIds);
 
-        return $this->events()->filter(fn ($e) => in_array((int) $e->id, $ids, true));
+        return $this->events->filter(fn ($e) => in_array((int) $e->id, $ids, true));
     }
 
     /** @return array<int, array<string, list<array{key:string, von:string, taetigkeit:string, zeilen:int, platzhalter:int}>>> */
     #[Computed]
     public function schichtOptionen(): array
     {
-        $ids = $this->gewaehlteEvents()->keys()->map(fn ($v) => (int) $v)->all();
+        $ids = $this->gewaehlteEvents->keys()->map(fn ($v) => (int) $v)->all();
         if ($ids === []) {
             return [];
         }
@@ -321,8 +335,8 @@ class Create extends Component
     public function eventTage(): array
     {
         $out = [];
-        foreach ($this->gewaehlteEvents() as $id => $e) {
-            $tage = array_keys($this->schichtOptionen()[(int) $id] ?? []);
+        foreach ($this->gewaehlteEvents as $id => $e) {
+            $tage = array_keys($this->schichtOptionen[(int) $id] ?? []);
             if ($e->starts_on !== null) {
                 $tag = Carbon::parse(max($this->von, $e->starts_on->toDateString()));
                 $ende = min($this->bis, ($e->ends_on ?? $e->starts_on)->toDateString());
@@ -359,10 +373,11 @@ class Create extends Component
      *
      * @return list<array{event:int, datum:string, von:string, taetigkeit:string, gesucht:int}>
      */
-    private function gewaehlteSchichten(): array
+    #[Computed]
+    public function gewaehlteSchichten(): array
     {
         $out = [];
-        foreach ($this->schichtOptionen() as $eventId => $tage) {
+        foreach ($this->schichtOptionen as $eventId => $tage) {
             $aktiv = $this->tage[$eventId] ?? [];
             foreach ($tage as $datum => $schichten) {
                 if (!in_array($datum, $aktiv, true)) {
@@ -374,8 +389,8 @@ class Create extends Component
                 }
             }
         }
-        $eventTage = $this->eventTage();
-        $katalog = $this->taetigkeitKatalog();
+        $eventTage = $this->eventTage;
+        $katalog = $this->taetigkeitKatalog;
         foreach ($this->andere as $a) {
             $eventId = (int) ($a['event'] ?? 0);
             $datum = (string) ($a['datum'] ?? '');
@@ -392,7 +407,7 @@ class Create extends Component
     }
 
     /** @return list<array{block:?int, label:string, nummern:list<string>, count:int}> */
-    #[Computed]
+    #[Computed(persist: true, seconds: 300)]
     public function blockOptionen(): array
     {
         return DispoJobKandidaten::blockOptionen($this->teamId());
@@ -419,14 +434,14 @@ class Create extends Component
     #[Computed]
     public function vorlage(): ?object
     {
-        return ctype_digit($this->templateId) ? ($this->vorlagen()[(int) $this->templateId] ?? null) : null;
+        return ctype_digit($this->templateId) ? ($this->vorlagen[(int) $this->templateId] ?? null) : null;
     }
 
     /** @return array{text:?string, buttons:list<string>}|null */
     #[Computed]
     public function vorschau(): ?array
     {
-        $t = $this->vorlage();
+        $t = $this->vorlage;
         if ($t === null) {
             return null;
         }
@@ -438,13 +453,13 @@ class Create extends Component
     #[Computed]
     public function vorlagenProblem(): ?string
     {
-        if ($this->vorlagen() === []) {
+        if ($this->vorlagen === []) {
             return 'In den Dispo-Einstellungen ist noch keine Vorlage für Jobangebote hinterlegt.';
         }
         if ($this->templateId === '') {
             return 'Noch keine Vorlage gewählt — ohne sie geht nichts raus.';
         }
-        $t = $this->vorlage();
+        $t = $this->vorlage;
         if ($t === null) {
             return 'Diese Vorlage ist nicht mehr verfügbar — bitte wähle eine andere.';
         }
@@ -455,24 +470,34 @@ class Create extends Component
         return DispoJobVorlagenWaechter::problem($t->components);
     }
 
-    /** Zahlen vor dem Senden mit der AKTUELLEN Auswahl (neue Anfrage: noch niemand angeschrieben). */
-    #[Computed]
-    public function zahlen(): array
+    /**
+     * Zahlen vor dem Senden mit der AKTUELLEN Auswahl (neue Anfrage: noch
+     * niemand angeschrieben). Gespeichert statt Computed: der Lauf laedt alle
+     * Mitarbeiter und soll nur bei Eintritt in Schritt 5 und bei Aenderung von
+     * Bloecken/Gruppen/Haken laufen — nicht bei Vorlage, Modus oder Startzeit.
+     */
+    private function zahlenRechnen(): void
     {
         $heute = now()->toDateString();
         $schichten = [];
-        foreach ($this->gewaehlteSchichten() as $i => $s) {
+        foreach ($this->gewaehlteSchichten as $i => $s) {
             if ($s['gesucht'] > 0 && $s['datum'] >= $heute) {
                 $schichten[] = ['id' => $i + 1, 'datum' => $s['datum'], 'taetigkeit' => $s['taetigkeit']];
             }
         }
+        $this->zahlen = DispoJobZahlen::berechnen($this->teamId(), $schichten, [], $this->auswahl());
+    }
 
-        return DispoJobZahlen::berechnen($this->teamId(), $schichten, [], $this->auswahl());
+    public function updated(string $name): void
+    {
+        if ($this->schritt === 5 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
+            $this->zahlenRechnen();
+        }
     }
 
     private function auswahl(): array
     {
-        $erlaubt = array_map(fn ($o) => $o['block'] === null ? DispoJobZahlen::OHNE : (string) $o['block'], $this->blockOptionen());
+        $erlaubt = array_map(fn ($o) => $o['block'] === null ? DispoJobZahlen::OHNE : (string) $o['block'], $this->blockOptionen);
 
         return [
             'gruppen'     => DispoJobZahlen::gruppen($this->gruppen),
@@ -495,17 +520,17 @@ class Create extends Component
             'bis'       => $this->bis,
         ];
         if ($bisSchritt >= 3) {
-            $state['event_ids'] = $this->gewaehlteEvents()->keys()->all();
+            $state['event_ids'] = $this->gewaehlteEvents->keys()->all();
         }
         if ($bisSchritt >= 4) {
-            $state['gesucht'] = array_column($this->gewaehlteSchichten(), 'gesucht');
+            $state['gesucht'] = array_column($this->gewaehlteSchichten, 'gesucht');
             $state['andere'] = []; // schon in gesucht enthalten (gewaehlteSchichten prueft sie)
         }
         if ($bisSchritt >= 5) {
             $auswahl = $this->auswahl();
             $state += [
                 'template_id'      => $this->templateId,
-                'vorlagen_problem' => $this->vorlagenProblem(),
+                'vorlagen_problem' => $this->vorlagenProblem,
                 'gruppen'          => $auswahl['gruppen'],
                 'bloecke'          => $auswahl['bloecke'],
                 'modus'            => $this->modus,
@@ -548,7 +573,7 @@ class Create extends Component
             'bis'         => $this->bis,
             'modus'       => $this->modus,
             'template_id' => (int) $this->templateId,
-            'schichten'   => $this->gewaehlteSchichten(),
+            'schichten'   => $this->gewaehlteSchichten,
             'minuten'     => $minuten,
         ] + $auswahl, $teamId, $userId);
 

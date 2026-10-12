@@ -12,7 +12,8 @@
         default => 'wartet auf den Start',
     };
     $statusKlasse = !$offen ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-green-200 bg-green-50 text-green-700';
-    $irgendwasLaeuft = collect($wellen)->contains(fn ($w) => $w['laeuft'] || $w['faellig']);
+    // Haengende Wellen pollen nicht im 3-s-Takt — da kommt so schnell nichts.
+    $irgendwasLaeuft = collect($wellen)->contains(fn ($w) => $w['laeuft'] || ($w['faellig'] && !$w['haengt']));
     // Laufende/startende Welle: alle 3 s. Sonst (auch bei geplanten Wellen) leise alle 30 s, damit neue Zusagen erscheinen.
     $poll = !$offen ? '' : ($irgendwasLaeuft ? 'wire:poll.3s' : 'wire:poll.visible.30s');
     $schliessenText = 'Anfrage abschließen? Danach kann niemand mehr zusagen und geplante Wellen starten nicht mehr.';
@@ -67,6 +68,8 @@
                     $wZeit = 'beendet ' . $w['fertig']->format('d.m. H:i') . ' Uhr';
                 } elseif ($w['geplant'] !== null && $w['geplant']->isFuture()) {
                     $wZeit = 'geplant für ' . $w['geplant']->format('d.m. H:i') . ' Uhr';
+                } elseif ($w['haengt']) {
+                    $wZeit = 'Die Welle wurde noch nicht gestartet — läuft der Hintergrunddienst?';
                 } else {
                     $wZeit = 'startet gleich';
                 }
@@ -83,8 +86,8 @@
                         @endif
                     </div>
                     <div class="flex items-center gap-3 text-xs text-gray-500">
-                        <span>{{ $wZeit }}</span>
-                        @if ($w['wartet'] && $offen)
+                        <span @class(['font-medium text-amber-700' => $w['haengt']])>{{ $wZeit }}</span>
+                        @if ($w['wartet'])
                             <button type="button" wire:click="abbrechen({{ $w['id'] }})" wire:confirm="{{ $abbrechenText }}" class="text-red-600 hover:underline">Abbrechen</button>
                         @endif
                     </div>
