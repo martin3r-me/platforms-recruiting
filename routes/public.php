@@ -46,6 +46,10 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)
     ->name('recruiting.public.employee-assignments');
 
+// Jobangebote (Spec 2026-10-12): token-only wie die Einsatz-Seite, Token als URL-Suffix.
+Route::get('/jobs/{token}', \Platform\Recruiting\Livewire\Public\JobOffers::class)
+    ->name('recruiting.public.job-offers');
+
 // Anhang-Download von der Einsatz-Seite (token-only wie die Seite selbst).
 Route::get('/einsaetze/{token}/anhang/{uuid}', \Platform\Recruiting\Http\Controllers\DispoAttachmentController::class)
     ->name('recruiting.public.employee-assignments.attachment')

@@ -62,10 +62,15 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * 'employee-assignments.attachment': Anhang-Download von der Einsatz-Seite
      * (Runde 3, Task 7), ebenfalls token-only, Ownership + Portalsperre in
      * DispoAttachmentAccess. Gleiches Muster wie oben.
+     *
+     * 'job-offers': Jobangebote-Seite /jobs/{token} (Spec 2026-10-12), token-only
+     * wie die Einsatz-Seite; Portalsperre in mount() und zusagen(), Zusage nur
+     * auf eigene Angebote der Identitaets-Gruppe (JobOffersZusage).
      */
     private const SPAETER = [
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
+        'recruiting.public.job-offers',
         'recruiting.public.portal-mockup',
     ];
 
