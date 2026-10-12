@@ -1,7 +1,7 @@
 ---
 titel: Jobs anbieten
 bereich: Dispo
-stand: 2026-10-13
+stand: 2026-10-12
 seiten: [recruiting.dispo.jobs.index, recruiting.dispo.jobs.create, recruiting.dispo.jobs.show]
 ---
 
@@ -22,8 +22,8 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 1. **Filiale:** Für welche Filiale suchst du Leute?
 2. **Zeitraum:** Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.
 3. **Veranstaltungen:** Hake die Veranstaltungen an, für die du Leute suchst.
-4. **Tage und Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu.
-5. **Empfänger und Nachricht:** Wähle die **Mitarbeiterfiliale** und die Gruppen nach Einsätzen in diesem Monat. Mit dem Haken **„nur mit passender Tätigkeit“** bekommen nur Leute die Nachricht, die diese Tätigkeit können. Dann wählst du die **Vorlage** und ob sofort oder später gesendet wird. Außerdem legst du fest, wie die Zusagen zählen: **„Alle Zusagen sammeln“** oder **„Wer zuerst kommt“**.
+4. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu.
+5. **Empfänger:** Wähle die **Mitarbeiterfiliale** und die Gruppen nach Einsätzen in diesem Monat. Mit dem Haken **„nur mit passender Tätigkeit“** bekommen nur Leute die Nachricht, die diese Tätigkeit können. Dann wählst du die **Vorlage**. Außerdem legst du fest, wie die Zusagen zählen: **„Alle Zusagen sammeln“** oder **„Wer zuerst kommt“**. Zum Schluss wählst du **„Jetzt senden“** oder **„In … Minuten senden“** und klickst auf **„Anfrage anlegen und Welle 1 starten“**.
 
 > Vor dem Senden siehst du, an wie viele Personen die Nachricht geht.
 
@@ -34,10 +34,11 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 
 Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So fängst du mit denen an, die am besten passen, und nimmst später die nächsten dazu.
 
-1. Beim Anlegen startet Welle 1: mit **„Jetzt senden“** oder **„In X Minuten senden“**.
+1. Beim Anlegen startet Welle 1: Wähle **„Jetzt senden“** oder **„In … Minuten senden“** und klicke auf **„Anfrage anlegen und Welle 1 starten“**.
 2. Jede Person bekommt je Anfrage nur **eine** Nachricht, auch wenn sie in mehreren Wellen vorkommt.
-3. Reichen die Zusagen nicht, wählst du in der Anfrage unter **„Wellen“** die nächste Gruppe und klickst auf **„Welle starten“**.
-4. Solange eine Welle nicht gestartet ist, kannst du sie mit **„Abbrechen“** zurücknehmen.
+3. Reichen die Zusagen nicht, klickst du in der Anfrage unter **„Wellen“** auf **„Neue Welle“**. Es öffnet sich ein Formular.
+4. Wähle dort Mitarbeiterfiliale, Gruppen, den Haken „nur mit passender Tätigkeit“ und die Startzeit. Dann klickst du auf **„Welle starten“**.
+5. Solange eine Welle nicht gestartet ist, kannst du sie mit **„Abbrechen“** zurücknehmen.
 
 ## Dispo · Jobs anbieten | Was der Mitarbeiter sieht
 
