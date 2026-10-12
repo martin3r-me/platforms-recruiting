@@ -1,8 +1,8 @@
 # Deploy-Checkliste `feat/ma-konto` → `main` → Produktion (meingedeck)
 
-Stand: 12.10.2026 · Zweig `feat/ma-konto` @ `43b3703b` (344 Commits über `origin/main` `b102a0e2`,
+Stand: 12.10.2026 · Zweig `feat/ma-konto` @ `edb12d57` (359 Commits über `origin/main` `b91b584a`,
 `origin/main` ist vollständig enthalten → ff-Merge möglich) · Host-App `meingedeck` pinnt heute
-`platform-recruiting` auf `b102a0e2` (`composer.lock`, Commit `58be62b2`).
+`platform-recruiting` auf `b91b584a` (`composer.lock`, Commit `97b88812`).
 
 Für: Sebastian (Deploy + Generalprobe auf der Demo). Jede Zeile nennt in `[…]` ihre Quelle.
 
@@ -150,11 +150,11 @@ Selects im Einstellungs-Fenster: nach dem Speichern per SQL nachsehen, ob der We
 
 ## 3. GENERALPROBE AUF DER DEMO
 
-Demo: `demo.bhgdigital.de`, lokaler Klon `/Users/shaustein/Documents/dev/platforms/demo.bhgdigital.de`, Pin heute `43b3703b` (Commit `3567815`), **Team 6**. `composer.json` verlangt `dev-main`, die Bindung lebt nur im Lock → **`./update.sh` NIE laufen lassen** (holt `main` zurück). [M:project_einsatz_trigger_und_zas_sperrfeld, MEMORY.md]
+Demo: `demo.bhgdigital.de`, lokaler Klon `/Users/shaustein/Documents/dev/platforms/demo.bhgdigital.de`, Pin heute `b91b584a` = prod (Commit `e94ae52`), **Team 6**. `composer.json` verlangt `dev-main`, die Bindung lebt nur im Lock → **`./update.sh` NIE laufen lassen** (holt `main` zurück). [M:project_einsatz_trigger_und_zas_sperrfeld, MEMORY.md]
 
 Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter Bestand pseudonymisiert), dann exakt die Prod-Schritte aus Abschnitt 4 fahren.
 
-1. [ ] **Pin auf main** (`b102a0e2`): Lock-Zeiger drehen, z. B. `python3 tools/deploy-lock.py --app /Users/shaustein/Documents/dev/platforms/demo.bhgdigital.de --package martin3r/platform-recruiting --ref b102a0e2 --dry-run`, dann ohne `--dry-run`; Forge-Deploy Demo. [`tools/deploy-lock.py`]
+1. [ ] **Pin auf main** (`b91b584a`): Lock-Zeiger drehen, z. B. `python3 tools/deploy-lock.py --app /Users/shaustein/Documents/dev/platforms/demo.bhgdigital.de --package martin3r/platform-recruiting --ref b91b584a --dry-run`, dann ohne `--dry-run`; Forge-Deploy Demo. [`tools/deploy-lock.py`]
 2. [ ] **Nur `rec_*` zurücksetzen** (andere Module bleiben): auf der Demo-DB
    ```sql
    SELECT GROUP_CONCAT(CONCAT('`',table_name,'`')) FROM information_schema.tables
@@ -166,7 +166,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
 4. [ ] **Pseudonymisierten Bestand einspielen (Ordner-Weg, 9 Exporte)**: in TablePlus gegen prod die neun SELECTs aus dem Kopf-Kommentar von `tools/dump-mitarbeiter-pseudonym.php` ausführen, je Ergebnis als CSV mit Kopfzeile in einen Ordner legen (Dateiname = Tabellenname: `rec_employees.csv` (Pflicht), `rec_employee_hr_data.csv`, `rec_dispo_events.csv`, `rec_dispo_assignments.csv`, `rec_contract_templates.csv`, `rec_contracts.csv`, `rec_applicants.csv`, `rec_hr_desk_cases.csv`, `contract_extra_fields.csv`). Lokal `php tools/dump-mitarbeiter-pseudonym.php --ordner=<ordner> --team=6 > demo.sql`. `--team` ist PFLICHT (prod 3, Demo 6). Exit-Code ≠ 0 → `demo.sql` ist leer, nicht einspielen; die Meldung nennt Tabelle.Spalte und Kennung (nie den Wert). Zusammenfassung je Tabelle lesen: „unbekannte Spalten geleert" muss bei allen 0 sein, sonst Skript ergänzen. Fehlt eine Datei, bleibt die Tabelle auf der Demo unangetastet (kein TRUNCATE).
    - **Reihenfolge Zusatzfelder ↔ seed:** Die Zusatzfeld-Werte lösen ihre Definition auf der Demo über Name + Team 6 auf. `seed-rec-contract-extra-fields` legt Definitionen nur für Teams an, die schon Vertragsvorlagen haben. Also: `demo.sql` einspielen → bricht sie am Ende mit `Column 'definition_id' cannot be null` ab, sind alle Tabellen schon drin, nur die Zusatzfelder fehlen → `php artisan recruiting:seed-rec-contract-extra-fields` → `demo.sql` **noch einmal komplett** einspielen (wiederholbar: TRUNCATE/DELETE vorweg). Pruefzeile am Ende: `ohne_definition` = 0, `eingespielt` = erwartete Zahl aus dem SQL-Kommentar.
    - Personalnummern: Firmen-Präfix bleibt echt (`RG`/`MA`), die Ziffern sind ersetzt (ab 9000000; lange ZAS-Form = 1000000000 + Ersatz), Platzhalter `RG0`/`RG14` unverändert — der Dispo-Abgleich trifft auf der Demo dieselben Menschen wie auf prod (Selbstprüfung mit dem echten `ZasDispoMatcher`). Anmeldung im alten Portal: Token `dump-<id>`, **Geburtsdatum aus der Demo-DB ablesen** (`SELECT birth_date FROM rec_employees WHERE id = …`) + Ausweis-Endziffern `4711` — die Geburtsdaten sind je Datum unterschiedlich verschoben (30–330 Tage, vor oder zurück, Geheimnis je Lauf), nicht rückrechenbar; Alter weicht um bis zu ~11 Monate ab, U18-/Altersgrenzen können auf der Demo anders kippen als auf prod. `religion`/`marital_status`/`number_of_children` kommen leer (→ `personendaten-abgleich` findet dort keine Abweichungen), `venue_text` der Veranstaltungen ebenfalls; E-Mail- oder telefonartige Muster in einer übernommenen Textspalte brechen den Lauf ab (Meldung nennt Tabelle.Spalte + id). **Telefonnummern haben ein gültiges Format** (`+491570…`) — Schutz ist allein, dass auf der Demo keine Meta-Vorlagen eingetragen sind. Bewerber kommen ohne Namen (die liegen in CRM/Zusatzfeldern) und mit `auto_pilot = 0`. [`tools/dump-mitarbeiter-pseudonym.php`, M:project_personen_klammer_stufe1]
-5. [ ] **Pin auf den Zweig**: aktueller Kopf von `feat/ma-konto` (Stand 12.10.: `51bd6b8e`; vorher prüfen mit `git rev-parse --short origin/feat/ma-konto`), wie Schritt 1 mit `--ref <kopf>`, Forge-Deploy Demo.
+5. [ ] **Pin auf den Zweig**: aktueller Kopf von `feat/ma-konto` (Stand 12.10.: `edb12d57`, main eingemergt; vorher prüfen mit `git rev-parse --short origin/feat/ma-konto`), wie Schritt 1 mit `--ref <kopf>`, Forge-Deploy Demo.
 5a. [ ] **Sichttest im Browser (harter Schritt, VOR dem Einschalten der Einsatz-Prüfung):** Einstellungen → Kommunikation → Mitarbeiterportal: eine Vorlage wählen, Speichern, Fenster neu öffnen — Wahl steht noch da; zusätzlich Wert in `rec_applicant_settings.settings` prüfen. Bekannter Fehler: Selects verlieren beim Speichern die Auswahl. [M:project_settings_modal_select_save_bug]
 6. [ ] **Abschnitt 4.4–4.9 exakt wie auf prod fahren** (alle `--dry-run` zuerst). Erwartungswerte zum Vergleichen:
    - `migrate`: 16 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
@@ -177,7 +177,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
    - `einsatz-pruefung --dry-run` (ignoriert den Schalter): Zeilen „Arbeitserlaubnis fehlt: n … davon k neu", „Uebersprungen, weil ohne Personen-Zeile: …", „Vertragsprüfung: …" notieren. Auf der Demo zusätzlich „Gesellschaft MA" anhaken und trocken laufen lassen → Zahl „k Fälle neu" an Sebastian/Markus. Schalter auf der Demo erst danach an. [S-Vertrag §8.1]
    - `personendaten-abgleich`: Lesemodus, Anzahl Abweichungen notieren. [S-Spiegel §9]
 7. [ ] **Sichttests aus Abschnitt 6** auf der Demo (Team 6), inkl. Konto-Durchlauf: `recruiting:konto-einladen --ids=<person> --dry-run`, einladen, `/recruiting/konto/anlegen/<token>`, Konto anlegen, abmelden, unter `/recruiting/konto` mit Nummer + Passwort anmelden. [P-Konto Z. 718]
-8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf `b102a0e2` ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
+8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf `b91b584a` ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
 
 Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Memory: Forge-Deploy reißt im npm-Teil → Code live, aber `migrate`/`view:clear` fehlen → von Hand nachholen (M:reference_forge_deploy_skript_npm); Liste leer trotz Daten → falsches `--team` beim Dump; Login unmöglich → Nummern-Normalisierung (Dump-Skript Z. ~76).
 
@@ -202,10 +202,10 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 
 ### 4.2 meingedeck bumpen
 
-- [ ] **Rollback-Referenz notieren: `platform-recruiting` = `b102a0e2`** (meingedeck `58be62b2`).
+- [ ] **Rollback-Referenz notieren: `platform-recruiting` = `b91b584a`** (meingedeck `97b88812`).
 - [ ] `composer update martin3r/platform-recruiting -d /Users/shaustein/Documents/dev/platforms/meingedeck --no-interaction --no-scripts`
 - [ ] `git -C /Users/shaustein/Documents/dev/platforms/meingedeck diff composer.lock` — nur `reference` (source + dist) von platform-recruiting darf sich ändern; `composer.json` des Moduls ist im Zweig unverändert. [M:feedback_bump_meingedeck, M:project_ma_konto_merge_risiken „Entwarnungen"]
-- [ ] Commit `chore: bump platform-recruiting to 43b3703b (feat/ma-konto: Konto, Nachweise, Einsatz-Trigger, Dokumente, Spiegel, Vertrag aus Akte, HR-Bereich)`, push. Bei veraltetem Hash: Packagist-CDN-Cache, `composer clear-cache`. [M:feedback_bump_meingedeck]
+- [ ] Commit `chore: bump platform-recruiting to <kopf feat/ma-konto> (feat/ma-konto: Konto, Nachweise, Einsatz-Trigger, Dokumente, Spiegel, Vertrag aus Akte, HR-Bereich)`, push. Bei veraltetem Hash: Packagist-CDN-Cache, `composer clear-cache`. [M:feedback_bump_meingedeck]
 
 ### 4.3 Forge-Deploy (mit migrate)
 
@@ -305,7 +305,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 
 | Was | Wie | Grenze |
 |---|---|---|
-| Code | meingedeck `composer.lock` auf `b102a0e2` zurück (Revert des Bump-Commits), push, Forge-Deploy, `view:clear`, `queue:restart` | Schema bleibt stehen; alle neuen Spalten nullable/zusätzlich → main-Code läuft weiter (S-HR §11 „Code zurück genügt"). Vorher auf der Demo geprobt (3.8). |
+| Code | meingedeck `composer.lock` auf `b91b584a` zurück (Revert des Bump-Commits), push, Forge-Deploy, `view:clear`, `queue:restart` | Schema bleibt stehen; alle neuen Spalten nullable/zusätzlich → main-Code läuft weiter (S-HR §11 „Code zurück genügt"). Vorher auf der Demo geprobt (3.8). |
 | Einzelne Personen vom neuen Portal | `php artisan recruiting:portal-umstellen --ids=<…> --zurueck` (keine Bestätigung nötig, zieht ganze Personen mit) oder `--alle --zurueck` | Daten aus dem neuen Portal bleiben in `rec_employee_proofs` |
 | Versand | Vorlagen-Felder in den Einstellungen leeren (Mitarbeiterportal) bzw. Schalter „Einsatz-Prüfung läuft" aus | Kein `config:cache` nötig; bereits verschickte Nachrichten bleiben |
 | Notfallweg | `RECRUITING_KONTO_WEG4_AKTIV=false` (Not-Aus für alle Teams) oder Team-Haken aus | laufende Anträge: `konto-zuruecksetzen --offen` / `--stopp=<id>` |
