@@ -1100,10 +1100,11 @@ class KontoAnmelden extends Component
      *
      * Die Schlusspruefung zu Aufgabe 9 hat verlangt: Weg 4 darf nicht
      * scharf sein, bevor die HR-Meldung gebaut ist. Gehalten wurde dieser
-     * Riegel bis zur Schlussrunde allein davon, dass
-     * RECRUITING_KONTO_VORLAGE_NOTFALL leer ist — ein Zufall und kein
-     * Riegel: wer alle vier Vorlagen auf einmal eintraegt, schaltet Weg 4
-     * mit, ohne es zu merken.
+     * Riegel bis zur Schlussrunde allein davon, dass keine Notfall-Vorlage
+     * eingetragen ist (heute: Feld "Code: Notfall-Weg" unter Einstellungen →
+     * Kommunikation → Mitarbeiterportal) — ein Zufall und kein Riegel: wer
+     * alle Code-Vorlagen auf einmal waehlt, schaltet Weg 4 mit, ohne es zu
+     * merken.
      *
      * Was erfuellt sein muss, bevor jemand konto.weg4_aktiv auf true setzt,
      * steht ausgeschrieben in config/recruiting.php — der Kern: die

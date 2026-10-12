@@ -21,6 +21,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
 use Platform\Recruiting\Support\EinmalcodeVorlagen;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * DispoThreadDirectory loest Person -> Thread auf (Runde 4, #1), fuer den
@@ -72,6 +73,11 @@ class DispoThreadDirectoryTest extends TestCase
         if (Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
             Capsule::table('integrations_whatsapp_templates')->delete();
         }
+        Capsule::table('rec_applicant_settings')->delete();
+        config()->set(EinmalcodeVorlagen::KONFIG_ALT, []);
+        // Die Namen aus den Team-Einstellungen werden je Prozess gemerkt —
+        // ohne das saehe jeder Test die Einstellungen des vorigen.
+        EinmalcodeVorlagen::vergiss();
     }
 
     private function directory(): DispoThreadDirectory
@@ -485,10 +491,10 @@ class DispoThreadDirectoryTest extends TestCase
             $this->markTestSkipped('Integrations-Paket nicht geladen.');
         }
 
-        // Dieselbe Liste, aus der der Sender seine Vorlagennamen nimmt.
-        config()->set(EinmalcodeVorlagen::KONFIG, [
-            'passwort' => ['name' => 'konto_einmalcode', 'sprache' => 'de', 'platzhalter' => ['code']],
-        ]);
+        // KEIN Team hat ein Code-Feld gesetzt, keine Alt-Liste: allein die
+        // Definition mit {{code}} traegt die Schwaerzung (Review-Fokus 1 —
+        // alte Code-Nachrichten bleiben geschwaerzt, auch ohne Einstellung).
+        $this->assertSame([], EinmalcodeVorlagen::namen());
 
         Capsule::table('integrations_whatsapp_templates')->insert([
             'uuid' => 'tpl-code', 'external_id' => 'ext-code', 'name' => 'konto_einmalcode',
@@ -531,9 +537,11 @@ class DispoThreadDirectoryTest extends TestCase
             $this->markTestSkipped('Integrations-Paket nicht geladen.');
         }
 
-        config()->set(EinmalcodeVorlagen::KONFIG, [
-            'passwort' => ['name' => 'konto_einmalcode', 'sprache' => 'de', 'platzhalter' => ['code']],
-        ]);
+        // Eine Code-Vorlage ist in einem Team gewaehlt und steht in der
+        // Alt-Liste — beides darf eine FREMDE Vorlage nicht mitschwaerzen.
+        $codeId = $this->vorlage('konto_einmalcode', 'Dein Code lautet {{code}}.');
+        $this->teamEinstellung(self::TEAM, [PortalVorlagen::CODE_PASSWORT => $codeId]);
+        config()->set(EinmalcodeVorlagen::KONFIG_ALT, ['konto_einmalcode_v1']);
 
         Capsule::table('integrations_whatsapp_templates')->insert([
             'uuid' => 'tpl-normal', 'external_id' => 'ext-normal', 'name' => 't_wo_bist',
@@ -555,6 +563,133 @@ class DispoThreadDirectoryTest extends TestCase
         $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
 
         $this->assertSame('Hi Vesa, wo bist du?', $result[0]['body']);
+    }
+
+    /**
+     * WEG 2: Der Name ist in IRGENDEINEM Team als Code-Vorlage gewaehlt.
+     *
+     * Die Definition traegt hier bewusst KEIN {{code}} (positionell, wie eine
+     * falsch beantragte Vorlage) — der strukturelle Weg greift also nicht,
+     * und gewaehlt ist sie in einem ANDEREN Team als dem des Chats.
+     */
+    public function test_eine_in_einem_team_gewaehlte_code_vorlage_wird_geschwaerzt(): void
+    {
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+
+        $id = $this->vorlage('konto_code_positionell', 'Dein Code lautet {{1}}.');
+        $this->teamEinstellung(self::TEAM + 1, [PortalVorlagen::CODE_NOTFALL => (string) $id]);
+
+        $result = $this->codeNachricht('konto_code_positionell', '+49 172 8888892', [
+            ['type' => 'text', 'text' => '271828'],
+        ]);
+
+        $this->assertStringNotContainsString('271828', $result['body']);
+        $this->assertStringContainsString('Dein Code lautet', $result['body']);
+    }
+
+    /** Weg 2 braucht die Definition nicht: Name reicht, auch ohne Rumpf. */
+    public function test_ein_eingestellter_name_gilt_auch_ohne_definition(): void
+    {
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+
+        $id = $this->vorlage('konto_code_nummer', 'Dein Code lautet {{code}}.');
+        $this->teamEinstellung(self::TEAM, [PortalVorlagen::CODE_NUMMERNWECHSEL => $id]);
+
+        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage('Konto_Code_Nummer', null), 'Gross/Klein egal');
+        $this->assertSame(['konto_code_nummer'], EinmalcodeVorlagen::namen());
+        $this->assertFalse(EinmalcodeVorlagen::istCodeVorlage('t_wo_bist', null));
+    }
+
+    /** WEG 3: ein abgelegter Name aus der Alt-Liste, Definition ohne {{code}}. */
+    public function test_ein_alt_name_wird_geschwaerzt(): void
+    {
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+
+        config()->set(EinmalcodeVorlagen::KONFIG_ALT, ['konto_einmalcode_v0']);
+        $this->vorlage('konto_einmalcode_v0', 'Dein Code lautet {{1}}.');
+
+        $result = $this->codeNachricht('konto_einmalcode_v0', '+49 172 8888893', [
+            ['type' => 'text', 'text' => '314159'],
+        ]);
+
+        $this->assertStringNotContainsString('314159', $result['body']);
+    }
+
+    /** WEG 1, Form der Definition: Schreibweise des Platzhalters und JSON-Text. */
+    public function test_struktur_erkennt_code_in_jeder_schreibweise(): void
+    {
+        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage('irgendwas', [
+            ['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Konto'],
+            ['type' => 'BODY', 'text' => 'Hallo {{vorname}}, dein Code: {{Code}}'],
+        ]));
+        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage(null, json_encode([
+            ['type' => 'body', 'text' => 'Code {{CODE}}'],
+        ])));
+        $this->assertFalse(EinmalcodeVorlagen::istCodeVorlage('irgendwas', [
+            ['type' => 'BODY', 'text' => 'Dein Gutscheincode {{codewort}}'],
+            ['type' => 'FOOTER', 'text' => '{{code}} steht nur im Fuss'],
+        ]), 'Nur der BODY zaehlt, und nur genau {{code}}.');
+        $this->assertFalse(EinmalcodeVorlagen::istCodeVorlage('irgendwas', 'kein json'));
+        $this->assertFalse(EinmalcodeVorlagen::istCodeVorlage('', null));
+    }
+
+    /**
+     * Fehlt die Einstellungs-Tabelle (oder kippt die Abfrage), bleibt der
+     * Chat stehen: keine Ausnahme, Weg 1 und Weg 3 greifen weiter.
+     */
+    public function test_ohne_einstellungs_tabelle_kippt_der_chat_nicht(): void
+    {
+        config()->set(EinmalcodeVorlagen::KONFIG_ALT, ['konto_alt']);
+        Capsule::schema()->rename('rec_applicant_settings', 'rec_applicant_settings_weg');
+        try {
+            EinmalcodeVorlagen::vergiss();
+            $this->assertSame(['konto_alt'], EinmalcodeVorlagen::namen());
+            $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage('x', [['type' => 'BODY', 'text' => '{{code}}']]));
+            $this->assertFalse(EinmalcodeVorlagen::istCodeVorlage('t_wo_bist', null));
+        } finally {
+            Capsule::schema()->rename('rec_applicant_settings_weg', 'rec_applicant_settings');
+            EinmalcodeVorlagen::vergiss();
+        }
+    }
+
+    private function vorlage(string $name, string $rumpf): int
+    {
+        return (int) Capsule::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid' => 'tpl-' . $name, 'external_id' => 'ext-' . $name, 'name' => $name,
+            'language' => 'de', 'status' => 'APPROVED', 'whatsapp_account_id' => 1, 'user_id' => 1,
+            'components' => json_encode([['type' => 'BODY', 'text' => $rumpf]]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function teamEinstellung(int $teamId, array $settings): void
+    {
+        Capsule::table('rec_applicant_settings')->insert([
+            'team_id' => $teamId, 'settings' => json_encode($settings),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /** @return array<string, mixed> die eine gerenderte Blase */
+    private function codeNachricht(string $name, string $phone, array $parameter): array
+    {
+        $threadId = $this->thread($this->channel(), $phone, null, false, '2026-10-12 09:00:00');
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'body' => 'Template: ' . $name, 'message_type' => 'template', 'template_name' => $name,
+            'template_params' => [['type' => 'body', 'parameters' => $parameter]],
+        ]);
+
+        $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
+        $this->assertCount(1, $result);
+
+        return $result[0];
     }
 
     /** Ohne bekannte Vorlage bleibt die Karte, aber ohne erfundenen Text. */
@@ -590,6 +725,8 @@ class DispoThreadDirectoryTest extends TestCase
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
             [$own, 'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php'],
             [$own, 'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
+            // Weg 2 der Schwaerzung: Code-Vorlagen aus den Team-Einstellungen.
+            [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
         ];
 
         // Vorlagen-Texte (Kunde 23.09.) liegen im Integrations-Paket; fehlt es im

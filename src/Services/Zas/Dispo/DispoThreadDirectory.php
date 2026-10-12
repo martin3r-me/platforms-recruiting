@@ -312,7 +312,9 @@ class DispoThreadDirectory
             // "Dein Code lautet 123456", fuer jeden, der die Unterhaltung
             // sehen darf. DASS ein Code ging und WANN bleibt sichtbar; WAS
             // er war, gehoert dem Menschen mit dem Handy in der Hand.
-            $werte = EinmalcodeVorlagen::istCodeVorlage($m->template_name)
+            // Erkannt an der Definition ({{code}} im Rumpf), der Team-
+            // Einstellung oder der Alt-Liste — siehe EinmalcodeVorlagen.
+            $werte = EinmalcodeVorlagen::istCodeVorlage($m->template_name, $definition)
                 ? EinmalcodeVorlagen::geschwaerzt($m->template_params)
                 : $m->template_params;
 

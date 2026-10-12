@@ -1342,7 +1342,7 @@ class EinsatzPruefung extends Command
      * bremst die Wiederholung aber auf die Pause herunter.
      *
      * `nicht_konfiguriert` und `vorlage_untauglich` schreiben GAR NICHTS
-     * (F1): solange keine brauchbare Meta-Vorlage eingetragen ist, hat kein
+     * (F1): solange keine brauchbare Meta-Vorlage in den Einstellungen gewaehlt ist, hat kein
      * Versuch bei Meta stattgefunden, den man bremsen muesste — und sobald
      * sie richtig steht, soll es ohne Wartezeit losgehen. Ein Stempel waere
      * hier das Gegenteil von Vorsicht: er machte aus einem

@@ -321,8 +321,9 @@ class RecruitingServiceProvider extends ServiceProvider
         // Weiteres nur die PRUEFUNG aus — HR-Faelle entstehen, Signaturen
         // werden geraeumt, der Bericht steht im Protokoll, aber niemand wird
         // angeschrieben. Der scharfe Versand wird von Hand gefahren, bis die
-        // Meta-Vorlagen (recruiting.aufgaben.vorlagen) genehmigt sind und
-        // der Probelauf gezeigt hat, wie viele Menschen eine Welle wirklich
+        // Aufgaben-Vorlagen in den Einstellungen (Einstellungen →
+        // Kommunikation → Mitarbeiterportal) gewaehlt und bei Meta
+        // genehmigt sind und der Probelauf gezeigt hat, wie viele Menschen eine Welle wirklich
         // trifft. Wer hier --welle ergaenzt, schaltet den Versand scharf —
         // das ist eine Entscheidung und kein Versehen.
         //

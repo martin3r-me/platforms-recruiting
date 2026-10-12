@@ -144,6 +144,9 @@ final class EinmalcodeSenderTest extends TestCase
             }
         };
         $container->instance('log', $this->log);
+        // Die Code-Vorlagen-Namen aus den Team-Einstellungen werden je Prozess
+        // gemerkt (Schwaerzung, Weg 2) — jeder Test faengt frisch an.
+        EinmalcodeVorlagen::vergiss();
 
         $container->instance('config', new ConfigRepository([
             'recruiting' => [
@@ -834,9 +837,9 @@ final class EinmalcodeSenderTest extends TestCase
     /**
      * FUND N2: ein ABGELEGTER Vorlagenname wird weiterhin geschwaerzt.
      *
-     * Heisst die Vorlage eines Tages anders, faellt der alte Name aus
-     * code_vorlagen heraus — und ohne die zweite Liste stuenden alle alten
-     * Nachrichten wieder unmaskiert im Verlauf, ohne dass irgendetwas rot
+     * Tauscht HR die Code-Vorlage in den Einstellungen, faellt der alte Name
+     * aus Weg 2 heraus — und fehlt dann auch die Definition (Weg 1), stuenden
+     * ohne die Alt-Liste alle alten Nachrichten wieder unmaskiert im Verlauf, ohne dass irgendetwas rot
      * wuerde. Derselbe Gedanke wie bei der Schwaerzung ALLER Werte, nur eine
      * Ebene hoeher.
      */

@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Support;
 
+use Platform\Recruiting\Models\RecApplicantSettings;
+
 /**
  * Welche Meta-Vorlagen tragen einen Einmalcode — und wie sieht eine solche
  * Nachricht aus, wenn sie NICHT der Mensch am Handy liest, sondern jemand im
@@ -31,37 +33,34 @@ namespace Platform\Recruiting\Support;
  *    Beides steht ohnehin daneben in der Akte; sie mitzuschwaerzen kostet
  *    nichts und macht die Regel unabhaengig von der Reihenfolge.
  *
- * Die Kopplung an die KONFIGURATION ist Absicht: dieselbe Liste, aus der der
- * Sender seine Vorlagennamen nimmt, entscheidet hier ueber die Schwaerzung.
- * Eine zweite, gepflegte Liste waere genau die Stelle, an der jemand eine
- * neue Code-Vorlage eintraegt und die Schwaerzung vergisst.
+ * WORAN EINE CODE-NACHRICHT ERKANNT WIRD — eins von drei Merkmalen reicht
+ * (Spec 2026-10-12 §4; die fruehere Liste in der Config gibt es nicht mehr):
+ *  1. STRUKTUR: der BODY der Vorlagen-Definition enthaelt {{code}}, Gross/
+ *     Klein egal. Das trifft jede Code-Vorlage, auch eine umbenannte oder
+ *     alte, solange ihre Definition noch da ist — und es haengt an keiner
+ *     gepflegten Liste. Das ist der tragende Weg.
+ *  2. EINSTELLUNG: der Name ist in irgendeinem Team in einem der drei
+ *     Code-Felder gewaehlt (PortalVorlagen::CODE_SCHLUESSEL). Dieselbe
+ *     Quelle, aus der der EinmalcodeSender liest.
+ *  3. ALT-LISTE: der Name steht in KONFIG_ALT (abgelegte Namen, nie
+ *     gekuerzt).
  */
 final class EinmalcodeVorlagen
 {
-    /**
-     * Der Konfigurationspfad der AKTUELLEN Vorlagen.
-     *
-     * EINE Schreibweise: EinmalcodeSender::vorlage() bildet seinen Pfad aus
-     * genau dieser Konstante (Fund N1). Ein eigener Literal dort waere die
-     * Stelle, an der die beiden auseinanderlaufen — und dann sendete der
-     * Sender weiter, waehrend namen() ins Leere liest und der Code wieder
-     * unmaskiert im Chat stuende.
-     */
-    public const KONFIG = 'recruiting.konto.code_vorlagen';
-
     /**
      * Der Konfigurationspfad der ABGELEGTEN Vorlagennamen — eine schlichte
      * Liste von Namen, die einmal Code-Vorlagen waren.
      *
      * WOZU (Fund N2, derselbe Gedanke wie bei der Schwaerzung aller Werte):
-     * eine Nachricht von gestern wurde mit der Konfiguration von gestern
-     * verschickt. Heisst die Vorlage eines Tages konto_einmalcode_v2, faellt
-     * der alte Name aus KONFIG heraus — und JEDE alte Nachricht stuende
-     * wieder unmaskiert im Verlauf. Nichts wuerde rot, niemand merkte es.
+     * eine Nachricht von gestern wurde mit der Einstellung von gestern
+     * verschickt. Tauscht HR die Code-Vorlage in den Einstellungen gegen eine
+     * andere, faellt der alte Name aus Weg 2 heraus. Meist faengt ihn Weg 1
+     * (die Definition traegt {{code}}) — aber nur, solange die Definition
+     * noch existiert. Fuer den Rest steht der Name hier.
      *
      * DESHALB IST DIE LISTE NACH OBEN OFFEN UND WIRD NIE GEKUERZT. Der SENDER
-     * liest sie nicht (er verschickt nur mit den aktuellen Namen), die
-     * SCHWAERZUNG liest beide.
+     * liest sie nicht (er verschickt nur mit der eingestellten Vorlage), die
+     * SCHWAERZUNG liest sie.
      */
     public const KONFIG_ALT = 'recruiting.konto.code_vorlagen_alt';
 
@@ -69,11 +68,19 @@ final class EinmalcodeVorlagen
     public const MASKE = '••••••';
 
     /**
-     * ALLE Vorlagennamen, die je einen Code getragen haben — die aktuellen
-     * aus KONFIG und die abgelegten aus KONFIG_ALT, klein geschrieben.
+     * Weg 2, gemerkt je Prozess (eine Anfrage, ein Chat): klein geschriebene
+     * Namen der in irgendeinem Team gewaehlten Code-Vorlagen. null = noch
+     * nicht geladen.
      *
-     * Bewusst beide: der Verlauf reicht weiter zurueck als die heutige
-     * Konfiguration (Fund N2).
+     * @var list<string>|null
+     */
+    private static ?array $eingestellt = null;
+
+    /**
+     * ALLE bekannten Namen von Code-Vorlagen — die in den Team-Einstellungen
+     * gewaehlten (Weg 2) und die abgelegten aus KONFIG_ALT (Weg 3), klein
+     * geschrieben. Weg 1 (Struktur) braucht keinen Namen und steht deshalb
+     * nicht hier.
      *
      * @return list<string>
      */
@@ -87,13 +94,13 @@ final class EinmalcodeVorlagen
             }
         };
 
-        foreach ((array) config(self::KONFIG, []) as $eintrag) {
-            $merke((string) ($eintrag['name'] ?? ''));
+        foreach (self::eingestellteNamen() as $name) {
+            $merke($name);
         }
 
-        // Abgelegte Namen stehen als blosse Zeichenketten da, nicht als
-        // Eintraege mit Platzhaltern: zum Schwaerzen braucht es nur den Namen,
-        // und je weniger dort zu pflegen ist, desto eher wird es gepflegt.
+        // Abgelegte Namen stehen als blosse Zeichenketten da: zum Schwaerzen
+        // braucht es nur den Namen, und je weniger dort zu pflegen ist, desto
+        // eher wird es gepflegt.
         foreach ((array) config(self::KONFIG_ALT, []) as $alt) {
             if (is_string($alt)) {
                 $merke($alt);
@@ -104,16 +111,105 @@ final class EinmalcodeVorlagen
     }
 
     /**
-     * Traegt eine Nachricht mit diesem Vorlagennamen einen Einmalcode?
+     * Traegt eine Nachricht mit dieser Vorlage einen Einmalcode?
      *
-     * Gross-/Kleinschreibung egal: Meta-Namen sind klein, aber ein
-     * .env-Eintrag wird von Hand getippt.
+     * $definition ist das, was DispoThreadDirectory an
+     * WhatsAppTemplateRenderer::render gibt: die components der Vorlage (Liste
+     * von Teilen mit type/text) — als Array oder als JSON-Text, oder null,
+     * wenn die Vorlage nicht (mehr) synchronisiert ist.
+     *
+     * Gross-/Kleinschreibung egal, beim Namen wie beim Platzhalter.
      */
-    public static function istCodeVorlage(?string $vorlagenName): bool
+    public static function istCodeVorlage(?string $vorlagenName, mixed $definition = null): bool
     {
+        if (self::rumpfTraegtCode($definition)) {
+            return true;
+        }
+
         $name = strtolower(trim((string) $vorlagenName));
 
         return $name !== '' && in_array($name, self::namen(), true);
+    }
+
+    /** Fuer Tests: Weg 2 beim naechsten Aufruf neu laden. */
+    public static function vergiss(): void
+    {
+        self::$eingestellt = null;
+    }
+
+    /** Weg 1: steht {{code}} (Gross/Klein egal) in einem BODY-Teil? */
+    private static function rumpfTraegtCode(mixed $definition): bool
+    {
+        if (is_string($definition)) {
+            $definition = json_decode($definition, true);
+        }
+        if (!is_array($definition)) {
+            return false;
+        }
+
+        foreach ($definition as $teil) {
+            if (is_array($teil)
+                && strtoupper((string) ($teil['type'] ?? '')) === 'BODY'
+                && preg_match('/\{\{\s*code\s*\}\}/i', (string) ($teil['text'] ?? '')) === 1
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Weg 2: Template-IDs aus den drei Code-Feldern ALLER Teams → Namen.
+     *
+     * Zwei Abfragen je Prozess (alle Einstellungszeilen, dann die Namen zu den
+     * IDs). Der Chat darf daran NICHT kippen: fehlt das Integrations-Paket
+     * oder eine Tabelle, oder wirft die Abfrage, gibt es hier keine Namen —
+     * Weg 1 und Weg 3 greifen weiter. Ein Fehlschlag wird NICHT gemerkt,
+     * damit ein voruebergehender Aussetzer nicht fuer den Rest eines
+     * langlebigen Prozesses gilt.
+     *
+     * @return list<string>
+     */
+    private static function eingestellteNamen(): array
+    {
+        if (self::$eingestellt !== null) {
+            return self::$eingestellt;
+        }
+
+        $vorlagen = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class;
+        if (!class_exists($vorlagen)) {
+            return self::$eingestellt = [];
+        }
+
+        try {
+            $ids = [];
+            foreach (RecApplicantSettings::query()->toBase()->pluck('settings') as $settings) {
+                if (is_string($settings)) {
+                    $settings = json_decode($settings, true);
+                }
+                if (!is_array($settings)) {
+                    continue;
+                }
+                foreach (PortalVorlagen::CODE_SCHLUESSEL as $schluessel) {
+                    $id = $settings[$schluessel] ?? null;
+                    if (is_numeric($id) && (int) $id > 0) {
+                        $ids[(int) $id] = true;
+                    }
+                }
+            }
+
+            $namen = $ids === []
+                ? []
+                : $vorlagen::query()->whereIn('id', array_keys($ids))->pluck('name')
+                    ->map(static fn ($n) => strtolower(trim((string) $n)))
+                    ->filter(static fn (string $n) => $n !== '')
+                    ->unique()->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return self::$eingestellt = $namen;
     }
 
     /**

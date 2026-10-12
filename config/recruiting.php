@@ -213,10 +213,10 @@ return [
         // WARUM DIESER SCHALTER EXISTIERT. Die Schlusspruefung zu Aufgabe 9
         // hat festgehalten: Weg 4 darf nicht scharf sein, bevor die
         // HR-Meldung gebaut ist. Gehalten wurde dieser Riegel bis zur
-        // Schlussrunde allein davon, dass RECRUITING_KONTO_VORLAGE_NOTFALL
-        // leer ist und der Sender ohne Vorlagennamen nicht verschickt. Das
-        // ist ein Zufall und kein Riegel: wer irgendwann alle vier Vorlagen
-        // auf einmal eintraegt, schaltet Weg 4 mit, ohne es zu merken — und
+        // Schlussrunde allein davon, dass keine Notfall-Vorlage eingetragen
+        // ist und der Sender ohne Vorlage nicht verschickt. Das ist ein
+        // Zufall und kein Riegel: wer irgendwann alle Code-Vorlagen auf
+        // einmal waehlt, schaltet Weg 4 mit, ohne es zu merken — und
         // Weg 4 gefolgt von Weg 3 ergibt die volle Uebernahme eines Kontos
         // allein aus Nummer, Geburtsdatum und Ausweisziffern, verzoegert um
         // vierundzwanzig Stunden.
@@ -229,9 +229,9 @@ return [
         //     vierundzwanzig Stunden sind nur dann ein Stopp-Recht, wenn in
         //     ihnen jemand hinsieht; sonst ist Weg 4 ein stiller
         //     Selbstbedienungs-Uebernahmeweg.
-        //  2. Die Meta-Vorlage aus 'code_vorlagen.notfall' ist genehmigt und
-        //     eingetragen — sonst ist der Schalter zwar an, aber es geht
-        //     ohnehin kein Code raus.
+        //  2. Code-Vorlage Notfall in Einstellungen → Kommunikation →
+        //     Mitarbeiterportal gesetzt (und bei Meta genehmigt) — sonst ist
+        //     der Schalter zwar an, aber es geht ohnehin kein Code raus.
         //  3. Es ist entschieden, ob der Bericht als Meldung genuegt oder ob
         //     eine echte Mail gebraucht wird (offene Frage aus Aufgabe 9;
         //     event@ ist ein Sammelkonto).
@@ -243,155 +243,27 @@ return [
         // hat, steht im Log (recruiting.konto.weg4_abgeschaltet).
         'weg4_aktiv' => (bool) env('RECRUITING_KONTO_WEG4_AKTIV', false),
 
-        // Der Versand des Einmalcodes (Platform\Recruiting\Services\Comms\EinmalcodeSender).
-        //
-        // WARUM DAS HIER STEHT UND NICHT IM CODE: die Meta-Vorlagen sind noch nicht
-        // genehmigt — Namen und Platzhalter stehen nicht sicher fest. Fest verdrahtet
-        // braeuchte jede Aenderung ein Deploy; so genuegt ein .env-Eintrag. Muster sind
-        // die ZAS- und Flynk-Bloecke weiter oben.
-        //
-        // OHNE NAMEN WIRD NICHT VERSCHICKT, und der Sender sagt im Log, welcher
-        // Schluessel fehlt. Das ist der Zustand bis zur Freigabe bei Meta und bewusst
-        // kein stiller Fehlschlag: ein Versand mit geratenem Vorlagennamen waere bei
-        // Meta ohnehin abgelehnt, nur ohne lesbaren Grund.
-        //
-        // - name:        der bei Meta genehmigte Vorlagenname.
-        // - sprache:     der Sprachcode der genehmigten Fassung (Meta unterscheidet sie).
-        // - platzhalter: die Body-Platzhalter der Vorlage, IN IHRER REIHENFOLGE.
-        //                Befuellbar sind {{code}} (der Einmalcode), {{minuten}} (seine
-        //                Gueltigkeitsdauer) und der Vorname ({{name}}, {{vorname}}).
-        //                Ein anderer Name verhindert den Versand — sonst stuende dort
-        //                still der Vorname statt des Codes, und Meta naehme die
-        //                Nachricht an. {{code}} ist Pflicht.
-        //
-        // ANFORDERUNG AN DIE META-VORLAGE: BENANNTE Platzhalter, kein {{1}}. Meta
-        // laesst benannte und positionelle Platzhalter nicht in derselben Vorlage zu;
-        // weil {{code}} benannt sein muss, kann eine Code-Vorlage gar nicht
-        // positionell sein. Wer trotzdem eine positionelle beantragt, bekommt sie
-        // genehmigt und dann von Meta jede Nachricht abgelehnt — und braucht am Ende
-        // genau das Deploy, das dieser Block vermeiden soll.
-        //
-        // Drei Zwecke, weil der Text sich unterscheidet ("Konto einrichten" gegen
-        // "neue Nummer bestaetigen"). Genehmigt Meta nur EINE Vorlage, traegt man
-        // ueberall denselben Namen ein.
-        'code_vorlagen' => [
-            'anmeldung' => [
-                'name'        => env('RECRUITING_KONTO_VORLAGE_ANMELDUNG', ''),
-                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['code'],
-            ],
-            'passwort' => [
-                'name'        => env('RECRUITING_KONTO_VORLAGE_PASSWORT', ''),
-                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['code'],
-            ],
-            'nummernwechsel' => [
-                'name'        => env('RECRUITING_KONTO_VORLAGE_NUMMERNWECHSEL', ''),
-                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['code'],
-            ],
-            // Weg 4 aus Spec 5: Nummer weg UND Passwort vergessen. Eigener
-            // Zweck, weil sein Code den Wechsel nur BEANTRAGT (24 Stunden,
-            // HR kann stoppen) - der Text darf das sagen. Genehmigt Meta nur
-            // EINE Vorlage, traegt man ueberall denselben Namen ein.
-            'notfall' => [
-                'name'        => env('RECRUITING_KONTO_VORLAGE_NOTFALL', ''),
-                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['code'],
-            ],
-        ],
-
-        // Der Hinweis AN DIE ALTE NUMMER, nachdem die Nummer gewechselt wurde
-        // (Platform\Recruiting\Services\Comms\NummernwechselHinweisSender).
-        //
-        // Begleitregel aus Spec §5, Canvas 1789: "Die alte Nummer bekommt einmalig
-        // einen Hinweis, dass die Nummer geaendert wurde, sofern noch zustellbar."
-        // Sie ist die einzige Warnung, die ein Mensch bekommt, dem jemand das Konto
-        // umgehaengt hat — und sie erreicht ihn auf dem Geraet, das er noch in der
-        // Hand haelt.
-        //
-        // DIESE VORLAGE TRAEGT KEIN GEHEIMNIS und deshalb auch keinen Platzhalter,
-        // der eines sein koennte. Befuellbar ist nur der Vorname ({{name}},
-        // {{vorname}}); die NEUE Nummer steht bewusst NICHT darin — wer das alte
-        // Geraet in der Hand hat, soll nicht auch noch erfahren, wohin das Konto
-        // gewandert ist. Eine Vorlage ganz ohne Platzhalter ist der Normalfall.
-        //
-        // OHNE NAMEN WIRD NICHT VERSCHICKT — derselbe Zustand wie bei den
-        // Code-Vorlagen bis zur Freigabe bei Meta. Der Wechsel selbst haengt nicht
-        // daran: er ist zu diesem Zeitpunkt schon vollzogen.
-        'hinweis_vorlage' => [
-            'name'        => env('RECRUITING_KONTO_VORLAGE_HINWEIS', ''),
-            'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
-            'platzhalter' => [],
-        ],
-
         // Vorlagennamen, die einmal einen Einmalcode getragen haben und es
         // heute nicht mehr tun.
         //
         // WOZU: der Chat unter /recruiting/conversations setzt die gesendeten
         // Werte wieder in den Vorlagentext ein. Fuer eine Code-Vorlage werden
-        // sie geschwaerzt — aber eine Nachricht von gestern wurde mit der
-        // Konfiguration von gestern verschickt. Faellt ein Name aus
-        // code_vorlagen heraus, stuenden ALLE alten Nachrichten mit diesem
-        // Namen wieder unmaskiert im Verlauf, und nichts wuerde davon rot.
+        // sie geschwaerzt (Support/EinmalcodeVorlagen). Erkannt wird sie an
+        // {{code}} im Rumpf ihrer Definition, an der Wahl in den
+        // Einstellungen (Einstellungen → Kommunikation → Mitarbeiterportal)
+        // oder an dieser Liste.
         //
-        // ANWEISUNG AN DEN NAECHSTEN: Wer eine Code-Vorlage umbenennt oder
-        // ersetzt, traegt den ALTEN Namen hier ein. Diese Liste wird NIE
-        // gekuerzt — ein Eintrag zu viel kostet nichts, ein fehlender kostet
-        // den ganzen Verlauf.
+        // ANWEISUNG AN DEN NAECHSTEN: Wer die Code-Vorlage in den
+        // Einstellungen gegen eine andere tauscht, traegt den ALTEN Namen
+        // hier ein. Weg 1 ({{code}} in der Definition) deckt das meist schon
+        // ab — aber nur, solange die Definition noch existiert. Diese Liste
+        // wird NIE gekuerzt: ein Eintrag zu viel kostet nichts, ein fehlender
+        // kostet den ganzen Verlauf.
         //
-        // Der Sender liest diese Liste NICHT (er verschickt nur mit den
-        // aktuellen Namen); nur die Schwaerzung liest beide.
+        // Der Sender liest diese Liste NICHT (er verschickt nur mit der
+        // eingestellten Vorlage); nur die Schwaerzung liest sie.
         'code_vorlagen_alt' => [
             // 'konto_einmalcode_v1',
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Aufgaben-Nachricht (Spec §2.3, Aufgabe 9)
-    |--------------------------------------------------------------------------
-    |
-    | Der Versand von Platform\Recruiting\Services\Comms\AufgabenSender: der
-    | WhatsApp-Hinweis, dass im MA-Portal etwas fuer den naechsten Einsatz
-    | offen ist. Zwei Anlaesse, weil der Text sich unterscheidet — die erste
-    | Nachricht ("neu") und die Erinnerung, wenn der Einsatz naeher rueckt
-    | ("erinnerung").
-    |
-    | WARUM DAS HIER STEHT UND NICHT IM CODE: dieselbe Begruendung wie bei
-    | 'konto.code_vorlagen' oben — die Meta-Vorlagen sind noch nicht
-    | genehmigt, Name und Platzhalter stehen nicht sicher fest. Ein fest
-    | verdrahteter Name braeuchte nach der Freigabe ein Deploy; so genuegt
-    | ein .env-Eintrag.
-    |
-    | OHNE NAMEN WIRD NICHT VERSCHICKT, und der Sender sagt im Log, welcher
-    | Anlass betroffen ist — kein stiller Fehlschlag. Die Aufgabenliste im
-    | Portal funktioniert davon unabhaengig: sie wird berechnet (OffenePunkte,
-    | Aufgabe 8), nicht durch diese Nachricht getragen.
-    |
-    | - name:        der bei Meta genehmigte Vorlagenname.
-    | - sprache:     der Sprachcode der genehmigten Fassung.
-    | - platzhalter: die Body-Platzhalter der Vorlage, IN IHRER REIHENFOLGE.
-    |                Befuellbar sind 'anzahl' (die Zahl der offenen Punkte)
-    |                und 'datum' (der naechste Einsatz, nur bei 'erinnerung'
-    |                sinnvoll). Ein anderer Name verhindert den Versand —
-    |                DIE NACHRICHT NENNT DIE PUNKTE NICHT EINZELN (Spec §2.1:
-    |                das Portal traegt die Aufgaben), nur ihre Anzahl und den
-    |                Verweis aufs Portal. Waere die Nachricht der Traeger,
-    |                muesste jede Aenderung eine neue erzeugen.
-    */
-    'aufgaben' => [
-        'vorlagen' => [
-            'neu' => [
-                'name'        => env('RECRUITING_AUFGABEN_VORLAGE_NEU', ''),
-                'sprache'     => env('RECRUITING_AUFGABEN_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['anzahl'],
-            ],
-            'erinnerung' => [
-                'name'        => env('RECRUITING_AUFGABEN_VORLAGE_ERINNERUNG', ''),
-                'sprache'     => env('RECRUITING_AUFGABEN_VORLAGE_SPRACHE', 'de'),
-                'platzhalter' => ['anzahl', 'datum'],
-            ],
         ],
     ],
 

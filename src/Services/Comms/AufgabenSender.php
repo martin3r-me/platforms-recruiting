@@ -84,6 +84,23 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  * Portal. Waere die Nachricht selbst der Traeger, muesste jede Aenderung an
  * den Punkten eine neue Nachricht erzeugen.
  *
+ * WOHER DIE VORLAGE KOMMT: aus der TEAM-EINSTELLUNG, je Anlass ein Feld
+ * (PortalVorlagen::AUFGABEN_SCHLUESSEL — 'neu' und 'erinnerung', im Fenster
+ * unter PortalVorlagen::ORT). Aufgeloest ueber
+ * HoldingTemplateSender::resolveTarget(): Einstellung → Vorlage (APPROVED) →
+ * Account → Kanal. Name, Sprache und Platzhalter kommen aus der gewaehlten
+ * Vorlage. Kein Rueckfall auf .env/Config: fehlt das Feld oder ist die
+ * Vorlage nicht genehmigt, geht nichts raus (STATUS_NICHT_KONFIGURIERT), und
+ * das Log nennt das Feld.
+ *
+ * ANFORDERUNGEN AN DIE META-VORLAGE (frueher als Kommentar in der Config):
+ *  - Befuellbar sind {{anzahl}} (Zahl der offenen Punkte), {{datum}} (der
+ *    naechste Einsatz, nur bei 'erinnerung' sinnvoll) und der Vorname
+ *    ({{name}}, {{vorname}}). Ein anderer Platzhalter verhindert den Versand.
+ *  - GENAU EIN dynamischer URL-Knopf fuer den Portal-Link (F1 unten).
+ *  - Zwei Anlaesse, weil der Text sich unterscheidet: die erste Nachricht
+ *    und die Erinnerung, wenn der Einsatz naeher rueckt.
+ *
  * KEINE VOLLE RUFNUMMER IM LOG (Datenschutz, gleiche Kuerzung wie in
  * `KontoWriter`/`EinmalcodeSender`): `PhoneE164::suffix()` liefert die
  * letzten neun Ziffern formatunabhaengig, geloggt werden davon nur die
@@ -113,11 +130,11 @@ final class AufgabenSender
      */
     public const STATUS_FAILED = 'failed';
 
-    /** Kein Meta-Vorlagenname fuer diesen Anlass eingetragen — es wird nichts verschickt. */
+    /** Fuer diesen Anlass ist in den Einstellungen keine genehmigte Vorlage gewaehlt — es wird nichts verschickt. */
     public const STATUS_NICHT_KONFIGURIERT = 'nicht_konfiguriert';
 
     /**
-     * F1: die eingetragene Vorlage taugt nicht — sie ist nicht gefunden,
+     * F1: die gewaehlte Vorlage taugt nicht — sie ist nicht gefunden,
      * nicht eindeutig, oder sie hat keinen dynamischen URL-Knopf, in den der
      * Portal-Link passt.
      *

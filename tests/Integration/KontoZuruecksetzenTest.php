@@ -2692,11 +2692,10 @@ final class KontoZuruecksetzenTest extends TestCase
     /**
      * Weg 4 IST IN DER AUSLIEFERUNG AUS, und zwar ausdruecklich.
      *
-     * Bis zur Schlussrunde hielt diesen Riegel allein ein leerer
-     * .env-Eintrag: RECRUITING_KONTO_VORLAGE_NOTFALL war nicht gesetzt, und
-     * ohne Vorlagennamen verschickt der Sender nichts. Das ist ein Zufall
-     * und kein Riegel — wer irgendwann alle vier Vorlagen auf einmal
-     * eintraegt, schaltet Weg 4 mit, ohne es zu merken. Und Weg 4 gefolgt
+     * Bis zur Schlussrunde hielt diesen Riegel allein eine fehlende
+     * Notfall-Vorlage: ohne Vorlage verschickt der Sender nichts. Das ist ein
+     * Zufall und kein Riegel — wer irgendwann alle Code-Vorlagen auf einmal
+     * waehlt, schaltet Weg 4 mit, ohne es zu merken. Und Weg 4 gefolgt
      * von Weg 3 ergibt die volle Uebernahme eines Kontos allein aus Nummer,
      * Geburtsdatum und Ausweisziffern.
      *
