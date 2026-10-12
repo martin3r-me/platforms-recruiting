@@ -62,14 +62,24 @@ class SendDispoJobWave implements ShouldQueue
     public function markFailed(Cache $cache, string $message): void
     {
         $wave = RecDispoJobWave::query()->find($this->waveId);
-        if ($wave === null || empty($wave->job_uuid)) {
-            return;
+        $progress = self::initialProgress(0);
+        if ($wave !== null && !empty($wave->job_uuid)) {
+            $key = self::cacheKey($wave->job_uuid);
+            $progress = $cache->get($key) ?? $progress;
         }
-        $key = self::cacheKey($wave->job_uuid);
-        $progress = $cache->get($key) ?? self::initialProgress(0);
         $progress['done'] = true;
         $this->keepError($progress, $message);
-        $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+        if ($wave !== null && !empty($wave->job_uuid)) {
+            $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+        }
+        // Welle schliessen, sonst gilt sie im UI fuer immer als laufend.
+        try {
+            if ($wave !== null && $wave->finished_at === null) {
+                $wave->update(['finished_at' => now(), 'summary' => $progress]);
+            }
+        } catch (\Throwable) {
+            // DB-Ausfall darf failed() nicht seinerseits zum Werfen bringen.
+        }
     }
 
     public function handle(Cache $cache, DispoJobOfferSender $sender): void
@@ -86,7 +96,13 @@ class SendDispoJobWave implements ShouldQueue
             return;
         }
 
-        $wave->update(['started_at' => now(), 'job_uuid' => $wave->job_uuid ?: (string) UuidV7::generate()]);
+        // Atomar beanspruchen: zwei Zustellungen derselben Welle duerfen nicht beide durch.
+        $claimed = RecDispoJobWave::query()->whereKey($wave->id)->whereNull('started_at')
+            ->update(['started_at' => now(), 'job_uuid' => $wave->job_uuid ?: (string) UuidV7::generate()]);
+        if ($claimed === 0) {
+            return;
+        }
+        $wave->refresh();
         $key = self::cacheKey($wave->job_uuid);
 
         $schichten = $request->shifts()->whereNull('closed_at')->whereDate('datum', '>=', now()->toDateString())->get()

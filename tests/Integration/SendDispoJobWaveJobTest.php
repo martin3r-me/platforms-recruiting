@@ -166,6 +166,41 @@ class SendDispoJobWaveJobTest extends TestCase
         $this->assertNull($wave->fresh()->finished_at);
     }
 
+    public function test_fehlgeschlagene_welle_wird_geschlossen(): void
+    {
+        [, $wave] = $this->anfrage(['started_at' => Carbon::now()->subMinute(), 'job_uuid' => 'u-1']);
+        $cache = $this->cache();
+
+        (new SendDispoJobWave($wave->id, 3, 9))->markFailed($cache, 'Timeout');
+
+        $wave->refresh();
+        $this->assertNotNull($wave->finished_at);
+        $this->assertTrue($wave->summary['done']);
+        $this->assertContains('Timeout', $wave->summary['errors']);
+        $this->assertTrue($cache->get(SendDispoJobWave::cacheKey('u-1'))['done']);
+    }
+
+    public function test_fehlgeschlagene_welle_ohne_job_uuid_wird_trotzdem_geschlossen(): void
+    {
+        [, $wave] = $this->anfrage();
+
+        (new SendDispoJobWave($wave->id, 3, 9))->markFailed($this->cache(), 'Boom');
+
+        $this->assertNotNull($wave->fresh()->finished_at);
+        $this->assertContains('Boom', $wave->fresh()->summary['errors']);
+    }
+
+    public function test_start_setzt_started_at_und_job_uuid_zusammen(): void
+    {
+        [, $wave] = $this->anfrage();
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertNotNull($wave->started_at);
+        $this->assertNotEmpty($wave->job_uuid);
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
