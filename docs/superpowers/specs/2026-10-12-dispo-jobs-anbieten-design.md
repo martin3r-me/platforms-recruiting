@@ -247,3 +247,27 @@ Test-VA mit der eigenen Nummer.
 1. Stehen RG0/RG14 in ZAS immer für unbesetzte Plätze? (→ Vorbelegung „gesucht“.)
 2. Gruppen als disjunkte Bänder (0 / 1–4 / 5–9 / 10–19) — passt das zu „nächste Gruppe“?
 3. Ist der Hunderterblock der Kostenstelle die richtige „Mitarbeiterfiliale“ (401 → CGN, 201 → MGL)? (Technisch dynamisch gelöst; offen ist nur die fachliche Bestätigung.)
+
+## 14. Nachtrag aus Bau und Reviews (13.10.2026)
+
+- **Mitarbeiterfiliale** = Hunderterblock der Kostenstelle (§3), Auswahl dynamisch aus den vorkommenden Blöcken.
+- **Gruppen** sind disjunkte Bänder 0 / 1–4 / 5–9 / 10–19 / 20+ (plus „alle“); Beschriftung mit dem Kundenwort.
+- **Vorlage je Anfrage**, nicht je Welle: Die drei Kunden-Vorlagen sind drei Anlässe und damit drei Anfragen. Vorlage je
+  Welle ist ein mögliches Folgepaket.
+- **Volle Schichten bleiben sichtbar** („schon voll — danke fürs Melden“, ohne Knopf) — §5 gilt, der Plan-Test hatte sie
+  versehentlich ausgeblendet.
+- **Gleiche Schicht aus mehreren Anfragen** (§9): auf der Seite einmal (`JobOffersBuendelung`); eine Zusage trifft alle
+  passenden Angebote der Person; die nächste Welle lässt Schichten weg, die die Person schon anderswo zugesagt hat
+  (Topf „hat diese Schicht schon zugesagt“).
+- **Sperren bei der Zusage:** alle beteiligten Schicht-Zeilen in aufsteigender ID zuerst, dann Angebots-Zeile und Zählung
+  sperrend (MySQL REPEATABLE READ), `attempts: 3`. Die Angebots-Zeilen allein zu sperren führte zum Deadlock.
+- **`rec_dispo_job_shifts.von` ist NOT NULL (Standard '')**, sonst griffe der Unique-Index bei leerem Beginn nicht.
+- **Gescheiterter Versand** (`send_error`) zählt als „angeschrieben“: keine zweite Nachricht in derselben Anfrage. Die
+  Person steht im Reiter „Nicht zugestellt“. Wiederaufnahme ist ein Folgepaket.
+- **Welle:** Start-Claim atomar (`WHERE started_at IS NULL`); eine abgebrochene oder an der Vorlagen-Prüfung gestoppte
+  Welle schließt sich selbst (`finished_at`, `summary`) und zeigt den Grund in der Anfrage.
+- **Spaltenname** `ma_bloecke` statt `ma_filial_nrs` (§7).
+- **Offen bei Markus:** RG0/RG14 als Vorbelegung; Bänder; Kostenstellen-Block als Filiale; mehrere Schichten am selben Tag
+  zusagbar?
+- **Folgepakete:** Wiederaufnahme nach Versandfehler; Anker-Drift bei Deaktivierung; Schritt 5 zählt Datensätze statt
+  Personen; Übersicht ohne VA-Namen; ZAS-Abgleich-Menge begrenzen; Vorlage je Welle; Screenshots der Anleitung.
