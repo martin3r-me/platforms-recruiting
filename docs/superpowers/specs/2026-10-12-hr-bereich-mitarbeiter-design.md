@@ -189,6 +189,7 @@ Vier Quellen, jede als Chip mit Alter („Aufgaben · erinnert vor 6 Tagen“):
   `ruhe_bis = now + N Tage` (Team-Einstellung `hr_kontaktiert_ruhe_tage`, Vorgabe 3).
   Die **ganze Zeile** ruht bis dahin; Schalter „Ruhende zeigen“ blendet sie grau ein.
   Ist danach noch etwas offen, kommt sie von selbst zurück.
+  Ausnahme (Umsetzung): Liegt der nächste Einsatz vor dem oder am Tag des Ruhe-Endes, ruht die Zeile nicht — sie bleibt mit dem Hinweis „kontaktiert — ruht nicht, weil der nächste Einsatz (…) vor dem Ruhe-Ende liegt“ sichtbar.
 - **„Erneut erinnern“** (je Chip, Notiz optional): verschickt über den **bestehenden**
   Sender, und nur, wenn dessen eigene Regeln es erlauben:
 
@@ -197,7 +198,7 @@ Vier Quellen, jede als Chip mit Alter („Aufgaben · erinnert vor 6 Tagen“):
   | Aufgaben | `AufgabenSender::sende($bote, OffenePunkte::fuer($bote), 'erinnerung')` unter der Laufsperre der Einsatz-Prüfung (`EinsatzPruefung::LAUF_SPERRE`, wird `public`) | `aufgaben_gemeldet_at = now`, `aufgaben_nachricht_id` (auch nach Fehlschlag, wie ET-23) | 7 Tage ab `aufgaben_gemeldet_at` |
   | Nachweis | `ProofReminderSender::send()` — nur `portal_v2_since` (Ruling C2) | `reminded_at = now` nur bei `STATUS_SENT` | 7 Tage ab `reminded_at` |
   | Dokument | `DokumentService::erneutSenden()` (stempelt selbst `notified_at`) | — | 7 Tage ab `notified_at` |
-  | Vertrag | `VertragHinweisSender::sende($anstellung)` | — (Vertrag hat keinen Hinweis-Stempel) | 7 Tage ab `max(sent_at, letzter Vermerk erneut_erinnert)` |
+  | Vertrag | `VertragHinweisSender::sende($anstellung)` | — (Vertrag hat keinen Hinweis-Stempel) | 7 Tage ab max(`sent_at`, letzter Vermerk `erneut_erinnert` mit Ergebnis `sent`) |
 
   Innerhalb der Pause ist der Knopf grau mit „erneut erinnern ab 14.10.“ — mit X = 5 also
   ab Tag 7 (offene Frage 2). Ergebnis jedes Versuchs, auch Fehlschlag mit Sender-Status,
@@ -336,6 +337,7 @@ Der Schlüssel bleibt privat in `PortalAuth` (eine Stelle, die ihn bildet):
   `lockoutKey(nummernSchluessel(...))`, ein `store()->many()`.
 - `loeseNummernBremse(string $nummer): void` — `clearFailures(nummernSchluessel(...))`.
   Die IP-Bremse bleibt unberührt.
+- Die Sperre speichert ihr Ende (ISO-Zeitpunkt) statt `true`; `gebremsteNummern()` liefert nur die gebremsten Nummern mit „frei ab“ (Altwert `true` → unbekannt, Text „frei spätestens nach 15 Minuten“).
 
 ### 5.5 `HrKontoAktionen` — Ablauf jeder Aktion
 
@@ -419,8 +421,9 @@ Migration mit `hasTable`-Wache, `down()` = drop.
 ### 7.2 Neue Spalte `rec_persons.sitzungen_ungueltig_ab`
 
 `timestamp nullable`, eigene Migration (`hasColumn`-Wache, `down()` = dropColumn).
-Gesetzt nur von `HrKontoAktionen` (Zurücksetzen, Entsperren nach Notfallsperre), gelesen
+Gesetzt nur von `KontoWriter` (Konto zurücksetzen und Notfallsperre aufheben, im selben Update — nicht von `HrKontoAktionen`), gelesen
 nur von `PortalAuth::sitzungGueltig()` (§9.6). Schreibzugriff per Query-Builder.
+Migrationen: `2026_10_12_000002_create_rec_hr_vermerke_table` und `2026_10_12_000003_add_sitzungen_ungueltig_ab_to_rec_persons` (`_000001` ist auf main belegt).
 
 ### 7.2 Einstellungen (`RecApplicantSettings::DEFAULT_SETTINGS`)
 
@@ -430,12 +433,11 @@ nur von `PortalAuth::sitzungGueltig()` (§9.6). Schreibzugriff per Query-Builder
 | `hr_erinnert_tage` | `5` | `x-ui-input-text type="number" min=1 max=60` | `max(1, min(60, (int)))` |
 | `hr_kontaktiert_ruhe_tage` | `3` | `x-ui-input-text type="number" min=1 max=30` | `max(1, min(30, (int)))` |
 
-Neuer Abschnitt „Mitarbeiterkonto & Erinnerungen“ im Modal. Keine Selects.
+Neuer Abschnitt „Mitarbeiterkonto & Erinnerungen“ im Modal. Keine Selects. Leer/unlesbar → Vorgabe (nicht 1).
 
 ### 7.3 Keine Änderung an
 
-`rec_persons`, `rec_employees`, `rec_employee_proofs`, `rec_document_recipients`,
-`rec_contracts` — nur neue Leser und die bestehenden Stempel.
+Keine Änderung an `rec_employees`, `rec_employee_proofs`, `rec_document_recipients`, `rec_contracts`; an `rec_persons` nur die neue Spalte `sitzungen_ungueltig_ab` (§7.2 Spalte).
 
 ---
 
@@ -491,8 +493,7 @@ Knöpfe mit `wire:loading.attr="disabled"` und `wire:target`.
 6. **Laufende Sitzungen werden beendet** (Entscheidung Sebastian 12.10.: ein
    zurückgesetztes Konto darf keinen Fremden eingeloggt lassen). Mechanik:
    - Neue Spalte `rec_persons.sitzungen_ungueltig_ab` (timestamp, nullable; Migration
-     §7). `HrKontoAktionen` setzt sie bei **Konto zurücksetzen** und bei **Entsperren
-     nach Notfallsperre** auf `now()` (nicht bei „Einladung neu" — die ändert kein
+     §7). `KontoWriter` setzt sie bei **Konto zurücksetzen** und **Notfallsperre aufheben** (`notfallsperre_aufgehoben`) auf `now()` (nicht bei „Einladung neu" — die ändert kein
      Geheimnis; nicht bei Dispo-Entsperrung — die öffnet, sie schließt nicht).
    - Die Portal-Sitzung speichert statt `true` den **Anmeldezeitpunkt**
      (`session()->put(PortalAuth::sessionKey($id), now()->toIso8601String())`), an
@@ -505,8 +506,8 @@ Knöpfe mit `wire:loading.attr="disabled"` und `wire:target`.
      `sitzungen_ungueltig_ab`, wird der Sitzungsschlüssel verworfen und `false`
      geliefert. Alle `session()->has(PortalAuth::sessionKey(…))`-Stellen rufen
      stattdessen diese Methode: `PortalShell::mount` (~:160) und
-     `berechtigterMitarbeiter()`, `EmployeePortal` (~:157), `KontoAnmelden`-Weiche,
-     `DokumentZugriff`, `VertragPdfController`, Download-Controller der Nachweise.
+     `PortalShell::berechtigterMitarbeiter()` (setzt `unverified`), `EmployeePortal` (~:157), `KontoAnmelden`-Weiche,
+     `DokumentZugriff`, `VertragPdfController`. Einen Portal-Download-Controller für Nachweise gibt es nicht; die `KontoAnmelden`-Weiche hat keine eigene Sitzungsprüfung (nur put/forget).
      Eine zweite Prüfung mit eigener Logik ist verboten — sonst gibt es wieder eine
      Seite, die den Fremden weiter bedient.
    - Die Dispo-Sperre wirkt wie heute sofort (wird je Aufruf geprüft). Der alte
@@ -594,11 +595,11 @@ ausgerollt (Deploy-Liste in `project_konto_anmeldeschicht_gate_d`). Dieses Paket
 danach als eigener Merge.
 
 1. Merge (ff) auf main, **meingedeck bumpen**.
-2. Forge-Deploy **mit `migrate`** (eine Migration: `rec_hr_vermerke`). Ohne sie knallt der
+2. Forge-Deploy **mit `migrate`** (ZWEI Migrationen: `rec_hr_vermerke`, `rec_persons.sitzungen_ungueltig_ab`). Ohne sie knallt der
    neue Reiter und der Konto-Kasten (Vermerk-Abfrage).
-3. `view:clear`. **Kein `queue:restart`** (keine Jobs, alle Versände synchron).
-4. Kein `.env`-Eintrag nötig. Alle drei Einstellungen haben Vorgaben; Notfallweg bleibt
-   aus (beide Riegel zu).
+3. `view:clear`. `queue:restart` nur, falls sich ein Queue-Job geändert hat (prüfen: `git diff --stat <alt>..HEAD -- src/Jobs`); geprüft: `src/Jobs` und Listener sind in diesem Paket unverändert, also nicht nötig; die HR-Versände laufen synchron.
+4. Kein `.env`-Eintrag nötig. Alle drei Einstellungen haben Vorgaben (Settings-Defaults); der Team-Schalter Notfallweg ist standardmäßig aus (beide Riegel zu).
+   Empfohlen auf Staging: manueller MySQL-Zwei-Sitzungen-`FOR UPDATE`-Check (zwei Konsolen, Zeile sperren, zweite Aktion muss warten) — die Suite läuft auf SQLite und kann InnoDB-Nebenläufigkeit nicht prüfen.
 5. Sichttests: Reiter mit Zahlen; je Liste eine Zeile; Akte mit/ohne Personen-Zeile;
    „Einladung neu“ an Testperson (Team 6 auf der Demo), Registrierung mit dem Code.
 6. HR informieren (wer schaut täglich in „Konto-Anträge“?).
@@ -628,3 +629,25 @@ Notfall-Antrag bleibt dann wie heute nur per Kommando sichtbar.
    an `rec_persons`, eine Prüfstelle `PortalAuth::sitzungGueltig()`.
 
 Entscheidungen 1–4: wie empfohlen (Sebastian 12.10.). Knopf heißt „Kontaktiert".
+
+---
+
+## 13. Umsetzungsentscheidungen (Plan 2026-10-12)
+
+- **Migrationen:** `2026_10_12_000002_create_rec_hr_vermerke_table` und `2026_10_12_000003_add_sitzungen_ungueltig_ab_to_rec_persons` (statt `_000001`, auf main belegt).
+- **`sitzungen_ungueltig_ab`** schreibt `KontoWriter` (HR-Reset und Aufheben der Notfallsperre, im selben Update), nicht `HrKontoAktionen`.
+- **`PortalAuth::sitzungGueltig`** ist die eine Prüfstelle, auch im alten `EmployeePortal` (mount, saveAll, Upload, hydrate). Zwei Sicherheitsfixes im alten Portal: keine Personendaten vor der Anmeldung (Token-Link allein zeigt nichts) und Sitzungs-Neuprüfung bei jedem Request (hydrate-Wächter).
+- **HR-Reset** entfernt einen offenen Nummernwechsel-Antrag (Vermerk „offener Nummernwechsel-Antrag entfernt“), in einer Transaktion.
+- **Zusammengeführte Personen:** nur „stoppen“. Stoppen ist auch für Anträge ohne Anstellung im Team erlaubt („keine Akte im Team“, angezeigt als Person #id).
+- **Notizen** werden getrimmt, einschließlich Unicode-Leerraum.
+- **Sperren:** `EinsatzPruefung::LAUF_SPERRE`, `SendProofReminders::LOCK_KEY`, je Bezug (Person) eine Sperre für Dokumente und Verträge. Die Pausenprüfung läuft unter der Sperre.
+- **„Kontaktiert“** blendet nie eine Person mit Einsatz innerhalb der Ruhezeit aus (§3.3). **Ausgeschiedene** erscheinen nie in „Erinnert“.
+- **Zähler** der Reiter: 60 s je Team gecacht, von HR-Aktionen (auch Konto-Kasten) geleert.
+- **Einladungslink/-code** nur in privaten Livewire-Feldern, einmal angezeigt. `Show::unlockPortal` entfällt (`PortalEntsperrung`).
+- **Team-Schalter** Notfallweg wird innerhalb des gesperrten Lesevorgangs geprüft; `--offen` zeigt „Notfallweg aus, wartet auf HR“.
+- **`phpunit.xml`:** `memory_limit` 1G (Suite gewachsen).
+- `Bote::fuer()` übernimmt die Regel unverändert (kleinste Akte mit `portal_v2_since`); HR übergibt nur aktive Akten.
+- `EinladungsRiegel::ohneWhatsapp()` liest die DB (zeichengleicher Umzug), `grund()` ist rein.
+- Dispo-Chip in Liste/Kasten: aktive Akten der Personen-Klammer; Entsperren über die Dispo-Gruppe (GD-9).
+- Stillgelegte Anträge erscheinen über die Akten der Zielzeile und sind stoppbar.
+- Freigabe-Hinweisstatus steht als `ergebnis` im Vermerk.

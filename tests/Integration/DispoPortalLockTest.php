@@ -15,7 +15,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
  * Portalsperre (Eskalations-Stufe 3, Spec §4): `DispoEmployeeGateway::
  * lockPortal` setzt portal_locked_at/_reason genau EINMAL (Idempotenz — ein
  * zweiter Aufruf mit anderem Grund ueberschreibt NICHT den ersten Zeitpunkt/
- * Grund) und die HR-Entsperrung (`Show::unlockPortal`) leert beide Spalten
+ * Grund) und die HR-Entsperrung (`PortalEntsperrung`, vormals `Show::unlockPortal`) leert beide Spalten
  * wieder.
  *
  * Die serverseitige Durchsetzung in EmployeePortal/EmployeeAssignments
@@ -100,7 +100,7 @@ class DispoPortalLockTest extends TestCase
         $this->assertSame(0, Capsule::table('rec_employees')->where('id', 999999)->count());
     }
 
-    public function test_unlockPortal_clears_both_columns(): void
+    public function test_portal_entsperrung_leert_beide_spalten(): void
     {
         $emp = $this->makeEmployee();
         $gw = new DispoEmployeeGateway();
@@ -110,7 +110,7 @@ class DispoPortalLockTest extends TestCase
         $this->assertNotNull($locked->portal_locked_at);
         $this->assertNotNull($locked->portal_locked_reason);
 
-        // HR-Entsperrung (Show::unlockPortal) — hier direkt gegen das Model
+        // HR-Entsperrung (PortalEntsperrung) — hier direkt gegen das Model
         // nachvollzogen, da Show eine Livewire-Komponente ohne eigenen
         // Test-Harness in dieser Suite ist (siehe Klassen-Docblock).
         $locked->portal_locked_at = null;
@@ -122,7 +122,7 @@ class DispoPortalLockTest extends TestCase
         $this->assertNull($unlocked->portal_locked_reason);
     }
 
-    public function test_unlockPortal_then_lockPortal_again_sets_fresh_timestamp(): void
+    public function test_entsperren_dann_erneut_sperren_setzt_frischen_zeitstempel(): void
     {
         $emp = $this->makeEmployee();
         $gw = new DispoEmployeeGateway();
