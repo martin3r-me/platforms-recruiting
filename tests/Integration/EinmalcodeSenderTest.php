@@ -412,6 +412,38 @@ final class EinmalcodeSenderTest extends TestCase
     }
 
     /**
+     * Kopfzeile mit Medium: Meta lehnte ab. Verweigert VOR Drossel und
+     * erzeugeCode() — der laufende Code bleibt, kein Meta-Aufruf.
+     */
+    public function testVorlageMitBildKopfzeileVerschicktNichtUndVerbrenntKeinenCode(): void
+    {
+        $vorher = $this->laufenderCode();
+        DB::table('integrations_whatsapp_templates')->where('id', $this->vorlageId)->update([
+            'components' => json_encode([
+                ['type' => 'HEADER', 'format' => 'IMAGE'],
+                ['type' => 'BODY', 'text' => 'Dein Code: {{code}}'],
+            ]),
+        ]);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('Kopfzeile mit Variable oder Medium', $this->logText());
+    }
+
+    public function testLeeresFeldMeldetKeineVorlageGewaehltOhneEingangsbestaetigung(): void
+    {
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, null);
+
+        (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertStringContainsString('Keine Vorlage gewählt unter', $this->logText());
+        $this->assertStringNotContainsString('Eingangsbest', $this->logText());
+    }
+
+    /**
      * Name und Sprache kommen aus der gewaehlten Vorlage — nicht aus einer
      * Konfiguration.
      */

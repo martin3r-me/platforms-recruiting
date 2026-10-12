@@ -176,6 +176,8 @@ final class NummernwechselHinweisSenderTest extends TestCase
         $this->assertSame([], $this->meta->calls);
         $this->assertStringContainsString('Mitarbeiterportal', $this->logText());
         $this->assertStringContainsString('Hinweis an die alte Nummer', $this->logText());
+        $this->assertStringContainsString('Keine Vorlage gewählt', $this->logText());
+        $this->assertStringNotContainsString('Eingangsbest', $this->logText());
     }
 
     public function testUnbekannterPlatzhalterVerschicktNichts(): void
@@ -198,6 +200,24 @@ final class NummernwechselHinweisSenderTest extends TestCase
         $this->assertSame(NummernwechselHinweisSender::STATUS_FAILED, $status);
         $this->assertSame([], $this->meta->calls);
         $this->assertStringContainsString('Knopf mit Variable', $this->logText());
+    }
+
+    public function testKopfzeileMitVariableVerschicktNichts(): void
+    {
+        $id = $this->vorlage('nummer_geaendert', 'Hallo.');
+        DB::table('integrations_whatsapp_templates')->where('id', $id)->update([
+            'components' => json_encode([
+                ['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Hallo {{1}}'],
+                ['type' => 'BODY', 'text' => 'Hallo.'],
+            ]),
+        ]);
+        $this->feld($id);
+
+        $status = (new NummernwechselHinweisSender())->sende($this->personId, self::ALTE_NUMMER);
+
+        $this->assertSame(NummernwechselHinweisSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertStringContainsString('Kopfzeile mit Variable oder Medium', $this->logText());
     }
 
     public function testNichtGenehmigteVorlageVerschicktNichts(): void

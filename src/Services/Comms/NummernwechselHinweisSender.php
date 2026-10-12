@@ -183,6 +183,11 @@ final class NummernwechselHinweisSender
         // Vorlage UND Kanal in einem Schritt: ein fehlender Kanal am Account
         // der Vorlage ist ein Vorlagen-Fehler wie jeder andere.
         $schluessel = PortalVorlagen::HINWEIS_ALTE_NUMMER;
+        $keineWahl = PortalVorlagen::meldungWennKeineWahl($teamId, $schluessel);
+        if ($keineWahl !== null) {
+            return $fehler($keineWahl);
+        }
+
         $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, $schluessel);
         if ($ziel['error'] !== null) {
             $feldname = PortalVorlagen::FELDNAMEN[$schluessel] ?? $schluessel;
@@ -218,6 +223,10 @@ final class NummernwechselHinweisSender
 
         if (PortalVorlagen::hatKnopfMitParameter($teile)) {
             return $fehler('Die Vorlage hat einen Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.');
+        }
+
+        if (PortalVorlagen::brauchtKopfParameter($teile)) {
+            return $fehler(PortalVorlagen::KOPFZEILE_MELDUNG);
         }
 
         return [

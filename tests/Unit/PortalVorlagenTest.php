@@ -56,4 +56,16 @@ final class PortalVorlagenTest extends TestCase
             'employee_contract_wa_template_id'         => 'Vertrag zur Unterschrift',
         ], PortalVorlagen::FELDNAMEN);
     }
+
+    public function test_kopfzeile_braucht_parameter_alle_faelle(): void
+    {
+        $body = ['type' => 'BODY', 'text' => 'x'];
+
+        $this->assertFalse(PortalVorlagen::brauchtKopfParameter([['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Fest'], $body]));
+        $this->assertTrue(PortalVorlagen::brauchtKopfParameter([['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Hallo {{1}}'], $body]));
+        $this->assertTrue(PortalVorlagen::brauchtKopfParameter([['type' => 'HEADER', 'format' => 'image'], $body]));
+        $this->assertTrue(PortalVorlagen::brauchtKopfParameter([['type' => 'HEADER', 'format' => 'DOCUMENT'], $body]));
+        $this->assertFalse(PortalVorlagen::brauchtKopfParameter([$body]));
+        $this->assertFalse(PortalVorlagen::brauchtKopfParameter([]));
+    }
 }

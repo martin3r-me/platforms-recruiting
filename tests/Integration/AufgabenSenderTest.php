@@ -200,6 +200,21 @@ final class AufgabenSenderTest extends TestCase
         $grund = (string) $this->log->zeilen[0]['daten']['grund'];
         $this->assertStringContainsString(PortalVorlagen::ORT, $grund);
         $this->assertStringContainsString('Offene Aufgaben — Erinnerung', $grund);
+        $this->assertStringContainsString('Keine Vorlage gewählt', $grund);
+        $this->assertStringNotContainsString('Eingangsbest', $grund);
+    }
+
+    public function testEineKopfzeileMitMediumIstUntauglichUndVerschicktNichts(): void
+    {
+        $aufbau = $this->vorlagenAufbau();
+        array_unshift($aufbau, ['type' => 'HEADER', 'format' => 'IMAGE']);
+        DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->update(['components' => json_encode($aufbau)]);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertStringContainsString('Kopfzeile mit Variable oder Medium', (string) $this->log->zeilen[0]['daten']['grund']);
     }
 
     public function testEineAbgelehnteVorlageVerhindertDenVersand(): void

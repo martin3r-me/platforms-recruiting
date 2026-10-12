@@ -357,12 +357,18 @@ class ApplicantSettingsModal extends Component
                 . 'Dokumente-Template genommen. Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.',
         ];
 
+        $kopf = ' Keine Kopfzeile mit Variable oder Bild.';
+        $mitKopfHinweis = [
+            PortalVorlagen::CODE_PASSWORT, PortalVorlagen::CODE_NUMMERNWECHSEL, PortalVorlagen::CODE_NOTFALL,
+            PortalVorlagen::HINWEIS_ALTE_NUMMER, PortalVorlagen::AUFGABEN_NEU, PortalVorlagen::AUFGABEN_ERINNERUNG,
+        ];
+
         $felder = [];
         foreach (PortalVorlagen::FELDNAMEN as $key => $label) {
             $felder[] = [
                 'key'       => $key,
                 'label'     => $label,
-                'hinweis'   => $hinweise[$key],
+                'hinweis'   => $hinweise[$key] . (in_array($key, $mitKopfHinweis, true) ? $kopf : ''),
                 'nullLabel' => $key === 'employee_contract_wa_template_id' ? '– wie Dokumente –' : '– Template wählen –',
             ];
         }

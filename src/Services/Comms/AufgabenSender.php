@@ -188,16 +188,19 @@ final class AufgabenSender
         // .env/Config. Kein stiller Fehlschlag: ohne genehmigte Vorlage kann
         // niemand erreicht werden, und das Log nennt das Feld.
         $feld = PortalVorlagen::AUFGABEN_SCHLUESSEL[$anlass] ?? null;
+        $keineWahl = $feld === null ? null : PortalVorlagen::meldungWennKeineWahl((int) $employee->team_id, $feld);
         $ziel = $feld === null
             ? ['error' => "Unbekannter Anlass \"{$anlass}\"", 'template' => null, 'channel' => null]
-            : app(HoldingTemplateSender::class)->resolveTarget((int) $employee->team_id, $feld);
+            : ($keineWahl !== null
+                ? ['error' => $keineWahl, 'template' => null, 'channel' => null]
+                : app(HoldingTemplateSender::class)->resolveTarget((int) $employee->team_id, $feld));
 
         if ($ziel['error'] !== null) {
             $feldname = PortalVorlagen::FELDNAMEN[$feld] ?? (string) $anlass;
             Log::error('recruiting.aufgaben.vorlage_fehlt', [
                 'anlass'      => $anlass,
                 'mitarbeiter' => $employee->id,
-                'grund'       => 'Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})",
+                'grund'       => $keineWahl ?? ('Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})"),
             ]);
 
             return self::STATUS_NICHT_KONFIGURIERT;
@@ -208,6 +211,17 @@ final class AufgabenSender
         $name          = (string) $vorlageZeile->name;
         $sprache       = (string) ($vorlageZeile->language ?: 'de');
         $vorlagenTeile = (array) ($vorlageZeile->components ?? []);
+
+        if (PortalVorlagen::brauchtKopfParameter($vorlagenTeile)) {
+            Log::error('recruiting.aufgaben.vorlage_kopfzeile', [
+                'anlass'      => $anlass,
+                'vorlage'     => $name,
+                'mitarbeiter' => $employee->id,
+                'grund'       => PortalVorlagen::KOPFZEILE_MELDUNG,
+            ]);
+
+            return self::STATUS_VORLAGE_UNTAUGLICH;
+        }
 
         $anzahl = count($stand['punkte'] ?? []);
         if ($anzahl === 0) {

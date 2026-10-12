@@ -360,6 +360,11 @@ final class EinmalcodeSender
             return $fehler("Fuer den Zweck \"{$zweck}\" gibt es keine Vorlagen-Einstellung — es wird nichts verschickt.");
         }
 
+        $keineWahl = PortalVorlagen::meldungWennKeineWahl($teamId, $schluessel);
+        if ($keineWahl !== null) {
+            return $fehler($keineWahl);
+        }
+
         $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, $schluessel);
         if ($ziel['error'] !== null) {
             $feldname = PortalVorlagen::FELDNAMEN[$schluessel] ?? $schluessel;
@@ -404,6 +409,11 @@ final class EinmalcodeSender
         // erst NACH erzeugeCode(), der laufende Code waere verbrannt.
         if (PortalVorlagen::hatKnopfMitParameter($teile)) {
             return $fehler('Die Vorlage hat einen Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.');
+        }
+
+        // Kopfzeile mit Variable oder Medium: ebenfalls VOR erzeugeCode().
+        if (PortalVorlagen::brauchtKopfParameter($teile)) {
+            return $fehler(PortalVorlagen::KOPFZEILE_MELDUNG);
         }
 
         return [

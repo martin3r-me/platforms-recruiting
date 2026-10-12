@@ -70,6 +70,49 @@ final class PortalVorlagen
         return $namen;
     }
 
+    /** Meldung, wenn eine Vorlage eine Kopfzeile mit Variable oder Medium hat — die befuellen wir nicht. */
+    public const KOPFZEILE_MELDUNG = 'Die Vorlage hat eine Kopfzeile mit Variable oder Medium — die befuellen wir nicht, Meta wuerde ablehnen.';
+
+    /**
+     * Braucht die Kopfzeile beim Senden einen Parameter? Ein HEADER mit Format
+     * IMAGE/VIDEO/DOCUMENT/LOCATION, oder ein TEXT-HEADER mit {{ im Text.
+     * Eine feste Text-Kopfzeile ist unproblematisch.
+     *
+     * @param  array<int, mixed>  $components
+     */
+    public static function brauchtKopfParameter(array $components): bool
+    {
+        foreach ($components as $teil) {
+            if (!is_array($teil) || strtoupper((string) ($teil['type'] ?? '')) !== 'HEADER') {
+                continue;
+            }
+            $format = strtoupper((string) ($teil['format'] ?? 'TEXT'));
+            if ($format !== 'TEXT' && $format !== '') {
+                return true;
+            }
+            if (str_contains((string) ($teil['text'] ?? ''), '{{')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Leere Auswahl in den Einstellungen → eigene Meldung mit Ort und
+     * Feldname (statt des Eingangsbestaetigungs-Texts aus HoldingTemplateSender).
+     * null = es ist etwas gewaehlt.
+     */
+    public static function meldungWennKeineWahl(int $teamId, string $schluessel): ?string
+    {
+        if (RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting($schluessel)) {
+            return null;
+        }
+        $feldname = self::FELDNAMEN[$schluessel] ?? $schluessel;
+
+        return 'Keine Vorlage gewählt unter ' . self::ORT . " → {$feldname}";
+    }
+
     /** Braucht ein Knopf beim Senden einen Parameter? URL mit {{ in der URL, oder Typ OTP / COPY_CODE. */
     public static function hatKnopfMitParameter(array $components): bool
     {
