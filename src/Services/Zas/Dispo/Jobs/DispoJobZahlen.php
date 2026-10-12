@@ -1,0 +1,97 @@
+<?php
+
+namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
+
+/**
+ * „Sendet an N Personen“ VOR dem Senden — dieselbe Rechnung wie beim Start
+ * der Welle (DispoJobKandidaten + DispoJobRecipientPlanner), nur ohne Versand.
+ * Beim Start wird neu gerechnet; diese Zahl ist eine Vorschau.
+ */
+final class DispoJobZahlen
+{
+    /** Wert der Checkbox „ohne Kostenstelle“ (Livewire-Checkboxen tragen Strings, nie null). */
+    public const OHNE = 'ohne';
+
+    /**
+     * @param list<array{id:int, datum:string, taetigkeit:string}> $schichten
+     * @param array<int,true> $schonAngeschrieben
+     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
+     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int}
+     */
+    public static function berechnen(int $teamId, array $schichten, array $schonAngeschrieben, array $auswahl): array
+    {
+        if ($schichten === []) {
+            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0];
+        }
+        $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
+        $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
+
+        return self::ausDaten($daten, $schichten, $schonAngeschrieben, $auswahl);
+    }
+
+    /** Rein: aus geladenen Kandidaten. */
+    public static function ausDaten(array $daten, array $schichten, array $schonAngeschrieben, array $auswahl): array
+    {
+        $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben, $auswahl);
+        $mitPassend = !empty($auswahl['nur_passend'])
+            ? count($plan['recipients'])
+            : count(DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben,
+                ['nur_passend' => true] + $auswahl)['recipients']);
+
+        $namen = [];
+        foreach ($daten['kandidaten'] as $k) {
+            $namen[(int) $k['anchor']] = (string) ($k['name'] ?? $k['first_name'] ?? ('#' . $k['anchor']));
+        }
+        $toepfe = [];
+        foreach (DispoJobRecipientPlanner::TOEPFE as $key => $label) {
+            $anzahl = (int) ($plan['skipped'][$key] ?? 0);
+            if ($anzahl === 0) {
+                continue;
+            }
+            $toepfe[] = ['key' => $key, 'label' => $label, 'anzahl' => $anzahl,
+                'namen' => self::sortiert(array_map(fn ($a) => $namen[(int) $a] ?? ('#' . $a), $plan['skipped_ids'][$key] ?? []))];
+        }
+
+        return [
+            'empfaenger'  => count($plan['recipients']),
+            'namen'       => self::sortiert(array_map(fn ($r) => $namen[(int) $r['anchor']] ?? $r['first_name'], $plan['recipients'])),
+            'toepfe'      => $toepfe,
+            'mit_passend' => $mitPassend,
+        ];
+    }
+
+    /**
+     * Checkbox-Werte → Bloecke des Planers ('ohne' → null, Ziffern → int, Rest weg).
+     *
+     * @param array<int|string,mixed> $werte
+     * @return list<int|null>
+     */
+    public static function bloecke(array $werte): array
+    {
+        $out = [];
+        foreach ($werte as $w) {
+            if ($w === self::OHNE) {
+                $out['ohne'] = null;
+            } elseif ((is_string($w) && ctype_digit($w)) || is_int($w)) {
+                $out['b' . (int) $w] = (int) $w;
+            }
+        }
+
+        return array_values($out);
+    }
+
+    /** @return list<string> nur bekannte Gruppen-Schluessel */
+    public static function gruppen(array $werte): array
+    {
+        return array_values(array_unique(array_filter(array_map('strval', $werte),
+            fn ($g) => array_key_exists($g, DispoEinsatzZaehler::BAENDER))));
+    }
+
+    /** @param list<string> $namen */
+    private static function sortiert(array $namen): array
+    {
+        sort($namen, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $namen;
+    }
+}

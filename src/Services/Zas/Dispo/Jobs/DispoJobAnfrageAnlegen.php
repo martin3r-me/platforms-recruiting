@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Jobs\SendDispoJobWave;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
 use Symfony\Component\Uid\UuidV7;
@@ -65,6 +66,19 @@ final class DispoJobAnfrageAnlegen
             'scheduled_for'           => $minuten > 0 ? now()->addMinutes($minuten) : null,
             'job_uuid'                => (string) UuidV7::generate(),
         ]);
+    }
+
+    /**
+     * Welle in die Warteschlange — NACH dem Commit aufrufen. Geplante Wellen
+     * mit Verzoegerung; der Job prueft scheduled_for selbst noch einmal.
+     */
+    public static function starten(RecDispoJobWave $wave, int $teamId, ?int $userId): void
+    {
+        $pending = SendDispoJobWave::dispatch((int) $wave->id, $teamId, $userId);
+        if ($wave->scheduled_for !== null) {
+            $pending->delay($wave->scheduled_for);
+        }
+        // PendingDispatch schickt beim Verlassen des Scopes ab.
     }
 
     /**
