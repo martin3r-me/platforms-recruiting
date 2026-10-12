@@ -117,4 +117,38 @@ final class HrVermerkTest extends TestCase
         $this->assertFalse(HrEinstellungen::notfallWegAktiv(null), 'Person ohne Team: fail closed');
         $this->assertFalse(HrEinstellungen::notfallWegAktiv(123), 'Team ohne Einstellungszeile: Vorgabe aus');
     }
+
+    public function test_vorhandener_vermerk_laesst_sich_weder_aendern_noch_loeschen(): void
+    {
+        $id = RecHrVermerk::anfuegen($this->team, 5, null, 'kontaktiert', 'Original', null, 'ok', null, 42);
+        $vorher = (array) DB::table('rec_hr_vermerke')->where('id', $id)->first();
+
+        $aenderung = function () use ($id) {
+            $m = RecHrVermerk::query()->findOrFail($id);
+            $m->forceFill(['notiz' => 'umgeschrieben'])->save();
+        };
+        $loeschen = fn () => RecHrVermerk::query()->findOrFail($id)->delete();
+
+        foreach ([$aenderung, $loeschen] as $fall) {
+            try {
+                $fall();
+                $this->fail('erwartet LogicException');
+            } catch (\LogicException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame($vorher, (array) DB::table('rec_hr_vermerke')->where('id', $id)->first());
+    }
+
+    public function test_bool_einstellung_wird_strikt_gelesen_und_obergrenzen_gelten(): void
+    {
+        foreach (['false' => false, '0' => false, 'off' => false, '' => false, 'true' => true, '1' => true, 'on' => true] as $roh => $erwartet) {
+            $this->einstellung('konto_notfall_weg_aktiv', (string) $roh);
+            $this->assertSame($erwartet, HrEinstellungen::notfallWegAktiv($this->team), "Wert '{$roh}'");
+        }
+        $this->einstellung('hr_kontaktiert_ruhe_tage', 31);
+        $this->einstellung('hr_erinnert_tage', 61);
+        $this->assertSame(30, HrEinstellungen::kontaktiertRuheTage($this->team));
+        $this->assertSame(60, HrEinstellungen::erinnertTage($this->team));
+    }
 }

@@ -17,7 +17,7 @@ final class HrEinstellungen
 
     public static function notfallWegAktiv(?int $teamId): bool
     {
-        return $teamId !== null && (bool) self::wert($teamId, self::NOTFALL_WEG);
+        return $teamId !== null && self::alsBool(self::wert($teamId, self::NOTFALL_WEG));
     }
 
     public static function erinnertTage(int $teamId): int
@@ -38,6 +38,12 @@ final class HrEinstellungen
         }
 
         return max($min, min($max, (int) $wert));
+    }
+
+    /** Strikt: 'false'/'0'/'off' duerfen nicht per (bool)-Cast zu true werden. */
+    private static function alsBool(mixed $wert): bool
+    {
+        return $wert === true || $wert === 1 || in_array(is_string($wert) ? strtolower(trim($wert)) : $wert, ['1', 'true', 'on'], true);
     }
 
     private static function wert(int $teamId, string $schluessel): mixed

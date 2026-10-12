@@ -26,6 +26,17 @@ class RecHrVermerk extends Model
         'created_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        // Echtes "nur anfuegen": auch save()/delete() an einer geladenen Zeile scheitern.
+        static::updating(function () {
+            throw new \LogicException('HR-Vermerke sind nur anfuegbar und lassen sich nicht aendern.');
+        });
+        static::deleting(function () {
+            throw new \LogicException('HR-Vermerke sind nur anfuegbar und lassen sich nicht loeschen.');
+        });
+    }
+
     /** @var list<string> */
     public const ARTEN = [
         'antrag_gestoppt', 'antrag_freigegeben', 'konto_entsperrt', 'portal_entsperrt', 'bremse_geloest',
