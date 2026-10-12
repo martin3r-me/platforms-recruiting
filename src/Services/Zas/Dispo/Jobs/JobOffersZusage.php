@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
+use Platform\Recruiting\Models\RecDispoJobShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 
 /**
@@ -20,20 +21,25 @@ final class JobOffersZusage
     public static function ausfuehren(int $offerShiftId, array $employeeIds): string
     {
         return DB::transaction(function () use ($offerShiftId, $employeeIds) {
-            $os = RecDispoJobOfferShift::query()->lockForUpdate()->with(['offer', 'shift.request'])->find($offerShiftId);
+            $os = RecDispoJobOfferShift::query()->with('offer')->find($offerShiftId);
             if ($os === null || !in_array((int) $os->offer->rec_employee_id, $employeeIds, true)) {
                 return 'weg';
             }
             if ($os->accepted_at !== null) {
                 return 'ok';
             }
-            $shift = $os->shift;
+            // Die SCHICHT-Zeile ist der einzige Serialisierungspunkt (kein Deadlock
+            // zwischen zwei Angebots-Zeilen derselben Schicht).
+            $shift = RecDispoJobShift::query()->whereKey($os->shift_id)->lockForUpdate()->first();
+            if ($shift === null) {
+                return 'weg';
+            }
             $request = $shift->request;
             if (!$request->laeuft() || $shift->closed_at !== null || $shift->datum->lt(now()->startOfDay())) {
                 return $request->laeuft() && $shift->closed_at !== null ? 'voll' : 'weg';
             }
             if ($request->modus === RecDispoJobRequest::MODUS_ZUERST && $shift->gesucht > 0) {
-                $zusagen = RecDispoJobOfferShift::query()->where('shift_id', $shift->id)->whereNotNull('accepted_at')->lockForUpdate()->count();
+                $zusagen = RecDispoJobOfferShift::query()->where('shift_id', $shift->id)->whereNotNull('accepted_at')->count();
                 if ($zusagen >= $shift->gesucht) {
                     $shift->update(['closed_at' => now()]);
 
@@ -46,6 +52,6 @@ final class JobOffersZusage
             $os->update(['accepted_at' => now()]);
 
             return 'ok';
-        });
+        }, 3);
     }
 }

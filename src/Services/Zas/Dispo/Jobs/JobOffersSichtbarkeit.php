@@ -4,8 +4,9 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 /**
  * Welche Angebote sieht die Person auf /jobs/{token}? Rein rechnend.
- * Sichtbar: Anfrage laeuft, Tag >= heute, Tag nicht gebucht, und die Schicht
- * ist offen — oder die Person hat sie selbst schon zugesagt.
+ * Sichtbar: Anfrage laeuft, Tag >= heute, Tag nicht gebucht.
+ * Geschlossene (volle) Schichten bleiben sichtbar (Zeile behaelt closed=true):
+ * die Seite zeigt sie ohne Knopf als „schon voll“ (Spec §5).
  */
 final class JobOffersSichtbarkeit
 {
@@ -20,9 +21,6 @@ final class JobOffersSichtbarkeit
         foreach ($rows as $row) {
             $tag = substr((string) $row['datum'], 0, 10);
             if (empty($row['laeuft']) || $tag < $heute || isset($gebuchteTage[$tag])) {
-                continue;
-            }
-            if (!empty($row['closed']) && empty($row['accepted'])) {
                 continue;
             }
             $out[] = $row;

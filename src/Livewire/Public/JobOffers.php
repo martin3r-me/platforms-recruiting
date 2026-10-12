@@ -39,6 +39,8 @@ class JobOffers extends Component
     /** Rueckmeldung nach „Ich bin dabei“ (nur serverseitig gesetzt). */
     #[Locked]
     public string $hinweis = '';
+    #[Locked]
+    public bool $hinweisOk = false;
 
     public function mount(string $token): void
     {
@@ -79,6 +81,8 @@ class JobOffers extends Component
         $offerShifts = RecDispoJobOfferShift::query()
             ->with(['offer', 'shift.event', 'shift.request'])
             ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $this->employeeIds))
+            ->whereHas('shift', fn ($q) => $q->whereDate('datum', '>=', now()->toDateString()))
+            ->whereHas('shift.request', fn ($q) => $q->where('status', RecDispoJobRequest::STATUS_LAEUFT)->whereNull('closed_at'))
             ->get();
         if ($offerShifts->isEmpty()) {
             return [];
@@ -124,8 +128,8 @@ class JobOffers extends Component
             $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
 
             $groups[$shift->rec_dispo_event_id] ??= [
-                'name' => $event->name ?? $event->einsatz_ref ?? 'Einsatz',
-                'ort'  => $event->venue_text ?: $event->ort,
+                'name' => $event?->name ?? $event?->einsatz_ref ?? 'Einsatz',
+                'ort'  => $event?->venue_text ?: $event?->ort,
                 'days' => [],
             ];
             $groups[$shift->rec_dispo_event_id]['days'][$row['datum']][] = [
@@ -164,6 +168,7 @@ class JobOffers extends Component
         }
 
         $ergebnis = JobOffersZusage::ausfuehren($offerShiftId, $this->employeeIds);
+        $this->hinweisOk = $ergebnis === 'ok';
         $this->hinweis = match ($ergebnis) {
             'ok'    => 'Danke! Du bekommst eine Bestätigung, sobald du eingeteilt bist.',
             'voll'  => 'Diese Schicht ist schon voll — danke fürs Melden.',

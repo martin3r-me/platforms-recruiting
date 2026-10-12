@@ -19,6 +19,6 @@ class JobOffersSichtbarkeitTest extends TestCase
             $a(['offer_shift_id' => 6, 'accepted' => true, 'closed' => true]), // eigene Zusage bleibt sichtbar
         ];
         $sichtbar = JobOffersSichtbarkeit::filtern($rows, ['2026-10-25' => true], '2026-10-20');
-        $this->assertSame([1, 6], array_column($sichtbar, 'offer_shift_id'));
+        $this->assertSame([1, 3, 6], array_column($sichtbar, 'offer_shift_id'));
     }
 }

@@ -45,7 +45,7 @@
         </div>
 
         @if ($hinweis !== '')
-            <div class="notice">{{ $hinweis }}</div>
+            <div class="{{ $hinweisOk ? 'notice-ok' : 'notice' }}">{{ $hinweis }}</div>
         @endif
 
         @forelse ($groups as $group)
