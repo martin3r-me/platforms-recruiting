@@ -12,6 +12,10 @@ class AnleitungBildController
         $pfad = AnleitungKatalog::standard()->bildPfad($slug, $datei);
         abort_if($pfad === null, 404);
 
-        return response()->file($pfad, ['Cache-Control' => 'private, max-age=3600']);
+        return response()->file($pfad, [
+            'Content-Type'           => AnleitungKatalog::bildTyp($datei),
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control'          => 'private, max-age=3600',
+        ]);
     }
 }

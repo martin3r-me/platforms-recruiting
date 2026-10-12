@@ -138,4 +138,18 @@ MD;
             AnleitungParser::rezept(' seite=/a klicks="Öffnen; Weiter" manuell leer="" ')
         );
     }
+
+    public function test_nicht_utf8_kippt_nichts(): void
+    {
+        $a = AnleitungParser::parse('x', self::KOPF . "\n## A | B\n\nGr\xFC\xDFe\n");
+
+        $this->assertStringContainsString('UTF-8', (string) $a->fehler);
+    }
+
+    public function test_bilder_im_fliesstext_sind_nicht_erlaubt(): void
+    {
+        $a = AnleitungParser::parse('x', self::KOPF . "\n## A\n\n1. Schritt ![t](https://fremd.example/t.png)\n");
+
+        $this->assertStringContainsString('Bild nur als eigene Zeile', (string) $a->fehler);
+    }
 }

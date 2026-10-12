@@ -99,4 +99,12 @@ class AnleitungKatalogTest extends TestCase
 
         $this->assertNull((new AnleitungKatalog($this->dir))->bildPfad('dispo-a', 'link.png'));
     }
+
+    public function test_bildtyp_kommt_aus_der_endung_nicht_aus_dem_inhalt(): void
+    {
+        $this->assertSame('image/png', AnleitungKatalog::bildTyp('a.png'));
+        $this->assertSame('image/jpeg', AnleitungKatalog::bildTyp('a.JPG'));
+        $this->assertSame('image/jpeg', AnleitungKatalog::bildTyp('a.jpeg'));
+        $this->assertSame('image/webp', AnleitungKatalog::bildTyp('a.webp'));
+    }
 }

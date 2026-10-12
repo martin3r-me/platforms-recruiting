@@ -77,6 +77,16 @@ final class AnleitungKatalog
         ));
     }
 
+    /** Content-Type aus der Endung — nie aus dem Dateiinhalt raten (sonst wuerde eine als .png getarnte SVG/HTML so ausgeliefert). */
+    public static function bildTyp(string $datei): string
+    {
+        return match (strtolower(pathinfo($datei, PATHINFO_EXTENSION))) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp'        => 'image/webp',
+            default       => 'image/png',
+        };
+    }
+
     public function bildPfad(string $slug, string $datei): ?string
     {
         if (!preg_match(self::SLUG, $slug) || !preg_match(self::BILDNAME, $datei) || str_contains($datei, '..')) {

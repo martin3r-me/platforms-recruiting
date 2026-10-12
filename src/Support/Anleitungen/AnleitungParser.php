@@ -24,6 +24,9 @@ final class AnleitungParser
             return self::lesen($slug, $inhalt);
         } catch (AnleitungFehler $e) {
             return Anleitung::kaputt($slug, $e->getMessage());
+        } catch (\Throwable $e) {
+            // Sicherheitsnetz: eine Datei darf nie die ganze Uebersicht kippen.
+            return Anleitung::kaputt($slug, 'Unerwarteter Fehler: ' . $e->getMessage());
         }
     }
 
@@ -42,6 +45,9 @@ final class AnleitungParser
 
     private static function lesen(string $slug, string $inhalt): Anleitung
     {
+        if (!mb_check_encoding($inhalt, 'UTF-8')) {
+            throw new AnleitungFehler('Datei ist nicht UTF-8 (bitte als UTF-8 speichern)');
+        }
         $inhalt = str_replace(["\r\n", "\r"], "\n", preg_replace('/^\x{FEFF}/u', '', $inhalt) ?? $inhalt);
         if (!preg_match('/\A---\n(.*?)\n---\n?(.*)\z/s', $inhalt, $m)) {
             throw new AnleitungFehler('Kopf fehlt (--- … --- am Dateianfang)');
@@ -155,6 +161,10 @@ final class AnleitungParser
             $block = trim(preg_replace('/<!--.*?-->/s', '', $block) ?? $block);
             if ($block === '') {
                 continue;
+            }
+            // Bilder nur ueber die eigene Bildzeile (Ordner bilder/<slug>/) — kein Nachladen fremder Adressen.
+            if (str_contains($block, '![')) {
+                throw new AnleitungFehler("Folie {$nr}: Bild nur als eigene Zeile ![…](datei.png)");
             }
             if (preg_match('/^>/', $block)) {
                 $merksatz[] = preg_replace('/^>\s?/m', '', $block);
