@@ -529,4 +529,21 @@ final class HrMitarbeiterListenTest extends TestCase
         $this->assertNotNull($zeile);
         $this->assertSame('e:' . $a->id, $zeile['schluessel']);
     }
+
+    /** Ruling zu I3: auch Dokument- und Vertrags-Chips an einer beendeten Anstellung erscheinen nicht. */
+    public function test_dokument_und_vertrag_an_inaktiver_akte_sind_keine_chips(): void
+    {
+        $a = $this->akte(['is_active' => false]);
+        $this->person([], $a);
+        $dok = (int) DB::table('rec_documents')->insertGetId([
+            'team_id' => $this->team, 'uuid' => 'd-9', 'title' => 'Hausordnung', 'category' => 'other', 'action' => 'acknowledge',
+            'disk' => 'local', 'stored_path' => 'x.pdf', 'original_filename' => 'x.pdf', 'file_sha256' => str_repeat('0', 64), 'file_size' => 1,
+        ]);
+        DB::table('rec_document_recipients')->insert(['team_id' => $this->team, 'uuid' => 'r-9', 'rec_document_id' => $dok,
+            'rec_employee_id' => $a->id, 'notified_at' => '2026-10-01 10:00:00']);
+        $this->vertragAn($a, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-10-01 10:00:00'], ['herkunft' => 'akte']);
+
+        $this->assertSame([], $this->listen()->erinnert($this->team));
+        $this->assertSame([], $this->listen()->erinnert($this->team, '', true));
+    }
 }

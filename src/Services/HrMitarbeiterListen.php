@@ -253,7 +253,9 @@ final class HrMitarbeiterListen
     {
         $grenze = now()->subDays(HrEinstellungen::erinnertTage($teamId))->format('Y-m-d H:i:s');
         $heute = now()->toDateString();
-        $teamAkten = fn ($q) => $q->select('id')->from('rec_employees')->where('team_id', $teamId);
+        // Nur AKTIVE Akten des Teams (Ruling zu I3): Dokumente und Vertraege an einer
+        // beendeten Anstellung sind keine Chips — Ausgeschiedene erscheinen nie unter "Erinnert".
+        $teamAkten = fn ($q) => $q->select('id')->from('rec_employees')->where('team_id', $teamId)->where('is_active', 1);
 
         $aufgaben = DB::table('rec_persons')
             ->where('team_id', $teamId)
