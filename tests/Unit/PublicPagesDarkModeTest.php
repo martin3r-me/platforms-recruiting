@@ -68,7 +68,7 @@ class PublicPagesDarkModeTest extends TestCase
         // Farbe, gehoert sie in die Liste.
         $this->assertMatchesRegularExpression(
             '/\.rg-crew\s*\{[^}]*color\s*:/s',
-            $this->markup('employee-assignments'),
+            $this->markup('_crew-stil'), // Stil-Block liegt seit Jobangebote im geteilten Partial
             'employee-assignments setzt keine eigene Textfarbe mehr — gehoert dann in HELL_GESTALTET'
         );
     }

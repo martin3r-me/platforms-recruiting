@@ -38,6 +38,9 @@ final class DispoTemplateLabels
                 $byId[$id] = $label;
             }
         }
+        foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTemplateSettings::lesen($settings) as $jobId) {
+            $byId[$jobId] ??= 'Jobangebot';
+        }
         if ($byId === []) {
             return [];
         }

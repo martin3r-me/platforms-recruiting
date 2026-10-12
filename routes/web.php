@@ -142,6 +142,10 @@ Route::get('/dispo-dress-packages', \Platform\Recruiting\Livewire\Dispo\DressPac
     ->name('recruiting.dispo.dress-packages');
 Route::get('/dispo-kommunikation', \Platform\Recruiting\Livewire\Dispo\Conversations\Index::class)
     ->name('recruiting.dispo.conversations');
+// Jobs anbieten (Spec 2026-10-12): Anschreib-Werkzeug mit Rueckmeldungs-Liste. NICHT fuer „Nur Veranstaltungen“-Konten.
+Route::get('/dispo-jobs', \Platform\Recruiting\Livewire\Dispo\Jobs\Index::class)->name('recruiting.dispo.jobs.index');
+Route::get('/dispo-jobs/neu', \Platform\Recruiting\Livewire\Dispo\Jobs\Create::class)->name('recruiting.dispo.jobs.create');
+Route::get('/dispo-jobs/{requestId}', \Platform\Recruiting\Livewire\Dispo\Jobs\Show::class)->name('recruiting.dispo.jobs.show')->whereNumber('requestId');
 
 // Anleitungen (Spec 2026-10-12): Quelle docs/anleitungen/<slug>.md, fuer alle lesbar.
 Route::get('/anleitungen', \Platform\Recruiting\Livewire\Anleitungen\Index::class)

@@ -278,6 +278,15 @@ class ZasDispoWebexportImporter
 
             $this->syncQualifikationen($dispo4Rows, $dispo5Rows, $matcher, $dryRun, $summary);
 
+            if (!$dryRun) {
+                try {
+                    $summary['jobangebote_verknuepft'] = app(\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasAbgleich::class)->run();
+                } catch (\Throwable $e) {
+                    $summary['jobangebote_fehler'] = $e->getMessage();
+                    Log::warning('ZAS dispo import: Jobangebote-Abgleich fehlgeschlagen', ['error' => $e->getMessage()]);
+                }
+            }
+
             if ($summary['reconfirm_marked'] > 0) {
                 Log::info('ZAS dispo import: Rebestaetigung markiert', ['file_id' => $file->id, 'count' => $summary['reconfirm_marked']]);
             }

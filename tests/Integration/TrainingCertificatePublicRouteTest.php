@@ -88,12 +88,17 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * Portal-Sitzung einer Anstellung derselben Person, prueft Portalsperre
      * und is_active (Muster DokumentZugriff), 404 fuer nicht unterschriebene
      * oder unbekannte Vertraege. Gesehen und gewollt.
+     *
+     * 'job-offers': Jobangebote-Seite /jobs/{token} (Spec 2026-10-12), token-only
+     * wie die Einsatz-Seite; Portalsperre in mount() und zusagen(), Zusage nur
+     * auf eigene Angebote der Identitaets-Gruppe (JobOffersZusage).
      */
     private const SPAETER = [
         'recruiting.public.contract-pdf-anstellung',
         'recruiting.public.dokument',
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
+        'recruiting.public.job-offers',
         'recruiting.public.konto',
         'recruiting.public.konto-anlegen',
         'recruiting.public.konto-anlegen-code',

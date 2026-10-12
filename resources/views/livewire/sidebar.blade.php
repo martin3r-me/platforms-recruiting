@@ -167,6 +167,10 @@
             @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Veranstaltungen</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.dispo.jobs.index')">
+            @svg('heroicon-o-megaphone', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Jobs anbieten</span>
+        </x-ui-sidebar-item>
         @php
             $dispoUnread = \Platform\Recruiting\Services\Zas\Dispo\DispoUnreadCounter::count();
         @endphp

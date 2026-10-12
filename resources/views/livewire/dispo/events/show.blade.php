@@ -242,6 +242,8 @@
                     title="{{ $dokKnopfTitel }}">
                 Dokument an Eingebuchte <span class="tabular-nums opacity-60">{{ $dokEingebuchte }}</span>
             </button>
+            <a href="{{ route('recruiting.dispo.jobs.create', ['event' => $this->eventId]) }}"
+               class="rounded bg-white px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50">Jobs anbieten</a>
             <button wire:click="openInfoModal"
                     class="rounded bg-white px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50">
                 Info an Crew
