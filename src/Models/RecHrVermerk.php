@@ -10,8 +10,11 @@ use InvalidArgumentException;
 /**
  * Verlauf der HR-Handlungen an Konto, Sperre und Erinnerung (Spec HR-Bereich
  * §7.1). NUR ANFUEGEN: geschrieben wird ausschliesslich ueber anfuegen()
- * (Query Builder), es gibt kein Bearbeiten und kein Loeschen. Das Modell
- * existiert zum Lesen; $guarded = ['*'] schliesst Massenzuweisung aus.
+ * (Query Builder). Eloquent-Instanzen werfen bei save()/delete() (booted()).
+ * Query-Builder-/DB-Wege (DB::table(...)->update/delete) umgehen Modell-Events,
+ * sind nicht vorgesehen und duerfen in diesem Modul nicht geschrieben werden;
+ * das sichert HrVermerkNurAnfuegenQuellTest. Das Modell existiert zum Lesen;
+ * $guarded = ['*'] schliesst Massenzuweisung aus.
  */
 class RecHrVermerk extends Model
 {
