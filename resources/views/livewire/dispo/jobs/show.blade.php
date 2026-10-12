@@ -54,6 +54,11 @@
         @forelse ($wellen as $w)
             @php
                 $stand = $w['stand'];
+                // Fehlerzeilen der Welle (Vorlagen-Stopp, Abbruch, einzelne Empfaenger) — sonst nirgends sichtbar.
+                $standFehler = array_values(array_filter(array_map('strval', (array) ($stand['errors'] ?? [])), fn ($z) => $z !== ''));
+                $standFertig = (bool) ($stand['done'] ?? false);
+                $standLeer = (int) ($stand['total'] ?? 0) === 0 && $standFertig;
+                $welleGestoppt = $standLeer && $standFehler !== [];
                 $standToepfe = [];
                 foreach ((array) ($stand['skipped_toepfe'] ?? []) as $topfKey => $topfAnzahl) {
                     if ((int) $topfAnzahl > 0) {
@@ -98,15 +103,29 @@
                 </div>
                 @if ($stand !== null)
                     <div class="mt-1 text-xs text-gray-600">
-                        @if ((int) ($stand['total'] ?? 0) === 0 && ($stand['done'] ?? false))
+                        @if ($welleGestoppt)
+                            <div class="text-red-700">
+                                <div class="font-medium">Diese Welle konnte nicht gesendet werden:</div>
+                                @foreach ($standFehler as $fehlerZeile)
+                                    <div>{{ $fehlerZeile }}</div>
+                                @endforeach
+                            </div>
+                        @elseif ($standLeer)
                             Niemand übrig — alle aus der Auswahl sind schon angeschrieben oder fallen heraus.
                         @else
                             <strong>{{ (int) ($stand['sent'] ?? 0) }}</strong> von {{ (int) ($stand['total'] ?? 0) }} angeschrieben
                             @if ((int) ($stand['failed'] ?? 0) > 0)
                                 · <span class="text-red-700">{{ (int) $stand['failed'] }} nicht zugestellt</span>
                             @endif
-                            @if (!($stand['done'] ?? false))
+                            @if (!$standFertig)
                                 · läuft …
+                            @endif
+                            @if ($standFehler !== [])
+                                <div class="text-red-700">
+                                    @foreach ($standFehler as $fehlerZeile)
+                                        <div>{{ $fehlerZeile }}</div>
+                                    @endforeach
+                                </div>
                             @endif
                         @endif
                         @if ($standToepfe !== [])
