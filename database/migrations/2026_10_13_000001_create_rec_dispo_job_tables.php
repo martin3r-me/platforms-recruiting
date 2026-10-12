@@ -34,7 +34,7 @@ return new class extends Migration
             $t->unsignedBigInteger('request_id')->index();
             $t->unsignedBigInteger('rec_dispo_event_id')->index();
             $t->date('datum');
-            $t->string('von', 8)->nullable();
+            $t->string('von', 8)->default('');
             $t->string('taetigkeit', 190);
             $t->unsignedInteger('gesucht')->default(0);
             $t->timestamp('closed_at')->nullable();

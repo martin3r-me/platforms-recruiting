@@ -62,4 +62,15 @@ class DispoJobTablesTest extends TestCase
         $this->assertSame($request->id, RecDispoJobOffer::find($offer->id)->request->id);
         $this->assertSame(1, $request->offers()->count());
     }
+
+    public function test_schicht_ohne_beginn_kollidiert_im_unique_index(): void
+    {
+        $request = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => '2026-10-20', 'zeitraum_bis' => '2026-11-17',
+            'modus' => RecDispoJobRequest::MODUS_SAMMELN, 'status' => RecDispoJobRequest::STATUS_ENTWURF]);
+        $row = ['rec_dispo_event_id' => 77, 'datum' => '2026-10-24', 'taetigkeit' => 'Zapfer', 'gesucht' => 2];
+        $request->shifts()->create($row);
+
+        $this->expectException(\Illuminate\Database\QueryException::class);
+        $request->shifts()->create($row);
+    }
 }
