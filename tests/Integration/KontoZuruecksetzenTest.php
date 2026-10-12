@@ -37,6 +37,7 @@ use Platform\Recruiting\Livewire\Public\KontoAnmelden;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\Comms\EinmalcodeSender;
+use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
@@ -44,6 +45,7 @@ use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
 use Platform\Recruiting\RecruitingServiceProvider;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -194,20 +196,8 @@ final class KontoZuruecksetzenTest extends TestCase
                     // Versuch antwortet, steht weiter unten in eigenen
                     // Tests — die stellen ihn ausdruecklich wieder ab.
                     'weg4_aktiv'    => true,
-                    'code_vorlagen' => [
-                        KontoWriter::ZWECK_ANMELDUNG => [
-                            'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                        KontoWriter::ZWECK_PASSWORT => [
-                            'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                        KontoWriter::ZWECK_NUMMERNWECHSEL => [
-                            'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                        KontoWriter::ZWECK_NOTFALL => [
-                            'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                    ],
+                    // Die Code-Vorlagen stehen in der Team-Einstellung
+                    // (kanalAufsetzen()), nicht mehr hier.
                     'hinweis_vorlage' => [
                         'name' => self::VORLAGE_HINWEIS, 'sprache' => 'de', 'platzhalter' => [],
                     ],
@@ -221,6 +211,10 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->meta = $this->metaAttrappe();
         $container->instance(WhatsAppMetaService::class, $this->meta);
+
+        // resolveTarget() braucht nur die Aufloesung; die Attrappe ist keine
+        // WhatsAppMetaService-Unterklasse (Muster DokumentHinweisSenderTest).
+        $container->instance(HoldingTemplateSender::class, new HoldingTemplateSender(new class extends WhatsAppMetaService {}));
 
         // Vier Runden statt zwoelf: bcrypt ist absichtlich langsam.
         $container->instance('hash', new BcryptHasher(['rounds' => 4]));
@@ -417,6 +411,7 @@ final class KontoZuruecksetzenTest extends TestCase
             [$eigen, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
+            [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ];
 
         foreach ($dateien as [$wurzel, $relativ]) {
@@ -430,7 +425,11 @@ final class KontoZuruecksetzenTest extends TestCase
         return dirname((new \ReflectionClass($klasse))->getFileName(), 3);
     }
 
-    /** WABA-Konto, Kanal und Team-Einstellung — der Weg, den RecruitingChannelResolver geht. */
+    /**
+     * WABA-Konto, Kanal, genehmigte Code-Vorlage und Team-Einstellung — der
+     * Weg ueber HoldingTemplateSender::resolveTarget() (Code-Vorlagen) und
+     * RecruitingChannelResolver (Hinweis an die alte Nummer).
+     */
     private function kanalAufsetzen(): void
     {
         $kontoId = (int) DB::table('integrations_whatsapp_accounts')->insertGetId([
@@ -453,12 +452,30 @@ final class KontoZuruecksetzenTest extends TestCase
             'updated_at'        => self::ANGEFASST,
         ]);
 
+        // Eine genehmigte Code-Vorlage; alle drei Code-Felder zeigen auf sie.
+        $vorlageId = (int) DB::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid'                => 'tpl-konto-zurueck',
+            'external_id'         => 'ext-konto-zurueck',
+            'name'                => self::VORLAGE_CODE,
+            'language'            => 'de',
+            'status'              => 'APPROVED',
+            'category'            => 'UTILITY',
+            'components'          => json_encode([['type' => 'BODY', 'text' => 'Dein Code: {{code}}']]),
+            'whatsapp_account_id' => $kontoId,
+            'user_id'             => 1,
+            'created_at'          => self::ANGEFASST,
+            'updated_at'          => self::ANGEFASST,
+        ]);
+
         DB::table('rec_applicant_settings')->insert([
             'team_id'  => self::TEAM,
             // Spec HR-Bereich §6: Weg 4 braucht Server-Riegel UND Team-Schalter.
             // Diese Klasse prueft, was Weg 4 TUT — der Team-Schalter steht an;
             // die Faelle "Team aus" stellen ihn ausdruecklich ab.
-            'settings' => json_encode(['auto_pilot_wa_account_id' => $kontoId, 'konto_notfall_weg_aktiv' => true]),
+            'settings' => json_encode(
+                ['auto_pilot_wa_account_id' => $kontoId, 'konto_notfall_weg_aktiv' => true]
+                + array_fill_keys(array_values(PortalVorlagen::CODE_SCHLUESSEL), $vorlageId)
+            ),
         ]);
     }
 

@@ -18,10 +18,12 @@ use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\Comms\EinmalcodeSender;
+use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\CodeDrossel;
 use Platform\Recruiting\Support\Einmalcode;
 use Platform\Recruiting\Support\EinmalcodeVorlagen;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * Der Versand des Einmalcodes — die Nachricht, mit der jemand sein Passwort
@@ -63,8 +65,9 @@ use Platform\Recruiting\Support\EinmalcodeVorlagen;
  * einschliesslich Log-Attrappe VOR Facade::clearResolvedInstances()
  * (reference_log_facade_test_stub.md). rec_persons und rec_employees werden
  * von Hand gebaut (deckungsgleich mit den echten Migrationen, wie in
- * KontoWriterTest); fuer comms_channels, integrations_whatsapp_accounts und
- * rec_applicant_settings laufen dagegen die ECHTEN Migrationen — Vorbild
+ * KontoWriterTest); fuer comms_channels, integrations_whatsapp_accounts,
+ * integrations_whatsapp_templates und rec_applicant_settings laufen dagegen
+ * die ECHTEN Migrationen — Vorbild
  * RecruitingChannelSetTest. Der Unterschied ist Absicht: deren Form gehoert
  * nicht diesem Modul, und die Kanal-Aufloesung liest mit dem meta-JSON und
  * sender_identifier genau die Spalten, die ein handgebautes Schema still
@@ -88,7 +91,7 @@ final class EinmalcodeSenderTest extends TestCase
 
     private const PFEFFER = 'pfeffer-fuer-den-test';
 
-    /** Der bei Meta genehmigte Vorlagenname — in der Attrappe und in der Konfiguration. */
+    /** Der bei Meta genehmigte Vorlagenname — in der Attrappe und in der Vorlagen-Zeile. */
     private const VORLAGE = 'konto_einmalcode';
 
     private const ANGEFASST = '2026-09-28 09:00:00';
@@ -108,6 +111,12 @@ final class EinmalcodeSenderTest extends TestCase
     private object $cache;
 
     private int $personId;
+
+    /** Das WABA-Konto, an dem Kanal und Vorlage haengen. */
+    private int $kontoId;
+
+    /** Die genehmigte Code-Vorlage, auf die alle drei Felder zeigen. */
+    private int $vorlageId;
 
     protected function setUp(): void
     {
@@ -138,25 +147,22 @@ final class EinmalcodeSenderTest extends TestCase
 
         $container->instance('config', new ConfigRepository([
             'recruiting' => [
+                // Die Code-Vorlagen stehen NICHT mehr hier, sondern in der
+                // Team-Einstellung (vorlageAnlegen() + einstellungen()).
                 'konto' => [
-                    'pepper'        => self::PFEFFER,
-                    'code_vorlagen' => [
-                        KontoWriter::ZWECK_ANMELDUNG => [
-                            'name' => self::VORLAGE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                        KontoWriter::ZWECK_PASSWORT => [
-                            'name' => self::VORLAGE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                        KontoWriter::ZWECK_NUMMERNWECHSEL => [
-                            'name' => self::VORLAGE, 'sprache' => 'de', 'platzhalter' => ['code'],
-                        ],
-                    ],
+                    'pepper' => self::PFEFFER,
                 ],
             ],
         ]));
 
         $this->meta = $this->metaAttrappe();
         $container->instance(WhatsAppMetaService::class, $this->meta);
+
+        // resolveTarget() braucht nur die Aufloesung, nicht den Versand —
+        // die Meta-Attrappe ist keine WhatsAppMetaService-Unterklasse, also
+        // bekommt HoldingTemplateSender eine eigene, leere (Muster
+        // DokumentHinweisSenderTest).
+        $container->instance(HoldingTemplateSender::class, new HoldingTemplateSender(new class extends WhatsAppMetaService {}));
 
         $this->cache = $this->cacheAttrappe();
 
@@ -263,6 +269,7 @@ final class EinmalcodeSenderTest extends TestCase
         $container->forgetInstance('log');
         $container->forgetInstance('config');
         $container->forgetInstance(WhatsAppMetaService::class);
+        $container->forgetInstance(HoldingTemplateSender::class);
         Facade::clearResolvedInstances();
         parent::tearDown();
     }
@@ -280,7 +287,7 @@ final class EinmalcodeSenderTest extends TestCase
      */
     public function testVonMetaAbgelehnterVersandErgibtFailed(): void
     {
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => 'gibt_es_bei_meta_nicht']);
+        $this->vorlageSetzen(['name' => 'gibt_es_bei_meta_nicht']);
 
         $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
 
@@ -303,7 +310,7 @@ final class EinmalcodeSenderTest extends TestCase
     public function testUnbekannterPlatzhalterWirdNichtVerschicktUndErzeugtKeinenCode(): void
     {
         $vorher = $this->laufenderCode();
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['platzhalter' => ['code', 'lieblingsfarbe']]);
+        $this->vorlageSetzen(['platzhalter' => ['code', 'lieblingsfarbe']]);
 
         $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
 
@@ -322,7 +329,7 @@ final class EinmalcodeSenderTest extends TestCase
      */
     public function testVorlageOhneCodePlatzhalterWirdNichtVerschickt(): void
     {
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['platzhalter' => ['name']]);
+        $this->vorlageSetzen(['platzhalter' => ['name']]);
 
         $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
 
@@ -331,20 +338,111 @@ final class EinmalcodeSenderTest extends TestCase
     }
 
     /**
-     * Fehlt die Einstellung, wird NICHT verschickt — und es steht eine klare
-     * Meldung im Log. Kein stiller Fehlschlag: die Meta-Vorlagen sind am
-     * 29.09.2026 noch nicht genehmigt, dieser Zustand ist der Normalfall bis
-     * zur Freigabe.
+     * Ist das Feld in der Team-Einstellung leer, wird NICHT verschickt — und
+     * es steht eine klare Meldung im Log, die sagt, WO HR die Vorlage
+     * eintraegt. Kein stiller Fehlschlag, kein Rueckfall auf .env/Config.
      */
     public function testFehlendeVorlageVerschicktNichtsUndSagtEsDeutlich(): void
     {
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => '']);
+        $vorher = $this->laufenderCode();
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, null);
 
         $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
 
         $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
         $this->assertSame([], $this->meta->calls);
-        $this->assertStringContainsString('code_vorlagen', $this->logText());
+        $this->assertSame($vorher, $this->laufenderCode(), 'Der laufende Code bleibt unangetastet.');
+        $this->assertStringContainsString('Mitarbeiterportal', $this->logText());
+        $this->assertStringContainsString('Code: Passwort vergessen', $this->logText(), 'Das Log nennt das Feld.');
+    }
+
+    /**
+     * Ein Zweck ohne Vorlagen-Feld ('anmeldung') verschickt nichts — und
+     * greift NICHT auf ein anderes Feld zurueck.
+     */
+    public function testZweckOhneFeldVerschicktNichts(): void
+    {
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_ANMELDUNG);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertStringContainsString('keine Vorlagen-Einstellung', $this->logText());
+    }
+
+    /**
+     * Review-Fokus 5: die gewaehlte Vorlage wurde spaeter bei Meta abgelehnt
+     * (Status nicht APPROVED). Kein Versand, kein neuer Code, Grund im Log.
+     */
+    public function testAbgelehnteVorlageVerschicktNichts(): void
+    {
+        $vorher = $this->laufenderCode();
+        $this->vorlageSetzen(['status' => 'REJECTED']);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('nicht genehmigt', $this->logText());
+        $this->assertStringContainsString('Mitarbeiterportal', $this->logText());
+    }
+
+    /**
+     * Eine Vorlage mit COPY_CODE-Knopf braucht beim Senden einen
+     * Knopf-Parameter. Den befuellen wir nicht — Meta lehnte ab, NACHDEM der
+     * Code schon erzeugt waere. Also gar nicht erst versuchen.
+     */
+    public function testVorlageMitCopyCodeKnopfVerschicktNichts(): void
+    {
+        $vorher = $this->laufenderCode();
+        $knopfVorlage = $this->vorlageAnlegen(self::VORLAGE, 'Dein Code: {{code}}', $this->kontoId, 'APPROVED', [
+            ['type' => 'COPY_CODE', 'example' => '123456'],
+        ]);
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, $knopfVorlage);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('Knopf mit Variable', $this->logText());
+    }
+
+    /**
+     * Name und Sprache kommen aus der gewaehlten Vorlage — nicht aus einer
+     * Konfiguration.
+     */
+    public function testNameUndSpracheKommenAusDerVorlage(): void
+    {
+        DB::table('integrations_whatsapp_templates')->where('id', $this->vorlageId)->update([
+            'name' => 'mein_code_en', 'language' => 'en',
+        ]);
+        $this->meta->genehmigt['mein_code_en'] = ['code'];
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
+        $this->assertSame('mein_code_en', $this->meta->calls[0]['templateName']);
+        $this->assertSame('en', $this->meta->calls[0]['languageCode']);
+    }
+
+    /**
+     * Der Kanal ist der Kanal am Account der Vorlage (resolveTarget), nicht
+     * der erste Kanal des Teams. Eine Vorlage laesst sich nur ueber ihren
+     * eigenen Account senden.
+     */
+    public function testKanalIstDerKanalAmAccountDerVorlage(): void
+    {
+        $zweitesKonto = $this->kontoMitKanal('acc-konto-code-zwei', '+49 160 5559999');
+        $vorlage = $this->vorlageAnlegen(self::VORLAGE, 'Dein Code: {{code}}', $zweitesKonto);
+        // Ohne Account-Anker in der Einstellung entscheidet die Vorlage.
+        $this->einstellungen($this->alleCodeFelder($vorlage));
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
+        $erwartet = (int) DB::table('comms_channels')->where('sender_identifier', '+49 160 5559999')->value('id');
+        $this->assertSame($erwartet, (int) $this->meta->calls[0]['channel']->id);
     }
 
     // --------------------------------------------- Zusage 1 + 2: die Drossel
@@ -637,33 +735,6 @@ final class EinmalcodeSenderTest extends TestCase
     }
 
     /**
-     * Die AUSGELIEFERTE Konfiguration kennt alle drei Zwecke.
-     *
-     * Ohne diesen Test waeren alle anderen strukturell gruen: sie arbeiten
-     * mit einer im Setup gebauten Konfiguration, und ein fehlender Block in
-     * config/recruiting.php fiele erst auf prod auf — als Versand, der nie
-     * stattfindet.
-     */
-    public function testDieAusgelieferteKonfigurationKenntAlleDreiZwecke(): void
-    {
-        $datei = require dirname(__DIR__, 2) . '/config/recruiting.php';
-
-        $this->assertArrayHasKey('code_vorlagen', $datei['konto']);
-        $this->assertIsArray(
-            $datei['konto']['code_vorlagen_alt'] ?? null,
-            'Fund N2: ohne diese Liste faellt ein umbenannter Vorlagenname aus der Schwaerzung.'
-        );
-
-        foreach ([KontoWriter::ZWECK_ANMELDUNG, KontoWriter::ZWECK_PASSWORT, KontoWriter::ZWECK_NUMMERNWECHSEL] as $zweck) {
-            $this->assertArrayHasKey($zweck, $datei['konto']['code_vorlagen'], "Zweck {$zweck} fehlt.");
-            $eintrag = $datei['konto']['code_vorlagen'][$zweck];
-            $this->assertArrayHasKey('name', $eintrag);
-            $this->assertArrayHasKey('sprache', $eintrag);
-            $this->assertContains('code', $eintrag['platzhalter'], "Zweck {$zweck} ohne {{code}}.");
-        }
-    }
-
-    /**
      * Die Attrappe darf nicht von der echten Signatur wegdriften.
      *
      * Muster: TrainingCertificateWhatsAppDeliveryTest. Eine Attrappe mit
@@ -689,11 +760,11 @@ final class EinmalcodeSenderTest extends TestCase
      */
     public function testEinGrossGeschriebenerCodePlatzhalterZaehltAuch(): void
     {
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['platzhalter' => ['Code']]);
+        $this->vorlageSetzen(['platzhalter' => ['Code']]);
         // Die Attrappe bleibt Meta-treu: Meta laesst als parameter_name nur
         // Kleinbuchstaben zu, die genehmigte Vorlage heisst also {{code}}.
         // Genau daran haengt Fund N4 - die grosszuegige Lesart der
-        // Konfiguration darf nicht in einen abgelehnten Versand muenden, denn
+        // Vorlage darf nicht in einen abgelehnten Versand muenden, denn
         // dann waere der Code erzeugt, verbraucht und nie angekommen.
         $this->meta->genehmigt[self::VORLAGE] = ['code'];
 
@@ -719,6 +790,23 @@ final class EinmalcodeSenderTest extends TestCase
     }
 
     /**
+     * Review-Fokus 2: auch {{Vorname}} gross geschrieben wird akzeptiert,
+     * befuellt und klein an Meta gegeben — in der Reihenfolge der Vorlage.
+     */
+    public function testGrossGeschriebenerVornameGehtKleinRaus(): void
+    {
+        $this->vorlageSetzen(['platzhalter' => ['Vorname', 'Code']]);
+        $this->meta->genehmigt[self::VORLAGE] = ['vorname', 'code'];
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
+        $parameter = $this->meta->calls[0]['components'][0]['parameters'];
+        $this->assertSame(['vorname', 'code'], array_column($parameter, 'parameter_name'));
+        $this->assertSame('Gregor', $parameter[0]['text']);
+    }
+
+    /**
      * FUND F5: ein Zustand, in dem sich NIEMAND mehr anmelden kann, darf
      * nicht auf derselben Log-Stufe stehen wie jeder Erfolg — sonst geht er
      * in der Flut unter.
@@ -727,12 +815,12 @@ final class EinmalcodeSenderTest extends TestCase
     {
         $sender = new EinmalcodeSender($this->cache);
 
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => '']);
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, null);
         $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
         $this->assertSame('error', $this->log->zeilen[0]['stufe'], 'Keine Vorlage = niemand kommt mehr an einen Code.');
 
         $this->log->zeilen = [];
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => self::VORLAGE]);
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, $this->vorlageId);
         $this->meta->lehntAbMitWert = true;
         $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
         $this->assertSame('warning', $this->log->zeilen[0]['stufe'], 'Ein abgelehnter Versand ist Betrieb, kein Ausfall.');
@@ -741,30 +829,6 @@ final class EinmalcodeSenderTest extends TestCase
         $this->meta->lehntAbMitWert = false;
         $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
         $this->assertSame('info', $this->log->zeilen[0]['stufe'], 'Der Normalfall bleibt info.');
-    }
-
-    /**
-     * FUND N1: der Sender bildet seinen Konfigurationspfad aus DERSELBEN
-     * Konstante, aus der die Schwaerzung ihre Namen liest.
-     *
-     * Solange er einen eigenen Literal hatte, konnten die beiden
-     * auseinanderlaufen — und das ist kein Schoenheitsfehler: der Sender
-     * verschickte dann weiter, waehrend EinmalcodeVorlagen::namen() ins Leere
-     * las. Der Code stuende wieder unmaskiert im Chat, genau der Fehler, den
-     * F1 geschlossen hat, nur lautlos.
-     */
-    public function testDerSenderLiestDenselbenKonfigurationspfadWieDieSchwaerzung(): void
-    {
-        // Die Vorlagen stehen im Setup unter EinmalcodeVorlagen::KONFIG. Wenn
-        // der Sender von dort liest, findet er sie; leserte er anderswo, waere
-        // der Versand "nicht konfiguriert".
-        $this->assertSame(
-            EinmalcodeSender::STATUS_SENT,
-            (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT)
-        );
-
-        // Und die Gegenrichtung: derselbe Pfad traegt die Schwaerzung.
-        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage(self::VORLAGE));
     }
 
     /**
@@ -794,8 +858,9 @@ final class EinmalcodeSenderTest extends TestCase
         );
 
         // Der SENDER liest diese Liste bewusst nicht: ein abgelegter Name
-        // wird geschwaerzt, aber nicht mehr verschickt.
-        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => '']);
+        // wird geschwaerzt, aber nicht mehr verschickt — ohne Feld in der
+        // Team-Einstellung geht nichts raus.
+        $this->feldSetzen(PortalVorlagen::CODE_PASSWORT, null);
         $this->assertSame(
             EinmalcodeSender::STATUS_FAILED,
             (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT)
@@ -864,7 +929,7 @@ final class EinmalcodeSenderTest extends TestCase
         for ($i = 0; $i <= CodeDrossel::MAX_JE_STUNDE; $i++) {
             $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
         }
-        $this->vorlageSetzen(KontoWriter::ZWECK_ANMELDUNG, ['name' => '']);
+        // 'anmeldung' hat kein Vorlagen-Feld: ein Fehler-Ausgang mit Nummer.
         $sender->sende($this->personId, KontoWriter::ZWECK_ANMELDUNG);
 
         $text = $this->logText();
@@ -955,11 +1020,22 @@ final class EinmalcodeSenderTest extends TestCase
         return json_encode($this->log->zeilen, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
     }
 
-    /** @param array<string, mixed> $aenderung */
-    private function vorlageSetzen(string $zweck, array $aenderung): void
+    /**
+     * Die eingestellte Vorlage aendern — die Zeile, auf die alle drei
+     * Code-Felder zeigen. 'name' und 'status' gehen woertlich in die Spalte;
+     * 'platzhalter' baut den BODY-Text aus den genannten {{namen}}.
+     *
+     * @param array{name?: string, status?: string, platzhalter?: list<string>} $aenderung
+     */
+    private function vorlageSetzen(array $aenderung): void
     {
-        $pfad = "recruiting.konto.code_vorlagen.{$zweck}";
-        config()->set($pfad, array_merge((array) config($pfad), $aenderung));
+        $spalten = array_intersect_key($aenderung, ['name' => 1, 'status' => 1]);
+        if (array_key_exists('platzhalter', $aenderung)) {
+            $rumpf = 'Hallo ' . implode(' ', array_map(fn (string $n) => '{{' . $n . '}}', $aenderung['platzhalter']));
+            $spalten['components'] = json_encode([['type' => 'BODY', 'text' => $rumpf]]);
+        }
+
+        DB::table('integrations_whatsapp_templates')->where('id', $this->vorlageId)->update($spalten);
     }
 
     /**
@@ -1108,6 +1184,7 @@ final class EinmalcodeSenderTest extends TestCase
             [$eigen, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
+            [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ];
 
         foreach ($dateien as [$wurzel, $relativ]) {
@@ -1121,12 +1198,26 @@ final class EinmalcodeSenderTest extends TestCase
         return dirname((new \ReflectionClass($klasse))->getFileName(), 3);
     }
 
-    /** WABA-Konto, Kanal und Team-Einstellung — der Weg, den RecruitingChannelResolver geht. */
+    /**
+     * WABA-Konto, Kanal, genehmigte Code-Vorlage und Team-Einstellung — der
+     * Weg, den HoldingTemplateSender::resolveTarget() geht: Einstellung →
+     * Vorlage (APPROVED) → Account → Kanal. Alle drei Code-Felder zeigen auf
+     * dieselbe Vorlage.
+     */
     private function kanalAufsetzen(): void
     {
+        $this->kontoId = $this->kontoMitKanal('acc-konto-code', '+49 160 5552001');
+        $this->vorlageId = $this->vorlageAnlegen(self::VORLAGE, 'Dein Code: {{code}}', $this->kontoId);
+
+        $this->einstellungen(['auto_pilot_wa_account_id' => $this->kontoId] + $this->alleCodeFelder($this->vorlageId));
+    }
+
+    /** WABA-Konto plus Kanal mit derselben Absendernummer. */
+    private function kontoMitKanal(string $uuid, string $nummer): int
+    {
         $kontoId = (int) DB::table('integrations_whatsapp_accounts')->insertGetId([
-            'uuid'         => 'acc-konto-code',
-            'phone_number' => '+49 160 5552001',
+            'uuid'         => $uuid,
+            'phone_number' => $nummer,
             'title'        => 'Recruiting-WABA',
             'active'       => true,
             'user_id'      => 1,
@@ -1134,19 +1225,68 @@ final class EinmalcodeSenderTest extends TestCase
 
         DB::table('comms_channels')->insert([
             'team_id'           => self::TEAM,
-            'name'              => 'Recruiting WhatsApp',
+            'name'              => 'Recruiting WhatsApp ' . $uuid,
             'type'              => 'whatsapp',
             'provider'          => 'whatsapp_meta',
-            'sender_identifier' => '+49 160 5552001',
+            'sender_identifier' => $nummer,
             'is_active'         => true,
             'meta'              => json_encode(['integrations_whatsapp_account_id' => $kontoId]),
             'created_at'        => self::ANGEFASST,
             'updated_at'        => self::ANGEFASST,
         ]);
 
+        return $kontoId;
+    }
+
+    /**
+     * Eine Vorlagen-Zeile, wie der Meta-Abgleich sie ablegt.
+     *
+     * @param  list<array<string, mixed>>  $knoepfe  BUTTONS-Eintraege, leer = kein Knopf
+     */
+    private function vorlageAnlegen(string $name, string $rumpf, int $kontoId, string $status = 'APPROVED', array $knoepfe = []): int
+    {
+        $teile = [['type' => 'BODY', 'text' => $rumpf]];
+        if ($knoepfe !== []) {
+            $teile[] = ['type' => 'BUTTONS', 'buttons' => $knoepfe];
+        }
+
+        return (int) DB::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid'                => 'tpl-' . $name . '-' . $kontoId . '-' . uniqid(),
+            'external_id'         => 'ext-' . uniqid(),
+            'name'                => $name,
+            'language'            => 'de',
+            'status'              => $status,
+            'category'            => 'UTILITY',
+            'components'          => json_encode($teile),
+            'whatsapp_account_id' => $kontoId,
+            'user_id'             => 1,
+            'created_at'          => self::ANGEFASST,
+            'updated_at'          => self::ANGEFASST,
+        ]);
+    }
+
+    /** @return array<string, ?int> alle drei Code-Felder auf dieselbe Vorlage */
+    private function alleCodeFelder(?int $vorlageId): array
+    {
+        return array_fill_keys(array_values(PortalVorlagen::CODE_SCHLUESSEL), $vorlageId);
+    }
+
+    /** Team-Einstellungen komplett ersetzen — wie das Einstellungs-Fenster sie schreibt. */
+    private function einstellungen(array $settings): void
+    {
+        DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->delete();
         DB::table('rec_applicant_settings')->insert([
             'team_id'  => self::TEAM,
-            'settings' => json_encode(['auto_pilot_wa_account_id' => $kontoId]),
+            'settings' => json_encode($settings),
         ]);
+    }
+
+    /** Ein Feld in der Team-Einstellung setzen (null = leeren), Rest bleibt stehen. */
+    private function feldSetzen(string $schluessel, mixed $wert): void
+    {
+        $zeile = DB::table('rec_applicant_settings')->where('team_id', self::TEAM)->first();
+        $settings = json_decode((string) $zeile->settings, true) ?: [];
+        $settings[$schluessel] = $wert;
+        $this->einstellungen($settings);
     }
 }

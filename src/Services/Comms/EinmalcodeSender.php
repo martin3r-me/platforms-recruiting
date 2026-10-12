@@ -11,8 +11,8 @@ use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\CodeDrossel;
 use Platform\Recruiting\Support\Einmalcode;
-use Platform\Recruiting\Support\EinmalcodeVorlagen;
 use Platform\Recruiting\Support\PhoneE164;
+use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * Verschickt GENAU EINEN Einmalcode per WhatsApp — die Nachricht, mit der
@@ -78,7 +78,7 @@ use Platform\Recruiting\Support\PhoneE164;
  * `KontoWriter::erzeugeCode()`. Das Erzeugen ersetzt den Code, der noch
  * unterwegs ist. Wer die Drossel danach fragt, hat dem Menschen den Code
  * entwertet, den er gerade im Daumen hat — und verschickt keinen neuen. Aus
- * demselben Grund stehen AUCH Konfiguration, Platzhalter-Pruefung und
+ * demselben Grund stehen AUCH Vorlagen-Einstellung, Platzhalter-Pruefung und
  * Kanal-Aufloesung vor dem Erzeugen: sie koennen den Versand verhindern,
  * also duerfen sie den laufenden Code nicht schon verbrannt haben.
  *
@@ -109,7 +109,7 @@ use Platform\Recruiting\Support\PhoneE164;
  * gueltig, danach ein toter Wert, aber eben gespeichert. Das ist KEIN Fund
  * dieser Klasse zum Selberbeheben: die Stelle liegt in platform-crm und
  * haengt an allen anderen Sendern mit dran. Wer sie angeht, tut es dort und
- * bewusst (etwa: `template_params` fuer Vorlagen aus `code_vorlagen` nicht
+ * bewusst (etwa: `template_params` fuer die Code-Vorlagen nicht
  * ablegen).
  *
  * DIE ANTWORT VERRAET NICHTS. `STATUS_GEDROSSELT` muss fuer den Menschen
@@ -128,6 +128,31 @@ use Platform\Recruiting\Support\PhoneE164;
  * WAS HIER NICHT LIEGT: die Frage, WER einen Code anfordern darf. Diese
  * Klasse bekommt eine Personen-Kennung uebergeben; ob die Seite davor sie
  * haette nachschlagen duerfen, entscheidet sie nicht.
+ *
+ * WOHER DIE VORLAGE KOMMT: aus der TEAM-EINSTELLUNG, je Zweck ein Feld
+ * (PortalVorlagen::CODE_SCHLUESSEL, im Fenster unter PortalVorlagen::ORT).
+ * Aufgeloest ueber HoldingTemplateSender::resolveTarget() — dieselbe Kette
+ * wie bei Dokument, Vertrag, Zertifikat und Fristenlauf: Einstellung →
+ * Vorlage (APPROVED) → Account → Kanal. Name, Sprache und Platzhalter kommen
+ * aus der gewaehlten Vorlage, der Kanal vom Account der Vorlage. Kein
+ * Rueckfall auf .env/Config: fehlt das Feld oder ist die Vorlage nicht
+ * genehmigt, geht nichts raus, und das Log nennt das Feld.
+ *
+ * ANFORDERUNGEN AN DIE META-VORLAGE (frueher als Kommentar in der Config):
+ *  - BENANNTE Platzhalter, kein {{1}}. Meta laesst benannte und positionelle
+ *    Platzhalter nicht in derselben Vorlage zu; weil {{code}} benannt sein
+ *    muss, kann eine Code-Vorlage gar nicht positionell sein. Eine
+ *    positionelle Vorlage wird genehmigt und dann jede Nachricht abgelehnt.
+ *  - Befuellbar sind {{code}} (Pflicht), {{minuten}} (Gueltigkeitsdauer) und
+ *    der Vorname ({{name}}, {{vorname}}). Ein anderer Name verhindert den
+ *    Versand. Gross-/Kleinschreibung egal, an Meta geht der Name klein.
+ *  - Kategorie UTILITY, KEIN Knopf mit Variable (kein AUTHENTICATION-Knopf
+ *    OTP/COPY_CODE, keine URL mit {{..}}): den befuellen wir nicht, Meta
+ *    lehnte ab — nachdem der Code schon erzeugt waere.
+ *  - Drei Zwecke, weil der Text sich unterscheidet ("Passwort vergessen",
+ *    "neue Nummer bestaetigen", Notfall-Weg). Gibt es nur EINE genehmigte
+ *    Vorlage, waehlt man ueberall dieselbe. 'anmeldung' hat bewusst kein
+ *    Feld: dieser Zweck wird nirgends verschickt.
  */
 final class EinmalcodeSender
 {
@@ -218,15 +243,13 @@ final class EinmalcodeSender
             return $this->fertig($personId, $zweck, null, self::STATUS_FAILED, 'Keine lesbare Handynummer fuer den Versand.');
         }
 
-        $vorlage = $this->vorlage($zweck);
+        // Vorlage UND Kanal in einem Schritt (resolveTarget): ein fehlender
+        // Kanal am Account der Vorlage ist ein Vorlagen-Fehler wie jeder andere.
+        $vorlage = $this->vorlage($zweck, (int) $person->team_id);
         if ($vorlage['fehler'] !== null) {
             return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $vorlage['fehler'], 'error');
         }
-
-        $kanal = $this->kanal((int) $person->team_id);
-        if ($kanal === null) {
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, 'Kein aktiver WhatsApp-Kanal fuer das Team.', 'error');
-        }
+        $kanal = $vorlage['kanal'];
 
         // ---- ab hier erst: die Drossel, und DANN das Erzeugen ------------
         //
@@ -312,44 +335,48 @@ final class EinmalcodeSender
     // ------------------------------------------------------------- Vorlage
 
     /**
-     * Vorlagenname, Sprache und erwartete Platzhalter — AUS DER
-     * KONFIGURATION, nicht fest verdrahtet.
-     *
-     * Grund: die Meta-Vorlagen sind noch nicht genehmigt, Name und
-     * Platzhalter stehen nicht sicher fest. Ein fest verdrahteter Name
-     * muesste nach der Freigabe durch ein Deploy; so genuegt ein
-     * .env-Eintrag. Muster sind die ZAS- und Flynk-Bloecke in
-     * config/recruiting.php.
-     *
-     * FEHLT DIE EINSTELLUNG, WIRD NICHT VERSCHICKT, und die Meldung sagt,
-     * welcher Schluessel fehlt — kein stiller Fehlschlag. Ein Versand mit
-     * geratenem Namen waere bei Meta ohnehin abgelehnt, nur eben ohne
-     * lesbaren Grund.
-     *
-     * @return array{fehler: ?string, name: string, sprache: string, platzhalter: list<string>}
+     * Wo HR das Feld findet — Teil der Fehlermeldung, Wortlaut wie im
+     * Einstellungs-Fenster. Schluessel wie PortalVorlagen::CODE_SCHLUESSEL.
      */
-    private function vorlage(string $zweck): array
+    private const FELDNAMEN = [
+        'passwort'       => 'Code: Passwort vergessen',
+        'nummernwechsel' => 'Code: neue Nummer bestätigen',
+        'notfall'        => 'Code: Notfall-Weg',
+    ];
+
+    /**
+     * Vorlagenname, Sprache, Platzhalter und Kanal — AUS DER TEAM-EINSTELLUNG
+     * ueber HoldingTemplateSender::resolveTarget().
+     *
+     * FEHLT DAS FELD ODER IST DIE VORLAGE NICHT GENEHMIGT, WIRD NICHT
+     * VERSCHICKT, und die Meldung nennt das Feld — kein stiller Fehlschlag.
+     *
+     * Die Pruefungen laufen gegen die ECHTE Vorlage (ihren BODY), nicht gegen
+     * eine gepflegte Liste: unbefuellbare Platzhalter, {{code}}-Pflicht, Knopf
+     * mit Variable. Alle stehen VOR erzeugeCode() (siehe sende()).
+     *
+     * @return array{fehler: ?string, name: string, sprache: string, platzhalter: list<string>, kanal: ?CommsChannel}
+     */
+    private function vorlage(string $zweck, int $teamId): array
     {
-        // AUS DER KONSTANTE, nicht als eigener Literal (Fund N1). Liefen die
-        // beiden Schreibweisen auseinander, sendete dieser Sender munter
-        // weiter, waehrend EinmalcodeVorlagen::namen() ins Leere liest - und
-        // damit stuende der Code wieder unmaskiert im Chat. Genau der Fehler,
-        // den F1 geschlossen hat, nur lautlos.
-        $schluessel = EinmalcodeVorlagen::KONFIG . '.' . $zweck;
-        $eintrag = config($schluessel);
+        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => [], 'kanal' => null];
 
-        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => []];
-
-        if (!is_array($eintrag)) {
-            return $fehler("Kein Eintrag unter {$schluessel} — code_vorlagen kennt den Zweck \"{$zweck}\" nicht.");
+        $schluessel = PortalVorlagen::CODE_SCHLUESSEL[$zweck] ?? null;
+        if ($schluessel === null) {
+            return $fehler("Fuer den Zweck \"{$zweck}\" gibt es keine Vorlagen-Einstellung — es wird nichts verschickt.");
         }
 
-        $name = trim((string) ($eintrag['name'] ?? ''));
-        if ($name === '') {
-            return $fehler("Kein Meta-Vorlagenname unter {$schluessel}.name (code_vorlagen) — bis zur Freigabe bei Meta wird nichts verschickt.");
+        $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, $schluessel);
+        if ($ziel['error'] !== null) {
+            $feldname = self::FELDNAMEN[$zweck] ?? $schluessel;
+
+            return $fehler('Keine genehmigte Vorlage unter ' . PortalVorlagen::ORT . " → {$feldname} ({$ziel['error']})");
         }
 
-        $platzhalter = array_values(array_map('strval', (array) ($eintrag['platzhalter'] ?? [])));
+        $template = $ziel['template'];
+        $teile = (array) ($template->components ?? []);
+        $name = (string) $template->name;
+        $platzhalter = PortalVorlagen::rumpfPlatzhalter($teile);
 
         $unbefuellbar = $this->unbefuellbarePlatzhalter($platzhalter);
         if ($unbefuellbar !== []) {
@@ -378,11 +405,19 @@ final class EinmalcodeSender
             ));
         }
 
+        // Ein Knopf, der beim Senden einen Parameter braucht (OTP/COPY_CODE,
+        // URL mit Variable): wir befuellen keinen Knopf, Meta lehnte ab —
+        // erst NACH erzeugeCode(), der laufende Code waere verbrannt.
+        if (PortalVorlagen::hatKnopfMitParameter($teile)) {
+            return $fehler('Die Vorlage hat einen Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.');
+        }
+
         return [
             'fehler'      => null,
             'name'        => $name,
-            'sprache'     => trim((string) ($eintrag['sprache'] ?? 'de')) ?: 'de',
+            'sprache'     => (string) ($template->language ?: 'de'),
             'platzhalter' => $platzhalter,
+            'kanal'       => $ziel['channel'],
         ];
     }
 
@@ -431,7 +466,7 @@ final class EinmalcodeSender
         };
 
         // KLEIN GESCHRIEBEN (Fund N4): Meta laesst als parameter_name nur
-        // Kleinbuchstaben zu. Die Konfiguration darf grosszuegig gelesen
+        // Kleinbuchstaben zu. Die Vorlage darf grosszuegig gelesen
         // werden ({{Code}} zaehlt, siehe die Pflichtpruefung in vorlage()),
         // aber ein grossgeschriebener Name im Versand wuerde abgelehnt - und
         // dann waere der Code erzeugt, verbraucht und nie angekommen. Vorher
@@ -454,27 +489,6 @@ final class EinmalcodeSender
             ->value('first_name');
 
         return trim((string) $wert);
-    }
-
-    // -------------------------------------------------------------- Kanal
-
-    /**
-     * Der WhatsApp-Kanal des Teams.
-     *
-     * ueber RecruitingChannelResolver, also ueber dasselbe Kanal-Set, das
-     * auch die Kommunikation benutzt — keine zweite Aufloesungskette.
-     * Bewusst NICHT ueber HoldingTemplateSender::resolveTarget(): das
-     * verlangt eine bei uns gespeicherte, bei Meta genehmigte Template-Zeile,
-     * und genau die gibt es fuer den Einmalcode noch nicht.
-     */
-    private function kanal(int $teamId): ?CommsChannel
-    {
-        $ids = RecruitingChannelResolver::channelIds($teamId);
-        if ($ids === []) {
-            return null;
-        }
-
-        return CommsChannel::query()->find($ids[0]);
     }
 
     // ------------------------------------------------------------ Drossel
