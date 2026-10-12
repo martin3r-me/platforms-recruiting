@@ -153,6 +153,13 @@ class RecApplicantSettings extends Model
         'comms_timezone' => null,
         // Steuerklasse + Haupt-/Nebenarbeitgeber gelten je Gesellschaft (RG/MA) statt je Person: dann spiegelt PersonenSpiegel sie nicht
         'tax_class_per_company' => false,
+        // HR-Bereich "Mitarbeiter" (Spec 2026-10-12 §6/§7.2): Notfallweg je
+        // Team (zweiter Riegel hinter recruiting.konto.weg4_aktiv), Schwelle
+        // der Liste "Erinnert, aber keine Reaktion" und Ruhezeit nach
+        // "Kontaktiert". Gelesen NUR ueber Support\HrEinstellungen.
+        'konto_notfall_weg_aktiv' => false,
+        'hr_erinnert_tage' => 5,
+        'hr_kontaktiert_ruhe_tage' => 3,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',
