@@ -67,9 +67,13 @@
                 $unreadConv = $this->stats['unread_conversations'] ?? 0;
                 $escalationConv = $this->stats['escalation_conversations'] ?? 0;
                 $openForwards = $this->stats['open_forwards'] ?? 0;
+                $undeliveredConv = $this->stats['undelivered_conversations'] ?? 0;
             @endphp
-            @if($escalationConv > 0 || $unreadConv > 0 || $openForwards > 0)
+            @if($escalationConv > 0 || $unreadConv > 0 || $openForwards > 0 || $undeliveredConv > 0)
                 <span class="ml-auto flex items-center gap-1">
+                    @if($undeliveredConv > 0)
+                        <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-600 text-white" title="nicht zugestellt">✕ {{ $undeliveredConv }}</span>
+                    @endif
                     @if($openForwards > 0)
                         <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-600" title="aus der Dispo weitergeleitet">{{ $openForwards }}</span>
                     @endif

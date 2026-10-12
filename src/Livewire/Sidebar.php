@@ -74,6 +74,7 @@ class Sidebar extends Component
             'escalation_conversations' => $commsCounts['red'] + $commsCounts['missed'],
             'open_forwards' => \Platform\Recruiting\Models\RecConversationForward::query()
                 ->openForTeam($teamId, \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR)->count(),
+            'undelivered_conversations' => app(\Platform\Recruiting\Services\Comms\UndeliveredQuery::class)->count($teamId),
             'total_positions' => RecPosition::forTeam($teamId)->count(),
             'active_positions' => RecPosition::forTeam($teamId)->active()->count(),
             'total_postings' => RecPosting::forTeam($teamId)->count(),

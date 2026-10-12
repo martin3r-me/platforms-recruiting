@@ -14,6 +14,7 @@ Regeln:
 | --- | --- | --- |
 | 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
 | 08.10.2026 | Vertragsdaten nach der Schulung · Statusfilter „Keine Reaktion“ | [2026-10-08-schulungsnachbereitung-vertragsdaten.md](2026-10-08-schulungsnachbereitung-vertragsdaten.md) |
+| 12.10.2026 | Nicht zugestellte WhatsApp-Nachrichten finden (Reiter „Nicht zugestellt“) | [2026-10-12-nicht-zugestellte-nachrichten.md](2026-10-12-nicht-zugestellte-nachrichten.md) |
 
 ## Folien für den Kunden
 
