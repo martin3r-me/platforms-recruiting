@@ -1,0 +1,2 @@
+id,uuid,name,code,description,content,field_mappings,requires_signature,is_active,sort_order,team_id,created_by_user_id,created_at,updated_at,deleted_at,type,company,taetigkeit
+21,tpl-uuid-echt,Arbeitsvertrag RG,AV-RG,Standard,<p>Arbeitsvertrag zwischen {{first_name}} {{last_name}} und der Gesellschaft.</p>,,1,1,0,3,42,2026-01-01 00:00:00,2026-01-01 00:00:00,,contract,RG,eventmitarbeiter

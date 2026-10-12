@@ -1,0 +1,2 @@
+id,uuid,team_id,rec_applicant_status_id,progress,notes,applied_at,is_active,auto_pilot,owned_by_user_id,public_token,rec_phase_id,is_parked,is_on_hr_desk,is_test,email,evaluation_note,created_at,updated_at
+501,app-uuid-echt,3,4,60,Kennt Herrn Wiedehopf,2026-01-10,1,1,42,pub-tok-echt,17,0,0,0,zebulon.quackenbusch@privat-mail.de,Sehr hoeflich,2026-01-10 08:00:00,2026-01-10 08:00:00

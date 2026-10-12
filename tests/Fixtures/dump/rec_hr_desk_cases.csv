@@ -1,0 +1,2 @@
+id,uuid,rec_applicant_id,team_id,reason,status,notes,opened_at,opened_by_user_id,resolved_at,resolved_by_user_id,resolution_notes,created_at,updated_at,rec_employee_id
+41,case-uuid-echt,501,3,non_eu_citizen,open,Hat am Telefon Gurkensalat erwaehnt,2026-03-01 10:00:00,42,,,,2026-03-01 10:00:00,2026-03-01 10:00:00,1

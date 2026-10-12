@@ -1,0 +1,2 @@
+id,uuid,einsatz_ref,name,venue_text,ort,einsatzfirma,starts_on,ends_on,anfahrt,ansprechpartner,source_meta,hinweis
+7,ev-uuid-echt,E4711,Messe Sommerfest,Halle 3,Duesseldorf,Messe GmbH,2026-10-20,2026-10-21,Bei Herrn Wiedehopf melden 0172 5554443,Herr Wiedehopf,"{""mitarbeiter_info"":""Philippa Wurzelbacher bringt Schuhe""}",Schluessel bei Wiedehopf

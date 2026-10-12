@@ -1,0 +1,4 @@
+id,uuid,team_id,rec_applicant_id,first_name,last_name,birth_name,birth_date,email,phone,street,iban,personnel_number,company,is_active,portal_token,portal_locked_reason,geheim_notiz,created_at
+1,9b1d2c3e-aaaa-4bbb-8ccc-111111111111,3,501,Zebulon,Quackenbusch,,1990-01-15,zebulon.quackenbusch@privat-mail.de,0171 2345678,Hirschgasse 12,DE89370400440532013000,RG353,RG,1,tok-echt-1,,Streng geheim Fluxkompensator,2026-01-01 10:00:00
+2,9b1d2c3e-aaaa-4bbb-8ccc-222222222222,3,,Philippa,Wurzelbacher,Stinnesbeck,1985-06-30,philippa@privat-mail.de,+49 160 9876543,Lindenallee 3,DE02120300000000202051,MA1000000878,MA,1,,,,2026-01-02 10:00:00
+3,9b1d2c3e-aaaa-4bbb-8ccc-333333333333,3,501,Zebulon,Quackenbusch,,1990-01-15,zebulon.quackenbusch@privat-mail.de,0171 2345678,Hirschgasse 12,DE89370400440532013000,RG353,MA,1,,,,2026-01-03 10:00:00

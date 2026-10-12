@@ -1,0 +1,4 @@
+id,uuid,ds_ref,rec_dispo_event_id,pnr_raw,rec_employee_id,datum,von,bis,status_id,taetigkeit,individual_note,reminder_sent_to,source_meta,declined_reason
+11,as-uuid-echt-1,880011,7,RG353,3,2026-10-20,08:00,16:00,2,Service,Zebulon kommt spaeter,+491712345678,"{""tlp_nr"":""0171 2345678""}",
+12,as-uuid-echt-2,880012,7,MA878,2,2026-10-21,08:00,16:00,2,Spuele,,,,krank
+13,as-uuid-echt-3,880013,7,RG14,,2026-10-21,08:00,16:00,0,Service,,,,
