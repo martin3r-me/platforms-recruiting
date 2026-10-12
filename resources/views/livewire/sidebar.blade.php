@@ -23,6 +23,12 @@
                 </x-ui-sidebar-item>
             </x-ui-sidebar-list>
         @endif
+        <x-ui-sidebar-list label="Hilfe">
+            <x-ui-sidebar-item :href="route('recruiting.anleitungen.index')">
+                @svg('heroicon-o-book-open', 'w-4 h-4 text-[var(--ui-secondary)]')
+                <span class="ml-2 text-sm">Anleitungen</span>
+            </x-ui-sidebar-item>
+        </x-ui-sidebar-list>
     @else
 
     {{-- Abschnitt: Dashboard --}}
@@ -178,6 +184,14 @@
         <x-ui-sidebar-item :href="route('recruiting.dispo.settings')">
             @svg('heroicon-o-cog-6-tooth', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Einstellungen</span>
+        </x-ui-sidebar-item>
+    </x-ui-sidebar-list>
+
+    {{-- Abschnitt: Hilfe (Anleitungen, Spec 2026-10-12) --}}
+    <x-ui-sidebar-list label="Hilfe">
+        <x-ui-sidebar-item :href="route('recruiting.anleitungen.index')">
+            @svg('heroicon-o-book-open', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Anleitungen</span>
         </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 

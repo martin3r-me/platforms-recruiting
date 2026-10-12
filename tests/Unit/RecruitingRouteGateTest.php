@@ -98,4 +98,24 @@ class RecruitingRouteGateTest extends TestCase
             RecruitingRouteGate::redirectTo(false, true, 'platform.dashboard'),
         );
     }
+
+    public function test_anleitungen_sind_fuer_beide_eingeschraenkten_stufen_offen(): void
+    {
+        foreach (['recruiting.anleitungen.index', 'recruiting.anleitungen.show', 'recruiting.anleitungen.druck', 'recruiting.anleitungen.bild'] as $route) {
+            $this->assertNull(RecruitingRouteGate::redirectTo(eventOnly: true, trainingLeader: false, routeName: $route), $route);
+            $this->assertNull(RecruitingRouteGate::redirectTo(eventOnly: false, trainingLeader: true, routeName: $route), $route);
+        }
+    }
+
+    public function test_anleitungen_oeffnen_sonst_nichts(): void
+    {
+        $this->assertSame(
+            'recruiting.dispo.events.index',
+            RecruitingRouteGate::redirectTo(eventOnly: true, trainingLeader: false, routeName: 'recruiting.anleitungen-admin')
+        );
+        $this->assertSame(
+            'recruiting.training-review.index',
+            RecruitingRouteGate::redirectTo(eventOnly: false, trainingLeader: true, routeName: 'recruiting.dispo.settings')
+        );
+    }
 }
