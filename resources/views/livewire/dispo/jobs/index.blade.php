@@ -4,6 +4,9 @@
         <div class="flex items-center gap-2">
             <h1 class="text-xl font-semibold">Jobs anbieten</h1>
             @include('recruiting::anleitungen._hilfe', ['route' => 'recruiting.dispo.jobs.index'])
+            @if ($offeneZusagen > 0)
+                <span class="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs text-orange-700">{{ $offeneZusagen }} {{ $offeneZusagen === 1 ? 'Zusage wartet' : 'Zusagen warten' }} auf ZAS</span>
+            @endif
         </div>
         <a href="{{ route('recruiting.dispo.jobs.create') }}" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Neue Anfrage</a>
     </div>

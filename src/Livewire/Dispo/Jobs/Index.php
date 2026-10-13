@@ -6,6 +6,7 @@ use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOffeneZusagen;
 
 /**
  * Jobs anbieten → Uebersicht der Anfragen des Teams (neueste zuerst).
@@ -46,7 +47,7 @@ class Index extends Component
             ->map(fn ($v) => (int) $v)
             ->all();
 
-        return view('recruiting::livewire.dispo.jobs.index', ['anfragen' => $anfragen, 'zusagen' => $zusagen])
+        return view('recruiting::livewire.dispo.jobs.index', ['anfragen' => $anfragen, 'zusagen' => $zusagen, 'offeneZusagen' => DispoJobOffeneZusagen::count($this->teamId())])
             ->layout('platform::layouts.app');
     }
 }

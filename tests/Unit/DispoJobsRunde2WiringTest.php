@@ -83,4 +83,12 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobZeit::spanne($shift->von, $shift->bis)', self::datei('src/Livewire/Public/JobOffers.php'));
         $this->assertStringContainsString("\$shift['zeit']", self::datei('resources/views/livewire/public/job-offers.blade.php'));
     }
+
+    public function test_badge_in_der_sidebar_haengt_am_zaehler(): void
+    {
+        $sidebar = self::datei('resources/views/livewire/sidebar.blade.php');
+        $this->assertStringContainsString('DispoJobOffeneZusagen::count()', $sidebar);
+        $this->assertStringContainsString('{{ $dispoJobsOffen }}', $sidebar);
+        $this->assertStringContainsString("DispoJobOffeneZusagen::count(\$this->teamId())", self::datei('src/Livewire/Dispo/Jobs/Index.php'));
+    }
 }
