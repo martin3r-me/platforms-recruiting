@@ -465,4 +465,23 @@ final class PortalShellUploadTest extends TestCase
         $this->assertSame('Das Hochladen hat nicht geklappt. Bitte versuchen Sie es noch einmal.', $siezen->uploadFehler);
         $this->assertSame(0, RecEmployeeProof::count());
     }
+
+    /** Der Erstbescheinigungs-Upload fasst HRs "IfSG-Belehrung gueltig bis" (ZAS InfekGueltigBis) nicht an. */
+    public function test_erstbescheinigung_upload_laesst_hrs_ifsg_datum_stehen(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        DB::table('rec_employees')->where('id', $ma->id)->update(['infection_protection_valid_until' => '2027-09-09']);
+
+        $shell = $this->shell($ma);
+        $shell->oeffneUpload('erstbescheinigung');
+        $shell->uploadDatei = UploadedFile::fake()->image('erst.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertSame('', $shell->uploadFehler);
+        $row = DB::table('rec_employees')->find($ma->id);
+        $this->assertSame(4242, (int) $row->erstbescheinigung_file_id);
+        $this->assertSame('2027-09-09', substr((string) $row->infection_protection_valid_until, 0, 10));
+        $nachweis = RecEmployeeProof::where('rec_employee_id', $ma->id)->aktuell()->first();
+        $this->assertNull($nachweis->valid_until);
+    }
 }

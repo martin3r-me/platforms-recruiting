@@ -223,4 +223,17 @@ final class ProofTypesTest extends TestCase
             );
         }
     }
+
+    /**
+     * Die Erstbescheinigung nach IfSG laeuft nicht ab. infection_protection_valid_until
+     * ist HRs "IfSG-Belehrung gueltig bis" (ZAS InfekGueltigBis) und gehoert dem
+     * Nachweis nicht — sonst ueberschriebe der Upload HRs Wert.
+     */
+    public function test_erstbescheinigung_hat_kein_ablaufdatum(): void
+    {
+        $this->assertFalse(ProofTypes::hasExpiry('erstbescheinigung'));
+        $this->assertNull(ProofTypes::legacyExpiryColumn('erstbescheinigung'));
+        $this->assertNull(ProofTypes::leadDays('erstbescheinigung'));
+        $this->assertNotContains('infection_protection_valid_until', ProofTypes::legacyExpiryColumnsAll());
+    }
 }

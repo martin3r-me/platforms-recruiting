@@ -98,7 +98,10 @@ final class ProofTypes
         'erstbescheinigung' => [
             'label' => 'Erstbescheinigung nach Infektionsschutzgesetz', 'gruppe' => 'taetigkeit',
             'dateien' => ['erstbescheinigung_file_id'],
-            'ablauf' => true, 'ablauf_spalte' => 'infection_protection_valid_until', 'vorlauf' => 30,
+            // Laeuft nicht ab. infection_protection_valid_until ist HRs
+            // "IfSG-Belehrung gueltig bis" (ZAS InfekGueltigBis), nicht das
+            // Ablaufdatum dieser Bescheinigung — nie hier anbinden.
+            'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
         ],
         'ersthelfer' => [
             'label' => 'Ersthelferschein', 'gruppe' => 'taetigkeit',
@@ -213,7 +216,7 @@ final class ProofTypes
      * Wer wissen will, welche Datumsfelder dem NACHWEIS gehoeren (und damit
      * im Profil nur noch gelesen werden, Schlussfix F4), fragt hier -- statt
      * die fuenf Namen abzutippen. Enthaelt bewusst auch Spalten, die gar
-     * kein Profilfeld sind (infection_protection_valid_until): die
+     * kein Profilfeld sind: die
      * Schnittmenge mit dem Feldkatalog bildet der Aufrufer.
      *
      * @return list<string>

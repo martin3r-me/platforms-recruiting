@@ -141,4 +141,13 @@ final class ProofReminderPlannerTest extends TestCase
         );
         $this->assertCount(1, $plan);
     }
+
+    public function test_erstbescheinigung_wird_nie_erinnert(): void
+    {
+        $plan = ProofReminderPlanner::plan([
+            $this->nachweis(['proof_type_code' => 'erstbescheinigung', 'valid_until' => '2026-10-10']),
+            $this->nachweis(['id' => 2, 'proof_type_code' => 'erstbescheinigung', 'valid_until' => null]),
+        ], '2026-09-24', null);
+        $this->assertSame([], $plan);
+    }
 }

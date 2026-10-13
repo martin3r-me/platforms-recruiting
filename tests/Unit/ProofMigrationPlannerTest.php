@@ -125,4 +125,16 @@ final class ProofMigrationPlannerTest extends TestCase
 
         $this->assertNull($plan[0]['valid_until'], 'ein unbrauchbares Datum wird nicht mitgeschleppt');
     }
+
+    public function test_erstbescheinigung_uebernimmt_hrs_ifsg_datum_nicht(): void
+    {
+        $plan = ProofMigrationPlanner::plan([$this->zeile(1, 'p-1', [
+            'erstbescheinigung_file_id'        => 55,
+            'infection_protection_valid_until' => '2027-03-14',
+        ])]);
+
+        $this->assertCount(1, $plan);
+        $this->assertSame('erstbescheinigung', $plan[0]['proof_type_code']);
+        $this->assertNull($plan[0]['valid_until']);
+    }
 }
