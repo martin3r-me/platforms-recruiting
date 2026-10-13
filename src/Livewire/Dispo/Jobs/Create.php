@@ -26,7 +26,7 @@ use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\Filialen;
 
 /**
- * Jobs anbieten → Neue Anfrage in fuenf Schritten (Spec 2026-10-12 §4.1–4.5).
+ * Jobs anbieten → Neue Anfrage in drei Schritten (Spec 2026-10-14 §3).
  *
  * Alles, was der Browser schickt, gilt als Wunsch: VAs, Schichten, Anlass und
  * Bloecke werden beim Anlegen gegen die serverseitig berechneten Optionen
@@ -102,7 +102,7 @@ class Create extends Component
             $this->von = max($morgen, $start);
             $this->bis = max($this->von, $ende);
             $this->eventIds = [(string) $va->id];
-            $this->schritt = 4;
+            $this->schritt = 2;
             $this->tageVorbelegen();
         }
     }
@@ -142,7 +142,7 @@ class Create extends Component
     public function weiter(): void
     {
         $this->fehler = '';
-        if ($this->schritt >= 5) {
+        if ($this->schritt >= 3) {
             return;
         }
         $fehler = DispoJobCreateState::kannWeiter($this->schritt, $this->state($this->schritt));
@@ -155,10 +155,10 @@ class Create extends Component
             session([self::SESSION_FILIALE => $this->filialNr]);
         }
         $this->schritt++;
-        if ($this->schritt === 4) {
+        if ($this->schritt === 2) {
             $this->tageVorbelegen();
         }
-        if ($this->schritt === 5) {
+        if ($this->schritt === 3) {
             $this->bloeckeVorbelegen();
             $this->zahlenRechnen();
         }
@@ -288,7 +288,8 @@ class Create extends Component
 
     private function zeitraumGueltig(): bool
     {
-        return DispoJobCreateState::kannWeiter(2, $this->state(2)) === null;
+        // Eigenes Array statt state(): state() holt die Veranstaltungen, die ihrerseits diese Pruefung brauchen.
+        return DispoJobCreateState::zeitraumProblem(['heute' => now()->toDateString(), 'von' => $this->von, 'bis' => $this->bis]) === null;
     }
 
     /** VAs der Filiale mit mindestens einer (nicht verschwundenen) Einbuchung im Zeitraum. */
@@ -512,7 +513,7 @@ class Create extends Component
     /**
      * Zahlen vor dem Senden mit der AKTUELLEN Auswahl (neue Anfrage: noch
      * niemand angeschrieben). Gespeichert statt Computed: der Lauf laedt alle
-     * Mitarbeiter und soll nur bei Eintritt in Schritt 5 und bei Aenderung von
+     * Mitarbeiter und soll nur bei Eintritt in Schritt 3 und bei Aenderung von
      * Bloecken/Gruppen/Haken laufen — nicht bei Anlass, Modus oder Startzeit.
      */
     private function zahlenRechnen(): void
@@ -529,7 +530,7 @@ class Create extends Component
 
     public function updated(string $name): void
     {
-        if ($this->schritt === 5 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
+        if ($this->schritt === 3 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -547,10 +548,10 @@ class Create extends Component
 
     /**
      * Zustand fuer DispoJobCreateState — nur serverseitig bekannte Werte, und
-     * nur so viel, wie Schritt $bisSchritt braucht (Schritt 5 laedt alle
+     * nur so viel, wie Schritt $bisSchritt braucht (Schritt 3 laedt alle
      * Mitarbeiter fuer die Bloecke — das soll nicht schon in Schritt 1 laufen).
      */
-    private function state(int $bisSchritt = 5): array
+    private function state(int $bisSchritt = 3): array
     {
         $state = [
             'heute'     => now()->toDateString(),
@@ -558,14 +559,12 @@ class Create extends Component
             'von'       => $this->von,
             'bis'       => $this->bis,
         ];
-        if ($bisSchritt >= 3) {
-            $state['event_ids'] = $this->gewaehlteEvents->keys()->all();
-        }
-        if ($bisSchritt >= 4) {
+        $state['event_ids'] = $this->gewaehlteEvents->keys()->all();
+        if ($bisSchritt >= 2) {
             $state['gesucht'] = array_column($this->gewaehlteSchichten, 'gesucht');
             $state['andere'] = []; // schon in gesucht enthalten (gewaehlteSchichten prueft sie)
         }
-        if ($bisSchritt >= 5) {
+        if ($bisSchritt >= 3) {
             $auswahl = $this->auswahl();
             $state += [
                 'anlass'           => $this->anlass,
@@ -587,7 +586,7 @@ class Create extends Component
     public function anlegenUndSenden(): void
     {
         $this->fehler = '';
-        if ($this->schritt !== 5) {
+        if ($this->schritt !== 3) {
             return;
         }
         $fehler = DispoJobCreateState::alles($this->state());

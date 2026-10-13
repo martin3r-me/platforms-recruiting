@@ -34,75 +34,78 @@
         <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ $fehler }}</div>
     @endif
 
-    {{-- ============================ 1 Filiale ============================ --}}
+    {{-- ============================ 1 Was suchst du? ============================ --}}
     @if ($schritt === 1)
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">Für welche Filiale suchst du Leute?</div>
-            @if ($filialen === [])
-                <p class="text-sm text-gray-500">Es sind noch keine Veranstaltungen aus ZAS da.</p>
-            @else
-                <select wire:model.live="filialNr" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                    <option value="">– Filiale wählen –</option>
-                    @foreach ($filialen as $nr => $label)
-                        <option value="{{ $nr }}">{{ $label }}</option>
-                    @endforeach
-                </select>
-            @endif
-        </div>
-    @endif
-
-    {{-- ============================ 2 Zeitraum ============================ --}}
-    @if ($schritt === 2)
-        @php $heute = now()->toDateString(); @endphp
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">In welchem Zeitraum?</div>
-            <p class="text-sm text-gray-500">Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.</p>
-            <div class="flex flex-wrap items-end gap-4">
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-xs font-medium text-gray-500">von</span>
-                    <input type="date" min="{{ $heute }}" wire:model.live="von" class="rounded border border-gray-300 px-2 py-1 text-sm">
-                </label>
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-xs font-medium text-gray-500">bis</span>
-                    <input type="date" min="{{ $heute }}" wire:model.live="bis" class="rounded border border-gray-300 px-2 py-1 text-sm">
-                </label>
+        @php
+            $heute = now()->toDateString();
+            $vaListe = $this->events;
+            $zeitraumOk = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState::zeitraumProblem(['heute' => $heute, 'von' => $von, 'bis' => $bis]) === null;
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div class="space-y-2">
+                    <div class="font-medium text-gray-700">Für welche Filiale suchst du Leute?</div>
+                    @if ($filialen === [])
+                        <p class="text-sm text-gray-500">Es sind noch keine Veranstaltungen aus ZAS da.</p>
+                    @else
+                        <select wire:model.live="filialNr" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                            <option value="">– Filiale wählen –</option>
+                            @foreach ($filialen as $nr => $label)
+                                <option value="{{ $nr }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    @endif
+                </div>
+                <div class="space-y-2">
+                    <div class="font-medium text-gray-700">In welchem Zeitraum?</div>
+                    <p class="text-xs text-gray-500">Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.</p>
+                    <div class="flex flex-wrap items-end gap-4">
+                        <label class="flex flex-col gap-1 text-sm">
+                            <span class="text-xs font-medium text-gray-500">von</span>
+                            <input type="date" min="{{ $heute }}" wire:model.live="von" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                        </label>
+                        <label class="flex flex-col gap-1 text-sm">
+                            <span class="text-xs font-medium text-gray-500">bis</span>
+                            <input type="date" min="{{ $heute }}" wire:model.live="bis" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-gray-100 pt-3 space-y-2">
+                <div class="font-medium text-gray-700">Für welche Veranstaltungen?</div>
+                @if (!ctype_digit($filialNr))
+                    <p class="text-sm text-gray-500">Wähle zuerst eine Filiale.</p>
+                @elseif (!$zeitraumOk)
+                    <p class="text-sm text-gray-500">Gib einen gültigen Zeitraum an.</p>
+                @elseif ($vaListe->isEmpty())
+                    <p class="text-sm text-gray-500">In diesem Zeitraum hat die Filiale keine Veranstaltung mit Einsatztagen.</p>
+                @else
+                    <div class="divide-y divide-gray-100">
+                        @foreach ($vaListe as $va)
+                            @php
+                                $vaDatum = $va->starts_on ? $va->starts_on->format('d.m.Y') : '–';
+                                if ($va->ends_on && $va->starts_on && !$va->ends_on->equalTo($va->starts_on)) {
+                                    $vaDatum = $va->starts_on->format('d.m.') . '–' . $va->ends_on->format('d.m.Y');
+                                }
+                                $vaOrt = $va->ort ?: $va->venue_text;
+                                $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen')]));
+                            @endphp
+                            <label wire:key="va-{{ $va->id }}" class="flex cursor-pointer items-start gap-3 py-2 text-sm">
+                                <input type="checkbox" value="{{ $va->id }}" wire:model="eventIds" class="mt-0.5 rounded border-gray-300">
+                                <span class="flex-1">
+                                    <span class="font-medium text-gray-800">{{ $va->name }}</span>
+                                    <span class="block text-xs text-gray-500">{{ $vaZeile }}</span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+                @endif
             </div>
         </div>
     @endif
 
-    {{-- ============================ 3 Veranstaltungen ============================ --}}
-    @if ($schritt === 3)
-        @php $vaListe = $this->events; @endphp
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">Für welche Veranstaltungen? <span class="font-normal text-gray-500">({{ $filialName }}, {{ \Illuminate\Support\Carbon::parse($von)->format('d.m.') }}–{{ \Illuminate\Support\Carbon::parse($bis)->format('d.m.Y') }})</span></div>
-            @if ($vaListe->isEmpty())
-                <p class="text-sm text-gray-500">In diesem Zeitraum hat die Filiale keine Veranstaltung mit Einsatztagen. Geh einen Schritt zurück und wähle einen anderen Zeitraum.</p>
-            @else
-                <div class="divide-y divide-gray-100">
-                    @foreach ($vaListe as $va)
-                        @php
-                            $vaDatum = $va->starts_on ? $va->starts_on->format('d.m.Y') : '–';
-                            if ($va->ends_on && $va->starts_on && !$va->ends_on->equalTo($va->starts_on)) {
-                                $vaDatum = $va->starts_on->format('d.m.') . '–' . $va->ends_on->format('d.m.Y');
-                            }
-                            $vaOrt = $va->ort ?: $va->venue_text;
-                            $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen')]));
-                        @endphp
-                        <label wire:key="va-{{ $va->id }}" class="flex cursor-pointer items-start gap-3 py-2 text-sm">
-                            <input type="checkbox" value="{{ $va->id }}" wire:model="eventIds" class="mt-0.5 rounded border-gray-300">
-                            <span class="flex-1">
-                                <span class="font-medium text-gray-800">{{ $va->name }}</span>
-                                <span class="block text-xs text-gray-500">{{ $vaZeile }}</span>
-                            </span>
-                        </label>
-                    @endforeach
-                </div>
-            @endif
-        </div>
-    @endif
-
-    {{-- ============================ 4 Schichten ============================ --}}
-    @if ($schritt === 4)
+    {{-- ============================ 2 Schichten ============================ --}}
+    @if ($schritt === 2)
         @php
             $optionen = $this->schichtOptionen;
             $gewaehlt = $this->gewaehlteEvents;
@@ -245,8 +248,8 @@
         </div>
     @endif
 
-    {{-- ============================ 5 Empfänger ============================ --}}
-    @if ($schritt === 5)
+    {{-- ============================ 3 Senden ============================ --}}
+    @if ($schritt === 3)
         @php
             $bloecke = $this->blockOptionen;
             $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
@@ -410,7 +413,7 @@
             @endif
         </div>
         <div>
-            @if ($schritt < 5)
+            @if ($schritt < 3)
                 <button type="button" wire:click="weiter" wire:loading.attr="disabled" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Weiter</button>
             @else
                 @if ($sendenGesperrt)

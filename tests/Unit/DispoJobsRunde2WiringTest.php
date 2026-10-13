@@ -52,4 +52,23 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobZasListe::text(', $view);
         $this->assertStringContainsString('navigator.clipboard.writeText', $view);
     }
+
+    public function test_neue_anfrage_hat_drei_schritte(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Create.php');
+        $this->assertStringContainsString('if ($this->schritt >= 3) {', $src);
+        $this->assertStringContainsString("if (\$this->schritt !== 3) {", $src);
+        $this->assertStringContainsString('$this->schritt = 2;', $src, '?event= springt zu den Schichten');
+        $this->assertStringNotContainsString('$this->schritt === 5', $src);
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/create.blade.php');
+        $this->assertStringContainsString('@if ($schritt === 3)', $view);
+        $this->assertStringNotContainsString('@if ($schritt === 4)', $view);
+        $this->assertStringContainsString('wire:model.live="filialNr"', $view);
+        $this->assertStringContainsString('Wähle zuerst eine Filiale.', $view);
+
+        $doku = self::datei('docs/anleitungen/dispo-jobs-anbieten.md');
+        $this->assertStringContainsString('in drei Schritten', $doku);
+        $this->assertStringNotContainsString('fünf Schritten', $doku);
+    }
 }

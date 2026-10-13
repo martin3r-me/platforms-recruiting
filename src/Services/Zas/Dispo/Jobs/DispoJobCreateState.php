@@ -5,7 +5,7 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 
 /**
- * Regeln der fuenf Schritte „Neue Anfrage“ — rein, damit sie ohne Livewire
+ * Regeln der drei Schritte „Neue Anfrage“ — rein, damit sie ohne Livewire
  * testbar sind. kannWeiter() liefert die Meldung fuer den Disponenten oder null.
  *
  * Erwartete Schluessel in $state: heute, filial_nr, von, bis, event_ids,
@@ -18,20 +18,31 @@ final class DispoJobCreateState
     /** @return array<int,string> */
     public static function schritte(): array
     {
-        return [1 => 'Filiale', 2 => 'Zeitraum', 3 => 'Veranstaltungen', 4 => 'Schichten', 5 => 'Empfänger'];
+        return [1 => 'Was suchst du?', 2 => 'Schichten', 3 => 'Senden'];
     }
 
     public static function kannWeiter(int $schritt, array $state): ?string
     {
         return match ($schritt) {
-            1 => self::istZahl($state['filial_nr'] ?? null) ? null : 'Bitte wähle eine Filiale.',
-            2 => self::zeitraum($state),
-            3 => array_filter((array) ($state['event_ids'] ?? []), fn ($id) => (int) $id > 0) !== []
-                ? null : 'Bitte wähle mindestens eine Veranstaltung.',
-            4 => self::summeGesucht($state) > 0 ? null : 'Trag bei mindestens einer Schicht ein, wie viele Leute du suchst.',
-            5 => self::empfaenger($state),
+            1 => self::wasSuchstDu($state),
+            2 => self::summeGesucht($state) > 0 ? null : 'Trag bei mindestens einer Schicht ein, wie viele Leute du suchst.',
+            3 => self::empfaenger($state),
             default => null,
         };
+    }
+
+    /** Filiale, Zeitraum, Veranstaltungen — die erste Meldung gewinnt. */
+    private static function wasSuchstDu(array $state): ?string
+    {
+        if (!self::istZahl($state['filial_nr'] ?? null)) {
+            return 'Bitte wähle eine Filiale.';
+        }
+        if (($z = self::zeitraumProblem($state)) !== null) {
+            return $z;
+        }
+
+        return array_filter((array) ($state['event_ids'] ?? []), fn ($id) => (int) $id > 0) !== []
+            ? null : 'Bitte wähle mindestens eine Veranstaltung.';
     }
 
     /** Alle Schritte der Reihe nach — die erste Meldung gewinnt (vor dem Anlegen). */
@@ -68,7 +79,8 @@ final class DispoJobCreateState
         return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
     }
 
-    private static function zeitraum(array $state): ?string
+    /** Oeffentlich: die Veranstaltungsliste im Schritt 1 filtert live und braucht nur den Zeitraum. */
+    public static function zeitraumProblem(array $state): ?string
     {
         $von = $state['von'] ?? '';
         $bis = $state['bis'] ?? '';

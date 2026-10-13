@@ -1,7 +1,7 @@
 ---
 titel: Jobs anbieten
 bereich: Dispo
-stand: 2026-10-13
+stand: 2026-10-14
 seiten: [recruiting.dispo.jobs.index, recruiting.dispo.jobs.create, recruiting.dispo.jobs.show]
 ---
 
@@ -14,16 +14,14 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 
 > Eine Zusage ist noch keine Einbuchung. Die machst du in ZAS.
 
-## Dispo · Jobs anbieten | Anfrage anlegen in fünf Schritten
+## Dispo · Jobs anbieten | Anfrage anlegen in drei Schritten
 
 ![Neue Anfrage mit der Schrittleiste oben](schrittleiste.png)
 <!-- shot: seite=/recruiting/dispo-jobs/neu ausschnitt="Neue Anfrage" -->
 
-1. **Filiale:** Für welche Filiale suchst du Leute?
-2. **Zeitraum:** Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.
-3. **Veranstaltungen:** Hake die Veranstaltungen an, für die du Leute suchst.
-4. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu.
-5. **Empfänger:** Wähle die **Mitarbeiterfiliale** und die Gruppen nach Einsätzen in diesem Monat. Mit dem Haken **„nur mit passender Tätigkeit“** bekommen nur Leute die Nachricht, die diese Tätigkeit können. Dann wählst du den **Anlass**: **„Nächste vier Wochen“**, **„Nächste Woche“** oder **„Dringend“**. Daneben siehst du die Nachricht, die rausgeht. Kommst du aus einer Veranstaltung, ist **„Dringend“** schon gewählt. Außerdem legst du fest, wie die Zusagen zählen: **„Alle Zusagen sammeln“** oder **„Wer zuerst kommt“**. Zum Schluss wählst du **„Jetzt senden“** oder **„In … Minuten senden“** und klickst auf **„Anfrage anlegen und Welle 1 starten“**.
+1. **Was suchst du?** Wähle die Filiale und den Zeitraum. Darunter erscheinen die Veranstaltungen mit Einsatztagen in diesem Zeitraum. Hake an, für welche du Leute suchst.
+2. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu.
+3. **Senden:** Wähle die **Mitarbeiterfiliale** und die Gruppen nach Einsätzen in diesem Monat. Mit dem Haken **„nur mit passender Tätigkeit“** bekommen nur Leute die Nachricht, die diese Tätigkeit können. Dann wählst du den **Anlass**: **„Nächste vier Wochen“**, **„Nächste Woche“** oder **„Dringend“**. Daneben siehst du die Nachricht, die rausgeht. Kommst du aus einer Veranstaltung, ist **„Dringend“** schon gewählt. Außerdem legst du fest, wie die Zusagen zählen: **„Alle Zusagen sammeln“** oder **„Wer zuerst kommt“**. Zum Schluss wählst du **„Jetzt senden“** oder **„In … Minuten senden“** und klickst auf **„Anfrage anlegen und Welle 1 starten“**.
 
 > Vor dem Senden siehst du, an wie viele Personen die Nachricht geht.
 
