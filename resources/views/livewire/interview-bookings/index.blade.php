@@ -417,6 +417,14 @@
                                                 <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
                                                     {{ \Platform\Recruiting\Support\ApplicantContactName::display($this->contactCandidatesFor($applicant)) }}
                                                 </a>
+                                                @php
+                                                    $ichBin = $this->ichBinLabels[$applicant->id] ?? null;
+                                                @endphp
+                                                @if($ichBin !== null)
+                                                    <div class="text-[11px] text-gray-500 mt-0.5">Ich bin: <span class="font-medium text-gray-800">{{ $ichBin }}</span></div>
+                                                @else
+                                                    <div class="text-[11px] text-gray-400 mt-0.5">Ich bin: keine Angabe</div>
+                                                @endif
                                                 @if($hasOpenNonEuCase)
                                                     <div class="text-[10px] text-blue-700 mt-0.5 font-medium">Liegt beim HR-Schreibtisch</div>
                                                 @elseif($isLegalCheckPending)

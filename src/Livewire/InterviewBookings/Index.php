@@ -253,6 +253,22 @@ class Index extends Component
      * ist abgedeckt: Routing bumpt rec_applicants.updated_at [Flags], eine
      * Token-Quelle.
      */
+    /**
+     * „Ich bin“ je Bewerber für die Schulungsnachbereitung (Kunde 13.10.2026):
+     * Der Schulungsleiter setzt den Zuschlag von Hand und sieht hier, wer
+     * Azubi, Teilzeit oder anderweitig angestellt ist — ohne jeden Bewerber
+     * einzeln zu öffnen. Nur Anzeige, keine Vorbelegung.
+     *
+     * @return array<int, string> applicant_id => Label
+     */
+    #[Computed]
+    public function ichBinLabels(): array
+    {
+        return \Platform\Recruiting\Services\Applicants\IchBinLabels::forApplicants(
+            $this->bookings->pluck('applicant.id')->filter()->all()
+        );
+    }
+
     #[Computed]
     public function openNonEuCaseApplicantIds(): array
     {
