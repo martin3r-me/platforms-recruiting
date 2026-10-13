@@ -97,7 +97,7 @@ Migration `2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.ph
 
 `DispoJobSchichten::optionen()` liefert je Gruppe zusätzlich `bis`: die häufigste nicht-leere Endzeit der Einbuchungen der Gruppe, bei Gleichstand die früheste. Fehlt sie überall: ''. `Create::gewaehlteSchichten()` reicht `bis` durch, `DispoJobAnfrageAnlegen` speichert es.
 
-Freie Schichten („andere“) bekommen neben „Beginn“ ein optionales Feld „Ende“ (`type="time"`, `neuBis`). Validierung: wenn gesetzt, muss Ende nach Beginn liegen (sonst Meldung „Das Ende muss nach dem Beginn liegen.“); leer ist erlaubt.
+Freie Schichten („andere“) bekommen neben „Beginn“ ein optionales Feld „Ende“ (`type="time"`, `neuBis`). Validierung: Ein Ende vor dem Beginn ist erlaubt (Nachtschicht über Mitternacht, z. B. 18:00–02:00); nur Beginn gleich Ende wird abgelehnt (Meldung „Beginn und Ende dürfen nicht gleich sein.“); leer ist erlaubt.
 
 ### 8.3 Anzeige
 

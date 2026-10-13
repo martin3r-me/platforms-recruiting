@@ -21,7 +21,11 @@ final class DispoJobZeit
         return $bis !== '' ? $von . '–' . $bis : $von;
     }
 
-    /** Meldung fuer den Disponenten oder null. Beide Felder duerfen leer sein. */
+    /**
+     * Meldung fuer den Disponenten oder null. Beide Felder duerfen leer sein.
+     * Ein Ende vor dem Beginn ist gueltig (Nachtschicht ueber Mitternacht, z. B. 18:00–02:00);
+     * nur identische Zeiten werden abgelehnt.
+     */
     public static function problem(string $von, string $bis): ?string
     {
         $von = trim($von);
@@ -32,8 +36,8 @@ final class DispoJobZeit
         if ($bis !== '' && preg_match(self::MUSTER, $bis) !== 1) {
             return 'Das Ende muss als Uhrzeit (HH:MM) angegeben werden.';
         }
-        if ($von !== '' && $bis !== '' && $bis <= $von) {
-            return 'Das Ende muss nach dem Beginn liegen.';
+        if ($von !== '' && $bis !== '' && $bis === $von) {
+            return 'Beginn und Ende dürfen nicht gleich sein.';
         }
 
         return null;
