@@ -223,7 +223,10 @@
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
             <div class="text-sm text-gray-800">
-                <strong>{{ $fortschritt['zugesagt'] }}</strong> von {{ $fortschritt['gesucht'] }} {{ $plaetze }} zugesagt
+                <strong>{{ $fortschritt['besetzt'] }}</strong> von {{ $fortschritt['gesucht'] }} {{ $plaetze }} besetzt
+                @if ($fortschritt['zugesagt'] > $fortschritt['besetzt'])
+                    · {{ $fortschritt['zugesagt'] }} Zusagen insgesamt
+                @endif
                 · {{ $fortschritt['eingetragen'] }} in ZAS eingetragen
                 · {{ $fortschritt['angekommen'] }} angekommen
             </div>

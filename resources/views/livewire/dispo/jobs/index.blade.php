@@ -55,8 +55,8 @@
                                 $letzteText = 'Welle ' . $letzte->nr . ($letzteZeit ? ' · ' . $letzteZeit->format('d.m. H:i') : '');
                             }
                             $anlassText = ($a->anlass ?? '') !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::label((string) $a->anlass) : '—';
-                            $z = $zahlen[$a->id] ?? ['zugesagt' => 0, 'gesucht' => 0, 'noch_zas' => 0];
-                            $zusagenKlasse = $z['gesucht'] > 0 && $z['zugesagt'] >= $z['gesucht'] ? 'text-green-700 font-medium' : '';
+                            $z = $zahlen[$a->id] ?? ['zugesagt' => 0, 'gesucht' => 0, 'noch_zas' => 0, 'besetzt' => 0];
+                            $zusagenKlasse = $z['gesucht'] > 0 && $z['besetzt'] >= $z['gesucht'] ? 'text-green-700 font-medium' : '';
                             $link = route('recruiting.dispo.jobs.show', ['requestId' => $a->id]);
                         @endphp
                         <tr wire:key="anfrage-{{ $a->id }}" class="border-t border-gray-100 hover:bg-gray-50">
@@ -65,7 +65,12 @@
                             <td class="px-4 py-2">{{ $anlassText }}</td>
                             <td class="px-4 py-2 tabular-nums">{{ $a->shifts_count }}</td>
                             <td class="px-4 py-2"><span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusText }}</span></td>
-                            <td class="px-4 py-2 tabular-nums {{ $zusagenKlasse }}">{{ $z['zugesagt'] }} / {{ $z['gesucht'] }}</td>
+                            <td class="px-4 py-2 tabular-nums">
+                                <span class="{{ $zusagenKlasse }}">{{ $z['besetzt'] }} / {{ $z['gesucht'] }}</span>
+                                @if ($z['zugesagt'] > $z['besetzt'])
+                                    <span class="text-xs text-gray-400" title="Zusagen über die gesuchten Plätze hinaus">(+{{ $z['zugesagt'] - $z['besetzt'] }})</span>
+                                @endif
+                            </td>
                             <td class="px-4 py-2 tabular-nums">{{ $z['noch_zas'] > 0 ? $z['noch_zas'] : '–' }}</td>
                             <td class="px-4 py-2 text-gray-600">{{ $letzteText }}</td>
                         </tr>

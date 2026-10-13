@@ -21,7 +21,8 @@ final class DispoJobFortschrittTest extends TestCase
 
         $f = DispoJobFortschritt::berechnen([$voll1, $offen1, $offen2, $voll2]);
 
-        $this->assertSame(['gesucht' => 11, 'zugesagt' => 9, 'eingetragen' => 3, 'angekommen' => 1, 'prozent' => 81], array_intersect_key($f, array_flip(['gesucht', 'zugesagt', 'eingetragen', 'angekommen', 'prozent'])));
+        // besetzt = 2 + 3 + 0 + 1 (Koch: 4 Zusagen, aber nur 1 Platz)
+        $this->assertSame(['gesucht' => 11, 'zugesagt' => 9, 'eingetragen' => 3, 'angekommen' => 1, 'besetzt' => 6, 'prozent' => 54], array_intersect_key($f, array_flip(['gesucht', 'zugesagt', 'eingetragen', 'angekommen', 'besetzt', 'prozent'])));
         $this->assertSame([$offen2, $offen1], $f['offen'], 'offene nach Datum, Beginn, Taetigkeit');
         $this->assertSame([$voll2, $voll1], $f['voll']);
     }
@@ -41,6 +42,30 @@ final class DispoJobFortschrittTest extends TestCase
     public function testProzentIstBeiHundertGedeckelt(): void
     {
         $f = DispoJobFortschritt::berechnen([self::s('2026-10-20', '10:00', 'Zapfer', 2, 5)]);
+        $this->assertSame(100, $f['prozent']);
+        $this->assertSame(2, $f['besetzt']);
+        $this->assertSame(5, $f['zugesagt'], 'zugesagt bleibt die rohe Summe');
+    }
+
+    public function testUeberfuellteSchichtDecktKeineLeereSchicht(): void
+    {
+        // Modus „sammeln“: A gesucht 2 / zugesagt 10, B gesucht 8 / zugesagt 0 — nicht „10 von 10“.
+        $f = DispoJobFortschritt::berechnen([
+            self::s('2026-10-20', '10:00', 'A', 2, 10),
+            self::s('2026-10-20', '12:00', 'B', 8, 0),
+        ]);
+
+        $this->assertSame(10, $f['gesucht']);
+        $this->assertSame(10, $f['zugesagt']);
+        $this->assertSame(2, $f['besetzt']);
+        $this->assertSame(20, $f['prozent']);
+    }
+
+    public function testGesuchtNullTraegtNichtsZuBesetztBei(): void
+    {
+        $f = DispoJobFortschritt::berechnen([self::s('2026-10-20', '10:00', 'A', 0, 3), self::s('2026-10-20', '12:00', 'B', 4, 4)]);
+
+        $this->assertSame(4, $f['besetzt']);
         $this->assertSame(100, $f['prozent']);
     }
 }

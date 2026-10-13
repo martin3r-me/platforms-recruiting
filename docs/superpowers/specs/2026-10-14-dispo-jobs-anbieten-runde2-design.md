@@ -64,7 +64,7 @@ Reihenfolge der Zeilen bleibt nach Zusage-Zeitpunkt. Keine Sortierung nach Bewer
 
 ## 5. C — Fortschritt oben, offene Schichten zuerst
 
-Über der Schichtenliste eine Zeile: **„12 von 20 Plätzen zugesagt · 5 in ZAS eingetragen · 3 angekommen“**. Zusätzlich ein schmaler Balken (zugesagt/gesucht, bei ≥ 100 % grün). „gesucht“ ist die Summe über alle Schichten der Anfrage.
+Über der Schichtenliste eine Zeile: **„12 von 20 Plätzen besetzt · 5 in ZAS eingetragen · 3 angekommen“**. „besetzt“ zählt je Schicht höchstens so viele Zusagen, wie gesucht sind (Σ min(zugesagt, gesucht)) — im Modus „Alle Zusagen sammeln“ ist Überfüllen normal, und eine überfüllte Schicht darf eine leere nicht mitzählen. Liegen mehr Zusagen vor als Plätze besetzt sind, folgt „· N Zusagen insgesamt“. Zusätzlich ein schmaler Balken (besetzt/gesucht, grün erst bei 100 % = jeder Platz besetzt). „gesucht“ ist die Summe über alle Schichten der Anfrage.
 
 Schichten werden sortiert: zuerst Schichten mit `zugesagt < gesucht` nach Datum, Beginn, Tätigkeit; dahinter volle Schichten in derselben Ordnung, Kopf grün hinterlegt. Eine Schicht mit `gesucht = 0` (kommt nicht vor, Schritt 2 verlangt > 0 nur in Summe) gilt als voll.
 
@@ -136,7 +136,7 @@ Zurückgenommene Zusagen verschwinden aus der Tabelle. Die Schicht-Kachel zeigt 
 
 ## 10. H — Übersicht
 
-- Spalte „Zusagen“ zeigt „12 / 20“ (zugesagt / gesucht), bei Erfüllung grün.
+- Spalte „Zusagen“ zeigt „12 / 20“ (besetzt / gesucht, je Schicht auf gesucht gedeckelt wie in §5), grün nur, wenn jeder Platz besetzt ist; Zusagen darüber hinaus stehen klein und grau als „(+N)“ dahinter.
 - Neue Spalte „Noch in ZAS“: Zusagen ohne Haken (0 ausgeblendet als „–“).
 - Filter-Pillen über der Tabelle: **Offen** (Standard) · Abgeschlossen · Alle. `#[Url]`-Property `filter`, Werte `offen|zu|alle`, alles andere → `offen`.
 - Cap bleibt 200 Zeilen (Nachtrag Runde 1).

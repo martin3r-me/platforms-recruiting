@@ -34,7 +34,10 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobFortschritt::berechnen($this->schichten)', $src);
 
         $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
-        $kopf = strpos($view, '{{ $fortschritt[\'zugesagt\'] }}</strong> von');
+        $kopf = strpos($view, '<strong>{{ $fortschritt[\'besetzt\'] }}</strong> von {{ $fortschritt[\'gesucht\'] }} {{ $plaetze }} besetzt');
+        $this->assertStringContainsString('@if ($fortschritt[\'zugesagt\'] > $fortschritt[\'besetzt\'])', $view);
+        $this->assertStringContainsString('{{ $fortschritt[\'zugesagt\'] }} Zusagen insgesamt', $view);
+        $this->assertStringContainsString('$fortschritt[\'prozent\'] >= 100 ? \'bg-green-500\'', $view, 'gruen erst, wenn jeder Platz besetzt ist');
         $liste = strpos($view, 'array_merge($fortschritt[\'offen\'], $fortschritt[\'voll\'])');
         $this->assertNotFalse($kopf);
         $this->assertNotFalse($liste);
@@ -115,7 +118,10 @@ final class DispoJobsRunde2WiringTest extends TestCase
 
         $view = self::datei('resources/views/livewire/dispo/jobs/index.blade.php');
         $this->assertStringContainsString(">Noch in ZAS</th>", $view);
-        $this->assertStringContainsString("{{ \$z['zugesagt'] }} / {{ \$z['gesucht'] }}", $view);
+        $this->assertStringContainsString("{{ \$z['besetzt'] }} / {{ \$z['gesucht'] }}", $view);
+        $this->assertStringContainsString("\$z['gesucht'] > 0 && \$z['besetzt'] >= \$z['gesucht']", $view);
+        $this->assertStringContainsString("(+{{ \$z['zugesagt'] - \$z['besetzt'] }})", $view);
+        $this->assertStringNotContainsString("{{ \$z['zugesagt'] }} / {{ \$z['gesucht'] }}", $view);
         $this->assertStringContainsString("\$set('filter', '{{ \$wert }}')", $view);
     }
 }

@@ -63,9 +63,26 @@ class DispoJobUebersichtZahlenTest extends TestCase
 
         $z = DispoJobUebersichtZahlen::laden([$request->id, $leer->id, 999999]);
 
-        $this->assertSame(['zugesagt' => 2, 'gesucht' => 5, 'noch_zas' => 1], $z[$request->id]);
-        $this->assertSame(['zugesagt' => 0, 'gesucht' => 0, 'noch_zas' => 0], $z[$leer->id]);
+        $this->assertSame(['zugesagt' => 2, 'gesucht' => 5, 'noch_zas' => 1, 'besetzt' => 2], $z[$request->id]);
+        $this->assertSame(['zugesagt' => 0, 'gesucht' => 0, 'noch_zas' => 0, 'besetzt' => 0], $z[$leer->id]);
         $this->assertArrayNotHasKey(999999, $z);
         $this->assertSame([], DispoJobUebersichtZahlen::laden([]));
+    }
+
+    public function test_ueberfuellte_schicht_deckt_keine_leere_schicht(): void
+    {
+        // Modus „sammeln“: A gesucht 2 / zugesagt 3, B gesucht 2 / zugesagt 0 — besetzt 2, nicht 3.
+        $request = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => '2026-10-20', 'zeitraum_bis' => '2099-11-17', 'modus' => 'sammeln', 'status' => 'laeuft', 'created_by_user_id' => 1]);
+        $a = $request->shifts()->create(['rec_dispo_event_id' => 1, 'datum' => '2099-10-20', 'von' => '', 'taetigkeit' => 'A', 'gesucht' => 2]);
+        $request->shifts()->create(['rec_dispo_event_id' => 1, 'datum' => '2099-10-21', 'von' => '', 'taetigkeit' => 'B', 'gesucht' => 2]);
+        $wave = $request->waves()->create(['nr' => 1, 'ma_bloecke' => [200], 'gruppen' => ['0'], 'nur_passende_taetigkeit' => true]);
+        foreach ([11, 12, 13] as $ma) {
+            $offer = $wave->offers()->create(['request_id' => $request->id, 'rec_employee_id' => $ma, 'anchor_employee_id' => $ma]);
+            $offer->shifts()->create(['shift_id' => $a->id, 'accepted_at' => now()]);
+        }
+
+        $z = DispoJobUebersichtZahlen::laden([$request->id]);
+
+        $this->assertSame(['zugesagt' => 3, 'gesucht' => 4, 'noch_zas' => 3, 'besetzt' => 2], $z[$request->id]);
     }
 }
