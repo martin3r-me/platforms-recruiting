@@ -20,10 +20,20 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 <!-- shot: seite=/recruiting/dispo-jobs/neu ausschnitt="Neue Anfrage" -->
 
 1. **Was suchst du?** Wähle die Filiale und den Zeitraum. Darunter erscheinen die Veranstaltungen mit Einsatztagen in diesem Zeitraum. Hake an, für welche du Leute suchst.
-2. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu.
+2. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Unter **„Zeit“** steht Beginn und Ende, so wie sie in ZAS eingetragen sind. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu. Das **Ende** ist dort freiwillig, eine Nachtschicht wie 18:00 bis 02:00 geht auch.
 3. **Senden:** Wähle die **Mitarbeiterfiliale** und die Gruppen nach Einsätzen in diesem Monat. Mit dem Haken **„nur mit passender Tätigkeit“** bekommen nur Leute die Nachricht, die diese Tätigkeit können. Dann wählst du den **Anlass**: **„Nächste vier Wochen“**, **„Nächste Woche“** oder **„Dringend“**. Daneben siehst du die Nachricht, die rausgeht. Kommst du aus einer Veranstaltung, ist **„Dringend“** schon gewählt. Außerdem legst du fest, wie die Zusagen zählen: **„Alle Zusagen sammeln“** oder **„Wer zuerst kommt“**. Zum Schluss wählst du **„Jetzt senden“** oder **„In … Minuten senden“** und klickst auf **„Anfrage anlegen und Welle 1 starten“**.
 
 > Vor dem Senden siehst du, an wie viele Personen die Nachricht geht.
+
+## Dispo · Jobs anbieten | Die Übersicht
+
+![Übersicht der Anfragen mit Filter und Spalte „Besetzt“](uebersicht.png)
+<!-- shot: seite=/recruiting/dispo-jobs ausschnitt="Jobs anbieten" -->
+
+1. Unter **Disposition → Jobs anbieten** siehst du alle Anfragen. Oben wählst du **„Offen“**, **„Abgeschlossen“** oder **„Alle“**.
+2. **„Besetzt“** zeigt, wie viele der gesuchten Plätze schon eine Zusage haben, zum Beispiel **„6 / 10“**. Grün heißt: Alle Plätze sind gedeckt. **„(+2)“** dahinter heißt: Zwei Leute haben zusätzlich zugesagt.
+3. **„Noch in ZAS“** zeigt, wie viele Zusagen du noch in ZAS eintragen musst.
+4. Dieselbe Zahl steht als Zähler links am Menüpunkt **„Jobs anbieten“**. So siehst du von überall, dass Arbeit wartet.
 
 ## Dispo · Jobs anbieten | Wellen
 
@@ -44,20 +54,35 @@ Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So
 <!-- shot: manuell -->
 
 1. Der Mitarbeiter bekommt eine WhatsApp mit einem Link.
-2. Die Seite zeigt nur Schichten an Tagen, an denen er frei ist.
-3. Mit dem Knopf **„Ich bin dabei“** sagt er zu.
-4. Bei **„Wer zuerst kommt“** steht dabei, wie viele Plätze noch frei sind („noch N frei“). Ist eine Schicht voll, steht dort „schon voll“.
+2. Die Seite zeigt nur Schichten an Tagen, an denen er frei ist, mit Beginn und Ende, zum Beispiel **„16:00–23:00 · Servicekraft“**.
+3. Mit dem Knopf **„Ich bin dabei“** sagt er zu. Danach steht dort **„Du bist dabei — wir melden uns.“**
+4. Zurücknehmen kann er die Zusage auf der Seite nicht. Kann er doch nicht, schreibt er dir im Chat.
+5. Bei **„Wer zuerst kommt“** steht dabei, wie viele Plätze noch frei sind („noch N frei“). Ist eine Schicht voll, steht dort „schon voll“.
 
 > Er sieht nie den ganzen Dienstplan, nur das, was du angeboten hast.
 
-## Dispo · Jobs anbieten | Zusagen abhaken
+## Dispo · Jobs anbieten | Zusagen auswählen
 
-![Anfrage mit Zusagen je Schicht und dem Haken „in ZAS eingetragen“](zusagen.png)
+![Zusagen einer Schicht mit Einsätzen, Tätigkeit und Bewertung](zusagen-auswahl.png)
 <!-- shot: manuell -->
 
-1. In der Anfrage siehst du unter **„Schichten und Rückmeldungen“** die Zusagen je Schicht, mit Name und Handynummer.
+Oben in der Anfrage steht, wie weit du bist, zum Beispiel **„6 von 10 Plätzen besetzt“**. Darunter kommen zuerst die Schichten, in denen noch Plätze frei sind. Volle Schichten sind grün und stehen unten.
+
+1. Unter **„Schichten und Rückmeldungen“** siehst du je Schicht, wer zugesagt hat, mit Handynummer.
+2. **„Einsätze“** zeigt, wie oft die Person in diesem Monat schon eingeteilt ist.
+3. **„Tätigkeit“** zeigt **„passt“**, wenn die Person diese Tätigkeit laut ZAS kann. **„andere“** heißt, sie hat andere Tätigkeiten. Fährst du mit der Maus darüber, siehst du welche. **„keine aus ZAS“** heißt, ZAS hat für sie noch keine geliefert.
+4. **„Bewertung“** zeigt die fünf Bewertungen aus der Schulung in fester Reihenfolge, zum Beispiel **„4 · 5 · – · 4 · 3“**. Ein Strich heißt: Dieser Punkt ist nicht bewertet. Fährst du mit der Maus darüber, siehst du die Namen der fünf Punkte.
+
+> Die Angaben helfen dir beim Aussuchen. Wen du nimmst, entscheidest du.
+
+## Dispo · Jobs anbieten | Zusagen in ZAS eintragen
+
+![Schicht mit den Knöpfen „Liste kopieren“ und „Alle als in ZAS eingetragen markieren“](zusagen.png)
+<!-- shot: manuell -->
+
+1. Mit **„Liste kopieren“** kopierst du Name, Personalnummer und Handynummer aller Zusagen einer Schicht. So hast du sie beim Eintragen in ZAS griffbereit.
 2. Trag die Leute, die du nehmen willst, in ZAS ein.
-3. Setz danach den Haken **„in ZAS eingetragen“**.
+3. Setz danach bei jeder Person den Haken **„in ZAS eingetragen“**. Hast du alle genommen, geht es schneller mit **„Alle als in ZAS eingetragen markieren“**.
 4. Sobald ZAS die Einbuchung liefert, erscheint **„✓ in ZAS angekommen“** von selbst.
 5. Ist alles erledigt, klickst du oben auf **„Anfrage abschließen“**.
 
@@ -66,6 +91,8 @@ Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So
 | Thema | So ist es |
 | --- | --- |
 | Zusage | Eine Zusage ist keine Einbuchung. Eingetragen wird nur in ZAS. |
+| Absagen | Der Mitarbeiter kann seine Zusage nicht selbst zurücknehmen. Er meldet sich im Chat bei dir. |
+| Besetzt | Zählt je Schicht höchstens so viele Zusagen, wie du suchst. Mehr Zusagen stehen als „(+N)“ dahinter. |
 | Nachrichten | Jede Person bekommt je Anfrage nur eine Nachricht. |
 | Freie Tage | Angeboten werden nur Tage, an denen der Mitarbeiter in keiner Veranstaltung eingeteilt ist. |
 | Anlass | Für jeden Anlass legst du unter Disposition → Einstellungen eine eigene Nachricht fest. Ist für einen Anlass noch keine hinterlegt, kannst du ihn nicht wählen. |
