@@ -242,18 +242,6 @@ class Index extends Component
     }
 
     /**
-     * Offene Nicht-EU-Fälle der sichtbaren Bewerber — EIN Batch-Query,
-     * keyed by applicant_id (Blade: Lock-Badge "Liegt beim HR-Schreibtisch").
-     *
-     * BEWUSSTE GRENZE: Die Nachbereitung pollt nicht (kein wire:poll/Token —
-     * anders als das Dashboard); wird attended EXTERN gesetzt (MCP-Tool,
-     * andere Session), erscheint der Badge erst bei der naechsten
-     * Interaktion/Reload — view-weite, vorbestehende Eigenschaft dieser
-     * Ansicht, gilt fuer alle externen Aenderungen. Das Dashboard-Poll-Token
-     * ist abgedeckt: Routing bumpt rec_applicants.updated_at [Flags], eine
-     * Token-Quelle.
-     */
-    /**
      * „Ich bin“ je Bewerber für die Schulungsnachbereitung (Kunde 13.10.2026):
      * Der Schulungsleiter setzt den Zuschlag von Hand und sieht hier, wer
      * Azubi, Teilzeit oder anderweitig angestellt ist — ohne jeden Bewerber
@@ -269,6 +257,18 @@ class Index extends Component
         );
     }
 
+    /**
+     * Offene Nicht-EU-Fälle der sichtbaren Bewerber — EIN Batch-Query,
+     * keyed by applicant_id (Blade: Lock-Badge "Liegt beim HR-Schreibtisch").
+     *
+     * BEWUSSTE GRENZE: Die Nachbereitung pollt nicht (kein wire:poll/Token —
+     * anders als das Dashboard); wird attended EXTERN gesetzt (MCP-Tool,
+     * andere Session), erscheint der Badge erst bei der naechsten
+     * Interaktion/Reload — view-weite, vorbestehende Eigenschaft dieser
+     * Ansicht, gilt fuer alle externen Aenderungen. Das Dashboard-Poll-Token
+     * ist abgedeckt: Routing bumpt rec_applicants.updated_at [Flags], eine
+     * Token-Quelle.
+     */
     #[Computed]
     public function openNonEuCaseApplicantIds(): array
     {
