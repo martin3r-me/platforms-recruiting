@@ -11,7 +11,8 @@ use Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter;
  *
  * Ohne fileId: alle noch nicht verarbeiteten Echt-Dateien, aelteste zuerst.
  * Mit fileId: genau diese eine — auch is_test oder bereits verarbeitet
- * (Re-Run ist durch die Upsert-Semantik idempotent).
+ * (Re-Run ist durch die Upsert-Semantik idempotent; eine aeltere Datei
+ * tauscht dabei keine Person zurueck, siehe DispoPersonenwechsel).
  * --dry-run: nur Plan-Zaehler ausgeben, nichts schreiben.
  */
 class DispoReprocessCommand extends Command
@@ -58,6 +59,9 @@ class DispoReprocessCommand extends Command
                 ));
             }
 
+            if (($summary['personenwechsel_veraltet'] ?? 0) > 0) {
+                $this->line(sprintf('    Personenwechsel uebersprungen (neuere Lieferung vorhanden): %d', $summary['personenwechsel_veraltet']));
+            }
             if (($summary['personenwechsel'] ?? 0) > 0) {
                 $this->line(sprintf(
                     '    Personenwechsel (andere PNr in derselben Zeile): %d — %s',

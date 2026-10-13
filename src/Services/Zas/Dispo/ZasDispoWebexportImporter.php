@@ -41,7 +41,7 @@ class ZasDispoWebexportImporter
             'matched' => 0, 'unmatched' => 0, 'ambiguous' => 0,
             'missing_marked' => 0, 'rematched_open' => 0,
             'reconfirm_marked' => 0,
-            'personenwechsel' => 0, 'personenwechsel_liste' => [],
+            'personenwechsel' => 0, 'personenwechsel_liste' => [], 'personenwechsel_veraltet' => 0,
             'skipped' => [], 'errors' => [],
             'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
             'qualifikationen' => [
@@ -100,6 +100,14 @@ class ZasDispoWebexportImporter
                 (string) config('recruiting.zas.company_prefix', '')
             );
 
+            // Eine aeltere Datei (Reprocess, Nachzuegler) darf keine Person
+            // zuruecktauschen: sonst wuerde die Besetzung aus der neueren
+            // Lieferung abgelegt und ihre Bestaetigung geleert.
+            $veraltet = RecZasDispoInboundFile::query()
+                ->where('id', '>', $file->id)
+                ->where('parse_status', 'processed')
+                ->exists();
+
             if ($dryRun) {
                 // Der Marker plant fuer ALLE ds_refs der Lieferung; gezaehlt wird
                 // aber nur, was im Live-Lauf auch geschrieben wuerde — also nur
@@ -120,7 +128,9 @@ class ZasDispoWebexportImporter
                         continue;
                     }
 
-                    if (isset($wechsel[$dsRef])) {
+                    if (isset($wechsel[$dsRef]) && $veraltet) {
+                        $summary['personenwechsel_veraltet']++;
+                    } elseif (isset($wechsel[$dsRef])) {
                         self::tallyWechsel($summary, (string) $dsRef, $wechsel[$dsRef]);
                     } elseif (isset($reconfirmPlan['overrides'][$dsRef])) {
                         $summary['reconfirm_marked']++;
@@ -152,7 +162,7 @@ class ZasDispoWebexportImporter
                 return $summary;
             }
 
-            DB::transaction(function () use ($plan, $matcher, &$summary) {
+            DB::transaction(function () use ($plan, $matcher, $veraltet, &$summary) {
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -199,7 +209,16 @@ class ZasDispoWebexportImporter
                     $m = $matcher->match($attrs['pnr_raw']);
                     self::tallyMatch($summary, $m, $attrs['pnr_raw']);
 
-                    if (isset($wechsel[$dsRef])) {
+                    if (isset($wechsel[$dsRef]) && $veraltet) {
+                        // Aeltere Datei: Person bleibt, wie die neuere Lieferung sie gesetzt hat.
+                        $attrs['pnr_raw'] = $wechsel[$dsRef]['alt_pnr'];
+                        $m = ['employee_id' => $wechsel[$dsRef]['alt_employee_id'], 'reason' => 'kept'];
+                        $override = $reconfirm['overrides'][$dsRef] ?? [];
+                        if ($override !== []) {
+                            $summary['reconfirm_marked']++;
+                        }
+                        $summary['personenwechsel_veraltet']++;
+                    } elseif (isset($wechsel[$dsRef])) {
                         // Andere Person in derselben Zeile: alte Besetzung ablegen,
                         // Zeile frisch fuer die neue. Die Rebestaetigung der alten
                         // Zeiten ist damit gegenstandslos.

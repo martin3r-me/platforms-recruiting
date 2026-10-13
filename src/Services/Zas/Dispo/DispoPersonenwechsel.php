@@ -2,7 +2,11 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoDeclineCheck;
+use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -12,8 +16,10 @@ use Symfony\Component\Uid\UuidV7;
  * Bestaetigung, den Versand-Stempel, die Eskalation, die persoenliche Notiz.
  *
  * Erkannt wird ein Wechsel an der Personalnummer: Sie weicht ab UND gehoert
- * nicht derselben Person (gleicher Datensatz oder dieselbe Identitaetsgruppe,
- * also RG- und MA-Nummer desselben Menschen sind KEIN Wechsel).
+ * nicht derselben Person. Dieselbe Person = gleicher Datensatz, gleicher
+ * person_key oder gemeinsamer CRM-Kontakt — auch wenn einer der Datensaetze
+ * inzwischen inaktiv ist (RG- und MA-Nummer desselben Menschen sind KEIN
+ * Wechsel; Muster MA-Akte/EmployeeSenderResolver).
  *
  * Folge eines Wechsels:
  *  - Hing an der Zeile schon etwas (Versand, Bestaetigung, Absage, Notiz …),
@@ -23,7 +29,11 @@ use Symfony\Component\Uid\UuidV7;
  *    MA-Akte bei der alten Person. Die Bestaetigung wird an der Ablage
  *    geleert, sonst meldete der Bestaetigungs-Export eine erfundene DS-ID an
  *    ZAS zurueck; der Zeitpunkt steht in source_meta.
+ *    Was per Zeilen-ID auf die Einbuchung zeigt (KI-Absage-Pruefungen,
+ *    angenommene Jobangebote), zieht mit in die Ablage um.
  *  - Die Zeile selbst startet fuer die neue Person frisch (RESET).
+ *  - Zurueck-Tausch (A -> B -> A) startet ebenfalls frisch; A wird neu
+ *    angeschrieben. Bewusst: eine alte Absage von A waere hier falsch.
  *
  * plan() liest nur; archivieren() schreibt und laeuft in der Import-Transaktion.
  */
@@ -77,7 +87,7 @@ class DispoPersonenwechsel
 
     /**
      * @param array<string, string> $incomingPnrByDsRef ds_ref => pnr_raw der Lieferung
-     * @return array<string, array{alt_pnr:string, neu_pnr:string, archivieren:bool}>
+     * @return array<string, array{alt_pnr:string, alt_employee_id:?int, neu_pnr:string, archivieren:bool}>
      */
     public function plan(array $incomingPnrByDsRef, ZasDispoMatcher $matcher): array
     {
@@ -116,21 +126,34 @@ class DispoPersonenwechsel
                 }
             }
         }
-        $gruppen = $ids === [] ? [] : $this->identity->groupsFor($ids);
+        $ids = array_values(array_unique($ids));
+        $kontakte = $ids === [] ? [] : $this->identity->contactIdsByEmployee($ids);
+        $personKeys = $ids === [] ? [] : DB::table('rec_employees')->whereIn('id', $ids)
+            ->whereNotNull('person_key')->where('person_key', '!=', '')
+            ->pluck('person_key', 'id')->map(fn ($v) => (string) $v)->all();
 
         $wechsel = [];
         foreach ($kandidaten as $dsRef => $a) {
             [$alt, $neu] = $paare[$dsRef];
-            if ($alt !== null && $neu !== null
-                && ($alt === $neu || in_array($neu, $gruppen[$alt] ?? [$alt], true))) {
-                continue; // dieselbe Person, nur eine andere Nummernform
+            if (self::dieselbePerson($alt, $neu, $kontakte, $personKeys)) {
+                continue; // dieselbe Person, nur eine andere Nummer
             }
             $wechsel[$dsRef] = [
-                'alt_pnr'     => (string) $a->pnr_raw,
-                'neu_pnr'     => trim((string) $incomingPnrByDsRef[$dsRef]),
-                'archivieren' => self::hatSpuren($a),
+                'alt_pnr'         => (string) $a->pnr_raw,
+                'alt_employee_id' => $a->rec_employee_id !== null ? (int) $a->rec_employee_id : null,
+                'neu_pnr'         => trim((string) $incomingPnrByDsRef[$dsRef]),
+                'archivieren'     => false,
             ];
         }
+
+        // Ablegen, sobald etwas an der Zeile haengt: eigene Spalten ODER
+        // fremde Datensaetze, die per Zeilen-ID auf sie zeigen.
+        $verwiesen = $this->verwieseneIds(array_map(fn ($dsRef) => (int) $kandidaten[$dsRef]->id, array_keys($wechsel)));
+        foreach ($wechsel as $dsRef => &$w) {
+            $a = $kandidaten[$dsRef];
+            $w['archivieren'] = self::hatSpuren($a) || isset($verwiesen[(int) $a->id]);
+        }
+        unset($w);
 
         return $wechsel;
     }
@@ -151,7 +174,7 @@ class DispoPersonenwechsel
         $kopie = $alt->replicate();
         $kopie->uuid = (string) UuidV7::generate();
         $kopie->ds_ref = $dsRef . '~alt' . $nr;
-        $kopie->missing_since = now();
+        $kopie->missing_since = $alt->missing_since ?? now();
         $kopie->confirmed_at = null;
         $kopie->source_meta = array_merge((array) ($alt->source_meta ?? []), [
             'personenwechsel' => [
@@ -162,6 +185,79 @@ class DispoPersonenwechsel
             ],
         ]);
         $kopie->save();
+
+        $this->verweiseUmziehen($alt, (int) $kopie->id);
+    }
+
+    /**
+     * @param array<int, list<int>> $kontakte employee_id => contact_ids
+     * @param array<int, string> $personKeys employee_id => person_key
+     */
+    private static function dieselbePerson(?int $alt, ?int $neu, array $kontakte, array $personKeys): bool
+    {
+        if ($alt === null || $neu === null) {
+            return false;
+        }
+        if ($alt === $neu) {
+            return true;
+        }
+        if (isset($personKeys[$alt], $personKeys[$neu]) && $personKeys[$alt] === $personKeys[$neu]) {
+            return true;
+        }
+
+        return array_intersect($kontakte[$alt] ?? [], $kontakte[$neu] ?? []) !== [];
+    }
+
+    /**
+     * Zeilen-IDs, auf die eine KI-Absage-Pruefung oder ein Jobangebot zeigt.
+     * @param list<int> $assignmentIds
+     * @return array<int, true>
+     */
+    private function verwieseneIds(array $assignmentIds): array
+    {
+        if ($assignmentIds === []) {
+            return [];
+        }
+        $out = [];
+        if (Schema::hasTable('rec_dispo_job_offer_shifts')) {
+            foreach (RecDispoJobOfferShift::query()->whereIn('zas_assignment_id', $assignmentIds)->pluck('zas_assignment_id') as $id) {
+                $out[(int) $id] = true;
+            }
+        }
+        if (Schema::hasTable('rec_dispo_decline_checks')) {
+            $eventIds = RecDispoAssignment::query()->whereIn('id', $assignmentIds)->pluck('rec_dispo_event_id')->unique()->all();
+            $gesucht = array_flip($assignmentIds);
+            RecDispoDeclineCheck::query()->whereIn('rec_dispo_event_id', $eventIds)->get(['assignment_ids'])
+                ->each(function ($c) use ($gesucht, &$out) {
+                    foreach ((array) ($c->assignment_ids ?? []) as $id) {
+                        if (isset($gesucht[(int) $id])) {
+                            $out[(int) $id] = true;
+                        }
+                    }
+                });
+        }
+
+        return $out;
+    }
+
+    /** Verweise auf die Live-Zeile zeigen danach auf die Ablage der alten Person. */
+    private function verweiseUmziehen(RecDispoAssignment $alt, int $ablageId): void
+    {
+        $liveId = (int) $alt->id;
+        if (Schema::hasTable('rec_dispo_job_offer_shifts')) {
+            RecDispoJobOfferShift::query()->where('zas_assignment_id', $liveId)->update(['zas_assignment_id' => $ablageId]);
+        }
+        if (Schema::hasTable('rec_dispo_decline_checks')) {
+            RecDispoDeclineCheck::query()->where('rec_dispo_event_id', $alt->rec_dispo_event_id)->get()
+                ->each(function (RecDispoDeclineCheck $c) use ($liveId, $ablageId) {
+                    $ids = array_map('intval', (array) ($c->assignment_ids ?? []));
+                    if (!in_array($liveId, $ids, true)) {
+                        return;
+                    }
+                    $c->assignment_ids = array_values(array_map(fn ($id) => $id === $liveId ? $ablageId : $id, $ids));
+                    $c->save();
+                });
+        }
     }
 
     /** Hing an der Zeile schon etwas, das der Person gehoert? */
