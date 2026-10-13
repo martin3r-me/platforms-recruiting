@@ -110,7 +110,7 @@
 .rg-crew .jobrow{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line)}
 .rg-crew .jobrow .l1{font-size:14px; font-weight:600}
 .rg-crew .jobrow .l2{font-size:12.5px; color:var(--ink-2)}
-.rg-crew .jobrow .btn-confirm, .rg-crew .jobrow .btn-done{width:auto; flex:none; padding:10px 16px; font-size:15px}
+.rg-crew .jobrow .btn-confirm, .rg-crew .jobrow .btn-done{width:auto; flex:none; padding:10px 16px; font-size:15px; white-space:nowrap}
 .rg-crew .badge-frei{display:inline-block; font-size:11.5px; font-weight:700; padding:2px 9px; border-radius:999px; background:var(--brand-tint); color:var(--brand-mid)}
 .rg-crew .jobday{padding:10px 16px 0; font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3)}
 .rg-crew .notice-ok{margin-top:10px; border-radius:12px; background:var(--ok-bg); color:var(--ok); padding:10px 12px; font-size:14px}

@@ -55,7 +55,7 @@ Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So
 
 1. Der Mitarbeiter bekommt eine WhatsApp mit einem Link.
 2. Die Seite zeigt nur Schichten an Tagen, an denen er frei ist, mit Beginn und Ende, zum Beispiel **„16:00–23:00 · Servicekraft“**.
-3. Mit dem Knopf **„Ich bin dabei“** sagt er zu. Danach steht dort **„Du bist dabei — wir melden uns.“**
+3. Mit dem Knopf **„Ich bin dabei“** sagt er zu. Danach steht dort **„✓ Du bist dabei“**
 4. Zurücknehmen kann er die Zusage auf der Seite nicht. Kann er doch nicht, schreibt er dir im Chat.
 5. Bei **„Wer zuerst kommt“** steht dabei, wie viele Plätze noch frei sind („noch N frei“). Ist eine Schicht voll, steht dort „schon voll“.
 
