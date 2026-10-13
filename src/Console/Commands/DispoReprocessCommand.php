@@ -58,6 +58,14 @@ class DispoReprocessCommand extends Command
                 ));
             }
 
+            if (($summary['personenwechsel'] ?? 0) > 0) {
+                $this->line(sprintf(
+                    '    Personenwechsel (andere PNr in derselben Zeile): %d — %s',
+                    $summary['personenwechsel'],
+                    implode(' | ', array_slice($summary['personenwechsel_liste'] ?? [], 0, 10))
+                ));
+            }
+
             $q = $summary['qualifikationen'] ?? [];
             if ($q !== []) {
                 $this->line(sprintf(
