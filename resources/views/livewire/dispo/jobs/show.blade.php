@@ -244,6 +244,7 @@
                     $s->taetigkeit,
                 ]));
                 $voll = (int) $s->zugesagt >= (int) $s->gesucht;
+                $kopfKlasse = $voll ? '-mx-4 -mt-4 rounded-t-lg bg-green-50 px-4 pt-4 pb-2' : '';
                 $offeneHaken = count(array_filter($zeilen, fn ($z) => $z->zas_entered_at === null));
                 $listeText = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasListe::text(array_map(
                     fn ($z) => $rueck['info'][(int) ($z->offer?->rec_employee_id ?? 0)] ?? ['name' => '#' . (int) ($z->offer?->rec_employee_id ?? 0), 'personnel_number' => '', 'phone' => ''],
@@ -252,7 +253,7 @@
                 $alleText = $offeneHaken . ' ' . ($offeneHaken === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markieren?';
             @endphp
             <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border bg-white p-4 space-y-2 {{ $voll ? 'border-green-200' : 'border-gray-200' }}">
-                <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center justify-between gap-2 {{ $kopfKlasse }}">
                     <div class="font-medium {{ $voll ? 'text-green-800' : 'text-gray-800' }}">{{ $schichtTitel }}</div>
                     <div class="flex flex-wrap gap-1.5 text-xs">
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">gesucht {{ $s->gesucht }}</span>

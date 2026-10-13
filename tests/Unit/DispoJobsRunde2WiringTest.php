@@ -42,6 +42,8 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertNotFalse($kopf);
         $this->assertNotFalse($liste);
         $this->assertLessThan($liste, $kopf, 'Fortschritt vor der Liste');
+        $this->assertStringContainsString("\$kopfKlasse = \$voll ? '-mx-4 -mt-4 rounded-t-lg bg-green-50 px-4 pt-4 pb-2' : '';", $view, 'volle Schicht: Kopf gruen hinterlegt');
+        $this->assertStringContainsString('<div class="flex flex-wrap items-center justify-between gap-2 {{ $kopfKlasse }}">', $view);
     }
 
     public function test_eintragen_knoepfe_haengen_am_baustein(): void
