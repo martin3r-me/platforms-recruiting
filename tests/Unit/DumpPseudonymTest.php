@@ -169,22 +169,43 @@ final class DumpPseudonymTest extends TestCase
         $this->assertMatchesRegularExpression('/rec_applicants .*\n.*UNBEKANNTE SPALTEN.*email/', $meldung);
     }
 
-    public function test_echter_name_in_freigegebener_spalte_bricht_ab_ohne_sql(): void
+    public function test_sperrgrund_kommt_nicht_mit(): void
     {
         $ordner = $this->kopie();
         $csv = file_get_contents($ordner . '/rec_employees.csv');
-        // portal_locked_reason ist freigegeben — wenn HR dort einen Namen
-        // eingetippt hat, muss die Selbstpruefung ihn finden.
+        // Generalproben-Export 13.10.2026: der Systemtext traegt die
+        // Personalnummer der Buchung — der Sperrgrund wird geleert.
         $csv = str_replace("+49 160 9876543,Lindenallee 3,DE02120300000000202051,MA1000000878,MA,1,,,",
-            "+49 160 9876543,Lindenallee 3,DE02120300000000202051,MA1000000878,MA,1,,Gesperrt wegen Quackenbusch,", $csv);
+            "+49 160 9876543,Lindenallee 3,DE02120300000000202051,MA1000000878,MA,1,,Absage: Auftrag RG4711 am 12.10.2026 Quackenbusch,", $csv);
         file_put_contents($ordner . '/rec_employees.csv', $csv);
 
         [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
 
-        $this->assertSame(1, $exit);
-        $this->assertSame('', $sql, 'bei Fehler darf keine SQL entstehen');
-        $this->assertStringContainsString('Echter Name in rec_employees.portal_locked_reason (id 2)', $meldung);
-        $this->assertStringNotContainsString('Quackenbusch', $meldung, 'die Meldung nennt den Namen nicht');
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringNotContainsString('RG4711', $sql);
+        $this->assertStringNotContainsString('Quackenbusch', $sql);
+        $this->assertStringNotContainsString('Absage', $sql);
+    }
+
+    public function test_fuehrerscheinklasse_nur_echte_klassen(): void
+    {
+        $ordner = $this->kopie();
+        $zeilen = file($ordner . '/rec_employees.csv', FILE_IGNORE_NEW_LINES);
+        $zeilen[0] .= ',drivers_license_class';
+        // Generalproben-Export 13.10.2026: neben "B" standen dort Freitexte
+        // und sechsstellige Zahlen. Nur echte Klassen kommen durch.
+        $werte = [1 => 'b, BE', 2 => '987654', 3 => 'hab ich nicht'];
+        foreach ($werte as $i => $wert) {
+            $zeilen[$i] .= ',"' . $wert . '"';
+        }
+        file_put_contents($ordner . '/rec_employees.csv', implode("\n", $zeilen) . "\n");
+
+        [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
+
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringContainsString("'B, BE'", $sql);
+        $this->assertStringNotContainsString('987654', $sql);
+        $this->assertStringNotContainsString('hab ich nicht', $sql);
     }
 
     public function test_alter_csv_weg_bleibt(): void
@@ -245,22 +266,23 @@ final class DumpPseudonymTest extends TestCase
         $this->assertStringContainsString('Geburtsdatum aus der Demo-DB ablesen', $sql);
     }
 
-    public function test_email_im_eventnamen_bricht_ab_ohne_sql(): void
+    public function test_email_im_eventnamen_wird_geschwaerzt(): void
     {
         $ordner = $this->kopie();
-        $csv = str_replace('Messe Sommerfest', 'Messe Sommerfest erika@kunde.de',
+        $csv = str_replace('Messe Sommerfest', 'Messe Sommerfest erika@kunde.de AB-2026-123456',
             file_get_contents($ordner . '/rec_dispo_events.csv'));
         file_put_contents($ordner . '/rec_dispo_events.csv', $csv);
 
         [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
 
-        $this->assertSame(1, $exit);
-        $this->assertSame('', $sql);
-        $this->assertStringContainsString('E-Mail-Muster in Textspalte rec_dispo_events.name (id 7)', $meldung);
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringNotContainsString('erika', $sql);
+        $this->assertStringContainsString('Messe Sommerfest [E-Mail entfernt] AB-2026-123456', $sql, 'Auftragsnummer bleibt');
+        $this->assertStringContainsString('1x Telefonnummer/E-Mail in rec_dispo_events.name geschwaerzt', $meldung);
         $this->assertStringNotContainsString('erika', $meldung);
     }
 
-    public function test_fremde_telefonnummer_in_katalogspalte_bricht_ab(): void
+    public function test_fremde_telefonnummer_in_katalogspalte_wird_geschwaerzt(): void
     {
         $ordner = $this->kopie();
         // Eine Nummer, die KEIN Mitarbeiter hat — die alte Pruefung kannte sie nicht.
@@ -270,9 +292,9 @@ final class DumpPseudonymTest extends TestCase
 
         [$exit, $sql, $meldung] = $this->lauf('--ordner=' . $ordner, '--team=6');
 
-        $this->assertSame(1, $exit);
-        $this->assertSame('', $sql);
-        $this->assertStringContainsString('Telefonartige Ziffernfolge in Textspalte rec_dispo_events.einsatzfirma (id 7)', $meldung);
+        $this->assertSame(0, $exit, $meldung);
+        $this->assertStringNotContainsString('456 78 90', $sql);
+        $this->assertStringContainsString('Messe GmbH Tel. [Nummer entfernt]', $sql);
         $this->assertStringNotContainsString('456', $meldung);
     }
 

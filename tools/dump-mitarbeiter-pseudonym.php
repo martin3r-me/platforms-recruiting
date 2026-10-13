@@ -258,7 +258,7 @@ const BEHALTEN = [
     // personendaten-abgleich vergleicht sie nur (siehe Kopf).
     'gender', 'tax_class',
     'health_insurance', 'is_main_employer',
-    'shirt_size', 'pants_size', 'shoe_size', 'has_car', 'drivers_license_class',
+    'shirt_size', 'pants_size', 'shoe_size', 'has_car',
     'is_first_aider', 'is_safety_officer',
     'has_infection_protection_certificate',
     // Ablaufdaten: die ECHTE Verteilung ist der halbe Testwert (wie viele sind
@@ -274,8 +274,11 @@ const BEHALTEN = [
     // haengt daran. Ohne ihn waere der ganze Dump fuer den Backfill wertlos.
     'person_key', 'rec_person_id',
     // Portal-Zustand
+    // portal_locked_reason steht in LEEREN: der Systemtext traegt die
+    // Personalnummer der Buchung ("Absage: Auftrag RG12345 am …", gesehen im
+    // Generalproben-Export 13.10.2026). portal_locked_at genuegt der Sperre.
     'portal_verified_at', 'portal_last_seen_at', 'portal_locked_at',
-    'portal_locked_reason', 'portal_v2_since',
+    'portal_v2_since',
     // ZAS-Zustand (keine Namen, nur Marker und Zeitstempel)
     'zas_changed_at', 'zas_initial_exported_at', 'export_status',
     'created_at', 'updated_at',
@@ -300,6 +303,10 @@ const ERSETZEN = [
     'steuer_id', 'sozialversicherungsnummer', 'personnel_number',
     'portal_token', 'other_employer', 'beschaftigungsort', 'cost_center',
     'recruited_by_personnel_number',
+    // Fuehrerscheinklasse: nur echte Klassen kommen durch (fuehrerschein()).
+    // Im Export 13.10.2026 standen dort auch Freitexte und sechsstellige
+    // Zahlen — vermutlich Fuehrerscheinnummern.
+    'drivers_license_class',
     // rec_applicant_id: bleibt NUR, wenn rec_applicants.csv mitkommt. Sonst
     // zeigt er auf eine Bewerbung, die es auf der Demo nicht (oder als eine
     // ganz andere) gibt. Mit Bewerbern MUSS er bleiben: vertraege-an-anstellung
@@ -314,6 +321,8 @@ const LEEREN = [
     'payroll_data_changed_at', 'payroll_data_changed_fields',
     // Art. 9 / Familie — siehe BEHALTEN.
     'religion', 'marital_status', 'number_of_children',
+    // Sperrgrund — siehe BEHALTEN.
+    'portal_locked_reason',
 ];
 
 // ---------------------------------------------------------------------------
@@ -343,7 +352,7 @@ const TABELLEN = [
         'ersetzen' => ERSETZEN,
         'leeren'   => LEEREN,
         'pflicht'  => ['is_active' => '1'],
-        'katalog'  => ['art_der_tatigkeit', 'beschaftigungsort', 'cost_center'],
+        'katalog'  => ['art_der_tatigkeit', 'beschaftigungsort', 'cost_center', 'health_insurance'],
     ],
     // Taetigkeiten, Tagebudget, Bewertungs-ZAHLEN, Waeschepaket — alles
     // Katalog oder Zaehler. Der Bewertungs-TEXT ist Freitext ueber einen
@@ -966,13 +975,31 @@ function ersetze(string $tabelle, string $spalte, $wert, array $zeile, array &$k
         'beschaftigungsort'          => $wert,   // Einsatzort, kein Personenbezug
         'cost_center'                => $wert,
         'rec_applicant_id'           => $mitBewerbern ? $wert : null,
+        'drivers_license_class'      => fuehrerschein($wert),
         default                      => null,
     };
+}
+
+/**
+ * Fuehrerscheinklasse: nur eine Liste echter Klassen (z. B. "B", "B, BE",
+ * "C1E/CE") kommt durch, gross geschrieben. Alles andere wird NULL —
+ * Freitext ("hab ich nicht") wie Nummern.
+ */
+function fuehrerschein($wert): ?string
+{
+    if (leer($wert)) {
+        return null;
+    }
+    $klasse = '(?:AM|A1|A2|A|B96|BE|B|C1E|C1|CE|C|D1E|D1|DE|D|L|T)';
+    $w = strtoupper(trim((string) $wert));
+
+    return preg_match('/^' . $klasse . '(?:\s*[,\/;+ ]\s*' . $klasse . ')*$/', $w) === 1 ? $w : null;
 }
 
 // Kontaktmuster fuer die Selbstpruefung (Review 12.10.2026).
 const MUSTER_EMAIL   = '/[^\s@]+@[^\s@]+\.[a-z]{2,}/i';
 const MUSTER_TELEFON = '/\+?\d[\d\s\/().-]{7,}\d/';
+const AUFTRAGSNUMMER = '/\b[A-Z]{2}-\d{4}-\d{3,6}\b/';
 
 /**
  * Spalten, die per NAME Datum, Zeit, Zahl, Kennung oder Ersatzwert sind —
@@ -1015,6 +1042,9 @@ function ohneDatumUndZeit(string $w): string
         '/\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?/',
         '/\b\d{1,2}\.\d{1,2}\.\d{2,4}\b/',
         '/\b\d{1,2}:\d{2}(?::\d{2})?\b/',
+        // Auftragsnummern der Dispo (z. B. "AB-2026-123456") — Kundendaten,
+        // keine Telefonnummer (Export 13.10.2026: 75 Eventnamen).
+        AUFTRAGSNUMMER,
     ], ' D ', $w);
 }
 
@@ -1146,6 +1176,42 @@ if ($zusatzQuelle !== null) {
 
 $fehler = [];
 $warnungen = [];
+
+// --- 0. Kontaktdaten in KATALOG-Textspalten schwaerzen statt abbrechen ---
+// Katalogspalten sind Kundentexte (Eventnamen, Taetigkeiten, Vorlagen). Eine
+// Telefonnummer oder E-Mail darin gehoert Dritten (Kunde, Ansprechpartner)
+// und hat fuer die Probe keinen Wert: sie wird ersetzt, gezaehlt und
+// gemeldet — der Rest des Texts bleibt. In allen ANDEREN Textspalten bleibt
+// ein Treffer ein Abbruch (Selbstpruefung 3). Auftragsnummern bleiben stehen.
+$geschwaerzt = [];
+foreach ($ergebnis as $tabelle => &$eintrag) {
+    $katalog = TABELLEN[$tabelle]['katalog'] ?? [];
+    foreach ($eintrag['werte'] as &$zeileNeu) {
+        foreach ($katalog as $spalte) {
+            $w = $zeileNeu[$spalte] ?? null;
+            if ($w === null || $w === '') {
+                continue;
+            }
+            $neu = preg_replace(MUSTER_EMAIL, '[E-Mail entfernt]', (string) $w);
+            $neu = preg_replace_callback(MUSTER_TELEFON, function ($m) {
+                return preg_match('/\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4}/', $m[0]) === 1
+                    || trim(ohneDatumUndZeit($m[0])) === 'D'
+                    ? $m[0] : '[Nummer entfernt]';
+            }, preg_replace_callback(AUFTRAGSNUMMER, fn ($m) => str_replace('-', "\x1f", $m[0]), $neu));
+            $neu = str_replace("\x1f", '-', $neu);
+            if ($neu !== (string) $w) {
+                $zeileNeu[$spalte] = $neu;
+                $geschwaerzt["{$tabelle}.{$spalte}"] = ($geschwaerzt["{$tabelle}.{$spalte}"] ?? 0) + 1;
+            }
+        }
+    }
+    unset($zeileNeu);
+}
+unset($eintrag);
+foreach ($geschwaerzt as $wo => $n) {
+    $warnungen[] = "{$n}x Telefonnummer/E-Mail in {$wo} geschwaerzt (Katalogspalte)";
+}
+
 $mitarbeiter = $quellen['rec_employees'][1];
 $mitarbeiterNeu = $ergebnis['rec_employees']['werte'];
 
