@@ -36,7 +36,7 @@ class DispoJobZasHakenTest extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
-            'database/migrations/2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -99,10 +99,10 @@ class DispoJobZasHakenTest extends TestCase
         $this->assertSame(0, DispoJobZasHaken::alle($request, $fremd->id, 42), 'Schicht einer fremden Anfrage: nichts');
     }
 
-    public function test_alle_ueberspringt_nicht_angenommene_und_zurueckgezogene(): void
+    public function test_alle_ueberspringt_nicht_angenommene(): void
     {
         [$request, $s1] = $this->aufbau();
-        RecDispoJobOfferShift::where('shift_id', $s1->id)->update(['accepted_at' => null, 'withdrawn_at' => now()]);
+        RecDispoJobOfferShift::where('shift_id', $s1->id)->update(['accepted_at' => null]);
 
         $this->assertSame(0, DispoJobZasHaken::alle($request, $s1->id, 42));
     }
@@ -119,37 +119,14 @@ class DispoJobZasHakenTest extends TestCase
         $this->assertFalse(DispoJobZasHaken::umschalten($request, 999999, 42));
     }
 
-    public function test_umschalten_auf_zurueckgezogener_zeile_setzt_nichts(): void
+    public function test_umschalten_auf_nicht_zugesagter_zeile_setzt_nichts(): void
     {
         [$request, $s1] = $this->aufbau();
         $zeile = RecDispoJobOfferShift::where('shift_id', $s1->id)->orderBy('id')->first();
-        $zeile->update(['accepted_at' => null, 'withdrawn_at' => now()]);
+        $zeile->update(['accepted_at' => null]);
 
         $this->assertFalse(DispoJobZasHaken::umschalten($request, $zeile->id, 42));
         $this->assertNull($zeile->fresh()->zas_entered_at);
         $this->assertNull($zeile->fresh()->zas_entered_by_user_id);
-    }
-
-    public function test_umschalten_schreibt_nicht_wenn_die_zusage_zwischen_lesen_und_schreiben_zurueckgenommen_wird(): void
-    {
-        [$request, $s1] = $this->aufbau();
-        $zeile = RecDispoJobOfferShift::where('shift_id', $s1->id)->orderBy('id')->first();
-        $event = 'eloquent.retrieved: ' . RecDispoJobOfferShift::class;
-        // Die Ruecknahme der Person landet direkt nach dem Lesen der Zeile.
-        RecDispoJobOfferShift::retrieved(function ($os) use ($zeile) {
-            if ((int) $os->id === (int) $zeile->id) {
-                Capsule::table('rec_dispo_job_offer_shifts')->where('id', $zeile->id)->update(['accepted_at' => null, 'withdrawn_at' => now()]);
-            }
-        });
-        try {
-            $ok = DispoJobZasHaken::umschalten($request, $zeile->id, 42);
-        } finally {
-            RecDispoJobOfferShift::getEventDispatcher()->forget($event);
-        }
-
-        $this->assertFalse($ok);
-        $frisch = Capsule::table('rec_dispo_job_offer_shifts')->where('id', $zeile->id)->first();
-        $this->assertNull($frisch->zas_entered_at, 'kein Haken auf einer zurueckgenommenen Zusage');
-        $this->assertNull($frisch->accepted_at);
     }
 }

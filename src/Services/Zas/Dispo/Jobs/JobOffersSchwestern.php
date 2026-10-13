@@ -8,24 +8,23 @@ use Platform\Recruiting\Models\RecDispoJobShift;
 
 /**
  * Spec Runde 1 §9: Angebots-Zeilen derselben Person fuer DIESELBE Schicht
- * (VA, Tag, Beginn, Taetigkeit) in anderen laufenden Anfragen. Zusage und
- * Ruecknahme behandeln sie mit.
+ * (VA, Tag, Beginn, Taetigkeit) in anderen laufenden Anfragen. Die Zusage
+ * behandelt sie mit.
  */
 final class JobOffersSchwestern
 {
     /**
      * @param list<int> $employeeIds
-     * @param bool $angenommen true = nur angenommene (Ruecknahme), false = nur offene (Zusage)
      * @return list<RecDispoJobOfferShift>
      */
-    public static function finden(RecDispoJobShift $shift, array $employeeIds, int $ohneId, bool $angenommen): array
+    public static function finden(RecDispoJobShift $shift, array $employeeIds, int $ohneId): array
     {
         $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
 
         return RecDispoJobOfferShift::query()
             ->with('shift')
             ->where('id', '!=', $ohneId)
-            ->when($angenommen, fn ($q) => $q->whereNotNull('accepted_at'), fn ($q) => $q->whereNull('accepted_at'))
+            ->whereNull('accepted_at')
             ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $employeeIds))
             ->whereHas('shift', fn ($q) => $q->where('rec_dispo_event_id', $shift->rec_dispo_event_id)
                 ->whereDate('datum', $shift->datum->format('Y-m-d'))

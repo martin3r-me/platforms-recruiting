@@ -53,10 +53,9 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId', $src);
 
         $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
-        $this->assertStringContainsString('wire:click="alleEintragen({{ (int) $s->id }}, {{ (int) $offeneHaken }})"', $view, 'die angezeigte Zahl geht mit');
-        $this->assertStringContainsString('public function alleEintragen(int $shiftId, int $erwartet = 0): void', $src);
-        $this->assertStringContainsString('DispoJobZasHaken::abweichung($erwartet, $n)', $src);
-        $this->assertMatchesRegularExpression('/\$this->fehler = \$abweichung/', $src);
+        $this->assertStringContainsString('wire:click="alleEintragen({{ (int) $s->id }})"', $view);
+        $this->assertStringContainsString('public function alleEintragen(int $shiftId): void', $src);
+        $this->assertStringNotContainsString('abweichung', $src);
         $this->assertStringContainsString('DispoJobZasListe::text(', $view);
         $this->assertStringContainsString('navigator.clipboard.writeText', $view);
     }
@@ -100,20 +99,17 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString("DispoJobOffeneZusagen::count(\$this->teamId())", self::datei('src/Livewire/Dispo/Jobs/Index.php'));
     }
 
-    public function test_doch_nicht_nur_bei_ruecknehmbaren_zeilen(): void
+    public function test_mitarbeiter_kann_zusagen_nicht_selbst_zuruecknehmen(): void
     {
         $src = self::datei('src/Livewire/Public/JobOffers.php');
-        $this->assertStringContainsString('JobOffersRuecknahme::ausfuehren($offerShiftId, $this->employeeIds)', $src);
-        $this->assertStringContainsString("'zurueck'", $src);
-        $this->assertStringContainsString("'zurueck_id'", $src);
-        $this->assertStringContainsString("'eingetragen'    => \$os->accepted_at !== null && (\$os->zas_entered_at !== null || \$os->zas_assignment_id !== null)", $src);
+        $this->assertStringNotContainsString('zuruecknehmen', $src);
+        $this->assertStringNotContainsString('JobOffersRuecknahme', $src);
 
         $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
-        $this->assertStringContainsString("@if (\$shift['zurueck'])", $view);
-        $this->assertStringContainsString('wire:click="zuruecknehmen({{ $shift[\'zurueck_id\'] }})"', $view);
-        $this->assertStringNotContainsString('wire:click="zuruecknehmen({{ $shift[\'offer_shift_id\'] }})"', $view, 'Repraesentantin kann eine offene Schwester sein');
-        $this->assertStringContainsString('Du bist eingetragen', $view);
-        $this->assertStringContainsString('zurückgezogen</span>', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
+        $this->assertStringNotContainsString('zuruecknehmen', $view);
+        $this->assertStringNotContainsString('Doch nicht', $view);
+        $this->assertStringContainsString('Du bist dabei — wir melden uns.', $view);
+        $this->assertStringNotContainsString('zurückgezogen', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
     }
 
     public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void
@@ -123,6 +119,8 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobUebersichtZahlen::laden(', $src);
 
         $view = self::datei('resources/views/livewire/dispo/jobs/index.blade.php');
+        $this->assertStringContainsString(">Besetzt</th>", $view);
+        $this->assertStringNotContainsString(">Zusagen</th>", $view);
         $this->assertStringContainsString(">Noch in ZAS</th>", $view);
         $this->assertStringContainsString("{{ \$z['besetzt'] }} / {{ \$z['gesucht'] }}", $view);
         $this->assertStringContainsString("\$z['gesucht'] > 0 && \$z['besetzt'] >= \$z['gesucht']", $view);

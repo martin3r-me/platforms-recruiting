@@ -37,7 +37,7 @@
                         <th class="px-4 py-2 font-medium">Anlass</th>
                         <th class="px-4 py-2 font-medium">Schichten</th>
                         <th class="px-4 py-2 font-medium">Status</th>
-                        <th class="px-4 py-2 font-medium">Zusagen</th>
+                        <th class="px-4 py-2 font-medium">Besetzt</th>
                         <th class="px-4 py-2 font-medium">Noch in ZAS</th>
                         <th class="px-4 py-2 font-medium">Letzte Welle</th>
                     </tr>

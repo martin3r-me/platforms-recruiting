@@ -4,7 +4,7 @@ Stand 14.10.2026. Baut auf `2026-10-12-dispo-jobs-anbieten-design.md` (Runde 1, 
 
 ## 1. Ziel
 
-Acht Verbesserungen aus dem Gespräch vom 13.10. (S. Haustein), alle ohne Rückfrage an Markus baubar:
+Sieben Verbesserungen aus dem Gespräch vom 13.10. (S. Haustein), alle ohne Rückfrage an Markus baubar:
 
 | Nr | Was | Wo |
 |---|---|---|
@@ -14,15 +14,14 @@ Acht Verbesserungen aus dem Gespräch vom 13.10. (S. Haustein), alle ohne Rückf
 | D | Weniger Klicks beim Eintragen in ZAS | Anfrageseite |
 | E | Zähler am Menüpunkt | Sidebar, Übersicht |
 | F | Endzeit der Schicht | überall, wo eine Schicht steht |
-| G | „Doch nicht“ für den Mitarbeiter | Mitarbeiter-Seite |
 | H | Quote und Filter in der Übersicht | Übersicht |
 
 **Nicht in dieser Runde** (warten auf Markus, siehe §13 der Runde-1-Spec): Vorbelegung „gesucht“ aus RG0/RG14; Wellenplan mit automatischer Stoppregel.
 
 ## 2. Entscheidungen (13.10., S. Haustein)
 
-- Alle acht Punkte kommen. Reihenfolge der Umsetzung: B, C, D, A, dann E, F, G, H.
-- G ist die einzige Abweichung von der PDF („Kein ‚Kann nicht‘-Knopf“ aus §12 Runde 1 bleibt; „Doch nicht“ ist kein Absagen, sondern das Zurücknehmen der eigenen Zusage).
+- Alle Punkte kommen. Reihenfolge der Umsetzung: B, C, D, A, dann E, F, H.
+- Rücknahme durch den Mitarbeiter: bewusst NICHT (Entscheidung 14.10.2026) — Absagen laufen über den Chat.
 - Keine Vorbelegung von Zahlen, keine Farblogik, die etwas „empfiehlt“. Die Entscheidungshilfe zeigt Fakten, der Disponent entscheidet.
 - Bewertungen erscheinen als fünf Einzelwerte, kein Gesamtschnitt (Vorgabe Kunde 02.09. für das Crew-Kärtchen gilt weiter).
 
@@ -74,7 +73,7 @@ Neuer reiner Baustein `DispoJobFortschritt::berechnen(iterable $schichten): arra
 
 Je Schicht-Kachel zwei Knöpfe rechts im Kopf, nur sichtbar, wenn die Anfrage offen ist und Zusagen vorliegen:
 
-- **„Alle als in ZAS eingetragen markieren“** (nur wenn mindestens eine Zeile ohne Haken): `wire:confirm` „N Zusagen als in ZAS eingetragen markieren?“; `Show::alleEintragen(int $shiftId, int $erwartet)` setzt `zas_entered_at`/`zas_entered_by_user_id` auf allen angenommenen Zeilen der Schicht ohne Haken (Abfrage mit `request_id`-Bindung wie `zasHaken`). Bereits gesetzte Haken bleiben. `$erwartet` ist die Zahl offener Haken, die die Seite beim Klick gezeigt hat; setzt die Abfrage weniger (eine Person hat zwischen „Liste kopieren“ und „Alle markieren“ zurückgenommen), erscheint zusätzlich zur grünen Meldung rot: „N Zusage(n) wurde(n) inzwischen zurückgenommen — bitte in ZAS prüfen, ob du sie schon eingetragen hast.“ Bewusst ohne Namen (`DispoJobZasHaken::abweichung`).
+- **„Alle als in ZAS eingetragen markieren“** (nur wenn mindestens eine Zeile ohne Haken): `wire:confirm` „N Zusagen als in ZAS eingetragen markieren?“; `Show::alleEintragen(int $shiftId)` setzt `zas_entered_at`/`zas_entered_by_user_id` auf allen angenommenen Zeilen der Schicht ohne Haken (Abfrage mit `request_id`-Bindung wie `zasHaken`). Bereits gesetzte Haken bleiben.
 - **„Liste kopieren“**: kopiert eine Textliste in die Zwischenablage, eine Zeile je Zusage: `Nachname, Vorname · PNr · Handynummer`, sortiert wie die Tabelle. Der Text wird serverseitig gebaut (`DispoJobZasListe::text(array $zeilen): string`, rein) und über ein `x-data`/`navigator.clipboard.writeText` am Knopf kopiert; danach steht zwei Sekunden „kopiert“ am Knopf. Fehlt `navigator.clipboard` (http, alter Browser), öffnet der Knopf ein kleines `<textarea readonly>` mit dem Text zum Markieren.
 
 ## 7. E — Zähler am Menüpunkt
@@ -89,9 +88,8 @@ Die Übersicht zeigt dieselbe Zahl in der Kopfzeile: „N Zusagen warten auf ZAS
 
 ### 8.1 Daten
 
-Migration `2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.php`:
+Migration `2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php`:
 - `rec_dispo_job_shifts.bis` string(8) NOT NULL default '' nach `von`. **Nicht** Teil des Unique-Index — die Schicht bleibt über (request, event, datum, von, taetigkeit) eindeutig.
-- `rec_dispo_job_offer_shifts.withdrawn_at` timestamp nullable (für G).
 
 ### 8.2 Herkunft
 
@@ -105,38 +103,13 @@ Freie Schichten („andere“) bekommen neben „Beginn“ ein optionales Feld �
 
 Bestand: vorhandene Schichten haben `bis = ''` und zeigen weiter nur den Beginn. Kein Backfill.
 
-## 9. G — „Doch nicht“
+## 9. Keine Rücknahme durch den Mitarbeiter
 
-### 9.1 Mitarbeiter-Seite
-
-Unter „Du bist dabei — wir melden uns.“ steht ein Textlink **„Doch nicht?“**, solange die Zusage zurücknehmbar ist. Klick → `wire:confirm` „Deine Zusage für diese Schicht zurücknehmen?“ → `JobOffers::zuruecknehmen(int $offerShiftId)`.
-
-Zurücknehmbar = Anfrage läuft (Status läuft, nicht abgeschlossen), Datum ≥ heute, `zas_entered_at` null, `zas_assignment_id` null.
-
-Ist die Zeile schon in ZAS eingetragen oder angekommen, steht statt des Links: „Du bist eingetragen — wenn etwas dazwischenkommt, melde dich bei deiner Dispo.“
-
-### 9.2 Baustein
-
-`JobOffersRuecknahme::ausfuehren(int $offerShiftId, array $employeeIds): 'ok'|'eingetragen'|'weg'`:
-- `weg`: Zeile nicht vorhanden, gehört nicht zu `$employeeIds`, Anfrage nicht offen oder Datum vergangen. Eine geschlossene Schicht sperrt die Rücknahme nicht.
-- `eingetragen`: `zas_entered_at` oder `zas_assignment_id` gesetzt.
-- `ok`: bedingtes Update in einer Query (`whereNotNull('accepted_at')->whereNull('zas_entered_at')->whereNull('zas_assignment_id')`) setzt `accepted_at = null`, `withdrawn_at = now()`. Trifft das Update keine Zeile (Disponent hat zwischenzeitlich den Haken gesetzt), Ergebnis `eingetragen`.
-
-Hinweise auf der Seite: ok → „Alles klar, deine Zusage ist zurückgenommen.“ (grün); eingetragen → „Du bist schon eingetragen — bitte melde dich bei deiner Dispo.“; weg → „Dieses Angebot gibt es nicht mehr.“
-
-Nach der Rücknahme zeigt die Schicht wieder „Ich bin dabei“ (sofern Tag frei und Schicht nicht voll). Erneute Zusage über `JobOffersZusage` setzt `accepted_at` neu und `withdrawn_at = null`. Bei „Wer zuerst kommt“ wird der Platz durch die Rücknahme wieder frei (Zählung über `accepted_at`, unverändert). Eine volle Schicht im Modus ‚Wer zuerst kommt‘ wird nach der Rücknahme wieder geöffnet, wenn Zusagen < gesucht.
-
-Schwestern-Zeilen (dieselbe Schicht aus mehreren Anfragen, Runde 1 §9): die Rücknahme gilt für alle Schwestern mit derselben Bedingung, analog zur Zusage. Ist eine Schwester schon in ZAS eingetragen, bleibt alles stehen und das Ergebnis ist `eingetragen`.
-
-### 9.3 Disponent
-
-Zurückgenommene Zusagen verschwinden aus der Tabelle. Die Schicht-Kachel zeigt zusätzlich den grauen Chip „N zurückgezogen“, wenn N > 0 (Zählung `withdrawn_at` gesetzt und `accepted_at` null). Kein Name, kein Zeitpunkt — die Person ist einfach nicht mehr dabei.
-
-`DispoJobZasAbgleich`, `DispoJobSchonZugesagt`, Planner-Topf `schon_zugesagt`, Zähler auf Übersicht und Badge arbeiten alle über `accepted_at` und bleiben unverändert korrekt. Das wird mit je einem Test festgenagelt.
+Der Mitarbeiter kann seine Zusage auf der Seite nicht zurücknehmen (Entscheidung 14.10.2026); wer nicht kann, meldet sich über den Chat bei der Dispo, und nur die Dispo nimmt Zusagen zurück.
 
 ## 10. H — Übersicht
 
-- Spalte „Zusagen“ zeigt „12 / 20“ (besetzt / gesucht, je Schicht auf gesucht gedeckelt wie in §5), grün nur, wenn jeder Platz besetzt ist; Zusagen darüber hinaus stehen klein und grau als „(+N)“ dahinter.
+- Spalte „Besetzt“ (vorher „Zusagen“) zeigt „12 / 20“ (besetzt / gesucht, je Schicht auf gesucht gedeckelt wie in §5), grün nur, wenn jeder Platz besetzt ist; Zusagen darüber hinaus stehen klein und grau als „(+N)“ dahinter.
 - Neue Spalte „Noch in ZAS“: Zusagen ohne Haken (0 ausgeblendet als „–“).
 - Filter-Pillen über der Tabelle: **Offen** (Standard) · Abgeschlossen · Alle. `#[Url]`-Property `filter`, Werte `offen|zu|alle`, alles andere → `offen`.
 - Cap bleibt 200 Zeilen (Nachtrag Runde 1).
@@ -148,9 +121,8 @@ Neu, alle unter `src/Services/Zas/Dispo/Jobs/`:
 - `DispoJobZusagenInfo` (DB-Rand)
 - `DispoJobZasListe` (rein)
 - `DispoJobOffeneZusagen` (DB-Rand, wirft nie)
-- `JobOffersRuecknahme` (DB-Rand, Transaktion wie `JobOffersZusage`)
 
-Geändert: `DispoJobCreateState` (3 Schritte), `DispoJobSchichten` (`bis`), `DispoJobAnfrageAnlegen` (`bis`), `JobOffersZusage` (`withdrawn_at = null`), `RecDispoJobShift` + `RecDispoJobOfferShift` (fillable/casts), `Livewire/Dispo/Jobs/{Create,Show,Index}`, `Livewire/Public/JobOffers`, die vier Views, `sidebar.blade.php`, Anleitung.
+Geändert: `DispoJobCreateState` (3 Schritte), `DispoJobSchichten` (`bis`), `DispoJobAnfrageAnlegen` (`bis`), `RecDispoJobShift` + `RecDispoJobOfferShift` (fillable/casts), `Livewire/Dispo/Jobs/{Create,Show,Index}`, `Livewire/Public/JobOffers`, die vier Views, `sidebar.blade.php`, Anleitung.
 
 Keine Änderung an Versand, Wellen-Job, Planner, ZAS-Abgleich.
 
@@ -163,21 +135,20 @@ Integration (Capsule, echte Migrationen):
 - `DispoJobZusagenInfoTest`: Einsätze über Identitätsgruppe, „passt“ kleingeschrieben, fünf Bewertungen einzeln, Altbestand `star_rating`, Lücken aus der Gruppe.
 - `DispoJobZasListeTest`: Zeilenformat, Sortierung, fehlende Nummer als „–“.
 - `DispoJobOffeneZusagenTest`: zählt nur offen + unverhakt + nicht angekommen + zukünftig; wirft nie (Tabelle fehlt → 0).
-- `JobOffersRuecknahmeTest`: ok/eingetragen/weg, Race gegen ZAS-Haken (bedingtes Update), Schwestern, erneute Zusage leert `withdrawn_at`; Abgleich/Topf/Badge ignorieren zurückgezogene.
 - `Show::alleEintragen`: nur Zeilen der eigenen Anfrage und Schicht, bestehende Haken bleiben.
 
-Unit (Platzierungsverträge wie bisher): Sidebar-Badge, Filter-Pillen, „Doch nicht“ nur bei rücknehmbaren Zeilen, Endzeit-Format.
+Unit (Platzierungsverträge wie bisher): Sidebar-Badge, Filter-Pillen, kein „Doch nicht“ / keine Rücknahme-Methode auf der Mitarbeiter-Seite, Spalte „Besetzt“, Endzeit-Format.
 
 `php tools/blade-check.php` über alle fünf Views. Mutationsproben auf Sortierung, bedingtes Update, Badge-Filter.
 
 ## 13. Auslieferung
 
-Migration (eine Datei, zwei Tabellen) → `migrate`, `view:clear`. Kein `queue:restart` (der Wellen-Job ist unverändert). Bestand läuft ohne Backfill weiter.
+Migration (eine Datei, Spalte `bis`) → `migrate`, `view:clear`. Kein `queue:restart` (der Wellen-Job ist unverändert). Bestand läuft ohne Backfill weiter.
 
 ## 14. Bewusst nicht
 
 - Keine Vorbelegung „gesucht“, kein Wellenplan (Markus).
 - Keine Sortierung nach Bewertung, kein Gesamtschnitt.
-- Kein „Kann nicht“ (Absage) — nur das Zurücknehmen der eigenen Zusage.
-- Keine Nachricht an den Mitarbeiter bei Rücknahme oder ZAS-Haken; die Bestätigung kommt wie bisher über den normalen Dispo-Weg nach dem ZAS-Import.
+- Kein „Doch nicht“ — Zusagen nimmt nur die Dispo zurück (Chat).
+- Keine Nachricht an den Mitarbeiter bei ZAS-Haken; die Bestätigung kommt wie bisher über den normalen Dispo-Weg nach dem ZAS-Import.
 - Kein Gesehen-Stempel fürs Badge.

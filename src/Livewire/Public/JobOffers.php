@@ -13,7 +13,6 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersRuecknahme;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
@@ -39,7 +38,7 @@ class JobOffers extends Component
     #[Locked]
     public bool $portalLocked = false;
 
-    /** Rueckmeldung nach „Ich bin dabei“ / „Doch nicht?“ (nur serverseitig gesetzt). */
+    /** Rueckmeldung nach „Ich bin dabei“ (nur serverseitig gesetzt). */
     #[Locked]
     public string $hinweis = '';
     #[Locked]
@@ -128,10 +127,6 @@ class JobOffers extends Component
                 'laeuft'         => $shift->request->laeuft(),
                 'closed'         => $shift->closed_at !== null,
                 'accepted'       => $os->accepted_at !== null,
-                // „Doch nicht“: zugesagt und vom Disponenten noch nicht in ZAS eingetragen.
-                'zurueck'        => $os->accepted_at !== null && $os->zas_entered_at === null && $os->zas_assignment_id === null,
-                // Zugesagt und in ZAS eingetragen/angekommen — sperrt die Ruecknahme der ganzen Gruppe.
-                'eingetragen'    => $os->accepted_at !== null && ($os->zas_entered_at !== null || $os->zas_assignment_id !== null),
                 'zuerst'         => $zuerst,
                 'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
                 'os'             => $os,
@@ -156,8 +151,6 @@ class JobOffers extends Component
                 'zeit'           => $row['zeit'],
                 'taetigkeit'     => $row['taetigkeit'],
                 'accepted'       => $row['accepted'],
-                'zurueck'        => $row['zurueck'],
-                'zurueck_id'     => $row['zurueck_id'],
                 'zuerst'         => $row['zuerst'],
                 'frei'           => $row['zuerst'] ? $row['frei'] : null,
                 'voll'           => $row['voll'],
@@ -194,27 +187,6 @@ class JobOffers extends Component
             'ok'    => 'Danke! Du bekommst eine Bestätigung, sobald du eingeteilt bist.',
             'voll'  => 'Diese Schicht ist schon voll — danke fürs Melden.',
             default => 'Dieses Angebot gibt es nicht mehr.',
-        };
-
-        unset($this->angebote);
-    }
-
-    public function zuruecknehmen(int $offerShiftId): void
-    {
-        if ($this->employeeId === null || $this->portalLocked) {
-            return;
-        }
-        if ($this->gesperrt()) {
-            $this->portalLocked = true;
-            return;
-        }
-
-        $ergebnis = JobOffersRuecknahme::ausfuehren($offerShiftId, $this->employeeIds);
-        $this->hinweisOk = $ergebnis === 'ok';
-        $this->hinweis = match ($ergebnis) {
-            'ok'          => 'Alles klar, deine Zusage ist zurückgenommen.',
-            'eingetragen' => 'Du bist schon eingetragen — bitte melde dich bei deiner Dispo.',
-            default       => 'Dieses Angebot gibt es nicht mehr.',
         };
 
         unset($this->angebote);

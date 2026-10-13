@@ -64,42 +64,4 @@ final class JobOffersBuendelungTest extends TestCase
 
         $this->assertSame([1, 2, 3, 4, 5], array_column($out, 'offer_shift_id'));
     }
-
-    /** „Doch nicht“ zielt auf die zugesagte Zeile, nicht auf die (evtl. offene) Repraesentantin. */
-    public function testRuecknahmeZieltAufDieZugesagteZeile(): void
-    {
-        $out = JobOffersBuendelung::buendeln([
-            self::row(7),
-            self::row(9, ['accepted' => true, 'zurueck' => true]),
-            self::row(8, ['accepted' => true, 'zurueck' => true]),
-        ]);
-
-        $this->assertSame(7, $out[0]['offer_shift_id'], 'Repraesentantin ist die offene Zeile');
-        $this->assertTrue($out[0]['zurueck']);
-        $this->assertSame(8, $out[0]['zurueck_id'], 'kleinste zuruecknehmbare Angebots-Schicht');
-    }
-
-    public function testOhneRuecknehmbareZeileKeinZiel(): void
-    {
-        $out = JobOffersBuendelung::buendeln([self::row(7), self::row(9, ['accepted' => true])]);
-
-        $this->assertTrue($out[0]['accepted']);
-        $this->assertFalse($out[0]['zurueck'], 'zugesagt, aber eingetragen');
-        $this->assertNull($out[0]['zurueck_id']);
-    }
-
-    public function testEingetrageneSchwesterSperrtDieRuecknahmeDerGanzenGruppe(): void
-    {
-        // Eine Schwester ist in ZAS eingetragen, die andere nur zugesagt: JobOffersRuecknahme
-        // wuerde die ganze Gruppe ablehnen — also kein „Doch nicht?“ zeigen.
-        $out = JobOffersBuendelung::buendeln([
-            self::row(7, ['accepted' => true, 'eingetragen' => true]),
-            self::row(9, ['accepted' => true, 'zurueck' => true]),
-        ]);
-
-        $this->assertCount(1, $out);
-        $this->assertTrue($out[0]['accepted']);
-        $this->assertFalse($out[0]['zurueck']);
-        $this->assertNull($out[0]['zurueck_id']);
-    }
 }

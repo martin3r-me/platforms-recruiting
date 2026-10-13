@@ -146,8 +146,6 @@ class Show extends Component
                 'offerShifts as zugesagt' => $angenommen,
                 'offerShifts as eingetragen' => fn ($q) => $angenommen($q)->whereNotNull('zas_entered_at'),
                 'offerShifts as angekommen' => fn ($q) => $angenommen($q)->whereNotNull('zas_assignment_id'),
-                // „Doch nicht“ (Runde 2): zurueckgenommen und nicht erneut zugesagt.
-                'offerShifts as zurueckgezogen' => fn ($q) => $q->whereNull('accepted_at')->whereNotNull('withdrawn_at'),
             ])
             ->orderBy('datum')->orderBy('von')->orderBy('taetigkeit')
             ->get();
@@ -332,16 +330,11 @@ class Show extends Component
         DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
     }
 
-    /** @param int $erwartet Zahl der offenen Haken, die die Seite beim Klick gezeigt hat */
-    public function alleEintragen(int $shiftId, int $erwartet = 0): void
+    public function alleEintragen(int $shiftId): void
     {
         $this->fehler = '';
         $n = DispoJobZasHaken::alle($this->anfrage(), $shiftId, auth()->id() !== null ? (int) auth()->id() : null);
         $this->hinweis = $n > 0 ? $n . ' ' . ($n === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markiert.' : '';
-        $abweichung = DispoJobZasHaken::abweichung($erwartet, $n);
-        if ($abweichung !== null) {
-            $this->fehler = $abweichung;
-        }
     }
 
     public function abschliessen(): void

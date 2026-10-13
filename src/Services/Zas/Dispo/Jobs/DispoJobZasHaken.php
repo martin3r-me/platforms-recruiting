@@ -51,20 +51,4 @@ final class DispoJobZasHaken
             ->whereHas('offer', fn ($q) => $q->where('request_id', $request->id))
             ->update(['zas_entered_at' => now(), 'zas_entered_by_user_id' => $userId]);
     }
-
-    /**
-     * Warnung, wenn „Alle markieren“ weniger Haken setzt, als die Seite gezeigt hat:
-     * dazwischen wurden Zusagen zurueckgenommen, die der Disponent vielleicht
-     * schon (per kopierter Liste) in ZAS eingetragen hat. Bewusst ohne Namen.
-     */
-    public static function abweichung(int $erwartet, int $gesetzt): ?string
-    {
-        $diff = $erwartet - $gesetzt;
-        if ($diff <= 0) {
-            return null;
-        }
-
-        return $diff . ' ' . ($diff === 1 ? 'Zusage wurde' : 'Zusagen wurden')
-            . ' inzwischen zurückgenommen — bitte in ZAS prüfen, ob du sie schon eingetragen hast.';
-    }
 }

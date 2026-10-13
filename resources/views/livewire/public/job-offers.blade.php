@@ -74,14 +74,7 @@
                                 @endif
                             </div>
                             @if ($shift['accepted'])
-                                <div class="jobact">
-                                    <div class="btn-done">Du bist dabei — wir melden uns.</div>
-                                    @if ($shift['zurueck'])
-                                        <button type="button" class="link-undo" wire:click="zuruecknehmen({{ $shift['zurueck_id'] }})" wire:confirm="Deine Zusage für diese Schicht zurücknehmen?" wire:loading.attr="disabled">Doch nicht?</button>
-                                    @else
-                                        <div class="l2">Du bist eingetragen — wenn etwas dazwischenkommt, melde dich bei deiner Dispo.</div>
-                                    @endif
-                                </div>
+                                <div class="btn-done">Du bist dabei — wir melden uns.</div>
                             @elseif (!$shift['voll'])
                                 <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
                             @endif

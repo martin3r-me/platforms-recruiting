@@ -35,7 +35,7 @@ class DispoJobUebersichtZahlenTest extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
-            'database/migrations/2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -56,9 +56,9 @@ class DispoJobUebersichtZahlenTest extends TestCase
         $offer = $wave->offers()->create(['request_id' => $request->id, 'rec_employee_id' => 5, 'anchor_employee_id' => 5]);
         $offer->shifts()->create(['shift_id' => $s1->id, 'accepted_at' => now()]);
         $offer->shifts()->create(['shift_id' => $s2->id, 'accepted_at' => now(), 'zas_entered_at' => now()]);
-        // Unique (offer_id, shift_id): die zurueckgezogene Zeile braucht ein zweites Angebot.
+        // Unique (offer_id, shift_id): die offene (nicht zugesagte) Zeile braucht ein zweites Angebot.
         $offer2 = $wave->offers()->create(['request_id' => $request->id, 'rec_employee_id' => 6, 'anchor_employee_id' => 6]);
-        $offer2->shifts()->create(['shift_id' => $s2->id, 'accepted_at' => null, 'withdrawn_at' => now()]);
+        $offer2->shifts()->create(['shift_id' => $s2->id, 'accepted_at' => null]);
         $leer = RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => '2026-10-20', 'zeitraum_bis' => '2099-11-17', 'modus' => 'sammeln', 'status' => 'laeuft', 'created_by_user_id' => 1]);
 
         $z = DispoJobUebersichtZahlen::laden([$request->id, $leer->id, 999999]);

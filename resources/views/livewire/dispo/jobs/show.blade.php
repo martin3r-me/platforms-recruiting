@@ -260,9 +260,6 @@
                         <span class="rounded-full border px-2 py-0.5 {{ $voll ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-700' }}">zugesagt {{ $s->zugesagt }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">in ZAS eingetragen {{ $s->eingetragen }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">angekommen {{ $s->angekommen }}</span>
-                        @if ((int) $s->zurueckgezogen > 0)
-                            <span class="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-500">{{ $s->zurueckgezogen }} zurückgezogen</span>
-                        @endif
                     </div>
                     @if ($offen && $zeilen !== [])
                         <div class="flex items-center gap-2" x-data="{ ok: false, zeigen: false, kopieren() {
@@ -278,7 +275,7 @@
                             </button>
                             <textarea x-ref="liste" x-show="zeigen" x-cloak readonly rows="3" class="w-72 rounded border border-gray-300 px-2 py-1 text-xs">{{ $listeText }}</textarea>
                             @if ($offeneHaken > 0)
-                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }}, {{ (int) $offeneHaken }})" wire:confirm="{{ $alleText }}"
+                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }})" wire:confirm="{{ $alleText }}"
                                         class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">Alle als in ZAS eingetragen markieren</button>
                             @endif
                         </div>

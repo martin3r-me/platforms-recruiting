@@ -23,7 +23,6 @@ use Platform\Recruiting\Models\RecDispoJobShift;
  * Spec §9: Hat die Person dieselbe Schicht (VA, Tag, Beginn, Taetigkeit) auch
  * aus einer anderen laufenden Anfrage, sagt der Klick dort mit zu — nach den
  * Regeln jener Schicht (volle Schicht im Modus zuerst wird uebersprungen).
- * Eine erneute Zusage nach „Doch nicht“ loescht den Ruecknahme-Stempel.
  */
 final class JobOffersZusage
 {
@@ -39,7 +38,7 @@ final class JobOffersZusage
             if ($vorab === null || $vorab->shift === null) {
                 return 'weg';
             }
-            $schwestern = JobOffersSchwestern::finden($vorab->shift, $employeeIds, (int) $vorab->id, false);
+            $schwestern = JobOffersSchwestern::finden($vorab->shift, $employeeIds, (int) $vorab->id);
 
             $shiftIds = array_values(array_unique(array_merge([(int) $vorab->shift_id], array_map(fn ($s) => (int) $s->shift_id, $schwestern))));
             sort($shiftIds);
@@ -100,7 +99,7 @@ final class JobOffersZusage
                 $shift->update(['closed_at' => now()]);
             }
         }
-        $os->update(['accepted_at' => now(), 'withdrawn_at' => null]);
+        $os->update(['accepted_at' => now()]);
 
         return 'ok';
     }
