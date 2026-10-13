@@ -1184,6 +1184,25 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertFalse($this->session->has(PortalAuth::KONTO_ANMELDUNG));
     }
 
+    /**
+     * Generalprobe 13.10.: eine zweite Konto-Anmeldung auf demselben Geraet
+     * ueberschrieb die gemerkte Liste — "Abmelden" der zweiten Person liess
+     * die Sitzungen der ersten offen. Die neue Anmeldung beendet die alte;
+     * was sie selbst gerade geoeffnet hat, bleibt.
+     */
+    public function test_neue_konto_anmeldung_beendet_die_vorherige_auf_demselben_geraet(): void
+    {
+        $this->session->put(PortalAuth::sessionKey(9001), PortalAuth::anmeldeWert());
+        $this->session->put(PortalAuth::sessionKey(9002), PortalAuth::anmeldeWert());
+        PortalAuth::merkeKontoAnmeldung([9001, 9002]);
+
+        PortalAuth::merkeKontoAnmeldung([9002, 9003]);
+
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(9001)), 'die erste Anmeldung ist beendet');
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(9002)), 'was die neue Anmeldung selbst traegt, bleibt');
+        $this->assertSame([9002, 9003], $this->session->get(PortalAuth::KONTO_ANMELDUNG));
+    }
+
     // ---------------------------------------------------------- Der Waechter
 
     /**

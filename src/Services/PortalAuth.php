@@ -484,7 +484,23 @@ final class PortalAuth
     /** @param list<int> $kennungen Anstellungs-Kennungen, die die Konto-Anmeldung geoeffnet hat. */
     public static function merkeKontoAnmeldung(array $kennungen): void
     {
-        app('session')->put(self::KONTO_ANMELDUNG, array_values(array_map('intval', $kennungen)));
+        $neu = array_values(array_map('intval', $kennungen));
+        $sitzung = app('session');
+
+        // Eine neue Konto-Anmeldung auf demselben Geraet beendet die
+        // vorherige (Generalprobe 13.10.): sonst ueberschriebe die neue Liste
+        // die alte, und "Abmelden" der zweiten Person liesse die Sitzungen
+        // der ersten offen — auf einem geteilten Geraet genau der Fall, gegen
+        // den Abmelden da ist. Was die neue Anmeldung selbst gerade geoeffnet
+        // hat (dieselbe Person meldet sich erneut an), bleibt stehen.
+        $alt = $sitzung->get(self::KONTO_ANMELDUNG);
+        if (is_array($alt)) {
+            foreach (array_diff(array_map('intval', $alt), $neu) as $kennung) {
+                $sitzung->forget(self::sessionKey((int) $kennung));
+            }
+        }
+
+        $sitzung->put(self::KONTO_ANMELDUNG, $neu);
     }
 
     /**
