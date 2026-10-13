@@ -108,7 +108,7 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
         $this->assertStringNotContainsString('zuruecknehmen', $view);
         $this->assertStringNotContainsString('Doch nicht', $view);
-        $this->assertStringContainsString('Du bist dabei — wir melden uns.', $view);
+        $this->assertStringContainsString('✓ Du bist dabei</div>', $view);
         $this->assertStringNotContainsString('zurückgezogen', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
     }
 

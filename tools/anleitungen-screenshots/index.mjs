@@ -11,7 +11,9 @@ import { rezepteAus } from './rezepte.mjs';
 import { ziel, ausschnittElement } from './ziele.mjs';
 
 const BASIS = (process.env.RG_ANLEITUNGEN_BASIS || 'https://demo.bhgdigital.de').replace(/\/$/, '');
-const SITZUNG = join(homedir(), '.config', 'rg-anleitungen', 'sitzung.json');
+// Eine Sitzung je Umgebung — die Demo-Anmeldung ueberschreibt nicht die von Prod.
+const HOST = new URL(BASIS).host;
+const SITZUNG = join(homedir(), '.config', 'rg-anleitungen', HOST.startsWith('demo.') ? 'sitzung.json' : `sitzung-${HOST}.json`);
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'anleitungen');
 const BLAU = '#1273DE';
 const RAND = 16;

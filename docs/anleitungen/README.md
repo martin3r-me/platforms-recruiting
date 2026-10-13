@@ -46,7 +46,7 @@ lesbar ist, jede Route in `seiten` existiert und jedes Bild eine Datei oder ein 
     node tools/anleitungen-screenshots --anmelden       # Sitzung erneuern
 
 - Läuft gegen `https://demo.bhgdigital.de` (nur Testdaten). Beim ersten Lauf öffnet sich Chrome,
-  einmal bei Microsoft anmelden; die Sitzung liegt in `~/.config/rg-anleitungen/sitzung.json`.
+  einmal bei Microsoft anmelden; die Sitzung liegt in `~/.config/rg-anleitungen/sitzung.json` (andere Umgebungen: `sitzung-<host>.json`).
 - Rezept-Schlüssel: `seite` (Pfad), `klicks` (mit `;` getrennt), `ausschnitt`, `markieren`,
   `handy` (390×844), `manuell` (Bild selbst ablegen). Werte sind sichtbare Texte; mit `css:`
   davor ein CSS-Selektor.

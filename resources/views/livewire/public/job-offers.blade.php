@@ -74,7 +74,7 @@
                                 @endif
                             </div>
                             @if ($shift['accepted'])
-                                <div class="btn-done">Du bist dabei — wir melden uns.</div>
+                                <div class="btn-done">✓ Du bist dabei</div>
                             @elseif (!$shift['voll'])
                                 <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
                             @endif
