@@ -13,7 +13,9 @@ use Platform\Recruiting\Support\ProofTypes;
 
 /**
  * Fristenlauf: findet faellige Nachweise (ProofReminderPlanner) und verschickt
- * je Mitarbeiter GENAU EINE WhatsApp (ProofReminderSender).
+ * je PERSON GENAU EINE WhatsApp fuer ALLE ihre faelligen Nachweise
+ * (ProofReminderSender) — gebuendelt seit der Kundenentscheidung Markus
+ * 12.10.2026, siehe Abschnitt „GENAU EINE WHATSAPP JE PERSON UND LAUF".
  *
  * DUENNE HUELLE, Muster PersonPairAudit: die Regeln liegen in reinen,
  * getesteten Klassen (Planner, Sender), dieses Kommando liest, ruft auf,
@@ -42,6 +44,20 @@ use Platform\Recruiting\Support\ProofTypes;
  * Erinnerung — der zweite Nachweis bleibt unerinnert und erscheint im
  * naechsten Lauf erneut (kein Grund, ihn zu ignorieren: er ist ja noch nicht
  * `reminded_at`). --limit zaehlt Personen, nicht Nachweis-Zeilen.
+ *
+ * Kundenentscheidung Markus 12.10.2026 (Go-live-Folie 7): „Wenn alle
+ * abgelaufen sind, muessen sie auch alle eine Nachricht bekommen. Sollten das
+ * nur buendeln, dass nicht 1 Mitarbeiter 5 Nachrichten bekommt." Der Absatz
+ * oben ist damit ueberholt: der zweite Nachweis wartet NICHT mehr auf den
+ * naechsten Lauf. Neu: EINE WhatsApp je Person fuer ALLE faelligen Nachweise
+ * dieses Laufs, ueber beide Anstellungen hinweg. Nach STATUS_SENT bekommen
+ * ALLE diese Nachweise reminded_at (whereIn, whereNull), bei Fehlschlag
+ * keiner. Die Nachricht geht an die Anstellung des DRINGENDSTEN Eintrags
+ * (Token im Knopf) — das Portal zeigt ueber jeden Token die Nachweise der
+ * ganzen Person (ProofReader::checklist ueber PersonScopeResolver).
+ * {{nachweis}}/{{datum}} der Vorlage bleiben der dringendste, {{anzahl}} ist
+ * neu. Eine Eskalation (zweite Stufe) gibt es bewusst NICHT: „ZAS stellt bei
+ * Ablauf automatisch auf BAR". --limit zaehlt weiter Personen.
  *
  * PERSON heisst PERSON, nicht Anstellung (Schlusspruefung M5): entdoppelt
  * wird ueber `rec_employees.person_key`. Wer bei RHEINGEDECK und MA arbeitet,
@@ -85,6 +101,12 @@ use Platform\Recruiting\Support\ProofTypes;
  * null heisst im Planer "kein Stichtag" — also KEINE Bremse. Genau das waere
  * der Schaden, gegen den der Parameter erfunden wurde.
  *
+ * Kundenentscheidung Markus 12.10.2026 dazu: ALLE bekommen eine Nachricht,
+ * auch der Altbestand. Die Stichtag-Regel oben bleibt trotzdem unveraendert
+ * (Pflicht-Entscheidung, keine stille Bremse): der Live-Lauf wird bewusst mit
+ * --ohne-stichtag gefahren, in Wellen per --limit (Personen), jeweils nach
+ * einem --dry-run.
+ *
  * KEIN ZEITPLAN-EINTRAG (Ruling Fixrunde 1): dieses Kommando wird bis auf
  * Weiteres VON HAND gefahren, zuerst mit --dry-run. Ein Eintrag in
  * RecruitingServiceProvider::registerSchedule(), der dauerhaft auf --dry-run
@@ -109,7 +131,7 @@ class SendProofReminders extends Command
         {--limit= : Höchstens so viele Personen erinnern (dringendste zuerst)}
         {--zuruecksetzen= : Statt zu erinnern: reminded_at bei diesen Nachweis-IDs leeren (komma-getrennt) — Reparatur, falls Meta erst per Webhook meldet, dass eine als "sent" geltende Nachricht nie ankam.}';
 
-    protected $description = 'Fristenlauf Nachweise: fällige Nachweise finden und je Person genau eine WhatsApp-Erinnerung senden — läuft ohne Zeitplan, bis auf Weiteres von Hand (Stichtag + Meta-Vorlage noch offen)';
+    protected $description = 'Fristenlauf Nachweise: fällige Nachweise finden und je Person genau eine WhatsApp-Erinnerung für alle fälligen Nachweise senden — läuft ohne Zeitplan, bis auf Weiteres von Hand (Stichtag + Meta-Vorlage noch offen)';
 
     public function handle(): int
     {
@@ -181,13 +203,16 @@ class SendProofReminders extends Command
         $nachweise = $this->offeneNachweise($teamId);
         $plan = ProofReminderPlanner::plan($nachweise, now()->toDateString(), $stichtag);
 
-        // Je PERSON nur der dringendste Eintrag dieses Laufs — unique()
-        // behaelt bei Collections das ERSTE Vorkommen, und plan() liefert die
-        // Liste bereits nach Dringlichkeit sortiert. Der Schluessel ist der
+        // Je PERSON ein Buendel aller faelligen Eintraege dieses Laufs
+        // (Markus 12.10.2026). groupBy() behaelt die Reihenfolge des ersten
+        // Vorkommens, und plan() liefert die Liste bereits nach Dringlichkeit
+        // sortiert — also steht die dringendste Person vorn und in jedem
+        // Buendel der dringendste Eintrag zuerst. Der Schluessel ist der
         // Personen-Marker, nicht die Anstellung (M5, siehe Klassen-Docblock).
         $personenSchluessel = $this->personenSchluessel($nachweise);
         $jeEmployee = collect($plan)
-            ->unique(fn (array $e) => $personenSchluessel[$e['rec_employee_id']] ?? ('ma:' . $e['rec_employee_id']))
+            ->groupBy(fn (array $e) => $personenSchluessel[$e['rec_employee_id']] ?? ('ma:' . $e['rec_employee_id']))
+            ->map(fn ($buendel) => $this->alsBuendel($buendel->values()->all()))
             ->values();
         if ($limit !== null) {
             $jeEmployee = $jeEmployee->take(max(0, $limit));
@@ -201,11 +226,14 @@ class SendProofReminders extends Command
 
         if ($dryRun) {
             $this->info(sprintf('Trockenlauf — %d Erinnerung(en) wären fällig, es wird nichts gesendet und nichts geschrieben.', $jeEmployee->count()));
+            // Eine Zeile je PERSON (Buendelung, Markus 12.10.2026). MA-ID =
+            // die Anstellung, an deren Token die Nachricht geht.
             $this->table(
-                ['MA-ID', 'Nachweis', 'Fällig am'],
+                ['MA-ID', 'Anzahl', 'Nachweise', 'Dringendstes Datum'],
                 $jeEmployee->map(fn (array $e) => [
                     $e['rec_employee_id'],
-                    ProofTypes::label($e['code']),
+                    $e['anzahl'],
+                    implode(', ', array_map(fn (string $c) => ProofTypes::label($c), $e['codes'])),
                     $e['valid_until'],
                 ])->all()
             );
@@ -229,7 +257,7 @@ class SendProofReminders extends Command
         }
     }
 
-    /** @param \Illuminate\Support\Collection<int, array{proof_id:int, rec_employee_id:int, code:string, valid_until:string}> $jeEmployee */
+    /** @param \Illuminate\Support\Collection<int, array{proof_id:int, rec_employee_id:int, code:string, valid_until:string, anzahl:int, proof_ids:list<int>, codes:list<string>}> $jeEmployee */
     private function sendeErinnerungen($jeEmployee): int
     {
         $sender = app(ProofReminderSender::class);
@@ -263,17 +291,20 @@ class SendProofReminders extends Command
                     // macht das Update wiederholbar, falls doch einmal zwei
                     // Laeufe denselben Nachweis treffen.
                     // Query Builder, nicht Eloquent — siehe Klassen-Docblock.
+                    // ALLE Nachweise des Buendels, nicht nur der dringendste
+                    // (Markus 12.10.2026): die eine Nachricht stand fuer alle.
                     DB::table('rec_employee_proofs')
-                        ->where('id', $eintrag['proof_id'])
+                        ->whereIn('id', $eintrag['proof_ids'])
                         ->whereNull('reminded_at')
                         ->update(['reminded_at' => now()]);
                     $gesendet++;
                 } else {
                     $uebersprungen++;
                     $this->warn(sprintf(
-                        'MA #%d (%s): %s — %s',
+                        'MA #%d (%s%s): %s — %s',
                         $eintrag['rec_employee_id'],
                         ProofTypes::label($eintrag['code']),
+                        $eintrag['anzahl'] > 1 ? ' + ' . ($eintrag['anzahl'] - 1) . ' weitere' : '',
                         $result['status'],
                         $result['error'] ?? 'kein Grund gemeldet'
                     ));
@@ -336,6 +367,25 @@ class SendProofReminders extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Ein Buendel = der dringendste Eintrag (bestimmt Anstellung, Token,
+     * {{nachweis}}/{{datum}}) plus Anzahl und IDs ALLER faelligen Nachweise
+     * der Person (Markus 12.10.2026).
+     *
+     * @param  non-empty-list<array{proof_id:int, rec_employee_id:int, code:string, valid_until:string}>  $eintraege  nach Dringlichkeit sortiert
+     * @return array{proof_id:int, rec_employee_id:int, code:string, valid_until:string, anzahl:int, proof_ids:list<int>, codes:list<string>}
+     */
+    private function alsBuendel(array $eintraege): array
+    {
+        $dringendster = $eintraege[0];
+
+        return array_merge($dringendster, [
+            'anzahl'    => count($eintraege),
+            'proof_ids' => array_map(fn (array $e) => (int) $e['proof_id'], $eintraege),
+            'codes'     => array_map(fn (array $e) => (string) $e['code'], $eintraege),
+        ]);
     }
 
     /**

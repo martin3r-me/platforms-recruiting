@@ -123,6 +123,12 @@ class RecApplicantSettings extends Model
         // ist hier bewusst NICHT noetig, das teilt sich den Account mit
         // auto_pilot_wa_account_id (siehe resolveChannelFor). Schluesselname
         // steht in Services/ProofReminderSender::SETTINGS_KEY.
+        // Platzhalter (Kundenentscheidung Markus 12.10.2026: eine Nachricht je
+        // Person fuer ALLE faelligen Nachweise): {{anzahl}} = Zahl der
+        // faelligen Nachweise, {{nachweis}}/{{datum}} = der dringendste,
+        // Vorname ({{name}}/{{vorname}}/{{1}}). Alle optional — eine
+        // universelle Vorlage nur mit Vorname + URL-Knopf ist der Kundenwunsch.
+        // Jeder ANDERE Platzhalter blockiert den Versand.
         'proof_reminder_wa_template_id' => null,
         // Mitarbeiterportal-Vorlagen (Support/PortalVorlagen): Einmalcode je Zweck,
         // Hinweis an die alte Nummer, Aufgaben-Nachrichten. Nicht gesetzt = kein

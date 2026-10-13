@@ -348,9 +348,11 @@ class ApplicantSettingsModal extends Component
             PortalVorlagen::AUFGABEN_ERINNERUNG => '&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;, optional Vorname, URL-Knopf wie oben.',
             // Anforderungen aus ProofReminderSender::send(): nur diese Platzhalter
             // sind befuellbar, und buildTokenComponents verlangt genau einen
-            // dynamischen URL-Knopf.
-            'proof_reminder_wa_template_id'     => 'Geht raus, wenn ein Nachweis bald abläuft: Platzhalter nur &#123;&#123;nachweis&#125;&#125;, '
-                . '&#123;&#123;datum&#125;&#125; und optional Vorname, dazu genau ein URL-Knopf mit Variable für den Portal-Link — sonst geht nichts raus.',
+            // dynamischen URL-Knopf. Seit Markus 12.10.2026 gebuendelt: eine
+            // Nachricht je Person, {{anzahl}} neu, nachweis/datum = dringendster.
+            'proof_reminder_wa_template_id'     => 'Geht raus, wenn Nachweise bald ablaufen oder abgelaufen sind — eine Nachricht je Person für alle fälligen Nachweise. '
+                . 'Alle Platzhalter optional: &#123;&#123;anzahl&#125;&#125; (Zahl der fälligen Nachweise), &#123;&#123;nachweis&#125;&#125; und '
+                . '&#123;&#123;datum&#125;&#125; (der dringendste), Vorname. Pflicht ist genau ein URL-Knopf mit Variable für den Portal-Link — sonst geht nichts raus.',
             'document_wa_template_id'           => 'Geht raus, wenn HR ein Dokument zur Kenntnisnahme oder Unterschrift bereitstellt. '
                 . 'Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.',
             'employee_contract_wa_template_id'  => 'Geht raus, wenn HR in der Mitarbeiterakte einen Vertrag erstellt. Leer gelassen wird das '

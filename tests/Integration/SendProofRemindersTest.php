@@ -469,16 +469,112 @@ final class SendProofRemindersTest extends TestCase
 
     public function test_zwei_faellige_nachweise_ergeben_nur_eine_whatsapp(): void
     {
+        // Kundenentscheidung Markus 12.10.2026: buendeln. Vorher blieb der
+        // zweite Nachweis fuer den naechsten Lauf offen (5 abgelaufene = 5
+        // Nachrichten an 5 Tagen) — jetzt gilt die eine Nachricht fuer beide.
         $ma = $this->ma();
-        // Dringender (naeher an heute) muss gewinnen.
         $dringend = $this->proof($ma, 'ausweis', now()->addDays(3)->toDateString());
         $spaeter = $this->proof($ma, 'aufenthaltstitel', now()->addDays(20)->toDateString());
 
         $this->runCommand();
 
         $this->assertCount(1, $this->meta->calls, 'Je Person genau eine WhatsApp — auch bei zwei faelligen Nachweisen.');
-        $this->assertNotNull($this->remindedAtOf($dringend), 'Der dringendere Nachweis bekommt die Erinnerung.');
-        $this->assertNull($this->remindedAtOf($spaeter), 'Der zweite Nachweis bleibt fuer den naechsten Lauf offen.');
+        $this->assertNotNull($this->remindedAtOf($dringend));
+        $this->assertNotNull($this->remindedAtOf($spaeter), 'Die eine Nachricht stand fuer BEIDE Nachweise — beide gelten als erinnert.');
+
+        // Und der naechste Lauf schickt nichts mehr hinterher.
+        $this->runCommand();
+        $this->assertCount(1, $this->meta->calls, 'Kein Nachzuegler am naechsten Tag.');
+    }
+
+    public function test_fuenf_abgelaufene_nachweise_ergeben_eine_nachricht_mit_anzahl(): void
+    {
+        // Der Fall aus Markus' Kommentar: "dass nicht 1 Mitarbeiter 5
+        // Nachrichten bekommt". {{anzahl}} = 5, {{nachweis}}/{{datum}} = der
+        // dringendste (laengst abgelaufene).
+        Container::getInstance()->instance(HoldingTemplateSender::class, $this->holdingStub(null, [
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Hallo {{name}}, {{anzahl}} Nachweise sind offen, zuerst {{nachweis}} ({{datum}}).'],
+                self::BUTTON,
+            ],
+        ]));
+
+        $ma = $this->ma(['first_name' => 'Kevin']);
+        $ids = [];
+        foreach (['aufenthaltstitel', 'ausweis', 'arbeitsgenehmigung', 'immatrikulation', 'schulbescheinigung'] as $i => $code) {
+            $ids[] = $this->proof($ma, $code, now()->subDays(50 - $i)->toDateString());
+        }
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls, 'Fuenf faellige Nachweise, EINE Nachricht.');
+        foreach ($ids as $id) {
+            $this->assertNotNull($this->remindedAtOf($id), "Nachweis #{$id} muss mit erinnert sein.");
+        }
+
+        $body = array_values(array_filter($this->meta->calls[0]['components'], fn ($c) => ($c['type'] ?? null) === 'body'));
+        $this->assertSame(
+            ['Kevin', '5', 'Aufenthaltstitel', now()->subDays(50)->format('d.m.Y')],
+            array_column($body[0]['parameters'], 'text')
+        );
+    }
+
+    public function test_abgelehnter_gebuendelter_versand_stempelt_keinen_der_nachweise(): void
+    {
+        $this->meta->status = 'failed';
+
+        $ma = $this->ma();
+        $eins = $this->proof($ma, 'ausweis', now()->addDays(3)->toDateString());
+        $zwei = $this->proof($ma, 'aufenthaltstitel', now()->addDays(20)->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertNull($this->remindedAtOf($eins));
+        $this->assertNull($this->remindedAtOf($zwei), 'Bei Fehlschlag bleibt das GANZE Buendel unerinnert.');
+    }
+
+    public function test_universelle_vorlage_nur_mit_vorname_und_knopf_geht_raus(): void
+    {
+        // Kundenwunsch Markus 12.10.2026: "in deinem Mitarbeiterportal ist
+        // etwas fuer dich offen, schau rein" — ohne nachweis/datum/anzahl.
+        Container::getInstance()->instance(HoldingTemplateSender::class, $this->holdingStub(null, [
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Hallo {{vorname}}, in deinem Mitarbeiterportal ist etwas für dich offen — schau rein.'],
+                self::BUTTON,
+            ],
+        ]));
+
+        $ma = $this->ma(['first_name' => 'Kevin', 'portal_token' => 'TOKEN-UNIVERSELL']);
+        $eins = $this->proof($ma, 'ausweis', now()->subDays(30)->toDateString());
+        $zwei = $this->proof($ma, 'aufenthaltstitel', now()->addDays(5)->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls, 'Die universelle Vorlage muss rausgehen.');
+        $components = $this->meta->calls[0]['components'];
+        $body = array_values(array_filter($components, fn ($c) => ($c['type'] ?? null) === 'body'));
+        $this->assertSame(['Kevin'], array_column($body[0]['parameters'], 'text'));
+        $button = array_values(array_filter($components, fn ($c) => ($c['type'] ?? null) === 'button'));
+        $this->assertSame('TOKEN-UNIVERSELL', $button[0]['parameters'][0]['text']);
+        $this->assertNotNull($this->remindedAtOf($eins));
+        $this->assertNotNull($this->remindedAtOf($zwei));
+    }
+
+    public function test_trockenlauf_zeigt_eine_zeile_je_person_mit_anzahl_und_nachweisen(): void
+    {
+        $ma = $this->ma();
+        $this->proof($ma, 'ausweis', '2026-01-05');
+        $this->proof($ma, 'aufenthaltstitel', '2026-02-07');
+
+        [, $ausgabe] = $this->runCommand(['--dry-run' => true]);
+
+        $this->assertStringContainsString('Anzahl', $ausgabe);
+        $this->assertStringContainsString('Dringendstes Datum', $ausgabe);
+        $this->assertStringContainsString('Personalausweis oder Reisepass, Aufenthaltstitel', $ausgabe);
+        $this->assertStringContainsString('2026-01-05', $ausgabe);
+        $this->assertStringNotContainsString('2026-02-07', $ausgabe, 'Nur das dringendste Datum, eine Zeile je Person.');
+        $this->assertStringContainsString('1 Erinnerung(en)', $ausgabe);
     }
 
     // -----------------------------------------------------------------
@@ -881,9 +977,10 @@ final class SendProofRemindersTest extends TestCase
         $this->runCommand();
 
         $this->assertCount(1, $this->meta->calls, 'Eine WhatsApp je PERSON, nicht je Anstellung.');
-        $this->assertSame($this->phoneFor($rg->id), $this->meta->calls[0]['to'], 'Der dringendere Nachweis gewinnt.');
+        $this->assertSame($this->phoneFor($rg->id), $this->meta->calls[0]['to'], 'Der dringendere Nachweis bestimmt die Anstellung.');
         $this->assertNotNull($this->remindedAtOf($dringend));
-        $this->assertNull($this->remindedAtOf($spaeter), 'Der zweite Nachweis bleibt fuer den naechsten Lauf offen.');
+        // Markus 12.10.2026: gebuendelt ueber beide Anstellungen hinweg.
+        $this->assertNotNull($this->remindedAtOf($spaeter), 'Der Nachweis der zweiten Anstellung ist mit erinnert.');
     }
 
     public function test_ohne_personen_marker_zaehlt_die_anstellung(): void

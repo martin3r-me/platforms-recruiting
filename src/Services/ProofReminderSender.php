@@ -15,6 +15,20 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 /**
  * Verschickt GENAU EINE Erinnerung per WhatsApp fuer einen faelligen Nachweis.
  *
+ * Kundenentscheidung Markus 12.10.2026: der Fristenlauf buendelt — EINE
+ * Nachricht je Person fuer ALLE faelligen Nachweise dieses Laufs („Sollten das
+ * nur buendeln, dass nicht 1 Mitarbeiter 5 Nachrichten bekommt"). Dafuer
+ * bekommt `$eintrag` vom Kommando zusaetzlich `anzahl` (Zahl der faelligen
+ * Nachweise der Person) und `proof_ids` (alle gebuendelten Nachweise, nur fuers
+ * Log); `code`/`valid_until` bleiben der DRINGENDSTE Eintrag. Fehlen beide
+ * Schluessel (HR „Erneut erinnern" fuer genau einen Nachweis), gilt anzahl = 1.
+ * Platzhalter: {{anzahl}} NEU, {{nachweis}} + {{datum}} = dringendster (damit
+ * eine bestehende Vorlage weiter funktioniert), Vorname wie bisher. Der
+ * Kundenwunsch ist eine universelle Vorlage nur mit Vorname + URL-Knopf
+ * („in deinem Mitarbeiterportal ist etwas fuer dich offen") — die geht,
+ * weil wir nur pruefen, dass jeder Platzhalter der VORLAGE befuellbar ist,
+ * nicht umgekehrt.
+ *
  * Drei Fehler duerfen sich hier nicht wiederholen — zwei aus dem Bestand,
  * einer aus der Schlusspruefung dieses Pakets (M4):
  *
@@ -89,7 +103,8 @@ final class ProofReminderSender
     public const STATUS_FAILED = 'failed';
 
     /**
-     * @param  array{proof_id:int, rec_employee_id:int, code:string, valid_until:string}  $eintrag
+     * @param  array{proof_id:int, rec_employee_id:int, code:string, valid_until:string, anzahl?:int, proof_ids?:list<int>}  $eintrag
+     *         code/valid_until = dringendster Nachweis; anzahl/proof_ids beim gebuendelten Fristenlauf (Markus 12.10.2026)
      * @return array{status:string, error:?string}
      */
     public function send(RecEmployee $ma, array $eintrag): array
@@ -128,9 +143,12 @@ final class ProofReminderSender
         // RHEINGEDECK, siehe Plan „Danach, nicht von mir abhaengig"). Heisst
         // ein Platzhalter dort spaeter anders, faellt das ab hier auf, statt
         // still den Vornamen einzusetzen.
+        // {{nachweis}}/{{datum}} = der DRINGENDSTE Nachweis, {{anzahl}} = alle
+        // faelligen der Person in diesem Lauf (Buendelung, Markus 12.10.2026).
         $namedValues = [
             'nachweis' => ProofTypes::label($eintrag['code']),
             'datum'    => $this->formatDatum($eintrag['valid_until']),
+            'anzahl'   => (string) max(1, (int) ($eintrag['anzahl'] ?? 1)),
         ];
         $firstName = trim((string) ($ma->first_name ?? ''));
 
@@ -143,7 +161,7 @@ final class ProofReminderSender
                 'status' => self::STATUS_TEMPLATE_UNKNOWN_PLACEHOLDER,
                 'error' => 'Template „' . $template->name . '“ hat den Platzhalter {{'
                     . implode('}}, {{', $unbefuellbar) . '}}, den wir nicht befüllen können — '
-                    . 'bekannt sind nur {{nachweis}}, {{datum}} und der Vorname ({{name}}, {{vorname}}, {{1}}). '
+                    . 'bekannt sind nur {{anzahl}}, {{nachweis}}, {{datum}} und der Vorname ({{name}}, {{vorname}}, {{1}}). '
                     . 'Ungeprüft würde dort still der Vorname oder der Beispielwert der Vorlage stehen.',
             ]);
         }
@@ -183,10 +201,13 @@ final class ProofReminderSender
             return $this->finish($ma, $eintrag, ['status' => self::STATUS_FAILED, 'error' => $fehler]);
         }
 
+        $anzahl = max(1, (int) ($eintrag['anzahl'] ?? 1));
         $this->log(
             $ma,
             self::LOG_TYPE,
-            'Nachweis-Erinnerung gesendet (' . ProofTypes::label($eintrag['code']) . ').',
+            $anzahl > 1
+                ? 'Nachweis-Erinnerung gesendet (' . $anzahl . ' Nachweise, dringendster: ' . ProofTypes::label($eintrag['code']) . ').'
+                : 'Nachweis-Erinnerung gesendet (' . ProofTypes::label($eintrag['code']) . ').',
             $eintrag
         );
 
@@ -204,6 +225,9 @@ final class ProofReminderSender
      * laesen dann „dein Kevin laeuft am Kevin ab", reminded_at wuerde gesetzt
      * — und weil es genau EINE Erinnerung je Nachweis gibt, bekaeme niemand
      * je eine zweite. Deshalb prueft dieser Sender selbst, vor dem Versand.
+     * Die Pruefung laeuft nur in EINE Richtung (Vorlage → unsere Werte): eine
+     * Vorlage, die gar keinen unserer Werte nutzt (nur Vorname + Knopf,
+     * Kundenwunsch Markus 12.10.2026), ist ausdruecklich erlaubt.
      *
      * Muster und Namenserkennung sind absichtlich identisch mit
      * HoldingTemplateComponents::build() — was dort als Vorname durchgeht,
@@ -255,6 +279,11 @@ final class ProofReminderSender
             'proof_type_code' => $eintrag['code'] ?? null,
             'status'          => $result['status'],
         ];
+        // Gebuendelter Lauf (Markus 12.10.2026): alle Nachweise der Nachricht
+        // ins Log, sonst sieht man spaeter nur den dringendsten.
+        if (isset($eintrag['proof_ids'])) {
+            $context['proof_ids'] = $eintrag['proof_ids'];
+        }
         if ($result['error'] !== null) {
             $context['error'] = $result['error'];
         }
