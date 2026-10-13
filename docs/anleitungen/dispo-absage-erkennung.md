@@ -18,7 +18,7 @@ Schreibt ein Mitarbeiter nach der Bestätigungsanfrage per WhatsApp zurück, lie
 ## Dispo · Absage-Erkennung | Für heute einschalten
 
 ![Dispo-Einstellungen, Filial-Konfiguration mit Haken „prüfen“](haken-pruefen.png)
-<!-- shot: seite=/recruiting/dispo-settings ausschnitt="Filial-Konfiguration" markieren="prüfen" -->
+<!-- shot: seite=/recruiting/dispo-settings ausschnitt="Filial-Konfiguration" markieren="prüfen" verdecken="css:input[placeholder^='z. B. 0170']" -->
 
 1. Links unter **Disposition** auf **Einstellungen** gehen.
 2. In der Zeile eurer Filiale den Haken **„prüfen“** setzen.

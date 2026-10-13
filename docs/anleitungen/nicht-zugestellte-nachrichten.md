@@ -14,7 +14,7 @@ Manchmal kommt eine WhatsApp bei einer Person nicht an, zum Beispiel weil die Nu
 ## Kommunikation · Nicht zugestellt | So gehst du vor
 
 ![Kommunikation mit Reiter „✕ Nicht zugestellt“, Liste links und rotem Hinweis rechts](reiter-nicht-zugestellt.png)
-<!-- shot: seite=/recruiting/conversations klicks="Nicht zugestellt" markieren="Nicht zugestellt" -->
+<!-- shot: seite=/recruiting/conversations klicks="Nicht zugestellt" markieren="Nicht zugestellt" verdecken="css:[wire\:key^=row-]; css:[wire\:key^=undelivered-]" -->
 
 1. Öffne **Kommunikation**. Oben steht der Reiter **„✕ Nicht zugestellt“** mit der Anzahl, rot, sobald es nicht zugestellte Nachrichten gibt. Klicke darauf.
 2. Links steht die Liste: Name, welche Nachricht nicht ankam, wann, und wer zuständig ist.

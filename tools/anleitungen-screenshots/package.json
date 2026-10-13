@@ -2,7 +2,12 @@
   "name": "rg-anleitungen-screenshots",
   "private": true,
   "type": "module",
+  "main": "index.mjs",
   "description": "Screenshots fuer docs/anleitungen per Rezept gegen die Demo",
-  "scripts": { "test": "node --test" },
-  "dependencies": { "playwright-core": "^1.51.0" }
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright-core": "^1.51.0"
+  }
 }

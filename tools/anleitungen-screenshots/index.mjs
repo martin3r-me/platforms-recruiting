@@ -47,7 +47,20 @@ async function aufnehmen(browser, slug, bild) {
         for (const klick of String(r.klicks || '').split(';').map(s => s.trim()).filter(Boolean)) {
             await ziel(page, klick).click();
             await page.waitForLoadState('networkidle');
-            await page.waitForTimeout(400);
+            await page.waitForTimeout(1500);
+        }
+        // Schutz echter Daten (Prod): Fotos immer unscharf, dazu je Rezept
+        // `verdecken="css:…; css:…"` fuer Namen, Nummern o. ae. — Text bleibt
+        // als Form erkennbar, ist aber nicht lesbar.
+        if (!BASIS.includes('demo.')) {
+            await page.addStyleTag({ content: 'img{filter:blur(10px)!important}' });
+        }
+        for (const v of String(r.verdecken || '').split(';').map(s => s.trim()).filter(Boolean)) {
+            const sel = v.startsWith('css:') ? v.slice(4) : v;
+            await page.locator(sel).evaluateAll(els => els.forEach(e => {
+                e.style.filter = 'blur(8px)';
+                e.style.userSelect = 'none';
+            }));
         }
         if (typeof r.markieren === 'string') {
             await ziel(page, r.markieren).evaluate((el, farbe) => {
