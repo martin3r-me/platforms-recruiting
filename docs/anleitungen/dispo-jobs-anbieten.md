@@ -17,7 +17,7 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 ## Dispo · Jobs anbieten | Anfrage anlegen in drei Schritten
 
 ![Neue Anfrage mit der Schrittleiste oben](schrittleiste.png)
-<!-- shot: seite=/recruiting/dispo-jobs/neu ausschnitt="Neue Anfrage" -->
+<!-- shot: seite=/recruiting/dispo-jobs/neu ausschnitt="css:div.p-6.space-y-6" markieren="1 Was suchst du?" -->
 
 1. **Was suchst du?** Wähle die Filiale und den Zeitraum. Darunter erscheinen die Veranstaltungen mit Einsatztagen in diesem Zeitraum. Hake an, für welche du Leute suchst.
 2. **Schichten:** Trag bei jeder Schicht ein, wie viele Leute du suchst (Spalte **„gesucht“**). Leer heißt: Diese Schicht wird nicht angeboten. Unter **„Zeit“** steht Beginn und Ende, so wie sie in ZAS eingetragen sind. Fehlt eine Schicht, fügst du sie unter **„Andere Schicht hinzufügen“** dazu. Das **Ende** ist dort freiwillig, eine Nachtschicht wie 18:00 bis 02:00 geht auch.
@@ -28,7 +28,7 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 ## Dispo · Jobs anbieten | Die Übersicht
 
 ![Übersicht der Anfragen mit Filter und Spalte „Besetzt“](uebersicht.png)
-<!-- shot: seite=/recruiting/dispo-jobs ausschnitt="Jobs anbieten" -->
+<!-- shot: seite=/recruiting/dispo-jobs klicks="Alle" ausschnitt="css:div.p-6.space-y-6" -->
 
 1. Unter **Disposition → Jobs anbieten** siehst du alle Anfragen. Oben wählst du **„Offen“**, **„Abgeschlossen“** oder **„Alle“**.
 2. **„Besetzt“** zeigt, wie viele der gesuchten Plätze schon eine Zusage haben, zum Beispiel **„6 / 10“**. Grün heißt: Alle Plätze sind gedeckt. **„(+2)“** dahinter heißt: Zwei Leute haben zusätzlich zugesagt.
