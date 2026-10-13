@@ -12,7 +12,7 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
  */
 final class DispoJobZasHaken
 {
-    /** @return bool false, wenn die Zeile nicht zur Anfrage gehoert */
+    /** @return bool false, wenn die Zeile nicht zur Anfrage gehoert oder (inzwischen) nicht mehr zugesagt ist */
     public static function umschalten(RecDispoJobRequest $request, int $offerShiftId, ?int $userId): bool
     {
         $zeile = RecDispoJobOfferShift::query()
@@ -24,12 +24,16 @@ final class DispoJobZasHaken
             return false;
         }
         $an = $zeile->zas_entered_at === null;
-        $zeile->update([
-            'zas_entered_at'         => $an ? now() : null,
-            'zas_entered_by_user_id' => $an ? $userId : null,
-        ]);
+        // Bedingtes Update: nimmt die Person zwischen Lesen und Schreiben zurueck, bleibt die Zeile ohne Haken.
+        $n = RecDispoJobOfferShift::query()
+            ->whereKey($zeile->id)
+            ->whereNotNull('accepted_at')
+            ->update([
+                'zas_entered_at'         => $an ? now() : null,
+                'zas_entered_by_user_id' => $an ? $userId : null,
+            ]);
 
-        return true;
+        return $n > 0;
     }
 
     /** @return int Anzahl neu gesetzter Haken */
