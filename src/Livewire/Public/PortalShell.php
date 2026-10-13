@@ -212,6 +212,8 @@ class PortalShell extends Component
         $ergebnis = $auth->attempt($employee, $this->token, $this->birthDate, $this->idLast4);
 
         if ($ergebnis['status'] === PortalAuth::OK) {
+            // Neue Sitzungskennung (Session Fixation), CSRF-Token bleibt.
+            PortalAuth::erneuereSitzungskennung();
             session()->put(PortalAuth::sessionKey($employee->id), PortalAuth::anmeldeWert());
 
             // Denselben Stempel wie das alte Portal setzen — an ihm haengt die

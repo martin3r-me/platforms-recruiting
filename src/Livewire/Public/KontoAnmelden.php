@@ -458,6 +458,12 @@ class KontoAnmelden extends Component
             return;
         }
 
+        // Neue Sitzungskennung, BEVOR die Sitzung etwas oeffnet (Session
+        // Fixation, Begruendung und migrate statt regenerate an
+        // PortalAuth::erneuereSitzungskennung). Die Eintragung "angemeldet
+        // bleiben" weiter unten trifft damit schon die NEUE Kennung.
+        PortalAuth::erneuereSitzungskennung();
+
         // HIER liegt die Falle, vor der der Klassen-Docblock warnt: in
         // sessionKey() gehoert eine ANSTELLUNGS-Kennung, niemals die
         // Personen-Kennung aus $ergebnis.

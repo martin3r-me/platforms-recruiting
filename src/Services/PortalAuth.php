@@ -542,6 +542,42 @@ final class PortalAuth
     }
 
     /**
+     * Nach JEDER gelungenen Anmeldung (Konto, Token-Weg neu und alt): die
+     * Sitzung bekommt eine NEUE Kennung, die alte Zeile wird geloescht.
+     *
+     * SESSION FIXATION: ohne den Wechsel gaelte eine Kennung, die ein Fremder
+     * dem Browser VOR der Anmeldung untergeschoben hat, danach als
+     * angemeldete Sitzung — mit "angemeldet bleiben" 180 Tage lang.
+     *
+     * migrate(true), NICHT regenerate(): regenerate() tauscht zusaetzlich das
+     * CSRF-Token (Store::regenerate = migrate + regenerateToken). Die offene
+     * Livewire-Seite schickt ihr Token aus dem ersten Aufbau weiter mit; nach
+     * einem Tausch scheiterte ihre naechste Aktion (Zustand 'ohne-ziel',
+     * Abmelden, die verifizierte Huelle) mit 419. Die Inhalte der Sitzung
+     * bleiben, nur die Kennung wechselt. Den neuen Sitzungs-Cookie setzt
+     * StartSession nach dem Handler mit getId() — also schon in DIESER
+     * Antwort.
+     *
+     * Eine Eintragung als lange Sitzung haengt an der ALTEN Kennung und geht
+     * mit (LangeSitzung::vergiss). Die Konto-Anmeldung traegt danach die
+     * NEUE Kennung ein, wenn der Haken steht; der Token-Weg traegt nichts ein
+     * — eine Token-Anmeldung in einer langen Sitzung macht sie wieder kurz
+     * (sonst ritte eine untergeschobene, eingetragene Sitzung samt fremder
+     * Konto-Schluessel 180 Tage mit).
+     */
+    public static function erneuereSitzungskennung(): void
+    {
+        $sitzung = app('session');
+        $alt = (string) $sitzung->getId();
+
+        $sitzung->migrate(true);
+
+        if ($alt !== '') {
+            LangeSitzung::vergiss($alt);
+        }
+    }
+
+    /**
      * Was eine frische Portal-Sitzung speichert: den ANMELDEZEITPUNKT statt
      * true (Spec HR-Bereich §9.6). Eine Stelle fuer alle drei Schreibstellen
      * (KontoAnmelden, PortalShell, EmployeePortal).

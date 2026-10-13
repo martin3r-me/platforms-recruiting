@@ -218,7 +218,10 @@ class EmployeePortal extends Component
             return;
         }
 
-        // Verifikation erfolgreich — Session-Flag setzen + Audit
+        // Verifikation erfolgreich — neue Sitzungskennung (Session Fixation,
+        // CSRF-Token bleibt; PortalAuth::erneuereSitzungskennung), dann
+        // Session-Flag setzen + Audit
+        PortalAuth::erneuereSitzungskennung();
         session()->put($this->sessionKey(), PortalAuth::anmeldeWert());
         $employee->update(['portal_verified_at' => now()]);
         $this->angemeldetLaden($employee->fresh());

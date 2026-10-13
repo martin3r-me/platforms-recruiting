@@ -136,6 +136,42 @@ final class PortalShellVerifyTest extends TestCase
         $this->assertTrue($this->session->has(PortalAuth::sessionKey($ma->id)));
     }
 
+    /**
+     * Session Fixation auch auf dem Token-Weg: die gelungene Anmeldung
+     * wechselt die Sitzungskennung, das CSRF-Token bleibt (migrate, nicht
+     * regenerate) — die offene Huelle arbeitet danach weiter.
+     */
+    public function test_die_anmeldung_wechselt_die_kennung_und_behaelt_das_csrf_token(): void
+    {
+        $this->session->put('_token', str_repeat('c', 40));
+        $alt = $this->session->getId();
+
+        $ma = $this->ma();
+        $shell = $this->shell($ma);
+        $shell->birthDate = '1995-03-14';
+        $shell->idLast4 = '0T47';
+        $shell->verify($this->auth());
+
+        $this->assertSame('verified', $shell->state);
+        $this->assertNotSame($alt, $this->session->getId());
+        $this->assertSame(str_repeat('c', 40), $this->session->token());
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey($ma->id)));
+    }
+
+    /** Ein Fehlversuch wechselt die Kennung nicht. */
+    public function test_ein_fehlversuch_wechselt_die_kennung_nicht(): void
+    {
+        $alt = $this->session->getId();
+
+        $shell = $this->shell($this->ma());
+        $shell->birthDate = '1995-03-14';
+        $shell->idLast4 = '9999';
+        $shell->verify($this->auth());
+
+        $this->assertNotSame('verified', $shell->state, 'Vorflug: der Versuch ist gescheitert');
+        $this->assertSame($alt, $this->session->getId());
+    }
+
     public function test_buchstaben_in_der_ausweisnummer_funktionieren(): void
     {
         // Der Grund, warum am Feld kein inputmode="numeric" stehen darf.

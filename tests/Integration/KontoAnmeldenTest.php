@@ -1036,6 +1036,90 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
     }
 
+    // ------------------------------------------------- Session Fixation
+
+    /**
+     * SESSION FIXATION: die Anmeldung wechselt die Sitzungskennung. Eine
+     * Kennung, die ein Fremder vorher untergeschoben hat, ist danach nichts
+     * mehr wert — die alte Zeile ist geloescht, eingetragen ist die NEUE.
+     * Das CSRF-Token bleibt (migrate, nicht regenerate): die offene
+     * Livewire-Seite schickt es weiter mit.
+     */
+    public function test_die_anmeldung_wechselt_die_sitzungskennung_und_behaelt_das_csrf_token(): void
+    {
+        $this->session->put('_token', str_repeat('c', 40));
+        $this->session->put('vorher', 'bleibt');
+        $alt = $this->session->getId();
+        $this->session->save(); // die alte Zeile existiert im Handler
+        $this->assertNotSame('', $this->session->getHandler()->read($alt), 'Vorflug: die alte Zeile ist da');
+
+        $this->anmeldung()->anmelden($this->auth());
+
+        $neu = $this->session->getId();
+        $this->assertNotSame($alt, $neu, 'Die Anmeldung behaelt eine womoeglich untergeschobene Kennung.');
+        $this->assertSame('', $this->session->getHandler()->read($alt), 'Die alte Sitzungszeile lebt weiter.');
+        $this->assertSame(str_repeat('c', 40), $this->session->token(), 'Das CSRF-Token wurde getauscht — die offene Seite bekaeme 419.');
+        $this->assertSame('bleibt', $this->session->get('vorher'));
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+
+        $this->assertSame([$neu], DB::table(LangeSitzung::TABELLE)->pluck('session_id')->all());
+    }
+
+    /** Eine Eintragung der ALTEN Kennung (fruehere Anmeldung mit Haken) geht mit — auch ohne Haken. */
+    public function test_die_eintragung_der_alten_kennung_faellt_weg(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+        $erste = $this->session->getId();
+        $this->assertSame([$erste], DB::table(LangeSitzung::TABELLE)->pluck('session_id')->all(), 'Vorflug');
+
+        $zweite = $this->anmeldung();
+        $zweite->angemeldetBleiben = true;
+        $zweite->anmelden($this->auth());
+
+        $this->assertNotSame($erste, $this->session->getId());
+        $this->assertSame([$this->session->getId()], DB::table(LangeSitzung::TABELLE)->pluck('session_id')->all());
+    }
+
+    /** Ein Fehlversuch wechselt die Kennung NICHT — nur eine gelungene Anmeldung. */
+    public function test_ein_fehlversuch_wechselt_die_kennung_nicht(): void
+    {
+        $alt = $this->session->getId();
+
+        $fehl = $this->seite();
+        $fehl->nummer = self::NUMMER_GETIPPT;
+        $fehl->passwort = self::FALSCHES_PASSWORT;
+        $fehl->anmelden($this->auth());
+
+        $this->assertSame($alt, $this->session->getId());
+    }
+
+    /**
+     * Zustand 'ohne-ziel': die Seite bleibt offen, ihre naechste Aktion
+     * (Abmelden) muss durch die CSRF-Pruefung — das Token ist dasselbe wie
+     * beim ersten Aufbau. Abmelden raeumt die Eintragung der NEUEN Kennung.
+     */
+    public function test_ohne_ziel_abmelden_geht_nach_dem_kennungswechsel(): void
+    {
+        DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)
+            ->update(['portal_v2_since' => null]);
+        $this->session->put('_token', str_repeat('c', 40));
+        $alt = $this->session->getId();
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $this->assertSame('ohne-ziel', $seite->state);
+        $this->assertNotSame($alt, $this->session->getId());
+        $this->assertSame(str_repeat('c', 40), $this->session->token());
+        $this->assertSame(1, DB::table(LangeSitzung::TABELLE)->where('session_id', $this->session->getId())->count());
+
+        $seite->abmelden();
+
+        $this->assertSame('formular', $seite->state);
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+        $this->assertSame(str_repeat('c', 40), $this->session->token());
+    }
+
     private function assertMerkerGeloescht(): void
     {
         $merker = null;

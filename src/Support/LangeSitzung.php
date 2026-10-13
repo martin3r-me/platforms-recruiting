@@ -142,6 +142,20 @@ final class LangeSitzung
     }
 
     /**
+     * Die Eintragung einer Kennung loeschen, die es nicht mehr gibt (nach
+     * PortalAuth::erneuereSitzungskennung). Der Merker bleibt — er oeffnet
+     * allein nichts. Fehlt die Tabelle, gibt es nichts zu loeschen.
+     */
+    public static function vergiss(string $sitzungsId): void
+    {
+        if ($sitzungsId === '' || !self::tabelleDa()) {
+            return;
+        }
+
+        DB::table(self::TABELLE)->where('session_id', $sitzungsId)->delete();
+    }
+
+    /**
      * Gilt fuer DIESE Anfrage die lange Lebensdauer?
      *
      * Ja nur, wenn ALLES stimmt: Merker gesetzt, Sitzungs-Cookie vorhanden,

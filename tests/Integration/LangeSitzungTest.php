@@ -351,6 +351,63 @@ final class LangeSitzungTest extends TestCase
         $this->assertTrue($lauf['angemeldet']);
     }
 
+    // -------------------------------------------------- Session Fixation
+
+    /**
+     * SESSION FIXATION, die ganze Kette mit echtem StartSession und echtem
+     * DatabaseSessionHandler: eine untergeschobene Kennung — sogar eine, die
+     * der Angreifer mit seinem EIGENEN Konto als lange Sitzung eingetragen
+     * hat — ist nach der Anmeldung tot. Die Antwort setzt schon den Cookie
+     * mit der neuen Kennung, eingetragen ist die neue, das CSRF-Token ist
+     * dasselbe, und nur die neue Kennung wird noch verlaengert.
+     */
+    public function test_die_anmeldung_wechselt_die_kennung_und_nur_die_neue_wird_verlaengert(): void
+    {
+        $alt = self::kennung('f');
+        $this->sitzung($alt, 60);
+        $this->eintragen($alt);
+
+        $manager = new SessionManager($this->container);
+        $this->container->instance('session', $manager);
+
+        $antwort = (new LangeSitzungVerlaengern())->handle(
+            $this->anfrage([self::COOKIE_SITZUNG => $alt, LangeSitzung::COOKIE => '1']),
+            function (Request $r) use ($manager) {
+                return (new StartSession($manager))->handle($r, function () {
+                    // Was KontoAnmelden::anmelden() nach dem Passwortnachweis tut.
+                    PortalAuth::erneuereSitzungskennung();
+                    LangeSitzung::beginne(2);
+
+                    return new Response('ok');
+                });
+            },
+        );
+
+        $cookie = $this->sitzungsCookie($antwort);
+        $this->assertNotNull($cookie);
+        $neu = (string) $cookie->getValue();
+        $this->assertNotSame($alt, $neu, 'Die Antwort setzt noch die untergeschobene Kennung.');
+        $this->assertMatchesRegularExpression('/^[a-zA-Z0-9]{40}$/', $neu);
+
+        $this->assertSame([$neu], DB::table('sessions')->pluck('id')->all(), 'Die alte Sitzungszeile lebt weiter.');
+        $this->assertSame([$neu], DB::table(LangeSitzung::TABELLE)->pluck('session_id')->all());
+
+        $nutzlast = unserialize(base64_decode((string) DB::table('sessions')->where('id', $neu)->value('payload')));
+        $this->assertSame(str_repeat('t', 40), $nutzlast['_token'], 'Das CSRF-Token wurde getauscht — die offene Seite bekaeme 419.');
+        $this->assertArrayHasKey(PortalAuth::sessionKey(7), $nutzlast, 'Die Inhalte der Sitzung sind beim Wechsel verloren gegangen.');
+
+        // Die alte Kennung: nichts mehr — weder Anmeldung noch Verlaengerung.
+        config(['session.lifetime' => 120]);
+        $lauf = $this->durchlauf($this->anfrage([self::COOKIE_SITZUNG => $alt, LangeSitzung::COOKIE => '1']));
+        $this->assertFalse($lauf['angemeldet']);
+        $this->assertSame(120, config('session.lifetime'));
+
+        // Die neue Kennung: drei Stunden Ruhe, trotzdem angemeldet.
+        DB::table('sessions')->where('id', $neu)->update(['last_activity' => time() - 3 * 3600]);
+        $this->assertTrue($this->durchlauf($this->anfrage([self::COOKIE_SITZUNG => $neu, LangeSitzung::COOKIE => '1']))['angemeldet']);
+        $this->assertSame(LangeSitzung::MINUTEN, config('session.lifetime'));
+    }
+
     // -------------------------------------------------- Die Stelle im Stapel
 
     /**
