@@ -14,12 +14,14 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
  *
  * „Doch nicht“ (Runde 2): Die Repraesentantin kann eine offene Schwester sein,
  * waehrend die Gruppe zugesagt ist — darum zielt die Ruecknahme auf zurueck_id,
- * die kleinste Angebots-Schicht der Gruppe, die zuruecknehmbar ist.
+ * die kleinste Angebots-Schicht der Gruppe, die zuruecknehmbar ist. Ist eine
+ * zugesagte Schwester schon in ZAS eingetragen oder angekommen, lehnt
+ * JobOffersRuecknahme die ganze Gruppe ab — dann kein „Doch nicht?“.
  */
 final class JobOffersBuendelung
 {
     /**
-     * @param list<array{offer_shift_id:int, event:int, datum:string, von:?string, taetigkeit:?string, accepted:bool, closed:bool, frei:?int, zurueck?:bool}> $rows
+     * @param list<array{offer_shift_id:int, event:int, datum:string, von:?string, taetigkeit:?string, accepted:bool, closed:bool, frei:?int, zurueck?:bool, eingetragen?:bool}> $rows
      * @return list<array<string,mixed>> Zeile der Repraesentantin + offer_shift_ids, accepted, voll, frei, zurueck, zurueck_id
      */
     public static function buendeln(array $rows): array
@@ -35,7 +37,8 @@ final class JobOffersBuendelung
             usort($zeilen, fn ($a, $b) => (int) $a['offer_shift_id'] <=> (int) $b['offer_shift_id']);
             $offen = array_values(array_filter($zeilen, fn ($z) => empty($z['closed'])));
             $accepted = array_filter($zeilen, fn ($z) => !empty($z['accepted'])) !== [];
-            $zurueck = array_values(array_filter($zeilen, fn ($z) => !empty($z['zurueck'])));
+            $gesperrt = array_filter($zeilen, fn ($z) => !empty($z['eingetragen'])) !== [];
+            $zurueck = $gesperrt ? [] : array_values(array_filter($zeilen, fn ($z) => !empty($z['zurueck'])));
             $zaehler = array_values(array_filter(array_map(fn ($z) => $z['frei'] ?? null, $offen), fn ($f) => $f !== null));
 
             $out[] = [

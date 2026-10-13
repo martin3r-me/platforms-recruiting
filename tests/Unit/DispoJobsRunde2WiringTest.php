@@ -101,6 +101,7 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('JobOffersRuecknahme::ausfuehren($offerShiftId, $this->employeeIds)', $src);
         $this->assertStringContainsString("'zurueck'", $src);
         $this->assertStringContainsString("'zurueck_id'", $src);
+        $this->assertStringContainsString("'eingetragen'    => \$os->accepted_at !== null && (\$os->zas_entered_at !== null || \$os->zas_assignment_id !== null)", $src);
 
         $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
         $this->assertStringContainsString("@if (\$shift['zurueck'])", $view);

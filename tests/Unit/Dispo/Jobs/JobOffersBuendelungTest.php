@@ -11,7 +11,7 @@ final class JobOffersBuendelungTest extends TestCase
     private static function row(int $id, array $extra = []): array
     {
         return $extra + ['offer_shift_id' => $id, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer',
-            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3, 'zurueck' => false];
+            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3, 'zurueck' => false, 'eingetragen' => false];
     }
 
     public function testGleicheSchichtAusZweiAnfragenErscheintEinmalMitKleinsterId(): void
@@ -85,6 +85,21 @@ final class JobOffersBuendelungTest extends TestCase
 
         $this->assertTrue($out[0]['accepted']);
         $this->assertFalse($out[0]['zurueck'], 'zugesagt, aber eingetragen');
+        $this->assertNull($out[0]['zurueck_id']);
+    }
+
+    public function testEingetrageneSchwesterSperrtDieRuecknahmeDerGanzenGruppe(): void
+    {
+        // Eine Schwester ist in ZAS eingetragen, die andere nur zugesagt: JobOffersRuecknahme
+        // wuerde die ganze Gruppe ablehnen — also kein „Doch nicht?“ zeigen.
+        $out = JobOffersBuendelung::buendeln([
+            self::row(7, ['accepted' => true, 'eingetragen' => true]),
+            self::row(9, ['accepted' => true, 'zurueck' => true]),
+        ]);
+
+        $this->assertCount(1, $out);
+        $this->assertTrue($out[0]['accepted']);
+        $this->assertFalse($out[0]['zurueck']);
         $this->assertNull($out[0]['zurueck_id']);
     }
 }

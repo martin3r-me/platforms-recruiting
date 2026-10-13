@@ -130,6 +130,8 @@ class JobOffers extends Component
                 'accepted'       => $os->accepted_at !== null,
                 // „Doch nicht“: zugesagt und vom Disponenten noch nicht in ZAS eingetragen.
                 'zurueck'        => $os->accepted_at !== null && $os->zas_entered_at === null && $os->zas_assignment_id === null,
+                // Zugesagt und in ZAS eingetragen/angekommen — sperrt die Ruecknahme der ganzen Gruppe.
+                'eingetragen'    => $os->accepted_at !== null && ($os->zas_entered_at !== null || $os->zas_assignment_id !== null),
                 'zuerst'         => $zuerst,
                 'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
                 'os'             => $os,
