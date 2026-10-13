@@ -14,21 +14,22 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTemplateSettings;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\Filialen;
 
 /**
- * Jobs anbieten → Neue Anfrage in fuenf Schritten (Spec 2026-10-12 §4.1–4.5).
+ * Jobs anbieten → Neue Anfrage in drei Schritten (Spec 2026-10-14 §3).
  *
- * Alles, was der Browser schickt, gilt als Wunsch: VAs, Schichten, Vorlage und
+ * Alles, was der Browser schickt, gilt als Wunsch: VAs, Schichten, Anlass und
  * Bloecke werden beim Anlegen gegen die serverseitig berechneten Optionen
  * gefiltert. Zahlenfelder sind Strings (typisierte int-Properties an
  * wire:model crashen bei leerem Feld).
@@ -36,6 +37,9 @@ use Platform\Recruiting\Support\Filialen;
 class Create extends Component
 {
     public const SESSION_FILIALE = 'dispo_jobs_filiale';
+
+    /** Spalten der Einbuchungen fuer die Schicht-Optionen (Schritt 2) — 'bis' liefert die Endzeit aus ZAS. */
+    public const SCHICHT_SPALTEN = ['rec_dispo_event_id', 'datum', 'von', 'bis', 'taetigkeit', 'pnr_raw', 'missing_since', 'deletion_marked_at'];
 
     #[Url]
     public ?int $event = null;
@@ -52,16 +56,18 @@ class Create extends Component
     public array $tage = [];
     /** DispoJobSchichten::schluessel => Zahl (String). @var array<string, string> */
     public array $gesucht = [];
-    /** Freie Schichten: list<{event, datum, von, taetigkeit, gesucht}>. */
+    /** Freie Schichten: list<{event, datum, von, bis, taetigkeit, gesucht}>. */
     public array $andere = [];
 
     public string $neuEventTag = '';
     public string $neuVon = '';
+    public string $neuBis = '';
     public string $neuTaetigkeit = '';
     public string $neuGesucht = '';
 
     public string $modus = RecDispoJobRequest::MODUS_SAMMELN;
-    public string $templateId = '';
+    /** DispoJobAnlass-Schluessel; die Vorlage ergibt sich aus den Einstellungen. */
+    public string $anlass = '';
     /** @var list<string> Blocknummer oder 'ohne' */
     public array $maBloecke = [];
     /** @var list<string> */
@@ -90,10 +96,8 @@ class Create extends Component
         $this->bis = now()->addDays(28)->toDateString();
         $this->filialNr = (string) (session(self::SESSION_FILIALE) ?? '');
 
-        $vorlagen = array_keys($this->vorlagen);
-        if (count($vorlagen) === 1) {
-            $this->templateId = (string) $vorlagen[0];
-        }
+        // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
+        $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
 
         $va = $this->event !== null ? RecDispoEvent::query()->find($this->event) : null;
         if ($va !== null && $va->filial_nr !== null && $va->starts_on !== null) {
@@ -103,8 +107,31 @@ class Create extends Component
             $this->von = max($morgen, $start);
             $this->bis = max($this->von, $ende);
             $this->eventIds = [(string) $va->id];
-            $this->schritt = 4;
+            $this->schritt = 2;
             $this->tageVorbelegen();
+        }
+    }
+
+    /** Wunsch-Anlass, sonst der erste mit hinterlegter Vorlage, sonst keiner. */
+    private function anlassVorbelegen(string $wunsch): string
+    {
+        $ids = $this->anlassVorlagen;
+        if (($ids[$wunsch] ?? null) !== null) {
+            return $wunsch;
+        }
+        foreach ($ids as $anlass => $id) {
+            if ($id !== null) {
+                return $anlass;
+            }
+        }
+
+        return '';
+    }
+
+    public function anlassWaehlen(string $anlass): void
+    {
+        if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
+            $this->anlass = $anlass;
         }
     }
 
@@ -120,7 +147,7 @@ class Create extends Component
     public function weiter(): void
     {
         $this->fehler = '';
-        if ($this->schritt >= 5) {
+        if ($this->schritt >= 3) {
             return;
         }
         $fehler = DispoJobCreateState::kannWeiter($this->schritt, $this->state($this->schritt));
@@ -133,10 +160,10 @@ class Create extends Component
             session([self::SESSION_FILIALE => $this->filialNr]);
         }
         $this->schritt++;
-        if ($this->schritt === 4) {
+        if ($this->schritt === 2) {
             $this->tageVorbelegen();
         }
-        if ($this->schritt === 5) {
+        if ($this->schritt === 3) {
             $this->bloeckeVorbelegen();
             $this->zahlenRechnen();
         }
@@ -168,6 +195,23 @@ class Create extends Component
         $this->bloeckeVorbelegt = false;
     }
 
+    public function updatedVon(): void
+    {
+        $this->hakenAngleichen();
+    }
+
+    public function updatedBis(): void
+    {
+        $this->hakenAngleichen();
+    }
+
+    /** Veranstaltungen, die nach einer Zeitraum-Aenderung nicht mehr gelistet sind, verlieren ihren Haken. */
+    private function hakenAngleichen(): void
+    {
+        unset($this->events);
+        $this->eventIds = DispoJobCreateState::hakenAngleichen($this->eventIds, $this->events->keys()->all());
+    }
+
     public function tagUmschalten(int $eventId, string $datum): void
     {
         $aktiv = $this->tage[$eventId] ?? [];
@@ -183,6 +227,7 @@ class Create extends Component
         [$eventId, $datum] = array_pad(explode('|', $this->neuEventTag, 2), 2, '');
         $eventId = (int) $eventId;
         $von = trim($this->neuVon);
+        $bis = trim($this->neuBis);
         $taet = trim($this->neuTaetigkeit);
         $gesucht = ctype_digit(trim($this->neuGesucht)) ? (int) trim($this->neuGesucht) : 0;
 
@@ -191,8 +236,8 @@ class Create extends Component
 
             return;
         }
-        if ($von !== '' && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $von) !== 1) {
-            $this->fehler = 'Der Beginn muss als Uhrzeit (HH:MM) angegeben werden.';
+        if (($zeitProblem = DispoJobZeit::problem($von, $bis)) !== null) {
+            $this->fehler = $zeitProblem;
 
             return;
         }
@@ -207,8 +252,9 @@ class Create extends Component
             return;
         }
 
-        $this->andere[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'taetigkeit' => $taet, 'gesucht' => (string) $gesucht];
+        $this->andere[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => (string) $gesucht];
         $this->neuVon = '';
+        $this->neuBis = '';
         $this->neuTaetigkeit = '';
         $this->neuGesucht = '';
     }
@@ -266,7 +312,8 @@ class Create extends Component
 
     private function zeitraumGueltig(): bool
     {
-        return DispoJobCreateState::kannWeiter(2, $this->state(2)) === null;
+        // Eigenes Array statt state(): state() holt die Veranstaltungen, die ihrerseits diese Pruefung brauchen.
+        return DispoJobCreateState::zeitraumProblem(['heute' => now()->toDateString(), 'von' => $this->von, 'bis' => $this->bis]) === null;
     }
 
     /** VAs der Filiale mit mindestens einer (nicht verschwundenen) Einbuchung im Zeitraum. */
@@ -308,7 +355,7 @@ class Create extends Component
         $rows = RecDispoAssignment::query()
             ->whereIn('rec_dispo_event_id', $ids)
             ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis)
-            ->get(['rec_dispo_event_id', 'datum', 'von', 'taetigkeit', 'pnr_raw', 'missing_since', 'deletion_marked_at'])
+            ->get(self::SCHICHT_SPALTEN)
             ->groupBy('rec_dispo_event_id');
 
         $out = [];
@@ -371,7 +418,7 @@ class Create extends Component
      * Alle Schichten der aktuellen Auswahl (ZAS-Schichten der aktiven Tage + andere),
      * auch mit gesucht 0 — DispoJobAnfrageAnlegen filtert.
      *
-     * @return list<array{event:int, datum:string, von:string, taetigkeit:string, gesucht:int}>
+     * @return list<array{event:int, datum:string, von:string, bis:string, taetigkeit:string, gesucht:int}>
      */
     #[Computed]
     public function gewaehlteSchichten(): array
@@ -384,7 +431,7 @@ class Create extends Component
                     continue;
                 }
                 foreach ($schichten as $s) {
-                    $out[] = ['event' => (int) $eventId, 'datum' => $datum, 'von' => $s['von'], 'taetigkeit' => $s['taetigkeit'],
+                    $out[] = ['event' => (int) $eventId, 'datum' => $datum, 'von' => $s['von'], 'bis' => $s['bis'], 'taetigkeit' => $s['taetigkeit'],
                         'gesucht' => self::zahl($this->gesucht[$s['key']] ?? '')];
                 }
             }
@@ -395,12 +442,13 @@ class Create extends Component
             $eventId = (int) ($a['event'] ?? 0);
             $datum = (string) ($a['datum'] ?? '');
             $von = trim((string) ($a['von'] ?? ''));
+            $bis = trim((string) ($a['bis'] ?? ''));
             $taet = trim((string) ($a['taetigkeit'] ?? ''));
             if (!in_array($datum, $eventTage[$eventId] ?? [], true) || !in_array($taet, $katalog, true)
-                || ($von !== '' && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $von) !== 1)) {
+                || DispoJobZeit::problem($von, $bis) !== null) {
                 continue;
             }
-            $out[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'taetigkeit' => $taet, 'gesucht' => self::zahl($a['gesucht'] ?? '')];
+            $out[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => self::zahl($a['gesucht'] ?? '')];
         }
 
         return $out;
@@ -413,6 +461,13 @@ class Create extends Component
         return DispoJobKandidaten::blockOptionen($this->teamId());
     }
 
+    /** @return array<string, ?int> Anlass => in den Einstellungen hinterlegte Vorlagen-ID */
+    #[Computed]
+    public function anlassVorlagen(): array
+    {
+        return DispoJobAnlass::templateIds(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
+    }
+
     /** @return array<int, object> id => Vorlage (nur die in den Einstellungen hinterlegten) */
     #[Computed]
     public function vorlagen(): array
@@ -420,7 +475,7 @@ class Create extends Component
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
             return [];
         }
-        $ids = DispoJobTemplateSettings::lesen(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
+        $ids = array_values(array_unique(array_filter($this->anlassVorlagen)));
         if ($ids === []) {
             return [];
         }
@@ -431,10 +486,17 @@ class Create extends Component
             ->keyBy('id')->all();
     }
 
+    /** Die zum gewaehlten Anlass hinterlegte Vorlagen-ID (null = keiner gewaehlt / nichts hinterlegt). */
+    #[Computed]
+    public function vorlagenId(): ?int
+    {
+        return DispoJobAnlass::istGueltig($this->anlass) ? ($this->anlassVorlagen[$this->anlass] ?? null) : null;
+    }
+
     #[Computed]
     public function vorlage(): ?object
     {
-        return ctype_digit($this->templateId) ? ($this->vorlagen[(int) $this->templateId] ?? null) : null;
+        return $this->vorlagenId !== null ? ($this->vorlagen[$this->vorlagenId] ?? null) : null;
     }
 
     /** @return array{text:?string, buttons:list<string>}|null */
@@ -456,15 +518,18 @@ class Create extends Component
         if ($this->vorlagen === []) {
             return 'In den Dispo-Einstellungen ist noch keine Vorlage für Jobangebote hinterlegt.';
         }
-        if ($this->templateId === '') {
-            return 'Noch keine Vorlage gewählt — ohne sie geht nichts raus.';
+        if (!DispoJobAnlass::istGueltig($this->anlass)) {
+            return 'Noch kein Anlass gewählt — ohne ihn geht nichts raus.';
+        }
+        if ($this->vorlagenId === null) {
+            return 'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.';
         }
         $t = $this->vorlage;
         if ($t === null) {
-            return 'Diese Vorlage ist nicht mehr verfügbar — bitte wähle eine andere.';
+            return 'Die Vorlage für diesen Anlass ist nicht mehr verfügbar — bitte in den Einstellungen eine andere hinterlegen.';
         }
         if ($t->status !== 'APPROVED') {
-            return 'Die Vorlage „' . $t->name . '“ ist bei Meta nicht (mehr) freigegeben — bitte wähle eine andere.';
+            return 'Die Vorlage „' . $t->name . '“ ist bei Meta nicht (mehr) freigegeben — bitte in den Einstellungen eine andere hinterlegen.';
         }
 
         return DispoJobVorlagenWaechter::problem($t->components);
@@ -473,8 +538,8 @@ class Create extends Component
     /**
      * Zahlen vor dem Senden mit der AKTUELLEN Auswahl (neue Anfrage: noch
      * niemand angeschrieben). Gespeichert statt Computed: der Lauf laedt alle
-     * Mitarbeiter und soll nur bei Eintritt in Schritt 5 und bei Aenderung von
-     * Bloecken/Gruppen/Haken laufen — nicht bei Vorlage, Modus oder Startzeit.
+     * Mitarbeiter und soll nur bei Eintritt in Schritt 3 und bei Aenderung von
+     * Bloecken/Gruppen/Haken laufen — nicht bei Anlass, Modus oder Startzeit.
      */
     private function zahlenRechnen(): void
     {
@@ -490,7 +555,7 @@ class Create extends Component
 
     public function updated(string $name): void
     {
-        if ($this->schritt === 5 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
+        if ($this->schritt === 3 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -508,10 +573,10 @@ class Create extends Component
 
     /**
      * Zustand fuer DispoJobCreateState — nur serverseitig bekannte Werte, und
-     * nur so viel, wie Schritt $bisSchritt braucht (Schritt 5 laedt alle
+     * nur so viel, wie Schritt $bisSchritt braucht (Schritt 3 laedt alle
      * Mitarbeiter fuer die Bloecke — das soll nicht schon in Schritt 1 laufen).
      */
-    private function state(int $bisSchritt = 5): array
+    private function state(int $bisSchritt = 3): array
     {
         $state = [
             'heute'     => now()->toDateString(),
@@ -519,17 +584,16 @@ class Create extends Component
             'von'       => $this->von,
             'bis'       => $this->bis,
         ];
-        if ($bisSchritt >= 3) {
-            $state['event_ids'] = $this->gewaehlteEvents->keys()->all();
-        }
-        if ($bisSchritt >= 4) {
+        $state['event_ids'] = $this->gewaehlteEvents->keys()->all();
+        if ($bisSchritt >= 2) {
             $state['gesucht'] = array_column($this->gewaehlteSchichten, 'gesucht');
             $state['andere'] = []; // schon in gesucht enthalten (gewaehlteSchichten prueft sie)
         }
-        if ($bisSchritt >= 5) {
+        if ($bisSchritt >= 3) {
             $auswahl = $this->auswahl();
             $state += [
-                'template_id'      => $this->templateId,
+                'anlass'           => $this->anlass,
+                'template_id'      => (string) ($this->vorlagenId ?? ''),
                 'vorlagen_problem' => $this->vorlagenProblem,
                 'gruppen'          => $auswahl['gruppen'],
                 'bloecke'          => $auswahl['bloecke'],
@@ -547,7 +611,7 @@ class Create extends Component
     public function anlegenUndSenden(): void
     {
         $this->fehler = '';
-        if ($this->schritt !== 5) {
+        if ($this->schritt !== 3) {
             return;
         }
         $fehler = DispoJobCreateState::alles($this->state());
@@ -572,7 +636,8 @@ class Create extends Component
             'von'         => $this->von,
             'bis'         => $this->bis,
             'modus'       => $this->modus,
-            'template_id' => (int) $this->templateId,
+            'anlass'      => $this->anlass,
+            'template_id' => (int) $this->vorlagenId,
             'schichten'   => $this->gewaehlteSchichten,
             'minuten'     => $minuten,
         ] + $auswahl, $teamId, $userId);

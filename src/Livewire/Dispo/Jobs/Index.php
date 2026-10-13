@@ -2,10 +2,12 @@
 
 namespace Platform\Recruiting\Livewire\Dispo\Jobs;
 
+use Livewire\Attributes\Url;
 use Livewire\Component;
-use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOffeneZusagen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobUebersichtZahlen;
 
 /**
  * Jobs anbieten → Uebersicht der Anfragen des Teams (neueste zuerst).
@@ -25,28 +27,27 @@ class Index extends Component
         return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
     }
 
+    #[Url]
+    public string $filter = 'offen';
+
     public function render()
     {
+        $filter = in_array($this->filter, ['offen', 'zu', 'alle'], true) ? $this->filter : 'offen';
         $anfragen = RecDispoJobRequest::query()
             ->where('team_id', $this->teamId())
+            ->when($filter === 'offen', fn ($q) => $q->whereNull('closed_at')->where('status', '!=', RecDispoJobRequest::STATUS_ABGESCHLOSSEN))
+            ->when($filter === 'zu', fn ($q) => $q->where(fn ($w) => $w->whereNotNull('closed_at')->orWhere('status', RecDispoJobRequest::STATUS_ABGESCHLOSSEN)))
             ->withCount('shifts')
             ->with(['waves' => fn ($q) => $q->orderByDesc('nr')])
             ->orderByDesc('id')
             ->limit(self::LIMIT)
             ->get();
 
-        $ids = $anfragen->pluck('id')->all();
-        $zusagen = $ids === [] ? [] : RecDispoJobOfferShift::query()
-            ->join('rec_dispo_job_offers', 'rec_dispo_job_offers.id', '=', 'rec_dispo_job_offer_shifts.offer_id')
-            ->whereIn('rec_dispo_job_offers.request_id', $ids)
-            ->whereNotNull('rec_dispo_job_offer_shifts.accepted_at')
-            ->groupBy('rec_dispo_job_offers.request_id')
-            ->selectRaw('rec_dispo_job_offers.request_id as request_id, COUNT(*) as anzahl')
-            ->pluck('anzahl', 'request_id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
-
-        return view('recruiting::livewire.dispo.jobs.index', ['anfragen' => $anfragen, 'zusagen' => $zusagen])
-            ->layout('platform::layouts.app');
+        return view('recruiting::livewire.dispo.jobs.index', [
+            'anfragen'      => $anfragen,
+            'zahlen'        => DispoJobUebersichtZahlen::laden($anfragen->pluck('id')->all()),
+            'filter'        => $filter,
+            'offeneZusagen' => DispoJobOffeneZusagen::count($this->teamId()),
+        ])->layout('platform::layouts.app');
     }
 }

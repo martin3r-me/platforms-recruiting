@@ -242,6 +242,22 @@ class Index extends Component
     }
 
     /**
+     * „Ich bin“ je Bewerber für die Schulungsnachbereitung (Kunde 13.10.2026):
+     * Der Schulungsleiter setzt den Zuschlag von Hand und sieht hier, wer
+     * Azubi, Teilzeit oder anderweitig angestellt ist — ohne jeden Bewerber
+     * einzeln zu öffnen. Nur Anzeige, keine Vorbelegung.
+     *
+     * @return array<int, string> applicant_id => Label
+     */
+    #[Computed]
+    public function ichBinLabels(): array
+    {
+        return \Platform\Recruiting\Services\Applicants\IchBinLabels::forApplicants(
+            $this->bookings->pluck('applicant.id')->filter()->all()
+        );
+    }
+
+    /**
      * Offene Nicht-EU-Fälle der sichtbaren Bewerber — EIN Batch-Query,
      * keyed by applicant_id (Blade: Lock-Badge "Liegt beim HR-Schreibtisch").
      *

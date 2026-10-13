@@ -2,9 +2,11 @@
 @php
     $anfrage = $this->vorgang;
     $schichten = $this->schichten;
+    $fortschritt = $this->fortschritt;
     $wellen = $this->wellen;
     $rueck = $this->rueckmeldungen;
     $filialLabel = \Platform\Recruiting\Support\Filialen::code($anfrage->filial_nr) ?? ('#' . $anfrage->filial_nr);
+    $anlassLabel = ($anfrage->anlass ?? '') !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::label((string) $anfrage->anlass) : '—';
     $modusLabel = $anfrage->modus === \Platform\Recruiting\Models\RecDispoJobRequest::MODUS_ZUERST ? 'Wer zuerst kommt' : 'Alle Zusagen sammeln';
     $statusLabel = match (true) {
         !$offen => 'abgeschlossen' . ($anfrage->closed_at ? ' am ' . $anfrage->closed_at->format('d.m.Y') : ''),
@@ -27,8 +29,9 @@
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-600">
                 <span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusLabel }}</span>
                 <span>{{ $modusLabel }}</span>
-                <span>· Vorlage {{ $this->vorlageName }}</span>
+                <span>· Anlass: {{ $anlassLabel }}</span>
             </div>
+            <div class="mt-0.5 text-xs text-gray-400">Vorlage {{ $this->vorlageName }}</div>
         </div>
         @if ($offen)
             <button type="button" wire:click="abschliessen" wire:confirm="{{ $schliessenText }}"
@@ -140,7 +143,7 @@
             <p class="text-sm text-gray-500">Noch keine Welle.</p>
         @endforelse
 
-        {{-- Neue Welle: gleiche Auswahl wie Schritt 5; wer in dieser Anfrage schon angeschrieben ist, fällt heraus. --}}
+        {{-- Neue Welle: gleiche Auswahl wie Schritt 3; wer in dieser Anfrage schon angeschrieben ist, fällt heraus. --}}
         @if ($neueWelleOffen && $offen)
             @php
                 $bloecke = $this->blockOptionen;
@@ -214,26 +217,69 @@
     {{-- ============================ Schichten + Rückmeldungen ============================ --}}
     <div class="space-y-4">
         <div class="font-medium text-gray-700">Schichten und Rückmeldungen</div>
-        @foreach ($schichten as $s)
+        @php
+            $plaetze = $fortschritt['gesucht'] === 1 ? 'Platz' : 'Plätzen';
+            $balkenKlasse = $fortschritt['prozent'] >= 100 ? 'bg-green-500' : 'bg-blue-500';
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+            <div class="text-sm text-gray-800">
+                <strong>{{ $fortschritt['besetzt'] }}</strong> von {{ $fortschritt['gesucht'] }} {{ $plaetze }} besetzt
+                @if ($fortschritt['zugesagt'] > $fortschritt['besetzt'])
+                    · {{ $fortschritt['zugesagt'] }} Zusagen insgesamt
+                @endif
+                · {{ $fortschritt['eingetragen'] }} in ZAS eingetragen
+                · {{ $fortschritt['angekommen'] }} angekommen
+            </div>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div class="h-2 rounded-full {{ $balkenKlasse }}" style="width: {{ $fortschritt['prozent'] }}%"></div>
+            </div>
+        </div>
+        @foreach (array_merge($fortschritt['offen'], $fortschritt['voll']) as $s)
             @php
                 $zeilen = $rueck['zeilen'][$s->id] ?? [];
                 $schichtTitel = implode(' · ', array_filter([
                     $s->event?->name,
                     $s->datum->locale('de')->isoFormat('dd DD.MM.YYYY'),
-                    $s->von !== '' ? $s->von . ' Uhr' : null,
+                    $s->von !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($s->von, $s->bis) . ' Uhr' : null,
                     $s->taetigkeit,
                 ]));
                 $voll = (int) $s->zugesagt >= (int) $s->gesucht;
+                $kopfKlasse = $voll ? '-mx-4 -mt-4 rounded-t-lg bg-green-50 px-4 pt-4 pb-2' : '';
+                $offeneHaken = count(array_filter($zeilen, fn ($z) => $z->zas_entered_at === null));
+                $listeText = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasListe::text(array_map(
+                    fn ($z) => $rueck['info'][(int) ($z->offer?->rec_employee_id ?? 0)] ?? ['name' => '#' . (int) ($z->offer?->rec_employee_id ?? 0), 'personnel_number' => '', 'phone' => ''],
+                    $zeilen
+                ));
+                $alleText = $offeneHaken . ' ' . ($offeneHaken === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markieren?';
             @endphp
-            <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <div class="font-medium text-gray-800">{{ $schichtTitel }}</div>
+            <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border bg-white p-4 space-y-2 {{ $voll ? 'border-green-200' : 'border-gray-200' }}">
+                <div class="flex flex-wrap items-center justify-between gap-2 {{ $kopfKlasse }}">
+                    <div class="font-medium {{ $voll ? 'text-green-800' : 'text-gray-800' }}">{{ $schichtTitel }}</div>
                     <div class="flex flex-wrap gap-1.5 text-xs">
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">gesucht {{ $s->gesucht }}</span>
                         <span class="rounded-full border px-2 py-0.5 {{ $voll ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-700' }}">zugesagt {{ $s->zugesagt }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">in ZAS eingetragen {{ $s->eingetragen }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">angekommen {{ $s->angekommen }}</span>
                     </div>
+                    @if ($offen && $zeilen !== [])
+                        <div class="flex items-center gap-2" x-data="{ ok: false, zeigen: false, kopieren() {
+                                const text = $refs.liste.value;
+                                if (navigator.clipboard && window.isSecureContext) {
+                                    navigator.clipboard.writeText(text).then(() => { this.ok = true; setTimeout(() => this.ok = false, 2000); });
+                                } else {
+                                    this.zeigen = !this.zeigen;
+                                }
+                            } }">
+                            <button type="button" x-on:click="kopieren()" class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+                                <span x-show="!ok">Liste kopieren</span><span x-show="ok" x-cloak>kopiert</span>
+                            </button>
+                            <textarea x-ref="liste" x-show="zeigen" x-cloak readonly rows="3" class="w-72 rounded border border-gray-300 px-2 py-1 text-xs">{{ $listeText }}</textarea>
+                            @if ($offeneHaken > 0)
+                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }})" wire:confirm="{{ $alleText }}"
+                                        class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">Alle als in ZAS eingetragen markieren</button>
+                            @endif
+                        </div>
+                    @endif
                 </div>
                 @if ($zeilen === [])
                     <p class="text-xs text-gray-400">Noch keine Zusage.</p>
@@ -244,6 +290,9 @@
                                 <th class="py-1 pr-3 font-medium">Name</th>
                                 <th class="py-1 pr-3 font-medium">Zusage</th>
                                 <th class="py-1 pr-3 font-medium">Handynummer</th>
+                                <th class="py-1 pr-3 font-medium" title="Auftrags-Einsatztage im laufenden Monat">Einsätze</th>
+                                <th class="py-1 pr-3 font-medium">Tätigkeit</th>
+                                <th class="py-1 pr-3 font-medium">Bewertung</th>
                                 <th class="py-1 font-medium">ZAS</th>
                             </tr>
                         </thead>
@@ -251,8 +300,11 @@
                             @foreach ($zeilen as $z)
                                 @php
                                     $maId = (int) ($z->offer?->rec_employee_id ?? 0);
-                                    $kontakt = $rueck['kontakte'][$maId] ?? null;
-                                    $maName = $kontakt['name'] ?? ('#' . $maId);
+                                    $info = $rueck['info'][$maId] ?? null;
+                                    $maName = $info['name'] ?? ('#' . $maId);
+                                    $taetPasst = $info !== null && \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo::passt((string) $s->taetigkeit, $info['taetigkeiten']);
+                                    $taetListe = $info !== null && $info['taetigkeiten'] !== [] ? implode(', ', $info['taetigkeiten']) : 'keine Tätigkeiten aus ZAS';
+                                    $bewertung = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo::bewertung($info['ratings'] ?? []);
                                 @endphp
                                 <tr wire:key="zusage-{{ $z->id }}" class="border-t border-gray-100">
                                     <td class="py-1 pr-3">
@@ -263,7 +315,18 @@
                                         @endif
                                     </td>
                                     <td class="py-1 pr-3 tabular-nums text-gray-600">{{ $z->accepted_at->format('d.m. H:i') }}</td>
-                                    <td class="py-1 pr-3 tabular-nums text-gray-600">{{ $kontakt['phone'] ?? '–' }}</td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-600">{{ ($info['phone'] ?? '') !== '' ? $info['phone'] : '–' }}</td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-700">{{ $info['einsaetze'] ?? 0 }}</td>
+                                    <td class="py-1 pr-3">
+                                        @if ($info === null || $info['taetigkeiten'] === [])
+                                            <span class="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-400">keine aus ZAS</span>
+                                        @elseif ($taetPasst)
+                                            <span class="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700" title="{{ $taetListe }}">passt</span>
+                                        @else
+                                            <span class="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600" title="{{ $taetListe }}">andere</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-700" title="{{ $bewertung['title'] }}">{{ $bewertung['text'] }}</td>
                                     <td class="py-1">
                                         <div class="flex flex-wrap items-center gap-3">
                                             <label class="flex cursor-pointer items-center gap-1.5 text-xs">

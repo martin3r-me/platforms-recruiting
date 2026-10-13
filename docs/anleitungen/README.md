@@ -50,6 +50,10 @@ lesbar ist, jede Route in `seiten` existiert und jedes Bild eine Datei oder ein 
 - Rezept-Schlüssel: `seite` (Pfad), `klicks` (mit `;` getrennt), `ausschnitt`, `markieren`,
   `handy` (390×844), `manuell` (Bild selbst ablegen). Werte sind sichtbare Texte; mit `css:`
   davor ein CSS-Selektor.
+- `verdecken` (mit `;` getrennt, CSS-Selektoren) macht Namen und Nummern unscharf. Gegen eine
+  andere Umgebung als die Demo (`RG_ANLEITUNGEN_BASIS=https://mitarbeiter.rheingedeck.de`)
+  werden zusätzlich alle Fotos unscharf. Jedes Bild vor dem Commit ansehen: keine lesbaren
+  echten Namen, Nummern oder Gesichter.
 - Feste Regeln: 1440×900, doppelte Pixeldichte, helles Design, Ausschnitt mit 16 px Rand,
   Markierung als blauer Rahmen (#1273DE).
 - Die Demo läuft auf dem Konto-Zweig. Seiten, die dort anders aussehen als live, erst nach

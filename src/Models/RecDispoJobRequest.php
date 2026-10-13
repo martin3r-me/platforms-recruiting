@@ -16,7 +16,7 @@ class RecDispoJobRequest extends Model
     public const STATUS_ABGESCHLOSSEN = 'abgeschlossen';
 
     protected $table = 'rec_dispo_job_requests';
-    protected $fillable = ['uuid', 'team_id', 'filial_nr', 'zeitraum_von', 'zeitraum_bis', 'modus', 'whatsapp_template_id', 'status', 'created_by_user_id', 'closed_at'];
+    protected $fillable = ['uuid', 'team_id', 'filial_nr', 'zeitraum_von', 'zeitraum_bis', 'modus', 'anlass', 'whatsapp_template_id', 'status', 'created_by_user_id', 'closed_at'];
     protected $casts = ['filial_nr' => 'integer', 'zeitraum_von' => 'date:Y-m-d', 'zeitraum_bis' => 'date:Y-m-d', 'whatsapp_template_id' => 'integer', 'closed_at' => 'datetime'];
 
     protected static function booted(): void

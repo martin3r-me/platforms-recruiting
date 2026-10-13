@@ -10,13 +10,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Dispo\Jobs\Create;
+use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
 use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 
-/** Anlegen einer Anfrage (Schritt 5) und das Auto-Abschliessen der Uebersicht. Muster DispoJobTablesTest. */
+/** Anlegen einer Anfrage (Schritt 3) und das Auto-Abschliessen der Uebersicht. Muster DispoJobTablesTest. */
 class DispoJobCreateFlowTest extends TestCase
 {
     public static function setUpBeforeClass(): void
@@ -38,6 +42,8 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
+            'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -62,12 +68,29 @@ class DispoJobCreateFlowTest extends TestCase
     {
         return $o + [
             'filial_nr' => 200, 'von' => '2026-10-13', 'bis' => '2026-11-09', 'modus' => RecDispoJobRequest::MODUS_SAMMELN,
-            'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
+            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
             'schichten' => [
-                ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
+                ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
             ],
         ];
+    }
+
+    public function test_schicht_optionen_laden_die_endzeit_aus_zas(): void
+    {
+        $this->assertContains('bis', Create::SCHICHT_SPALTEN);
+
+        $event = RecDispoEvent::create(['einsatz_ref' => 'BIS1']);
+        foreach (['a' => '23:00', 'b' => '23:00', 'c' => '22:30'] as $ref => $bis) {
+            RecDispoAssignment::create(['ds_ref' => 'bis-' . $ref, 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'x', 'datum' => '2026-10-24',
+                'von' => '17:00', 'bis' => $bis, 'taetigkeit' => 'Zapfer', 'status_id' => 1]);
+        }
+
+        // Genau die Spaltenliste der Komponente — fehlt 'bis', kommt die Endzeit leer an.
+        $rows = RecDispoAssignment::query()->where('rec_dispo_event_id', $event->id)->get(Create::SCHICHT_SPALTEN);
+        $optionen = DispoJobSchichten::optionen($rows, []);
+
+        $this->assertSame('23:00', $optionen['2026-10-24'][0]['bis']);
     }
 
     public function test_legt_anfrage_schichten_und_welle_1_an(): void
@@ -79,7 +102,8 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame(200, $fresh->filial_nr);
         $this->assertSame(RecDispoJobRequest::STATUS_ENTWURF, $fresh->status);
         $this->assertSame(42, (int) $fresh->created_by_user_id);
-        $this->assertSame(7, $fresh->whatsapp_template_id);
+        $this->assertSame(7, $fresh->whatsapp_template_id, 'die beim Anlegen aufgeloeste Vorlage');
+        $this->assertSame('dringend', $fresh->anlass);
         $this->assertSame('2026-10-13', $fresh->zeitraum_von->format('Y-m-d'));
         $this->assertSame('2026-11-09', $fresh->zeitraum_bis->format('Y-m-d'));
 
@@ -87,6 +111,8 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertCount(2, $shifts);
         $this->assertSame(['17:00', 20, 'Zapfer'], [$shifts[0]->von, $shifts[0]->gesucht, $shifts[0]->taetigkeit]);
         $this->assertSame('', $shifts[1]->von, 'leerer Beginn als Leerstring, nie null');
+        $this->assertSame('23:00', $shifts[0]->bis);
+        $this->assertSame('', $shifts[1]->bis, 'ohne Ende: Leerstring, nie null');
 
         $waves = RecDispoJobWave::where('request_id', $request->id)->get();
         $this->assertCount(1, $waves);

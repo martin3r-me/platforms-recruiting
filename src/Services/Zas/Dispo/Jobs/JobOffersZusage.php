@@ -38,7 +38,7 @@ final class JobOffersZusage
             if ($vorab === null || $vorab->shift === null) {
                 return 'weg';
             }
-            $schwestern = self::schwestern($vorab->shift, $employeeIds, (int) $vorab->id);
+            $schwestern = JobOffersSchwestern::finden($vorab->shift, $employeeIds, (int) $vorab->id);
 
             $shiftIds = array_values(array_unique(array_merge([(int) $vorab->shift_id], array_map(fn ($s) => (int) $s->shift_id, $schwestern))));
             sort($shiftIds);
@@ -75,32 +75,6 @@ final class JobOffersZusage
 
             return 'ok';
         }, 3);
-    }
-
-    /**
-     * Offene Angebots-Schichten derselben Person fuer dieselbe Schicht in anderen laufenden Anfragen.
-     *
-     * @return list<RecDispoJobOfferShift>
-     */
-    private static function schwestern(RecDispoJobShift $shift, array $employeeIds, int $ohneId): array
-    {
-        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
-
-        return RecDispoJobOfferShift::query()
-            ->with('shift')
-            ->where('id', '!=', $ohneId)
-            ->whereNull('accepted_at')
-            ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $employeeIds))
-            ->whereHas('shift', fn ($q) => $q->where('rec_dispo_event_id', $shift->rec_dispo_event_id)
-                ->whereDate('datum', $shift->datum->format('Y-m-d'))
-                ->where('id', '!=', $shift->id)
-                ->whereHas('request', fn ($r) => $r->where('status', RecDispoJobRequest::STATUS_LAEUFT)->whereNull('closed_at')))
-            ->get()
-            // Beginn/Taetigkeit wie auf der Seite vergleichen (trim, Gross-/Kleinschreibung).
-            ->filter(fn ($s) => $s->shift !== null && DispoJobRecipientPlanner::schichtSchluessel(
-                $s->shift->rec_dispo_event_id, $s->shift->datum->format('Y-m-d'), $s->shift->von, $s->shift->taetigkeit
-            ) === $schluessel)
-            ->values()->all();
     }
 
     /** Regeln einer (gesperrten) Schicht anwenden. @return 'ok'|'voll'|'weg' */

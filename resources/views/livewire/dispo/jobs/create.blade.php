@@ -2,7 +2,6 @@
 @php
     $schritte = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState::schritte();
     $filialen = $this->filialOptionen;
-    $filialName = $filialen[(int) $filialNr] ?? '';
 @endphp
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between gap-4">
@@ -34,75 +33,78 @@
         <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ $fehler }}</div>
     @endif
 
-    {{-- ============================ 1 Filiale ============================ --}}
+    {{-- ============================ 1 Was suchst du? ============================ --}}
     @if ($schritt === 1)
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">Für welche Filiale suchst du Leute?</div>
-            @if ($filialen === [])
-                <p class="text-sm text-gray-500">Es sind noch keine Veranstaltungen aus ZAS da.</p>
-            @else
-                <select wire:model.live="filialNr" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                    <option value="">– Filiale wählen –</option>
-                    @foreach ($filialen as $nr => $label)
-                        <option value="{{ $nr }}">{{ $label }}</option>
-                    @endforeach
-                </select>
-            @endif
-        </div>
-    @endif
-
-    {{-- ============================ 2 Zeitraum ============================ --}}
-    @if ($schritt === 2)
-        @php $heute = now()->toDateString(); @endphp
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">In welchem Zeitraum?</div>
-            <p class="text-sm text-gray-500">Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.</p>
-            <div class="flex flex-wrap items-end gap-4">
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-xs font-medium text-gray-500">von</span>
-                    <input type="date" min="{{ $heute }}" wire:model.live="von" class="rounded border border-gray-300 px-2 py-1 text-sm">
-                </label>
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-xs font-medium text-gray-500">bis</span>
-                    <input type="date" min="{{ $heute }}" wire:model.live="bis" class="rounded border border-gray-300 px-2 py-1 text-sm">
-                </label>
+        @php
+            $heute = now()->toDateString();
+            $vaListe = $this->events;
+            $zeitraumOk = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState::zeitraumProblem(['heute' => $heute, 'von' => $von, 'bis' => $bis]) === null;
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div class="space-y-2">
+                    <div class="font-medium text-gray-700">Für welche Filiale suchst du Leute?</div>
+                    @if ($filialen === [])
+                        <p class="text-sm text-gray-500">Es sind noch keine Veranstaltungen aus ZAS da.</p>
+                    @else
+                        <select wire:model.live="filialNr" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                            <option value="">– Filiale wählen –</option>
+                            @foreach ($filialen as $nr => $label)
+                                <option value="{{ $nr }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    @endif
+                </div>
+                <div class="space-y-2">
+                    <div class="font-medium text-gray-700">In welchem Zeitraum?</div>
+                    <p class="text-xs text-gray-500">Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.</p>
+                    <div class="flex flex-wrap items-end gap-4">
+                        <label class="flex flex-col gap-1 text-sm">
+                            <span class="text-xs font-medium text-gray-500">von</span>
+                            <input type="date" min="{{ $heute }}" wire:model.live="von" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                        </label>
+                        <label class="flex flex-col gap-1 text-sm">
+                            <span class="text-xs font-medium text-gray-500">bis</span>
+                            <input type="date" min="{{ $heute }}" wire:model.live="bis" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-gray-100 pt-3 space-y-2">
+                <div class="font-medium text-gray-700">Für welche Veranstaltungen?</div>
+                @if (!ctype_digit($filialNr))
+                    <p class="text-sm text-gray-500">Wähle zuerst eine Filiale.</p>
+                @elseif (!$zeitraumOk)
+                    <p class="text-sm text-gray-500">Gib einen gültigen Zeitraum an.</p>
+                @elseif ($vaListe->isEmpty())
+                    <p class="text-sm text-gray-500">In diesem Zeitraum hat die Filiale keine Veranstaltung mit Einsatztagen.</p>
+                @else
+                    <div class="divide-y divide-gray-100">
+                        @foreach ($vaListe as $va)
+                            @php
+                                $vaDatum = $va->starts_on ? $va->starts_on->format('d.m.Y') : '–';
+                                if ($va->ends_on && $va->starts_on && !$va->ends_on->equalTo($va->starts_on)) {
+                                    $vaDatum = $va->starts_on->format('d.m.') . '–' . $va->ends_on->format('d.m.Y');
+                                }
+                                $vaOrt = $va->ort ?: $va->venue_text;
+                                $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen')]));
+                            @endphp
+                            <label wire:key="va-{{ $va->id }}" class="flex cursor-pointer items-start gap-3 py-2 text-sm">
+                                <input type="checkbox" value="{{ $va->id }}" wire:model="eventIds" class="mt-0.5 rounded border-gray-300">
+                                <span class="flex-1">
+                                    <span class="font-medium text-gray-800">{{ $va->name }}</span>
+                                    <span class="block text-xs text-gray-500">{{ $vaZeile }}</span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+                @endif
             </div>
         </div>
     @endif
 
-    {{-- ============================ 3 Veranstaltungen ============================ --}}
-    @if ($schritt === 3)
-        @php $vaListe = $this->events; @endphp
-        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <div class="font-medium text-gray-700">Für welche Veranstaltungen? <span class="font-normal text-gray-500">({{ $filialName }}, {{ \Illuminate\Support\Carbon::parse($von)->format('d.m.') }}–{{ \Illuminate\Support\Carbon::parse($bis)->format('d.m.Y') }})</span></div>
-            @if ($vaListe->isEmpty())
-                <p class="text-sm text-gray-500">In diesem Zeitraum hat die Filiale keine Veranstaltung mit Einsatztagen. Geh einen Schritt zurück und wähle einen anderen Zeitraum.</p>
-            @else
-                <div class="divide-y divide-gray-100">
-                    @foreach ($vaListe as $va)
-                        @php
-                            $vaDatum = $va->starts_on ? $va->starts_on->format('d.m.Y') : '–';
-                            if ($va->ends_on && $va->starts_on && !$va->ends_on->equalTo($va->starts_on)) {
-                                $vaDatum = $va->starts_on->format('d.m.') . '–' . $va->ends_on->format('d.m.Y');
-                            }
-                            $vaOrt = $va->ort ?: $va->venue_text;
-                            $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen')]));
-                        @endphp
-                        <label wire:key="va-{{ $va->id }}" class="flex cursor-pointer items-start gap-3 py-2 text-sm">
-                            <input type="checkbox" value="{{ $va->id }}" wire:model="eventIds" class="mt-0.5 rounded border-gray-300">
-                            <span class="flex-1">
-                                <span class="font-medium text-gray-800">{{ $va->name }}</span>
-                                <span class="block text-xs text-gray-500">{{ $vaZeile }}</span>
-                            </span>
-                        </label>
-                    @endforeach
-                </div>
-            @endif
-        </div>
-    @endif
-
-    {{-- ============================ 4 Schichten ============================ --}}
-    @if ($schritt === 4)
+    {{-- ============================ 2 Schichten ============================ --}}
+    @if ($schritt === 2)
         @php
             $optionen = $this->schichtOptionen;
             $gewaehlt = $this->gewaehlteEvents;
@@ -137,7 +139,7 @@
                                 <table class="w-full text-sm">
                                     <thead>
                                         <tr class="text-left text-xs text-gray-500">
-                                            <th class="py-1 pr-3 font-medium">Beginn</th>
+                                            <th class="py-1 pr-3 font-medium">Zeit</th>
                                             <th class="py-1 pr-3 font-medium">Tätigkeit</th>
                                             <th class="py-1 pr-3 font-medium">Zeilen</th>
                                             <th class="py-1 pr-3 font-medium">laut ZAS unbesetzt</th>
@@ -146,8 +148,11 @@
                                     </thead>
                                     <tbody>
                                         @foreach ($schichten as $s)
+                                            @php
+                                                $spanne = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($s['von'], $s['bis'] ?? '');
+                                            @endphp
                                             <tr wire:key="s-{{ $s['key'] }}" class="border-t border-gray-100">
-                                                <td class="py-1 pr-3 tabular-nums">{{ $s['von'] !== '' ? $s['von'] : '–' }}</td>
+                                                <td class="py-1 pr-3 tabular-nums">{{ $spanne !== '' ? $spanne : '–' }}</td>
                                                 <td class="py-1 pr-3">{{ $s['taetigkeit'] !== '' ? $s['taetigkeit'] : '–' }}</td>
                                                 <td class="py-1 pr-3 tabular-nums">{{ $s['zeilen'] }}</td>
                                                 <td class="py-1 pr-3 text-xs text-amber-700">
@@ -182,7 +187,7 @@
                         <tr class="text-left text-xs text-gray-500">
                             <th class="py-1 pr-3 font-medium">Veranstaltung</th>
                             <th class="py-1 pr-3 font-medium">Tag</th>
-                            <th class="py-1 pr-3 font-medium">Beginn</th>
+                            <th class="py-1 pr-3 font-medium">Zeit</th>
                             <th class="py-1 pr-3 font-medium">Tätigkeit</th>
                             <th class="py-1 pr-3 font-medium">gesucht</th>
                             <th></th>
@@ -190,11 +195,14 @@
                     </thead>
                     <tbody>
                         @foreach ($andere as $i => $a)
-                            @php $andereVa = $gewaehlt->get((int) $a['event']); @endphp
+                            @php
+                                $andereVa = $gewaehlt->get((int) $a['event']);
+                                $andereSpanne = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($a['von'], $a['bis'] ?? '');
+                            @endphp
                             <tr wire:key="andere-{{ $i }}" class="border-t border-gray-100">
                                 <td class="py-1 pr-3">{{ $andereVa?->name ?? '–' }}</td>
                                 <td class="py-1 pr-3 tabular-nums">{{ \Illuminate\Support\Carbon::parse($a['datum'])->format('d.m.Y') }}</td>
-                                <td class="py-1 pr-3 tabular-nums">{{ $a['von'] !== '' ? $a['von'] : '–' }}</td>
+                                <td class="py-1 pr-3 tabular-nums">{{ $andereSpanne !== '' ? $andereSpanne : '–' }}</td>
                                 <td class="py-1 pr-3">{{ $a['taetigkeit'] }}</td>
                                 <td class="py-1 pr-3">
                                     <input type="number" min="0" max="999" inputmode="numeric" wire:model="andere.{{ $i }}.gesucht" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
@@ -227,6 +235,10 @@
                         <input type="time" wire:model="neuVon" class="rounded border border-gray-300 px-2 py-1 text-sm">
                     </label>
                     <label class="flex flex-col gap-1 text-sm">
+                        <span class="text-xs font-medium text-gray-500">Ende <span class="font-normal">(optional)</span></span>
+                        <input type="time" wire:model="neuBis" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                    </label>
+                    <label class="flex flex-col gap-1 text-sm">
                         <span class="text-xs font-medium text-gray-500">Tätigkeit</span>
                         <select wire:model="neuTaetigkeit" class="rounded border border-gray-300 px-2 py-1 text-sm">
                             <option value="">– wählen –</option>
@@ -245,8 +257,8 @@
         </div>
     @endif
 
-    {{-- ============================ 5 Empfänger ============================ --}}
-    @if ($schritt === 5)
+    {{-- ============================ 3 Senden ============================ --}}
+    @if ($schritt === 3)
         @php
             $bloecke = $this->blockOptionen;
             $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
@@ -254,7 +266,23 @@
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
-            $kartenOffen = ($problem !== null && $vorlagen !== []) ? 'true' : 'false';
+            // Anlass-Pillen: ohne hinterlegte Vorlage gesperrt (Hinweis + Link zu den Einstellungen).
+            $anlassIds = $this->anlassVorlagen;
+            $anlaesse = [];
+            foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ALLE as $anlassKey => $anlassLabel) {
+                $frei = ($anlassIds[$anlassKey] ?? null) !== null;
+                $aktiv = $frei && $anlass === $anlassKey;
+                $anlaesse[] = [
+                    'key'    => $anlassKey,
+                    'label'  => $anlassLabel,
+                    'frei'   => $frei,
+                    'klasse' => $aktiv
+                        ? 'rounded-full border border-blue-600 bg-blue-600 px-3 py-1 text-sm font-medium text-white'
+                        : ($frei
+                            ? 'rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:border-blue-400'
+                            : 'cursor-not-allowed rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-400'),
+                ];
+            }
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
             // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
             $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
@@ -317,35 +345,37 @@
             </div>
 
             <div class="space-y-4">
-                {{-- Vorlage: Sprechblase wie im Kampagnen-Muster, Auswahl hinter „Vorlage ändern“. --}}
-                <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm" x-data="{ aendern: {{ $kartenOffen }} }">
-                    <div class="font-medium text-gray-700">Nachricht</div>
+                {{-- Anlass als Pillen, darunter die Vorlage des Anlasses als Sprechblase (Kampagnen-Muster). --}}
+                <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
+                    <div class="font-medium text-gray-700">Anlass</div>
                     @if ($vorlagen === [])
                         <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                             {{ $problem }}
                             <a href="{{ route('recruiting.dispo.settings') }}" class="ml-1 font-medium underline">Zu den Einstellungen</a>
                         </div>
                     @else
+                        <div class="flex flex-wrap items-start gap-2">
+                            @foreach ($anlaesse as $a)
+                                <div wire:key="anlass-{{ $a['key'] }}" class="flex flex-col items-start">
+                                    @if ($a['frei'])
+                                        <button type="button" wire:click="anlassWaehlen('{{ $a['key'] }}')" class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                    @else
+                                        <button type="button" disabled class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                        <a href="{{ route('recruiting.dispo.settings') }}" class="mt-0.5 text-[11px] text-gray-500 underline">in den Einstellungen hinterlegen</a>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                        <div class="pt-1 font-medium text-gray-700">Nachricht</div>
                         @if ($problem === null && $vorschau !== null)
                             <div class="rounded-lg bg-gray-50 px-3 py-2 whitespace-pre-line text-gray-800">{{ $vorschau['text'] }}</div>
                             @foreach ($vorschau['buttons'] as $buttonText)
                                 <div class="mt-1 rounded-lg border border-gray-200 px-3 py-1 text-center font-medium text-blue-700">{{ $buttonText }}</div>
                             @endforeach
-                            <div class="flex items-center justify-between text-[11px] text-gray-500">
-                                <span>Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ — beim Senden steht der Vorname der Person.</span>
-                                <button type="button" class="underline" x-on:click="aendern = !aendern" x-text="aendern ? 'Auswahl schließen' : 'Vorlage ändern'">Vorlage ändern</button>
-                            </div>
+                            <div class="text-[11px] text-gray-500">Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ — beim Senden steht der Vorname der Person.</div>
                         @else
                             <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{{ $problem }}</div>
                         @endif
-                        <div x-show="aendern" style="display: none;">
-                            <select wire:model.live="templateId" class="w-full rounded border border-gray-300 px-2 py-1 text-sm">
-                                <option value="">– Vorlage wählen –</option>
-                                @foreach ($vorlagen as $v)
-                                    <option value="{{ $v->id }}">{{ $v->name }} ({{ $v->language }})</option>
-                                @endforeach
-                            </select>
-                        </div>
                     @endif
                 </div>
 
@@ -392,7 +422,7 @@
             @endif
         </div>
         <div>
-            @if ($schritt < 5)
+            @if ($schritt < 3)
                 <button type="button" wire:click="weiter" wire:loading.attr="disabled" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Weiter</button>
             @else
                 @if ($sendenGesperrt)

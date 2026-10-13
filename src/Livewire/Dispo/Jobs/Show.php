@@ -12,14 +12,16 @@ use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
-use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasHaken;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo;
 
 /**
  * Seite einer Anfrage „Jobs anbieten“ (Spec 2026-10-12 §4.6–4.7): Kopf,
@@ -149,13 +151,20 @@ class Show extends Component
             ->get();
     }
 
-    /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, kontakte: array<int, array<string,mixed>>} */
+    /** @return array{gesucht:int, zugesagt:int, eingetragen:int, angekommen:int, prozent:int, offen:list<\Platform\Recruiting\Models\RecDispoJobShift>, voll:list<\Platform\Recruiting\Models\RecDispoJobShift>} */
+    #[Computed]
+    public function fortschritt(): array
+    {
+        return DispoJobFortschritt::berechnen($this->schichten);
+    }
+
+    /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, info: array<int, array<string,mixed>>} */
     #[Computed]
     public function rueckmeldungen(): array
     {
         $shiftIds = $this->schichten->pluck('id')->all();
         if ($shiftIds === []) {
-            return ['zeilen' => [], 'kontakte' => []];
+            return ['zeilen' => [], 'info' => []];
         }
         $zeilen = RecDispoJobOfferShift::query()
             ->whereIn('shift_id', $shiftIds)
@@ -167,8 +176,8 @@ class Show extends Component
         $ids = $zeilen->map(fn ($z) => (int) $z->offer?->rec_employee_id)->filter()->unique()->values()->all();
 
         return [
-            'zeilen'   => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
-            'kontakte' => app(DispoEmployeeGateway::class)->contacts($ids),
+            'zeilen' => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
+            'info'   => DispoJobZusagenInfo::laden($ids, now()->format('Y-m')),
         ];
     }
 
@@ -318,20 +327,14 @@ class Show extends Component
 
     public function zasHaken(int $offerShiftId): void
     {
-        $request = $this->anfrage();
-        $zeile = RecDispoJobOfferShift::query()
-            ->whereKey($offerShiftId)
-            ->whereNotNull('accepted_at')
-            ->whereHas('offer', fn ($q) => $q->where('request_id', $request->id))
-            ->first();
-        if ($zeile === null) {
-            return;
-        }
-        $an = $zeile->zas_entered_at === null;
-        $zeile->update([
-            'zas_entered_at'         => $an ? now() : null,
-            'zas_entered_by_user_id' => $an && auth()->id() !== null ? (int) auth()->id() : null,
-        ]);
+        DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
+    }
+
+    public function alleEintragen(int $shiftId): void
+    {
+        $this->fehler = '';
+        $n = DispoJobZasHaken::alle($this->anfrage(), $shiftId, auth()->id() !== null ? (int) auth()->id() : null);
+        $this->hinweis = $n > 0 ? $n . ' ' . ($n === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markiert.' : '';
     }
 
     public function abschliessen(): void

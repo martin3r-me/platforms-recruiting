@@ -62,7 +62,7 @@
                     <div class="jobday">{{ $labelDate($ymd) }}</div>
                     @foreach ($shifts as $shift)
                         @php
-                            $zeile = ($shift['von'] ? $shift['von'] . ' · ' : '') . ($shift['taetigkeit'] ?: 'Einsatz');
+                            $zeile = ($shift['zeit'] !== '' ? $shift['zeit'] . ' · ' : '') . ($shift['taetigkeit'] ?: 'Einsatz');
                         @endphp
                         <div class="jobrow">
                             <div>

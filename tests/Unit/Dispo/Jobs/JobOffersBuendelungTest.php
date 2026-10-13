@@ -11,7 +11,7 @@ final class JobOffersBuendelungTest extends TestCase
     private static function row(int $id, array $extra = []): array
     {
         return $extra + ['offer_shift_id' => $id, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer',
-            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3];
+            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3, 'zurueck' => false, 'eingetragen' => false];
     }
 
     public function testGleicheSchichtAusZweiAnfragenErscheintEinmalMitKleinsterId(): void

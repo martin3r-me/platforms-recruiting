@@ -16,9 +16,11 @@ use Symfony\Component\Uid\UuidV7;
 final class DispoJobAnfrageAnlegen
 {
     /**
-     * @param array{filial_nr:int, von:string, bis:string, modus:string, template_id:int,
-     *   schichten: list<array{event:int, datum:string, von:?string, taetigkeit:string, gesucht:int|string}>,
+     * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
+     *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, gesucht:int|string}>,
      *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, minuten: int} $daten
+     * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
+     * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
      * @throws \InvalidArgumentException wenn keine Schicht mit gesucht > 0 uebrig bleibt
      */
     public static function anlegen(array $daten, int $teamId, ?int $userId): RecDispoJobRequest
@@ -35,6 +37,7 @@ final class DispoJobAnfrageAnlegen
                 'zeitraum_von'         => $daten['von'],
                 'zeitraum_bis'         => $daten['bis'],
                 'modus'                => $daten['modus'],
+                'anlass'               => DispoJobAnlass::istGueltig((string) ($daten['anlass'] ?? '')) ? (string) $daten['anlass'] : null,
                 'whatsapp_template_id' => (int) $daten['template_id'],
                 'status'               => RecDispoJobRequest::STATUS_ENTWURF,
                 'created_by_user_id'   => $userId,
@@ -85,7 +88,7 @@ final class DispoJobAnfrageAnlegen
      * gesucht > 0, leerer Beginn als '' (Spalte NOT NULL), doppelte
      * (VA, Tag, Beginn, Taetigkeit) zusammengefasst — die letzte Zahl gewinnt.
      *
-     * @return list<array{rec_dispo_event_id:int, datum:string, von:string, taetigkeit:string, gesucht:int}>
+     * @return list<array{rec_dispo_event_id:int, datum:string, von:string, bis:string, taetigkeit:string, gesucht:int}>
      */
     private static function schichten(array $rows): array
     {
@@ -94,6 +97,10 @@ final class DispoJobAnfrageAnlegen
             $event = (int) ($r['event'] ?? 0);
             $datum = substr(trim((string) ($r['datum'] ?? '')), 0, 10);
             $von = trim((string) ($r['von'] ?? ''));
+            $bis = trim((string) ($r['bis'] ?? ''));
+            if (preg_match(DispoJobZeit::MUSTER, $bis) !== 1) {
+                $bis = '';
+            }
             $taet = mb_substr(trim((string) ($r['taetigkeit'] ?? '')), 0, 190);
             $gesucht = (int) ($r['gesucht'] ?? 0);
             if ($event <= 0 || $datum === '' || $taet === '') {
@@ -105,7 +112,7 @@ final class DispoJobAnfrageAnlegen
                 continue;
             }
             unset($out[$key]); // ans Ende: Reihenfolge der letzten Eingabe
-            $out[$key] = ['rec_dispo_event_id' => $event, 'datum' => $datum, 'von' => $von, 'taetigkeit' => $taet, 'gesucht' => $gesucht];
+            $out[$key] = ['rec_dispo_event_id' => $event, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => $gesucht];
         }
 
         return array_values($out);

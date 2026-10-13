@@ -156,9 +156,15 @@
             @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Veranstaltungen</span>
         </x-ui-sidebar-item>
+        @php
+            $dispoJobsOffen = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOffeneZusagen::count();
+        @endphp
         <x-ui-sidebar-item :href="route('recruiting.dispo.jobs.index')">
             @svg('heroicon-o-megaphone', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Jobs anbieten</span>
+            @if ($dispoJobsOffen > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $dispoJobsOffen }}</span>
+            @endif
         </x-ui-sidebar-item>
         @php
             $dispoUnread = \Platform\Recruiting\Services\Zas\Dispo\DispoUnreadCounter::count();

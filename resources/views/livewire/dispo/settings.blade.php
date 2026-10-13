@@ -89,15 +89,36 @@
                 <span class="mt-1 block text-xs text-gray-400">Für „Info an Crew" auf der VA-Seite: kündigt neue Anhänge/Hinweise an, Button führt auf die Einsatz-Seite.</span>
             </label>
 
-            <label class="block text-sm">
-                <span class="mb-1 block text-gray-600">Vorlagen für Jobangebote (WhatsApp, freigegeben)</span>
-                <select multiple size="5" wire:model="jobOfferTemplateIds" class="w-full rounded-lg border border-gray-300 px-3 py-2">
-                    @foreach ($this->templates as $template)
-                        <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
-                    @endforeach
-                </select>
-                <span class="mt-1 block text-xs text-gray-400">Für Disposition → Jobs anbieten. Text nur mit Vorname, Link-Button führt auf die Jobseite des Mitarbeiters.</span>
-            </label>
+            <div class="space-y-3">
+                <label class="block text-sm">
+                    <span class="mb-1 block text-gray-600">Jobangebot „Nächste vier Wochen“ (WhatsApp, freigegeben)</span>
+                    <select wire:model="jobTemplateVierWochenId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                        <option value="">— kein Template gewählt —</option>
+                        @foreach ($this->templates as $template)
+                            <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block text-gray-600">Jobangebot „Nächste Woche“ (WhatsApp, freigegeben)</span>
+                    <select wire:model="jobTemplateNaechsteWocheId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                        <option value="">— kein Template gewählt —</option>
+                        @foreach ($this->templates as $template)
+                            <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block text-gray-600">Jobangebot „Dringend“ (WhatsApp, freigegeben)</span>
+                    <select wire:model="jobTemplateDringendId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                        <option value="">— kein Template gewählt —</option>
+                        @foreach ($this->templates as $template)
+                            <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
+                        @endforeach
+                    </select>
+                </label>
+                <span class="block text-xs text-gray-400">Für Disposition → Jobs anbieten. Je Anlass eine Vorlage: Text nur mit Vorname, Link-Button führt auf die Jobseite des Mitarbeiters.</span>
+            </div>
 
             <label class="block text-sm">
                 <span class="mb-1 block text-gray-600">Alarm-Template „Mögliche Absage" (WhatsApp, freigegeben)</span>

@@ -27,6 +27,8 @@ class ZasDispoWebexportImporter
         private DispoReconfirmMarker $reconfirmMarker,
         // Qualifikationen aus {Dispo4}/{Dispo5} (Mail Olaf 06.10.2026).
         private \Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync $taetigkeiten = new \Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync(),
+        // Name in der ZAS-Zeile getauscht, DS-ID gleich (Markus 13.10.2026).
+        private DispoPersonenwechsel $personenwechsel = new DispoPersonenwechsel(),
     ) {}
 
     /**
@@ -64,6 +66,7 @@ class ZasDispoWebexportImporter
             // ET-18: wieder aufgetauchte Einbuchungen, deren
             // Erinnerungs-Stempel geraeumt wurde.
             'erinnerung_entstempelt' => 0,
+            'personenwechsel' => 0, 'personenwechsel_liste' => [], 'personenwechsel_veraltet' => 0,
             'skipped' => [], 'errors' => [],
             'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
             'qualifikationen' => [
@@ -122,6 +125,15 @@ class ZasDispoWebexportImporter
                 (string) config('recruiting.zas.company_prefix', '')
             );
 
+            // Eine aeltere Datei (Reprocess, Nachzuegler) darf keine Person
+            // zuruecktauschen: sonst wuerde die Besetzung aus der neueren
+            // Lieferung abgelegt und ihre Bestaetigung geleert.
+            $veraltet = RecZasDispoInboundFile::query()
+                ->where('id', '>', $file->id)
+                ->where('is_test', false)
+                ->where('parse_status', 'processed')
+                ->exists();
+
             if ($dryRun) {
                 // Der Marker plant fuer ALLE ds_refs der Lieferung; gezaehlt wird
                 // aber nur, was im Live-Lauf auch geschrieben wuerde — also nur
@@ -129,6 +141,7 @@ class ZasDispoWebexportImporter
                 // Einsatz-ID aufloesbar) bestehen. Sonst meldet die Vorschau mehr
                 // Rebestaetigungen als der Lauf tatsaechlich ausloest.
                 $reconfirmPlan = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+                $wechsel = $this->personenwechsel->plan(self::incomingPnrs($plan['assignments']), $matcher);
 
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
                     if ($attrs['datum'] === null) {
@@ -141,12 +154,17 @@ class ZasDispoWebexportImporter
                         continue;
                     }
 
-                    if (isset($reconfirmPlan['overrides'][$dsRef])) {
+                    if (isset($wechsel[$dsRef]) && $veraltet) {
+                        $summary['personenwechsel_veraltet']++;
+                    } elseif (isset($wechsel[$dsRef])) {
+                        self::tallyWechsel($summary, (string) $dsRef, $wechsel[$dsRef]);
+                    } elseif (isset($reconfirmPlan['overrides'][$dsRef])) {
                         $summary['reconfirm_marked']++;
                     }
 
-                    $m = $matcher->match($attrs['pnr_raw']);
-                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
+                    // Veraltet: gezaehlt wird die Nummer, die stehen bleibt.
+                    $pnr = isset($wechsel[$dsRef]) && $veraltet ? $wechsel[$dsRef]['alt_pnr'] : $attrs['pnr_raw'];
+                    self::tallyMatch($summary, $matcher->match($pnr), $pnr);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
                 $summary['erinnerung_entstempelt'] = $this->toteStempel(array_keys($plan['assignments']))->count();
@@ -172,7 +190,7 @@ class ZasDispoWebexportImporter
                 return $summary;
             }
 
-            DB::transaction(function () use ($plan, $matcher, &$summary) {
+            DB::transaction(function () use ($plan, $matcher, $veraltet, &$summary) {
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -200,6 +218,7 @@ class ZasDispoWebexportImporter
                 // geplante Umfang: Zeilen, die an Datum/Einsatz-ID scheitern,
                 // werden nie geschrieben und sind damit auch nicht markiert.
                 $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+                $wechsel = $this->personenwechsel->plan(self::incomingPnrs($plan['assignments']), $matcher);
 
                 // ET-18 — DER TOTE STEMPEL. Verschwindet eine Einbuchung aus
                 // der Lieferung und taucht spaeter wieder auf, setzt die
@@ -235,12 +254,35 @@ class ZasDispoWebexportImporter
                     }
 
                     $m = $matcher->match($attrs['pnr_raw']);
-                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
 
-                    $override = $reconfirm['overrides'][$dsRef] ?? [];
-                    if ($override !== []) {
-                        $summary['reconfirm_marked']++;
+                    if (isset($wechsel[$dsRef]) && $veraltet) {
+                        // Aeltere Datei: Person bleibt, wie die neuere Lieferung sie gesetzt hat.
+                        $attrs['pnr_raw'] = $wechsel[$dsRef]['alt_pnr'];
+                        $m = ['employee_id' => $wechsel[$dsRef]['alt_employee_id'], 'reason' => 'kept'];
+                        $override = $reconfirm['overrides'][$dsRef] ?? [];
+                        if ($override !== []) {
+                            $summary['reconfirm_marked']++;
+                        }
+                        $summary['personenwechsel_veraltet']++;
+                    } elseif (isset($wechsel[$dsRef])) {
+                        // Andere Person in derselben Zeile: alte Besetzung ablegen,
+                        // Zeile frisch fuer die neue. Die Rebestaetigung der alten
+                        // Zeiten ist damit gegenstandslos.
+                        if ($wechsel[$dsRef]['archivieren']) {
+                            $this->personenwechsel->archivieren((string) $dsRef, $wechsel[$dsRef]['neu_pnr']);
+                        }
+                        $override = DispoPersonenwechsel::RESET;
+                        self::tallyWechsel($summary, (string) $dsRef, $wechsel[$dsRef]);
+                    } else {
+                        $override = $reconfirm['overrides'][$dsRef] ?? [];
+                        if ($override !== []) {
+                            $summary['reconfirm_marked']++;
+                        }
                     }
+
+                    // Gezaehlt wird die Nummer, die geschrieben wird — auf dem
+                    // Veraltet-Pfad die stehende, nicht die verworfene.
+                    self::tallyMatch($summary, $m['reason'] === 'kept' ? $matcher->match($attrs['pnr_raw']) : $m, $attrs['pnr_raw']);
 
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],
@@ -287,6 +329,10 @@ class ZasDispoWebexportImporter
                 }
             }
 
+            if ($summary['personenwechsel'] > 0) {
+                Log::info('ZAS dispo import: Personenwechsel in bestehenden Zeilen', ['file_id' => $file->id, 'count' => $summary['personenwechsel'], 'zeilen' => $summary['personenwechsel_liste']]);
+            }
+
             if ($summary['reconfirm_marked'] > 0) {
                 Log::info('ZAS dispo import: Rebestaetigung markiert', ['file_id' => $file->id, 'count' => $summary['reconfirm_marked']]);
             }
@@ -314,9 +360,10 @@ class ZasDispoWebexportImporter
                 // Die Zaehler oben liefen bereits mit, aber ein Fehler in der
                 // DB::transaction() rollt alle Writes zurueck — die In-Memory-
                 // Zaehler wuerden sonst erfolgreiche Schreibvorgaenge vorspiegeln.
-                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open', 'reconfirm_marked'] as $k) {
+                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open', 'reconfirm_marked', 'personenwechsel'] as $k) {
                     $summary[$k] = 0;
                 }
+                $summary['personenwechsel_liste'] = [];
                 $summary['rolled_back'] = true;
 
                 try {
@@ -409,6 +456,29 @@ class ZasDispoWebexportImporter
 
         $summary['unmatched']++;
         self::recordPnr($summary['unmatched_pnrs'], $pnrRaw);
+    }
+
+    /** @param array{alt_pnr:string, neu_pnr:string, archivieren:bool} $w */
+    private static function tallyWechsel(array &$summary, string $dsRef, array $w): void
+    {
+        $summary['personenwechsel']++;
+        if (count($summary['personenwechsel_liste']) < 50) {
+            $summary['personenwechsel_liste'][] = "{$dsRef}: {$w['alt_pnr']} -> {$w['neu_pnr']}";
+        }
+    }
+
+    /**
+     * Personalnummer je ds_ref aus dem Plan — Eingabe fuer den Personenwechsel.
+     * @return array<string, string>
+     */
+    private static function incomingPnrs(array $planAssignments): array
+    {
+        $out = [];
+        foreach ($planAssignments as $dsRef => $attrs) {
+            $out[(string) $dsRef] = (string) ($attrs['pnr_raw'] ?? '');
+        }
+
+        return $out;
     }
 
     /** @param list<string> $list */
