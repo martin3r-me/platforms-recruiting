@@ -36,6 +36,7 @@ class JobOffersPageTest extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
+            'database/migrations/2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }

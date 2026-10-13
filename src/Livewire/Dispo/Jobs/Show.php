@@ -146,6 +146,8 @@ class Show extends Component
                 'offerShifts as zugesagt' => $angenommen,
                 'offerShifts as eingetragen' => fn ($q) => $angenommen($q)->whereNotNull('zas_entered_at'),
                 'offerShifts as angekommen' => fn ($q) => $angenommen($q)->whereNotNull('zas_assignment_id'),
+                // „Doch nicht“ (Runde 2): zurueckgenommen und nicht erneut zugesagt.
+                'offerShifts as zurueckgezogen' => fn ($q) => $q->whereNull('accepted_at')->whereNotNull('withdrawn_at'),
             ])
             ->orderBy('datum')->orderBy('von')->orderBy('taetigkeit')
             ->get();

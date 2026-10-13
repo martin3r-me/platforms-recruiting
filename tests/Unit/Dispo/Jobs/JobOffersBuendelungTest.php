@@ -11,7 +11,7 @@ final class JobOffersBuendelungTest extends TestCase
     private static function row(int $id, array $extra = []): array
     {
         return $extra + ['offer_shift_id' => $id, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer',
-            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3];
+            'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3, 'zurueck' => false];
     }
 
     public function testGleicheSchichtAusZweiAnfragenErscheintEinmalMitKleinsterId(): void
@@ -63,5 +63,28 @@ final class JobOffersBuendelungTest extends TestCase
         ]);
 
         $this->assertSame([1, 2, 3, 4, 5], array_column($out, 'offer_shift_id'));
+    }
+
+    /** „Doch nicht“ zielt auf die zugesagte Zeile, nicht auf die (evtl. offene) Repraesentantin. */
+    public function testRuecknahmeZieltAufDieZugesagteZeile(): void
+    {
+        $out = JobOffersBuendelung::buendeln([
+            self::row(7),
+            self::row(9, ['accepted' => true, 'zurueck' => true]),
+            self::row(8, ['accepted' => true, 'zurueck' => true]),
+        ]);
+
+        $this->assertSame(7, $out[0]['offer_shift_id'], 'Repraesentantin ist die offene Zeile');
+        $this->assertTrue($out[0]['zurueck']);
+        $this->assertSame(8, $out[0]['zurueck_id'], 'kleinste zuruecknehmbare Angebots-Schicht');
+    }
+
+    public function testOhneRuecknehmbareZeileKeinZiel(): void
+    {
+        $out = JobOffersBuendelung::buendeln([self::row(7), self::row(9, ['accepted' => true])]);
+
+        $this->assertTrue($out[0]['accepted']);
+        $this->assertFalse($out[0]['zurueck'], 'zugesagt, aber eingetragen');
+        $this->assertNull($out[0]['zurueck_id']);
     }
 }

@@ -256,6 +256,9 @@
                         <span class="rounded-full border px-2 py-0.5 {{ $voll ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-700' }}">zugesagt {{ $s->zugesagt }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">in ZAS eingetragen {{ $s->eingetragen }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">angekommen {{ $s->angekommen }}</span>
+                        @if ((int) $s->zurueckgezogen > 0)
+                            <span class="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-500">{{ $s->zurueckgezogen }} zurückgezogen</span>
+                        @endif
                     </div>
                     @if ($offen && $zeilen !== [])
                         <div class="flex items-center gap-2" x-data="{ ok: false, zeigen: false, kopieren() {

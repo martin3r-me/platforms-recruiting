@@ -111,20 +111,20 @@ Bestand: vorhandene Schichten haben `bis = ''` und zeigen weiter nur den Beginn.
 
 Unter „Du bist dabei — wir melden uns.“ steht ein Textlink **„Doch nicht?“**, solange die Zusage zurücknehmbar ist. Klick → `wire:confirm` „Deine Zusage für diese Schicht zurücknehmen?“ → `JobOffers::zuruecknehmen(int $offerShiftId)`.
 
-Zurücknehmbar = Anfrage läuft (Status läuft, nicht abgeschlossen), Schicht nicht geschlossen, Datum ≥ heute, `zas_entered_at` null, `zas_assignment_id` null.
+Zurücknehmbar = Anfrage läuft (Status läuft, nicht abgeschlossen), Datum ≥ heute, `zas_entered_at` null, `zas_assignment_id` null.
 
 Ist die Zeile schon in ZAS eingetragen oder angekommen, steht statt des Links: „Du bist eingetragen — wenn etwas dazwischenkommt, melde dich bei deiner Dispo.“
 
 ### 9.2 Baustein
 
 `JobOffersRuecknahme::ausfuehren(int $offerShiftId, array $employeeIds): 'ok'|'eingetragen'|'weg'`:
-- `weg`: Zeile nicht vorhanden, gehört nicht zu `$employeeIds`, Anfrage nicht offen, Schicht geschlossen oder Datum vergangen.
+- `weg`: Zeile nicht vorhanden, gehört nicht zu `$employeeIds`, Anfrage nicht offen oder Datum vergangen. Eine geschlossene Schicht sperrt die Rücknahme nicht.
 - `eingetragen`: `zas_entered_at` oder `zas_assignment_id` gesetzt.
 - `ok`: bedingtes Update in einer Query (`whereNotNull('accepted_at')->whereNull('zas_entered_at')->whereNull('zas_assignment_id')`) setzt `accepted_at = null`, `withdrawn_at = now()`. Trifft das Update keine Zeile (Disponent hat zwischenzeitlich den Haken gesetzt), Ergebnis `eingetragen`.
 
 Hinweise auf der Seite: ok → „Alles klar, deine Zusage ist zurückgenommen.“ (grün); eingetragen → „Du bist schon eingetragen — bitte melde dich bei deiner Dispo.“; weg → „Dieses Angebot gibt es nicht mehr.“
 
-Nach der Rücknahme zeigt die Schicht wieder „Ich bin dabei“ (sofern Tag frei und Schicht nicht voll). Erneute Zusage über `JobOffersZusage` setzt `accepted_at` neu und `withdrawn_at = null`. Bei „Wer zuerst kommt“ wird der Platz durch die Rücknahme wieder frei (Zählung über `accepted_at`, unverändert).
+Nach der Rücknahme zeigt die Schicht wieder „Ich bin dabei“ (sofern Tag frei und Schicht nicht voll). Erneute Zusage über `JobOffersZusage` setzt `accepted_at` neu und `withdrawn_at = null`. Bei „Wer zuerst kommt“ wird der Platz durch die Rücknahme wieder frei (Zählung über `accepted_at`, unverändert). Eine volle Schicht im Modus ‚Wer zuerst kommt‘ wird nach der Rücknahme wieder geöffnet, wenn Zusagen < gesucht.
 
 Schwestern-Zeilen (dieselbe Schicht aus mehreren Anfragen, Runde 1 §9): die Rücknahme gilt für alle Schwestern mit derselben Bedingung, analog zur Zusage. Ist eine Schwester schon in ZAS eingetragen, bleibt alles stehen und das Ergebnis ist `eingetragen`.
 

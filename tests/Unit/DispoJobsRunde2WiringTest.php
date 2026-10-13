@@ -91,4 +91,19 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('{{ $dispoJobsOffen }}', $sidebar);
         $this->assertStringContainsString("DispoJobOffeneZusagen::count(\$this->teamId())", self::datei('src/Livewire/Dispo/Jobs/Index.php'));
     }
+
+    public function test_doch_nicht_nur_bei_ruecknehmbaren_zeilen(): void
+    {
+        $src = self::datei('src/Livewire/Public/JobOffers.php');
+        $this->assertStringContainsString('JobOffersRuecknahme::ausfuehren($offerShiftId, $this->employeeIds)', $src);
+        $this->assertStringContainsString("'zurueck'", $src);
+        $this->assertStringContainsString("'zurueck_id'", $src);
+
+        $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
+        $this->assertStringContainsString("@if (\$shift['zurueck'])", $view);
+        $this->assertStringContainsString('wire:click="zuruecknehmen({{ $shift[\'zurueck_id\'] }})"', $view);
+        $this->assertStringNotContainsString('wire:click="zuruecknehmen({{ $shift[\'offer_shift_id\'] }})"', $view, 'Repraesentantin kann eine offene Schwester sein');
+        $this->assertStringContainsString('Du bist eingetragen', $view);
+        $this->assertStringContainsString('zurückgezogen</span>', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
+    }
 }
