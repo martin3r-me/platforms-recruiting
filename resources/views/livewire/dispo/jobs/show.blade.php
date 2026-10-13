@@ -5,6 +5,7 @@
     $wellen = $this->wellen;
     $rueck = $this->rueckmeldungen;
     $filialLabel = \Platform\Recruiting\Support\Filialen::code($anfrage->filial_nr) ?? ('#' . $anfrage->filial_nr);
+    $anlassLabel = ($anfrage->anlass ?? '') !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::label((string) $anfrage->anlass) : '—';
     $modusLabel = $anfrage->modus === \Platform\Recruiting\Models\RecDispoJobRequest::MODUS_ZUERST ? 'Wer zuerst kommt' : 'Alle Zusagen sammeln';
     $statusLabel = match (true) {
         !$offen => 'abgeschlossen' . ($anfrage->closed_at ? ' am ' . $anfrage->closed_at->format('d.m.Y') : ''),
@@ -27,8 +28,9 @@
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-600">
                 <span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusLabel }}</span>
                 <span>{{ $modusLabel }}</span>
-                <span>· Vorlage {{ $this->vorlageName }}</span>
+                <span>· Anlass: {{ $anlassLabel }}</span>
             </div>
+            <div class="mt-0.5 text-xs text-gray-400">Vorlage {{ $this->vorlageName }}</div>
         </div>
         @if ($offen)
             <button type="button" wire:click="abschliessen" wire:confirm="{{ $schliessenText }}"

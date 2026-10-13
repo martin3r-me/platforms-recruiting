@@ -19,6 +19,7 @@
                     <tr>
                         <th class="px-4 py-2 font-medium">Filiale</th>
                         <th class="px-4 py-2 font-medium">Zeitraum</th>
+                        <th class="px-4 py-2 font-medium">Anlass</th>
                         <th class="px-4 py-2 font-medium">Schichten</th>
                         <th class="px-4 py-2 font-medium">Status</th>
                         <th class="px-4 py-2 font-medium">Zusagen</th>
@@ -37,11 +38,13 @@
                                 $letzteZeit = $letzte->started_at ?? $letzte->scheduled_for ?? $letzte->created_at;
                                 $letzteText = 'Welle ' . $letzte->nr . ($letzteZeit ? ' · ' . $letzteZeit->format('d.m. H:i') : '');
                             }
+                            $anlassText = ($a->anlass ?? '') !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::label((string) $a->anlass) : '—';
                             $link = route('recruiting.dispo.jobs.show', ['requestId' => $a->id]);
                         @endphp
                         <tr wire:key="anfrage-{{ $a->id }}" class="border-t border-gray-100 hover:bg-gray-50">
                             <td class="px-4 py-2"><a href="{{ $link }}" class="font-medium text-blue-700 hover:underline">{{ \Platform\Recruiting\Support\Filialen::code($a->filial_nr) ?? ('#' . $a->filial_nr) }}</a></td>
                             <td class="px-4 py-2 tabular-nums">{{ $a->zeitraum_von->format('d.m.') }}–{{ $a->zeitraum_bis->format('d.m.Y') }}</td>
+                            <td class="px-4 py-2">{{ $anlassText }}</td>
                             <td class="px-4 py-2 tabular-nums">{{ $a->shifts_count }}</td>
                             <td class="px-4 py-2"><span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusText }}</span></td>
                             <td class="px-4 py-2 tabular-nums">{{ $zusagen[$a->id] ?? 0 }}</td>

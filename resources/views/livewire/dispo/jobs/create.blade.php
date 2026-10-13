@@ -254,7 +254,23 @@
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
-            $kartenOffen = ($problem !== null && $vorlagen !== []) ? 'true' : 'false';
+            // Anlass-Pillen: ohne hinterlegte Vorlage gesperrt (Hinweis + Link zu den Einstellungen).
+            $anlassIds = $this->anlassVorlagen;
+            $anlaesse = [];
+            foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ALLE as $anlassKey => $anlassLabel) {
+                $frei = ($anlassIds[$anlassKey] ?? null) !== null;
+                $aktiv = $frei && $anlass === $anlassKey;
+                $anlaesse[] = [
+                    'key'    => $anlassKey,
+                    'label'  => $anlassLabel,
+                    'frei'   => $frei,
+                    'klasse' => $aktiv
+                        ? 'rounded-full border border-blue-600 bg-blue-600 px-3 py-1 text-sm font-medium text-white'
+                        : ($frei
+                            ? 'rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:border-blue-400'
+                            : 'cursor-not-allowed rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-400'),
+                ];
+            }
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
             // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
             $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
@@ -317,35 +333,37 @@
             </div>
 
             <div class="space-y-4">
-                {{-- Vorlage: Sprechblase wie im Kampagnen-Muster, Auswahl hinter „Vorlage ändern“. --}}
-                <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm" x-data="{ aendern: {{ $kartenOffen }} }">
-                    <div class="font-medium text-gray-700">Nachricht</div>
+                {{-- Anlass als Pillen, darunter die Vorlage des Anlasses als Sprechblase (Kampagnen-Muster). --}}
+                <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
+                    <div class="font-medium text-gray-700">Anlass</div>
                     @if ($vorlagen === [])
                         <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                             {{ $problem }}
                             <a href="{{ route('recruiting.dispo.settings') }}" class="ml-1 font-medium underline">Zu den Einstellungen</a>
                         </div>
                     @else
+                        <div class="flex flex-wrap items-start gap-2">
+                            @foreach ($anlaesse as $a)
+                                <div wire:key="anlass-{{ $a['key'] }}" class="flex flex-col items-start">
+                                    @if ($a['frei'])
+                                        <button type="button" wire:click="anlassWaehlen('{{ $a['key'] }}')" class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                    @else
+                                        <button type="button" disabled class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                        <a href="{{ route('recruiting.dispo.settings') }}" class="mt-0.5 text-[11px] text-gray-500 underline">in den Einstellungen hinterlegen</a>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                        <div class="pt-1 font-medium text-gray-700">Nachricht</div>
                         @if ($problem === null && $vorschau !== null)
                             <div class="rounded-lg bg-gray-50 px-3 py-2 whitespace-pre-line text-gray-800">{{ $vorschau['text'] }}</div>
                             @foreach ($vorschau['buttons'] as $buttonText)
                                 <div class="mt-1 rounded-lg border border-gray-200 px-3 py-1 text-center font-medium text-blue-700">{{ $buttonText }}</div>
                             @endforeach
-                            <div class="flex items-center justify-between text-[11px] text-gray-500">
-                                <span>Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ — beim Senden steht der Vorname der Person.</span>
-                                <button type="button" class="underline" x-on:click="aendern = !aendern" x-text="aendern ? 'Auswahl schließen' : 'Vorlage ändern'">Vorlage ändern</button>
-                            </div>
+                            <div class="text-[11px] text-gray-500">Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ — beim Senden steht der Vorname der Person.</div>
                         @else
                             <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{{ $problem }}</div>
                         @endif
-                        <div x-show="aendern" style="display: none;">
-                            <select wire:model.live="templateId" class="w-full rounded border border-gray-300 px-2 py-1 text-sm">
-                                <option value="">– Vorlage wählen –</option>
-                                @foreach ($vorlagen as $v)
-                                    <option value="{{ $v->id }}">{{ $v->name }} ({{ $v->language }})</option>
-                                @endforeach
-                            </select>
-                        </div>
                     @endif
                 </div>
 

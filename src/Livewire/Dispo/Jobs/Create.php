@@ -14,11 +14,11 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTemplateSettings;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
@@ -28,7 +28,7 @@ use Platform\Recruiting\Support\Filialen;
 /**
  * Jobs anbieten → Neue Anfrage in fuenf Schritten (Spec 2026-10-12 §4.1–4.5).
  *
- * Alles, was der Browser schickt, gilt als Wunsch: VAs, Schichten, Vorlage und
+ * Alles, was der Browser schickt, gilt als Wunsch: VAs, Schichten, Anlass und
  * Bloecke werden beim Anlegen gegen die serverseitig berechneten Optionen
  * gefiltert. Zahlenfelder sind Strings (typisierte int-Properties an
  * wire:model crashen bei leerem Feld).
@@ -61,7 +61,8 @@ class Create extends Component
     public string $neuGesucht = '';
 
     public string $modus = RecDispoJobRequest::MODUS_SAMMELN;
-    public string $templateId = '';
+    /** DispoJobAnlass-Schluessel; die Vorlage ergibt sich aus den Einstellungen. */
+    public string $anlass = '';
     /** @var list<string> Blocknummer oder 'ohne' */
     public array $maBloecke = [];
     /** @var list<string> */
@@ -90,10 +91,8 @@ class Create extends Component
         $this->bis = now()->addDays(28)->toDateString();
         $this->filialNr = (string) (session(self::SESSION_FILIALE) ?? '');
 
-        $vorlagen = array_keys($this->vorlagen);
-        if (count($vorlagen) === 1) {
-            $this->templateId = (string) $vorlagen[0];
-        }
+        // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
+        $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
 
         $va = $this->event !== null ? RecDispoEvent::query()->find($this->event) : null;
         if ($va !== null && $va->filial_nr !== null && $va->starts_on !== null) {
@@ -105,6 +104,29 @@ class Create extends Component
             $this->eventIds = [(string) $va->id];
             $this->schritt = 4;
             $this->tageVorbelegen();
+        }
+    }
+
+    /** Wunsch-Anlass, sonst der erste mit hinterlegter Vorlage, sonst keiner. */
+    private function anlassVorbelegen(string $wunsch): string
+    {
+        $ids = $this->anlassVorlagen;
+        if (($ids[$wunsch] ?? null) !== null) {
+            return $wunsch;
+        }
+        foreach ($ids as $anlass => $id) {
+            if ($id !== null) {
+                return $anlass;
+            }
+        }
+
+        return '';
+    }
+
+    public function anlassWaehlen(string $anlass): void
+    {
+        if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
+            $this->anlass = $anlass;
         }
     }
 
@@ -413,6 +435,13 @@ class Create extends Component
         return DispoJobKandidaten::blockOptionen($this->teamId());
     }
 
+    /** @return array<string, ?int> Anlass => in den Einstellungen hinterlegte Vorlagen-ID */
+    #[Computed]
+    public function anlassVorlagen(): array
+    {
+        return DispoJobAnlass::templateIds(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
+    }
+
     /** @return array<int, object> id => Vorlage (nur die in den Einstellungen hinterlegten) */
     #[Computed]
     public function vorlagen(): array
@@ -420,7 +449,7 @@ class Create extends Component
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
             return [];
         }
-        $ids = DispoJobTemplateSettings::lesen(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
+        $ids = array_values(array_unique(array_filter($this->anlassVorlagen)));
         if ($ids === []) {
             return [];
         }
@@ -431,10 +460,17 @@ class Create extends Component
             ->keyBy('id')->all();
     }
 
+    /** Die zum gewaehlten Anlass hinterlegte Vorlagen-ID (null = keiner gewaehlt / nichts hinterlegt). */
+    #[Computed]
+    public function vorlagenId(): ?int
+    {
+        return DispoJobAnlass::istGueltig($this->anlass) ? ($this->anlassVorlagen[$this->anlass] ?? null) : null;
+    }
+
     #[Computed]
     public function vorlage(): ?object
     {
-        return ctype_digit($this->templateId) ? ($this->vorlagen[(int) $this->templateId] ?? null) : null;
+        return $this->vorlagenId !== null ? ($this->vorlagen[$this->vorlagenId] ?? null) : null;
     }
 
     /** @return array{text:?string, buttons:list<string>}|null */
@@ -456,15 +492,18 @@ class Create extends Component
         if ($this->vorlagen === []) {
             return 'In den Dispo-Einstellungen ist noch keine Vorlage für Jobangebote hinterlegt.';
         }
-        if ($this->templateId === '') {
-            return 'Noch keine Vorlage gewählt — ohne sie geht nichts raus.';
+        if (!DispoJobAnlass::istGueltig($this->anlass)) {
+            return 'Noch kein Anlass gewählt — ohne ihn geht nichts raus.';
+        }
+        if ($this->vorlagenId === null) {
+            return 'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.';
         }
         $t = $this->vorlage;
         if ($t === null) {
-            return 'Diese Vorlage ist nicht mehr verfügbar — bitte wähle eine andere.';
+            return 'Die Vorlage für diesen Anlass ist nicht mehr verfügbar — bitte in den Einstellungen eine andere hinterlegen.';
         }
         if ($t->status !== 'APPROVED') {
-            return 'Die Vorlage „' . $t->name . '“ ist bei Meta nicht (mehr) freigegeben — bitte wähle eine andere.';
+            return 'Die Vorlage „' . $t->name . '“ ist bei Meta nicht (mehr) freigegeben — bitte in den Einstellungen eine andere hinterlegen.';
         }
 
         return DispoJobVorlagenWaechter::problem($t->components);
@@ -474,7 +513,7 @@ class Create extends Component
      * Zahlen vor dem Senden mit der AKTUELLEN Auswahl (neue Anfrage: noch
      * niemand angeschrieben). Gespeichert statt Computed: der Lauf laedt alle
      * Mitarbeiter und soll nur bei Eintritt in Schritt 5 und bei Aenderung von
-     * Bloecken/Gruppen/Haken laufen — nicht bei Vorlage, Modus oder Startzeit.
+     * Bloecken/Gruppen/Haken laufen — nicht bei Anlass, Modus oder Startzeit.
      */
     private function zahlenRechnen(): void
     {
@@ -529,7 +568,8 @@ class Create extends Component
         if ($bisSchritt >= 5) {
             $auswahl = $this->auswahl();
             $state += [
-                'template_id'      => $this->templateId,
+                'anlass'           => $this->anlass,
+                'template_id'      => (string) ($this->vorlagenId ?? ''),
                 'vorlagen_problem' => $this->vorlagenProblem,
                 'gruppen'          => $auswahl['gruppen'],
                 'bloecke'          => $auswahl['bloecke'],
@@ -572,7 +612,8 @@ class Create extends Component
             'von'         => $this->von,
             'bis'         => $this->bis,
             'modus'       => $this->modus,
-            'template_id' => (int) $this->templateId,
+            'anlass'      => $this->anlass,
+            'template_id' => (int) $this->vorlagenId,
             'schichten'   => $this->gewaehlteSchichten,
             'minuten'     => $minuten,
         ] + $auswahl, $teamId, $userId);
