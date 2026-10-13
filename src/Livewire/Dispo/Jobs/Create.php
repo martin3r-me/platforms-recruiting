@@ -190,6 +190,23 @@ class Create extends Component
         $this->bloeckeVorbelegt = false;
     }
 
+    public function updatedVon(): void
+    {
+        $this->hakenAngleichen();
+    }
+
+    public function updatedBis(): void
+    {
+        $this->hakenAngleichen();
+    }
+
+    /** Veranstaltungen, die nach einer Zeitraum-Aenderung nicht mehr gelistet sind, verlieren ihren Haken. */
+    private function hakenAngleichen(): void
+    {
+        unset($this->events);
+        $this->eventIds = DispoJobCreateState::hakenAngleichen($this->eventIds, $this->events->keys()->all());
+    }
+
     public function tagUmschalten(int $eventId, string $datum): void
     {
         $aktiv = $this->tage[$eventId] ?? [];

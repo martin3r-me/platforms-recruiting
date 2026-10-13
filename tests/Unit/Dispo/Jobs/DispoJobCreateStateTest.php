@@ -102,4 +102,11 @@ final class DispoJobCreateStateTest extends TestCase
         $this->assertSame(DispoJobCreateState::kannWeiter(1, self::state(['event_ids' => []])),
             DispoJobCreateState::alles(self::state(['event_ids' => [], 'template_id' => ''])));
     }
+
+    public function testHakenBleibenNurFuerNochGelisteteVeranstaltungen(): void
+    {
+        $this->assertSame(['5', '9'], DispoJobCreateState::hakenAngleichen(['5', 7, '9'], [5, 9, 11]));
+        $this->assertSame([], DispoJobCreateState::hakenAngleichen(['5'], []));
+        $this->assertSame([], DispoJobCreateState::hakenAngleichen([], [5]));
+    }
 }

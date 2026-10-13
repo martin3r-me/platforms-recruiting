@@ -2,7 +2,6 @@
 @php
     $schritte = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState::schritte();
     $filialen = $this->filialOptionen;
-    $filialName = $filialen[(int) $filialNr] ?? '';
 @endphp
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between gap-4">

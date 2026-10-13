@@ -60,6 +60,9 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString("if (\$this->schritt !== 3) {", $src);
         $this->assertStringContainsString('$this->schritt = 2;', $src, '?event= springt zu den Schichten');
         $this->assertStringNotContainsString('$this->schritt === 5', $src);
+        $this->assertMatchesRegularExpression('/function updatedVon\(\): void\s*\{\s*\$this->hakenAngleichen\(\);/', $src);
+        $this->assertMatchesRegularExpression('/function updatedBis\(\): void\s*\{\s*\$this->hakenAngleichen\(\);/', $src);
+        $this->assertStringContainsString('DispoJobCreateState::hakenAngleichen($this->eventIds', $src);
 
         $view = self::datei('resources/views/livewire/dispo/jobs/create.blade.php');
         $this->assertStringContainsString('@if ($schritt === 3)', $view);

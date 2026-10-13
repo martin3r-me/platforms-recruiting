@@ -45,6 +45,24 @@ final class DispoJobCreateState
             ? null : 'Bitte wähle mindestens eine Veranstaltung.';
     }
 
+    /**
+     * Haken bleiben, solange die Veranstaltung noch in der Liste ist; faellt sie
+     * heraus, faellt auch der Haken (Spec 2026-10-14 §3.1).
+     *
+     * @param  array<int,mixed>  $eventIds
+     * @param  array<int,mixed>  $verfuegbar  IDs der aktuell gelisteten Veranstaltungen
+     * @return array<int,string>
+     */
+    public static function hakenAngleichen(array $eventIds, array $verfuegbar): array
+    {
+        $liste = array_map('strval', $verfuegbar);
+
+        return array_values(array_filter(
+            array_map('strval', $eventIds),
+            fn (string $id) => in_array($id, $liste, true)
+        ));
+    }
+
     /** Alle Schritte der Reihe nach — die erste Meldung gewinnt (vor dem Anlegen). */
     public static function alles(array $state): ?string
     {
