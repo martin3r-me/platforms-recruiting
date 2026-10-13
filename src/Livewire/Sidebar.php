@@ -13,6 +13,24 @@ use Platform\Recruiting\Models\RecPosting;
 
 class Sidebar extends Component
 {
+    /** Routen des Mitarbeiter-Bereichs: Dokumente und Lohnaenderungen sind Reiter dort, kein eigener Eintrag. */
+    public const MITARBEITER_BEREICH = [
+        'recruiting.employees.index',
+        'recruiting.employees.documents',
+        'recruiting.employees.payroll-changes',
+    ];
+
+    /**
+     * Beim Mount aus der Seiten-Route gemerkt — beim Poll (/livewire/update)
+     * kennt request() die Seite nicht mehr.
+     */
+    public bool $mitarbeiterBereichAktiv = false;
+
+    public function mount(): void
+    {
+        $this->mitarbeiterBereichAktiv = (bool) request()->routeIs(...self::MITARBEITER_BEREICH);
+    }
+
     /** Stufe "Nur Veranstaltungen": Sidebar zeigt dann ausschliesslich den Veranstaltungs-Eintrag. */
     #[\Livewire\Attributes\Computed]
     public function eventOnly(): bool

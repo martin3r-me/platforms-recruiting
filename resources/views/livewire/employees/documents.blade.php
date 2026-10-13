@@ -24,6 +24,8 @@
     </x-slot>
 
     <x-ui-page-container width="full">
+        @include('recruiting::livewire.employees._reiter', ['reiter' => 'dokumente'])
+
         @if ($flash)
             <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-md">{{ $flash }}</div>
         @endif
