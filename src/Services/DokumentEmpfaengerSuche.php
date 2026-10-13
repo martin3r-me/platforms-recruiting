@@ -77,20 +77,55 @@ final class DokumentEmpfaengerSuche
         }
 
         $zeilen = $q->orderBy('last_name')->orderBy('first_name')->limit($limit + 1)
-            ->get(['id', 'first_name', 'last_name', 'personnel_number', 'company', 'person_key', 'portal_v2_since'])
-            ->map(fn ($r) => [
-                'id'               => (int) $r->id,
-                'name'             => trim((string) $r->first_name . ' ' . (string) $r->last_name) ?: ('Mitarbeiter #' . $r->id),
-                'personnel_number' => $r->personnel_number,
-                'company'          => $r->company,
-                'person_key'       => $r->person_key,
-                'hat_portal'       => $r->portal_v2_since !== null,
-            ])
+            ->get(self::SPALTEN)
+            ->map(fn ($r) => self::zeile($r))
             ->all();
 
         $abgeschnitten = count($zeilen) > $limit;
 
         return ['treffer' => array_slice($zeilen, 0, $limit), 'abgeschnitten' => $abgeschnitten];
+    }
+
+    /**
+     * Die von HR angehakten Personen, frisch aus der Datenbank: nur ids dieses
+     * Teams, Unbekanntes faellt stumm weg. Bewusst OHNE die Listenfilter — die
+     * Auswahl bleibt ueber Such- und Filterwechsel stehen (Opt-in-Waehler).
+     * Grundlage fuer die Anzeige "Ausgewaehlt" UND fuer den Versand; nie die
+     * ids aus dem Browser ungeprueft weiterreichen.
+     *
+     * @param  list<int> $ids
+     * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
+     */
+    public static function zeilenFuerIds(int $teamId, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn (int $id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        $zeilen = [];
+        foreach (array_chunk($ids, 900) as $paket) {
+            foreach (DB::table('rec_employees')->where('team_id', $teamId)->whereIn('id', $paket)->get(self::SPALTEN) as $r) {
+                $zeilen[] = $r;
+            }
+        }
+        usort($zeilen, fn ($a, $b) => [(string) $a->last_name, (string) $a->first_name, (int) $a->id] <=> [(string) $b->last_name, (string) $b->first_name, (int) $b->id]);
+
+        return array_map(fn ($r) => self::zeile($r), $zeilen);
+    }
+
+    private const SPALTEN = ['id', 'first_name', 'last_name', 'personnel_number', 'company', 'person_key', 'portal_v2_since'];
+
+    /** @return array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool} */
+    private static function zeile(object $r): array
+    {
+        return [
+            'id'               => (int) $r->id,
+            'name'             => trim((string) $r->first_name . ' ' . (string) $r->last_name) ?: ('Mitarbeiter #' . $r->id),
+            'personnel_number' => $r->personnel_number,
+            'company'          => $r->company,
+            'person_key'       => $r->person_key,
+            'hat_portal'       => $r->portal_v2_since !== null,
+        ];
     }
 
     /** @return list<string> der ganze ZAS-Katalog, natuerlich sortiert */

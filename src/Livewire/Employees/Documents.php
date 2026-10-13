@@ -22,6 +22,11 @@ use Platform\Recruiting\Support\DokumentKategorie;
  * Gruppe (Suche, Firma, aktiv, Taetigkeit, Veranstaltung, Haken je Person)
  * und der Ueberblick ueber alles, was unterwegs ist — egal, von wo es
  * gestartet wurde. Der Empfaengerwaehler existiert NUR hier.
+ *
+ * Empfaenger sind OPT-IN: $ausgewaehlt startet leer, HR hakt bewusst an
+ * (einzeln oder "alle Treffer"); die Auswahl bleibt ueber Such- und
+ * Filterwechsel stehen. Versendet wird nur nach dem Bestaetigungsschritt und
+ * nur an die serverseitig gegen das Team gepruefte Auswahl.
  */
 class Documents extends Component
 {
@@ -37,9 +42,10 @@ class Documents extends Component
     public string $aktiv = 'active';
     public string $taetigkeit = '';
     public ?int $eventId = null;
-    /** @var list<int> ids, die HR abgewaehlt hat */
-    public array $abgewaehlt = [];
-    public bool $waehlerOffen = false;
+    /** @var list<int> ids, die HR bewusst angehakt hat (ungeprueft — Browser-Eingabe) */
+    public array $ausgewaehlt = [];
+    /** Bestaetigungsfenster offen: erst dort darf bereitstellen() wirklich senden. */
+    public bool $bestaetigungOffen = false;
 
     public string $zeige = 'offen';
     public ?int $aufgeklappt = null;
@@ -65,21 +71,88 @@ class Documents extends Component
         }
     }
 
-    /** Jeder Filterwechsel setzt die Abwahl zurueck — sonst bleiben Haken an Personen haengen, die nicht mehr in der Liste sind. */
+    /** Filterwechsel rechnen nur die Trefferliste neu — die Auswahl bleibt (Opt-in, Haken ueber Suchen hinweg). */
     public function updated(string $name): void
     {
         if (in_array($name, ['suche', 'firma', 'aktiv', 'taetigkeit', 'eventId'], true)) {
-            $this->abgewaehlt = [];
             unset($this->kandidaten, $this->abgeschnitten);
             $this->grenzeCache = null;
         }
+        if ($name === 'ausgewaehlt' || str_starts_with($name, 'ausgewaehlt.')) {
+            $this->auswahlSetzen($this->ausgewaehlt);
+        }
     }
 
+    /** Haken an einer Person setzen oder entfernen. */
     public function toggle(int $id): void
     {
-        $this->abgewaehlt = in_array($id, $this->abgewaehlt, true)
-            ? array_values(array_diff($this->abgewaehlt, [$id]))
-            : [...$this->abgewaehlt, $id];
+        $this->auswahlSetzen(in_array($id, $this->auswahl(), true)
+            ? array_diff($this->auswahl(), [$id])
+            : [...$this->auswahl(), $id]);
+    }
+
+    /** "Alle Treffer auswaehlen" — gesperrt, solange die Liste abgeschnitten ist. */
+    public function alleTrefferAn(): void
+    {
+        $g = $this->kandidatenMitGrenze();
+        if ($g['abgeschnitten']) {
+            $this->flashError = 'Mehr als ' . DokumentEmpfaengerSuche::LIMIT . ' Treffer — bitte Filter eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).';
+
+            return;
+        }
+        $this->auswahlSetzen([...$this->auswahl(), ...array_column($g['treffer'], 'id')]);
+    }
+
+    /** Alle sichtbaren Treffer abwaehlen; Auswahl aus frueheren Suchen bleibt. */
+    public function alleTrefferAb(): void
+    {
+        $this->auswahlSetzen(array_diff($this->auswahl(), array_column($this->kandidatenMitGrenze()['treffer'], 'id')));
+    }
+
+    public function entfernen(int $id): void
+    {
+        $this->auswahlSetzen(array_diff($this->auswahl(), [$id]));
+    }
+
+    public function auswahlLeeren(): void
+    {
+        $this->auswahlSetzen([]);
+    }
+
+    /** @return list<int> */
+    private function auswahl(): array
+    {
+        return array_values(array_unique(array_filter(array_map('intval', $this->ausgewaehlt), fn (int $id) => $id > 0)));
+    }
+
+    /** @param iterable<int|string> $ids */
+    private function auswahlSetzen(iterable $ids): void
+    {
+        $liste = [];
+        foreach ($ids as $id) {
+            $liste[] = (int) $id;
+        }
+        $this->ausgewaehlt = array_values(array_unique(array_filter($liste, fn (int $id) => $id > 0)));
+        $this->bestaetigungOffen = false;
+        unset($this->ausgewaehltZeilen);
+    }
+
+    /**
+     * Die angehakten Personen, frisch und team-geprueft (fremde/unbekannte ids
+     * fallen weg). Anzeige UND Versand gehen hierueber.
+     *
+     * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
+     */
+    #[Computed]
+    public function ausgewaehltZeilen(): array
+    {
+        return $this->gepruefteAuswahl();
+    }
+
+    /** @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}> */
+    private function gepruefteAuswahl(): array
+    {
+        return DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), $this->auswahl());
     }
 
     /** @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}> */
@@ -104,13 +177,10 @@ class Documents extends Component
         ]);
     }
 
-    /** @return list<int> */
+    /** @return list<int> die team-geprueften ids der Auswahl — genau die bekommen das Dokument */
     public function gewaehlteIds(): array
     {
-        return array_values(array_filter(
-            array_column($this->kandidaten, 'id'),
-            fn (int $id) => !in_array($id, $this->abgewaehlt, true)
-        ));
+        return array_column($this->gepruefteAuswahl(), 'id');
     }
 
     /** @return list<string> */
@@ -136,8 +206,37 @@ class Documents extends Component
             ->all();
     }
 
+    /** Schritt vor dem Versand: prueft das Noetigste und oeffnet die Rueckfrage. */
+    public function bereitstellenPruefen(): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+        $this->bestaetigungOffen = false;
+        if (!$this->datei) {
+            $this->flashError = 'Bitte eine PDF auswählen.';
+
+            return;
+        }
+        if (trim($this->titel) === '') {
+            $this->flashError = 'Bitte einen Titel angeben.';
+
+            return;
+        }
+        if ($this->gewaehlteIds() === []) {
+            $this->flashError = 'Bitte mindestens einen Empfänger wählen.';
+
+            return;
+        }
+        $this->bestaetigungOffen = true;
+    }
+
+    /** Sendet nur aus dem offenen Bestaetigungsfenster heraus. */
     public function bereitstellen(): void
     {
+        if (!$this->bestaetigungOffen) {
+            return;
+        }
+        $this->bestaetigungOffen = false;
         $this->flash = null;
         $this->flashError = null;
         if (!$this->datei) {
@@ -145,12 +244,12 @@ class Documents extends Component
 
             return;
         }
-        if ($this->abgeschnitten) {
-            $this->flashError = 'Mehr als ' . DokumentEmpfaengerSuche::LIMIT . ' Treffer — bitte Filter eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).';
+        $ids = $this->gewaehlteIds();
+        if ($ids === []) {
+            $this->flashError = 'Bitte mindestens einen Empfänger wählen.';
 
             return;
         }
-        $ids = $this->gewaehlteIds();
 
         try {
             $e = app(DokumentService::class)->bereitstellen(
@@ -174,8 +273,7 @@ class Documents extends Component
         $this->titel = '';
         $this->kategorie = 'other';
         $this->aktion = 'none';
-        $this->abgewaehlt = [];
-        $this->waehlerOffen = false;
+        $this->auswahlSetzen([]);
         $this->aufgeklappt = (int) $e['dokument']->id;
         unset($this->dokumente, $this->kandidaten, $this->abgeschnitten);
         $this->grenzeCache = null;

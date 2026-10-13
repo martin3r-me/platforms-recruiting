@@ -3,8 +3,22 @@
     $aktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
     $kandidaten = $this->kandidaten;
     $abgeschnitten = $this->abgeschnitten;
-    $gewaehlt = count($kandidaten) - count(array_intersect($abgewaehlt, array_column($kandidaten, 'id')));
-    $ohnePortal = count(array_filter($kandidaten, fn ($k) => !$k['hat_portal'] && !in_array($k['id'], $abgewaehlt, true)));
+    // Opt-in: nur die angehakten Personen, serverseitig gegen das Team geprueft.
+    $auswahlZeilen = $this->ausgewaehltZeilen;
+    $auswahlIds = array_column($auswahlZeilen, 'id');
+    $gewaehlt = count($auswahlZeilen);
+    $ohnePortal = count(array_filter($auswahlZeilen, fn ($k) => !$k['hat_portal']));
+    $trefferIds = array_column($kandidaten, 'id');
+    $trefferGewaehlt = count(array_intersect($trefferIds, $auswahlIds));
+    $alleTrefferGewaehlt = count($trefferIds) > 0 && $trefferGewaehlt === count($trefferIds);
+    $kopfTeilweise = $trefferGewaehlt > 0 && !$alleTrefferGewaehlt;
+    $kopfAktion = $alleTrefferGewaehlt ? 'alleTrefferAb' : 'alleTrefferAn';
+    $kopfGesperrt = count($trefferIds) === 0 || ($abgeschnitten && !$alleTrefferGewaehlt);
+    $kopfZustand = $alleTrefferGewaehlt ? 'an' : ($kopfTeilweise ? 'teil' : 'aus');
+    $kopfTeilweiseJs = $kopfTeilweise ? 'true' : 'false';
+    $sendenGesperrt = $gewaehlt === 0;
+    $aktionLabel = $aktionen[$aktion] ?? $aktion;
+    $bestaetigungTitel = trim($titel);
     $dokumente = $this->dokumente;
     // Pollt nur, solange ein Versand juenger als die Versandfrist (30 min) unversucht ist.
     $versandLaeuft = count(array_filter($dokumente, fn ($d) => $d['versand_laeuft'])) > 0;
@@ -71,80 +85,109 @@
         {{-- 2. Empfaenger --}}
         <div class="mt-4 bg-white border border-[var(--ui-border)] rounded-lg p-4">
             <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">2 · Empfänger</h3>
-            <div class="flex flex-wrap items-end gap-3">
-                <div class="flex-1 min-w-[200px]">
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Suche</label>
-                    <input type="text" wire:model.live.debounce.300ms="suche" placeholder="Name oder Personalnummer" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm">
-                </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {{-- Links: Treffer der Suche, je Person ein Haken --}}
                 <div>
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Firma</label>
-                    <select wire:model.live="firma" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
-                        <option value="">Alle</option>
-                        <option value="RG">RG</option>
-                        <option value="MA">MA</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Status</label>
-                    <select wire:model.live="aktiv" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
-                        <option value="active">Aktiv</option>
-                        <option value="inactive">Inaktiv</option>
-                        <option value="all">Alle</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Tätigkeit (ZAS, nur RG)</label>
-                    <select wire:model.live="taetigkeit" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
-                        <option value="">Alle</option>
-                        @foreach ($this->taetigkeitOptionen as $t)
-                            <option value="{{ $t }}">{{ $t }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Veranstaltung</label>
-                    <select wire:model.live="eventId" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
-                        <option value="">Keine</option>
-                        @foreach ($this->eventOptionen as $ev)
-                            <option value="{{ $ev['id'] }}">{{ $ev['label'] }}</option>
-                        @endforeach
-                    </select>
-                </div>
-            </div>
-
-            <div class="mt-3 flex items-center justify-between">
-                <div class="text-sm">
-                    <span class="font-medium">{{ $gewaehlt }}</span> von {{ count($kandidaten) }} ausgewählt
-                    @if ($abgeschnitten)
-                        <span class="text-xs font-medium text-red-700">· Mehr als {{ \Platform\Recruiting\Services\DokumentEmpfaengerSuche::LIMIT }} Treffer — bitte Filter eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).</span>
-                    @endif
-                    @if ($ohnePortal > 0)
-                        <span class="text-xs text-amber-700">· {{ $ohnePortal }} noch im alten Portal, bekommen keine WhatsApp</span>
-                    @endif
-                </div>
-                <button type="button" wire:click="$toggle('waehlerOffen')" class="text-xs text-blue-600 hover:underline">{{ $waehlerOffen ? 'Liste einklappen' : 'Liste anzeigen und einzelne abwählen' }}</button>
-            </div>
-
-            @if ($waehlerOffen)
-                <div class="mt-2 max-h-80 overflow-y-auto border border-[var(--ui-border)] rounded-md divide-y divide-[var(--ui-border)]/60">
-                    @forelse ($kandidaten as $k)
-                        @php $kAn = !in_array($k['id'], $abgewaehlt, true); @endphp
-                        <label class="flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--ui-muted-5)]">
-                            <input type="checkbox" wire:click="toggle({{ $k['id'] }})" @checked($kAn)>
-                            <span class="flex-1">{{ $k['name'] }}</span>
-                            <span class="text-xs text-[var(--ui-muted)]">{{ $k['personnel_number'] ?? '—' }} · {{ $k['company'] ?? '—' }}</span>
-                            @if (!$k['hat_portal'])
-                                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
-                            @endif
+                    <div class="flex flex-wrap items-end gap-3 mb-3">
+                        <div class="flex-1 min-w-[200px]">
+                            <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Suche</label>
+                            <input type="text" wire:model.live.debounce.300ms="suche" placeholder="Name oder Personalnummer" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Firma</label>
+                            <select wire:model.live="firma" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                                <option value="">Alle</option>
+                                <option value="RG">RG</option>
+                                <option value="MA">MA</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Status</label>
+                            <select wire:model.live="aktiv" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                                <option value="active">Aktiv</option>
+                                <option value="inactive">Inaktiv</option>
+                                <option value="all">Alle</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Tätigkeit (ZAS, nur RG)</label>
+                            <select wire:model.live="taetigkeit" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                                <option value="">Alle</option>
+                                @foreach ($this->taetigkeitOptionen as $t)
+                                    <option value="{{ $t }}">{{ $t }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Veranstaltung</label>
+                            <select wire:model.live="eventId" class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                                <option value="">Keine</option>
+                                @foreach ($this->eventOptionen as $ev)
+                                    <option value="{{ $ev['id'] }}">{{ $ev['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-1 mb-1">
+                        <label wire:key="treffer-kopf-{{ $kopfZustand }}" class="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                            <input type="checkbox" data-test="alle-treffer" wire:click="{{ $kopfAktion }}" x-init="$el.indeterminate = {{ $kopfTeilweiseJs }}" @checked($alleTrefferGewaehlt) @disabled($kopfGesperrt)>
+                            Alle Treffer auswählen
                         </label>
-                    @empty
-                        <div class="px-3 py-4 text-sm text-[var(--ui-muted)]">Keine Treffer.</div>
-                    @endforelse
+                        <span class="text-xs text-[var(--ui-muted)]">{{ count($kandidaten) }} Treffer · {{ $trefferGewaehlt }} davon ausgewählt</span>
+                    </div>
+                    @if ($abgeschnitten)
+                        <div class="mb-1 px-1 text-xs font-medium text-red-700">Mehr als {{ \Platform\Recruiting\Services\DokumentEmpfaengerSuche::LIMIT }} Treffer, nur die ersten werden gezeigt — „Alle Treffer“ geht erst nach dem Eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).</div>
+                    @endif
+                    <div class="max-h-96 overflow-y-auto border border-[var(--ui-border)] rounded-md divide-y divide-[var(--ui-border)]/60">
+                        @forelse ($kandidaten as $k)
+                            @php
+                                $kAn = in_array($k['id'], $auswahlIds, true);
+                                $kSchluessel = 'treffer-' . $k['id'] . '-' . ($kAn ? 'an' : 'aus');
+                            @endphp
+                            <label wire:key="{{ $kSchluessel }}" class="flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--ui-muted-5)]">
+                                <input type="checkbox" wire:click="toggle({{ $k['id'] }})" @checked($kAn)>
+                                <span class="flex-1">{{ $k['name'] }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $k['personnel_number'] ?? '—' }} · {{ $k['company'] ?? '—' }}</span>
+                                @if (!$k['hat_portal'])
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
+                                @endif
+                            </label>
+                        @empty
+                            <div class="px-3 py-4 text-sm text-[var(--ui-muted)]">Keine Treffer.</div>
+                        @endforelse
+                    </div>
                 </div>
-            @endif
+
+                {{-- Rechts: wer das Dokument bekommt --}}
+                <div>
+                    <div class="flex items-center justify-between gap-3 px-1 mb-1">
+                        <span class="text-sm font-medium">Ausgewählt ({{ $gewaehlt }})</span>
+                        @if ($gewaehlt > 0)
+                            <button type="button" wire:click="auswahlLeeren" class="text-xs text-[var(--ui-muted)] hover:text-red-700 hover:underline">Auswahl leeren</button>
+                        @endif
+                    </div>
+                    @if ($ohnePortal > 0)
+                        <div class="mb-1 px-1 text-xs text-amber-700">{{ $ohnePortal }} davon im alten Portal — bekommen keine WhatsApp</div>
+                    @endif
+                    <div class="max-h-96 overflow-y-auto border border-[var(--ui-border)] rounded-md divide-y divide-[var(--ui-border)]/60">
+                        @forelse ($auswahlZeilen as $w)
+                            <div wire:key="auswahl-{{ $w['id'] }}" class="flex items-center gap-3 px-3 py-1.5 text-sm">
+                                <span class="flex-1">{{ $w['name'] }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $w['personnel_number'] ?? '—' }} · {{ $w['company'] ?? '—' }}</span>
+                                @if (!$w['hat_portal'])
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
+                                @endif
+                                <button type="button" wire:click="entfernen({{ $w['id'] }})" class="text-[var(--ui-muted)] hover:text-red-700" title="Entfernen" aria-label="Entfernen">✕</button>
+                            </div>
+                        @empty
+                            <div class="px-3 py-4 text-sm text-[var(--ui-muted)]">Noch niemand ausgewählt — links anhaken.</div>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
 
             <div class="mt-4 flex justify-end">
-                <button type="button" wire:click="bereitstellen" wire:loading.attr="disabled" wire:target="bereitstellen,datei" @disabled($abgeschnitten)
+                <button type="button" wire:click="bereitstellenPruefen" wire:loading.attr="disabled" wire:target="bereitstellenPruefen,bereitstellen,datei" @disabled($sendenGesperrt)
                         class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
                     An {{ $gewaehlt }} Personen bereitstellen
                 </button>
@@ -223,4 +266,21 @@
             </div>
         </div>
     </x-ui-page-container>
+
+    <x-ui-modal wire:model="bestaetigungOffen" size="sm">
+        <x-slot name="header">Bereitstellen bestätigen</x-slot>
+        <div class="space-y-2 text-sm">
+            <p>„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?</p>
+            @if ($ohnePortal > 0)
+                <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).</p>
+            @endif
+            <p>Der Mitarbeiter soll: {{ $aktionLabel }}.</p>
+        </div>
+        <x-slot name="footer">
+            <div class="flex justify-end gap-2">
+                <x-ui-button type="button" variant="secondary-outline" wire:click="$set('bestaetigungOffen', false)">Abbrechen</x-ui-button>
+                <x-ui-button type="button" variant="primary" wire:click="bereitstellen" wire:loading.attr="disabled" wire:target="bereitstellen">Bereitstellen</x-ui-button>
+            </div>
+        </x-slot>
+    </x-ui-modal>
 </x-ui-page>
