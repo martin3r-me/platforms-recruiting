@@ -10,11 +10,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Dispo\Jobs\Create;
+use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
 use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 
 /** Anlegen einer Anfrage (Schritt 3) und das Auto-Abschliessen der Uebersicht. Muster DispoJobTablesTest. */
 class DispoJobCreateFlowTest extends TestCase
@@ -70,6 +74,23 @@ class DispoJobCreateFlowTest extends TestCase
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
             ],
         ];
+    }
+
+    public function test_schicht_optionen_laden_die_endzeit_aus_zas(): void
+    {
+        $this->assertContains('bis', Create::SCHICHT_SPALTEN);
+
+        $event = RecDispoEvent::create(['einsatz_ref' => 'BIS1']);
+        foreach (['a' => '23:00', 'b' => '23:00', 'c' => '22:30'] as $ref => $bis) {
+            RecDispoAssignment::create(['ds_ref' => 'bis-' . $ref, 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'x', 'datum' => '2026-10-24',
+                'von' => '17:00', 'bis' => $bis, 'taetigkeit' => 'Zapfer', 'status_id' => 1]);
+        }
+
+        // Genau die Spaltenliste der Komponente — fehlt 'bis', kommt die Endzeit leer an.
+        $rows = RecDispoAssignment::query()->where('rec_dispo_event_id', $event->id)->get(Create::SCHICHT_SPALTEN);
+        $optionen = DispoJobSchichten::optionen($rows, []);
+
+        $this->assertSame('23:00', $optionen['2026-10-24'][0]['bis']);
     }
 
     public function test_legt_anfrage_schichten_und_welle_1_an(): void

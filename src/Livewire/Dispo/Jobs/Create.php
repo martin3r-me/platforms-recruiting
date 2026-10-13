@@ -38,6 +38,9 @@ class Create extends Component
 {
     public const SESSION_FILIALE = 'dispo_jobs_filiale';
 
+    /** Spalten der Einbuchungen fuer die Schicht-Optionen (Schritt 2) — 'bis' liefert die Endzeit aus ZAS. */
+    public const SCHICHT_SPALTEN = ['rec_dispo_event_id', 'datum', 'von', 'bis', 'taetigkeit', 'pnr_raw', 'missing_since', 'deletion_marked_at'];
+
     #[Url]
     public ?int $event = null;
 
@@ -352,7 +355,7 @@ class Create extends Component
         $rows = RecDispoAssignment::query()
             ->whereIn('rec_dispo_event_id', $ids)
             ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis)
-            ->get(['rec_dispo_event_id', 'datum', 'von', 'taetigkeit', 'pnr_raw', 'missing_since', 'deletion_marked_at'])
+            ->get(self::SCHICHT_SPALTEN)
             ->groupBy('rec_dispo_event_id');
 
         $out = [];
