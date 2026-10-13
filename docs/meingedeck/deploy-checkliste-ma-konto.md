@@ -240,7 +240,24 @@ Vorher Zähler notieren: `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_a
 
 1. [ ] `php artisan recruiting:nachweise-umziehen --dry-run` → Zahlen lesen → `php artisan recruiting:nachweise-umziehen`. Muss vor dem nächsten Stundenlauf von `einsatz-pruefung` fertig sein. [M:project_ma_konto_merge_risiken]
 2. [ ] `php artisan recruiting:personen-anlegen --dry-run` → vier Zahlen + Kennungen lesen → `php artisan recruiting:personen-anlegen`. **HARTE VORAUSSETZUNG** für Konto, HR-Bereich und Trigger-Nachrichten. Trockenlauf rollt je Gruppe zurück, **verbraucht aber AUTO_INCREMENT** in `rec_persons`. Teil-Commits je Gruppe → darf neben dem Betrieb laufen. **Nicht gleichzeitig mit `person-pair-audit --apply`.** [P-Klammer Z. 1127, M:project_konto_anmeldeschicht_gate_d, M:project_personen_klammer_stufe1]
-3. [ ] `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_at IS NOT NULL;` — gleicher Wert wie vorher? `SELECT COUNT(*) FROM rec_persons;` (~1213 laut Vorflug), `SELECT COUNT(*) FROM rec_employees WHERE is_active=1 AND rec_person_id IS NULL;`.
+3. [ ] `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_at IS NOT NULL;` — gleicher Wert wie vorher? `SELECT COUNT(*) FROM rec_persons;` (Generalprobe 13.10.: **1383** bei 1808 Anstellungen), `SELECT COUNT(*) FROM rec_employees WHERE is_active=1 AND rec_person_id IS NULL;`.
+   Generalprobe 13.10. zum Vergleich: Zähler vorher = nachher (75), `ohne_person` 0, Nachweise 2281, „Nummern uneinig" 7, „Nummer nicht gesetzt" **32** (der Trockenlauf meldete damals fälschlich 0 — behoben in `3b6582bf`, er zählt jetzt richtig).
+3a. [ ] **HR-Liste „Nummer nicht gesetzt“ ziehen** (TablePlus gegen prod, MIT Namen — nur an HR). Diese Menschen haben eine Personen-Zeile, aber keine Nummer → kein Login, bis HR klärt. Grundsatz (Sebastian 13.10.): ein Mensch hat höchstens EINE RG- und EINE MA-Anstellung; alles darüber hinaus wird NICHT automatisch zusammengeführt, sondern von HR geklärt (Dublette bereinigen, eigene Nummer eintragen oder per `recruiting:person-pair-audit --pair=a:b` zusammenführen lassen).
+   ```sql
+   SELECT e.id AS ohne_nummer, e.company, e.personnel_number, e.first_name, e.last_name, e.birth_date,
+          o.id AS nummer_bei, o.company AS firma_andere, o.personnel_number AS pnr_andere,
+          o.first_name AS vorname_andere, o.last_name AS nachname_andere,
+          CASE WHEN e.first_name = o.first_name AND e.last_name = o.last_name AND e.birth_date = o.birth_date
+               THEN 'gleicher Mensch, Dublette' ELSE 'anderer Mensch, gleiche Nummer' END AS befund
+     FROM rec_employees e
+     JOIN rec_persons p  ON p.id = e.rec_person_id AND p.phone IS NULL
+     JOIN rec_persons po ON po.team_id = p.team_id AND po.phone IS NOT NULL
+                        AND RIGHT(po.phone, 9) = RIGHT(REGEXP_REPLACE(e.phone, '[^0-9]', ''), 9)
+     JOIN rec_employees o ON o.rec_person_id = po.id
+    WHERE e.is_active = 1
+    ORDER BY befund, e.last_name;
+   ```
+   Generalprobe 13.10.: 32 Menschen — 27 „gleicher Mensch“ (fast alle eine ZWEITE MA-Anstellung neben RG+MA, beide aktiv, verschiedene Personalnummern, schubweise von ZAS angelegt → ZAS-Dubletten, ggf. Frage an Olaf), 5 „anderer Mensch“ (Familie/Namenswechsel/Tippfehler). Zusätzlich die 7 „Nummern uneinig“ (Kennungen aus der Ausgabe von Schritt 2) an HR.
 4. [ ] `php artisan recruiting:seed-rec-contract-extra-fields --dry-run` → ohne `--dry-run`. Legt `zuschlag` + `herkunft` an; **ohne `herkunft` lehnt die Akte „Vertrag erstellen" ab**. [S-Vertrag §8]
 4a. [ ] `php artisan recruiting:vertraege-an-anstellung --dry-run` → ohne `--dry-run`. Lief auf prod schon am 07.10. (idempotent, nimmt nur Verträge mit `rec_employee_id IS NULL`); jetzt erneut für alles, was seitdem entstanden ist, und VOR Schritt 5: die Vertragsprüfung der Einsatz-Prüfung liest Verträge über `rec_contracts.rec_employee_id` — ein Vertrag ohne Anker zählt als „kein Vertrag". Braucht seed nicht (liest keine Zusatzfelder). `mehrdeutig`/`firma_fehlt` bleiben NULL → Abschnitt 2 (offene Klärungen). [`VertraegeAnAnstellung.php`, `VertragsZeilen.php`]
 5. [ ] `php artisan recruiting:einsatz-pruefung --dry-run` (läuft auch bei ausgeschaltetem Schalter) → Bericht lesen: „Arbeitserlaubnis fehlt: n … davon k neu", „ohne Personen-Zeile", „altes Portal", „Vertragsprüfung: 0 …" (Check aus). k an HR/Sebastian melden, bevor der Schalter eingeschaltet wird. [P-Trigger Z. 1932–1933, `EinsatzPruefung::bericht`]
