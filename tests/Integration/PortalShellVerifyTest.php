@@ -54,6 +54,10 @@ final class PortalShellVerifyTest extends TestCase
 
         $this->cache = new Repository(new ArrayStore());
 
+        // Ein DataStore fuer \Livewire\store() — sonst baut der Container je
+        // Aufruf einen neuen, und die Weiterleitungs-Zusicherung waere stumm gruen.
+        $container->instance(\Livewire\Mechanisms\DataStore::class, new \Livewire\Mechanisms\DataStore());
+
         $this->capsule->schema()->create('rec_employees', function ($t) {
             $t->increments('id');
             $t->string('uuid', 64)->nullable();
@@ -265,6 +269,10 @@ final class PortalShellVerifyTest extends TestCase
         $this->assertSame('unverified', $shell->state);
         $this->assertSame('', $shell->displayName);
         $this->assertFalse($this->session->has(PortalAuth::sessionKey($ma->id)));
+        // Reiner Token-Weg: keine Weiterleitung, die Seite bleibt die Anmeldemaske.
+        $this->assertNull(\Livewire\store($shell)->get('redirect'));
+        // Neu geoeffnet ist der Link nicht angemeldet.
+        $this->assertFalse(PortalAuth::sitzungGueltig($ma->id));
     }
 
     public function test_zweiter_anlauf_nach_erfolg_tut_nichts(): void

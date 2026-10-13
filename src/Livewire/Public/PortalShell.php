@@ -247,10 +247,21 @@ class PortalShell extends Component
      * Abmelden. Wichtig auf geteilten Geraeten: ohne das bleibt der Naechste,
      * der den Link oeffnet, angemeldet — und weil beide Portale sich den
      * Sitzungsschluessel teilen, auch gleich im alten.
+     *
+     * Kam die Sitzung aus dem KONTO (Demo-Fund 13.10.), endet die ganze
+     * Konto-Anmeldung — alle Anstellungen, die sie geoeffnet hat, nach
+     * derselben Regel wie KontoAnmelden::abmelden() — und es geht zurueck
+     * auf die Konto-Anmeldung statt vor die alte Token-Maske.
      */
     public function logout(): void
     {
+        $kontoAnmeldung = null;
+
         if ($this->employeeId !== null) {
+            $kontoAnmeldung = PortalAuth::kontoAnmeldungVon($this->employeeId);
+            if ($kontoAnmeldung !== null) {
+                PortalAuth::beendeKontoAnmeldung($kontoAnmeldung);
+            }
             session()->forget(PortalAuth::sessionKey($this->employeeId));
         }
 
@@ -260,6 +271,14 @@ class PortalShell extends Component
         $this->fehler = '';
         $this->birthDate = '';
         $this->idLast4 = '';
+        // Offene Gruppe/Dokument tragen Daten in den Snapshot — mit weg.
+        $this->profilGruppe = null;
+        $this->profilWerte = [];
+        $this->dokumentId = null;
+
+        if ($kontoAnmeldung !== null) {
+            $this->redirect(route('recruiting.public.konto'));
+        }
     }
 
     /**

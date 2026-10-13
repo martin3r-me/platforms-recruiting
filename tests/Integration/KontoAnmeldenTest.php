@@ -1086,6 +1086,104 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD)));
     }
 
+    // ------------------------------------------- Abmelden aus dem Portal
+
+    /** Die Portal-Huelle, wie sie nach der Konto-Weiterleitung angemeldet dasteht. */
+    private function huelle(int $anstellung, string $token): \Platform\Recruiting\Livewire\Public\PortalShell
+    {
+        $huelle = new \Platform\Recruiting\Livewire\Public\PortalShell();
+        $huelle->token = $token;
+        $huelle->employeeId = $anstellung;
+        $huelle->state = 'verified';
+        $huelle->displayName = 'Gregor';
+
+        return $huelle;
+    }
+
+    /**
+     * Demo-Fund 13.10.: "Abmelden" im Portal nahm nur die eine Sitzung weg,
+     * liess den Menschen vor der alten Token-Anmeldung stehen — und das Konto
+     * blieb im Hintergrund fuer die zweite Anstellung offen. Wer ueber das
+     * Konto kam, verlaesst es ganz und steht wieder auf der Konto-Anmeldung.
+     */
+    public function test_abmelden_im_portal_beendet_die_ganze_konto_anmeldung(): void
+    {
+        $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
+        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        // Vorflug: beide Anstellungen sind offen, sonst beweist der Rest nichts.
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(11)));
+        $this->assertNotNull($this->session->get(PortalAuth::KONTO_ANMELDUNG));
+
+        $huelle = $this->huelle(self::ANSTELLUNG_GREGOR, 'tok-gregor');
+        $huelle->logout();
+
+        $this->assertSame(route('recruiting.public.konto'), \Livewire\store($huelle)->get('redirect'));
+        $this->assertFalse(PortalAuth::sitzungGueltig(self::ANSTELLUNG_GREGOR));
+        $this->assertFalse(PortalAuth::sitzungGueltig(11), 'Die zweite Anstellung derselben Person blieb offen.');
+        $this->assertFalse($this->session->has(PortalAuth::KONTO_ANMELDUNG), 'Die Konto-Anmeldung lebt weiter.');
+        $this->assertTrue(
+            $this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD)),
+            'Abmelden traf eine fremde Sitzung.',
+        );
+        // Zurueckblaettern zeigt nichts: der Zustand ist geraeumt wie bisher.
+        $this->assertSame('unverified', $huelle->state);
+        $this->assertSame('', $huelle->displayName);
+    }
+
+    /** Auch aus der ZWEITEN Anstellung heraus endet die ganze Anmeldung. */
+    public function test_abmelden_aus_der_zweiten_anstellung_beendet_auch_die_erste(): void
+    {
+        $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+
+        $huelle = $this->huelle(11, 'tok-gregor-2');
+        $huelle->logout();
+
+        $this->assertSame(route('recruiting.public.konto'), \Livewire\store($huelle)->get('redirect'));
+        $this->assertFalse(PortalAuth::sitzungGueltig(self::ANSTELLUNG_GREGOR));
+        $this->assertFalse(PortalAuth::sitzungGueltig(11));
+    }
+
+    /**
+     * Wer am selben Geraet nur per Token angemeldet ist, bekommt das alte
+     * Verhalten: seine Sitzung geht, die Konto-Anmeldung eines anderen bleibt,
+     * und es gibt keine Weiterleitung.
+     */
+    public function test_eine_reine_token_sitzung_meldet_ab_wie_bisher(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), PortalAuth::anmeldeWert());
+
+        $huelle = $this->huelle(self::ANSTELLUNG_FREMD, 'tok-fremd');
+        $huelle->logout();
+
+        $this->assertNull(\Livewire\store($huelle)->get('redirect'));
+        $this->assertSame('unverified', $huelle->state);
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD)));
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+        $this->assertTrue($this->session->has(PortalAuth::KONTO_ANMELDUNG));
+    }
+
+    /** abmelden() auf der Konto-Seite raeumt die Merke mit ab. */
+    public function test_abmelden_auf_der_konto_seite_raeumt_die_merke(): void
+    {
+        DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)
+            ->update(['portal_v2_since' => null]);
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $seite->abmelden();
+
+        $this->assertFalse($this->session->has(PortalAuth::KONTO_ANMELDUNG));
+    }
+
     // ---------------------------------------------------------- Der Waechter
 
     /**

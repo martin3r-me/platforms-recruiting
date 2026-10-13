@@ -470,6 +470,57 @@ final class PortalAuth
     }
 
     /**
+     * Sitzungs-Merke: welche Anstellungen hat eine KONTO-Anmeldung geoeffnet?
+     *
+     * Die Konto-Seite leitet nach der Anmeldung weiter; ihre Liste
+     * ($geoeffnet) stirbt mit der Komponente. Damit "Abmelden" im Portal
+     * weiss, dass die Sitzung aus dem Konto kam und WELCHE Schluessel
+     * dazugehoeren, liegt dieselbe Liste hier in der Sitzung. Eine Abfrage
+     * ueber die Person beim Abmelden waere eine zweite Wahrheit und traefe im
+     * Zweifel andere Zeilen als das Oeffnen.
+     */
+    public const KONTO_ANMELDUNG = 'recruiting.konto.anmeldung';
+
+    /** @param list<int> $kennungen Anstellungs-Kennungen, die die Konto-Anmeldung geoeffnet hat. */
+    public static function merkeKontoAnmeldung(array $kennungen): void
+    {
+        app('session')->put(self::KONTO_ANMELDUNG, array_values(array_map('intval', $kennungen)));
+    }
+
+    /**
+     * Die Anstellungen der Konto-Anmeldung, zu der DIESE Anstellung gehoert —
+     * oder null, wenn ihre Sitzung nicht aus dem Konto kam (reiner Token-Weg).
+     *
+     * @return list<int>|null
+     */
+    public static function kontoAnmeldungVon(int $employeeId): ?array
+    {
+        $liste = app('session')->get(self::KONTO_ANMELDUNG);
+        if (!is_array($liste)) {
+            return null;
+        }
+        $liste = array_values(array_map('intval', $liste));
+
+        return in_array($employeeId, $liste, true) ? $liste : null;
+    }
+
+    /**
+     * DIE EINE Regel fuer das Ende einer Konto-Anmeldung: genau die
+     * Sitzungen, die sie geoeffnet hat, und die Merke selbst. Benutzt von
+     * KontoAnmelden::abmelden() und PortalShell::logout().
+     *
+     * @param list<int> $kennungen
+     */
+    public static function beendeKontoAnmeldung(array $kennungen): void
+    {
+        $sitzung = app('session');
+        foreach ($kennungen as $kennung) {
+            $sitzung->forget(self::sessionKey((int) $kennung));
+        }
+        $sitzung->forget(self::KONTO_ANMELDUNG);
+    }
+
+    /**
      * Was eine frische Portal-Sitzung speichert: den ANMELDEZEITPUNKT statt
      * true (Spec HR-Bereich §9.6). Eine Stelle fuer alle drei Schreibstellen
      * (KontoAnmelden, PortalShell, EmployeePortal).

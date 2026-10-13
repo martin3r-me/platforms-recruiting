@@ -455,6 +455,9 @@ class KontoAnmelden extends Component
             session()->put(PortalAuth::sessionKey((int) $anstellung->id), PortalAuth::anmeldeWert());
         }
         $this->geoeffnet = $kennungen;
+        // Dieselbe Liste in die Sitzung: nach der Weiterleitung braucht das
+        // Abmelden im Portal sie, um die GANZE Anmeldung zu beenden.
+        PortalAuth::merkeKontoAnmeldung($kennungen);
 
         // DENSELBEN STEMPEL wie der Token-Weg (PortalShell::verify): an ihm
         // haengt die Frage "wer nutzt das Portal ueberhaupt?", mit der die
@@ -518,9 +521,7 @@ class KontoAnmelden extends Component
      */
     public function abmelden(): void
     {
-        foreach ($this->geoeffnet as $kennung) {
-            session()->forget(PortalAuth::sessionKey((int) $kennung));
-        }
+        PortalAuth::beendeKontoAnmeldung($this->geoeffnet);
 
         $this->geoeffnet = [];
         $this->zurAnmeldung();
