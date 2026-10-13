@@ -1398,6 +1398,20 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertSame([9002, 9003], $this->session->get(PortalAuth::KONTO_ANMELDUNG));
     }
 
+    /** Review 13.10.: eine fremde TOKEN-Anmeldung im Browser ueberlebt die Konto-Anmeldung nicht. */
+    public function test_konto_anmeldung_beendet_fremde_token_anmeldung(): void
+    {
+        $this->session->put(PortalAuth::sessionKey(7777), PortalAuth::anmeldeWert());
+        $this->session->put(PortalAuth::sessionKey(9002), PortalAuth::anmeldeWert());
+        $this->session->put('anderer_schluessel', 'bleibt');
+
+        PortalAuth::merkeKontoAnmeldung([9002]);
+
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(7777)));
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(9002)));
+        $this->assertSame('bleibt', $this->session->get('anderer_schluessel'));
+    }
+
     // ---------------------------------------------------------- Der Waechter
 
     /**

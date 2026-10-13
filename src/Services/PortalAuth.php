@@ -494,10 +494,18 @@ final class PortalAuth
         // der ersten offen — auf einem geteilten Geraet genau der Fall, gegen
         // den Abmelden da ist. Was die neue Anmeldung selbst gerade geoeffnet
         // hat (dieselbe Person meldet sich erneut an), bleibt stehen.
-        $alt = $sitzung->get(self::KONTO_ANMELDUNG);
-        if (is_array($alt)) {
-            foreach (array_diff(array_map('intval', $alt), $neu) as $kennung) {
-                $sitzung->forget(self::sessionKey((int) $kennung));
+        //
+        // Nicht nur die Schluessel der vorherigen KONTO-Anmeldung, sondern
+        // JEDE fremde Portal-Sitzung in diesem Browser (Review 13.10.): eine
+        // alte Token-Anmeldung eines anderen Menschen ueberlebte sonst die
+        // Konto-Anmeldung — mit "angemeldet bleiben" 180 Tage lang.
+        $praefix = self::sessionKey(0);
+        $praefix = substr($praefix, 0, strlen($praefix) - 1);
+        $behalten = array_flip(array_map(fn (int $k) => self::sessionKey($k), $neu));
+
+        foreach (array_keys($sitzung->all()) as $schluessel) {
+            if (str_starts_with((string) $schluessel, $praefix) && !isset($behalten[$schluessel])) {
+                $sitzung->forget((string) $schluessel);
             }
         }
 
