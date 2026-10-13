@@ -5,7 +5,7 @@ namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 use Platform\Recruiting\Services\Zas\Dispo\DispoQualifikationExtractor;
 
 /**
- * Schicht-Optionen einer Veranstaltung fuer „Jobs anbieten“ (Schritt 4):
+ * Schicht-Optionen einer Veranstaltung fuer „Jobs anbieten“ (Schritt 2):
  * je Tag die vorkommenden Kombinationen Arbeitsbeginn × Taetigkeit.
  * Rein rechnend; verschwundene und zur Loeschung gemeldete Zeilen zaehlen nicht
  * (wie DispoRowFilters). `platzhalter` = RG0/RG14-Zeilen — nur Anzeige

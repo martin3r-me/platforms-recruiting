@@ -143,7 +143,7 @@
             <p class="text-sm text-gray-500">Noch keine Welle.</p>
         @endforelse
 
-        {{-- Neue Welle: gleiche Auswahl wie Schritt 5; wer in dieser Anfrage schon angeschrieben ist, fällt heraus. --}}
+        {{-- Neue Welle: gleiche Auswahl wie Schritt 3; wer in dieser Anfrage schon angeschrieben ist, fällt heraus. --}}
         @if ($neueWelleOffen && $offen)
             @php
                 $bloecke = $this->blockOptionen;

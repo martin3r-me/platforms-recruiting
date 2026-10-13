@@ -16,7 +16,7 @@ use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 
-/** Anlegen einer Anfrage (Schritt 5) und das Auto-Abschliessen der Uebersicht. Muster DispoJobTablesTest. */
+/** Anlegen einer Anfrage (Schritt 3) und das Auto-Abschliessen der Uebersicht. Muster DispoJobTablesTest. */
 class DispoJobCreateFlowTest extends TestCase
 {
     public static function setUpBeforeClass(): void

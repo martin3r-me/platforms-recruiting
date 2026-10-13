@@ -3,7 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 /**
- * Aktive Tag-Pillen einer VA nach einer Zeitraum-Aenderung (Schritt 4).
+ * Aktive Tag-Pillen einer VA nach einer Zeitraum-Aenderung (Schritt 2).
  * Rein: weggefallene Tage raus, NEUE Tage aktiv dazu, eine Abwahl eines
  * weiterhin angebotenen Tages bleibt bestehen.
  */
