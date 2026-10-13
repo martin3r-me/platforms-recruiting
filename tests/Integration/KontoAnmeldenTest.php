@@ -1272,10 +1272,12 @@ final class KontoAnmeldenTest extends TestCase
      */
     public function test_abmelden_trifft_keine_fremde_sitzung(): void
     {
-        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
-
         $seite = $this->anmeldung();
         $seite->anmelden($this->auth());
+        // Die fremde Sitzung entsteht NACH der Konto-Anmeldung (jemand meldet
+        // sich danach per Link an) — eine schon VORHER offene raeumt die
+        // Konto-Anmeldung selbst weg (test_konto_anmeldung_beendet_fremde_token_anmeldung).
+        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
         $seite->abmelden();
 
         $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD)));
@@ -1304,10 +1306,11 @@ final class KontoAnmeldenTest extends TestCase
     public function test_abmelden_im_portal_beendet_die_ganze_konto_anmeldung(): void
     {
         $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
-        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
 
         $seite = $this->anmeldung();
         $seite->anmelden($this->auth());
+        // Fremde Sitzung erst NACH der Konto-Anmeldung (siehe oben).
+        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
         // Vorflug: beide Anstellungen sind offen, sonst beweist der Rest nichts.
         $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
         $this->assertTrue($this->session->has(PortalAuth::sessionKey(11)));
