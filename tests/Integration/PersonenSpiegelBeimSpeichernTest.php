@@ -54,12 +54,13 @@ class PersonenSpiegelBeimSpeichernTest extends TestCase
 
     public function test_geleertes_feld_wird_auch_beim_geschwister_geleert(): void
     {
+        // Bis 12.10.2026 mit other_employer — das gilt seitdem je Anstellung
+        // (Markus, E8), siehe AnstellungsRegelnTest.
         $p = $this->person();
-        $rg = $this->akte(['rec_person_id' => $p, 'other_employer' => 'X GmbH']);
-        $ma = $this->akte(['rec_person_id' => $p, 'other_employer' => 'X GmbH']);
-        RecEmployee::find($rg)->update(['is_main_employer' => true, 'other_employer' => null]);
-        $this->assertNull($this->zeile($ma)->other_employer);
-        $this->assertSame(1, (int) $this->zeile($ma)->is_main_employer);
+        $rg = $this->akte(['rec_person_id' => $p, 'birth_place' => 'Bonn']);
+        $ma = $this->akte(['rec_person_id' => $p, 'birth_place' => 'Bonn']);
+        RecEmployee::find($rg)->update(['birth_place' => null]);
+        $this->assertNull($this->zeile($ma)->birth_place);
     }
 
     public function test_gesellschaftsfeld_bleibt_getrennt(): void

@@ -157,6 +157,47 @@ class ZasInboundSpiegelTest extends TestCase
         $this->assertSame('MA', Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $ma)->value('export_status'), 'Status-Sync bleibt');
     }
 
+    /**
+     * Kundenentscheidung Markus 12.10.2026 (E7): die Folgeaenderung aus
+     * AnstellungsRegeln (MA -> Klasse 6) ist auf dem Weg zu ZAS; eine
+     * Lieferung mit dem alten Stand dreht sie nicht zurueck — derselbe Schutz
+     * wie fuer Personenfelder (PersonenFelder::MARKER_GESCHUETZT).
+     */
+    public function test_veraltete_zas_lieferung_dreht_die_steuerklassen_regel_nicht_zurueck(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => '6', 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'tax_class' => '1', 'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        RecEmployee::find($rg)->update(['tax_class' => '1']);
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'Vorbedingung: Regel lief');
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'Vorbedingung: Marker offen');
+
+        $report = $this->run_($this->row(['Status' => 'MA', 'Steuerklasse' => '1']));
+
+        $this->assertSame([], $report['failed']);
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class);
+        $this->assertSame('1', (string) $this->zeile($rg)->tax_class, 'Steuerklasse wird nicht gespiegelt');
+    }
+
+    /**
+     * Bewusst NICHT umgebaut (Auftrag 12.10.): ohne offenen Marker setzt eine
+     * ZAS-Lieferung die Steuerklasse der getroffenen Akte, ohne die Regel
+     * zwischen den Anstellungen anzuwenden — beide koennen danach != 6 sein.
+     * Der Test haelt das Verhalten fest, damit eine Aenderung bewusst passiert.
+     */
+    public function test_zas_lieferung_ohne_offenen_marker_wendet_die_regel_nicht_an(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => '1', 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'tax_class' => '6', 'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        $this->run_($this->row(['Status' => 'MA', 'Steuerklasse' => '1']));
+
+        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+        $this->assertSame('1', (string) $this->zeile($rg)->tax_class);
+    }
+
     public function test_zas_spiegel_laesst_geschwister_mit_offenem_marker_aus(): void
     {
         $p = $this->person();

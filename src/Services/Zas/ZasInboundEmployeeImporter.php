@@ -457,6 +457,9 @@ class ZasInboundEmployeeImporter
         // noch nicht bei ZAS angekommen, die Lieferung traegt fuer die
         // Personenfelder den alten Stand. Dann bleiben sie stehen; alles
         // andere (Status, Kleidung, Fristen) laeuft weiter (Review C1).
+        // Seit 12.10.2026 inkl. der Gesellschaftsfelder (Steuerklasse,
+        // Haupt-/Nebenarbeitgeber, Krankenkasse), die nicht mehr gespiegelt
+        // werden — der Schutz bleibt derselbe (PersonenFelder::MARKER_GESCHUETZT).
         $offenerMarker = $existing->getRawOriginal('zas_changed_at') !== null;
 
         $employee = [];
@@ -465,7 +468,7 @@ class ZasInboundEmployeeImporter
             if (in_array($field, self::OVERWRITE_PROTECTED, true)) {
                 continue;
             }
-            if ($offenerMarker && in_array($field, PersonenFelder::SPIEGELN, true)) {
+            if ($offenerMarker && in_array($field, PersonenFelder::MARKER_GESCHUETZT, true)) {
                 continue;
             }
             $current = $existing->getAttribute($field);

@@ -1378,8 +1378,14 @@ class Show extends Component
         }
 
         $changesCount = 0;
+        $folgen = [];
         if (!empty($updates)) {
+            // Steuerklasse / Hauptarbeitgeber: die Regel zwischen den
+            // Anstellungen (Markus 12.10.2026, E7/E8) laeuft im Beobachter;
+            // er legt das echte Ergebnis an der Instanz ab.
+            $employee->anstellungsFolgen = [];
             $employee->update($updates);
+            $folgen = $employee->anstellungsFolgen;
             $changesCount++;
         }
         if (!empty($hrUpdates)) {
@@ -1392,7 +1398,10 @@ class Show extends Component
             return;
         }
 
-        $this->flash = 'Aenderungen gespeichert.';
+        // HR sieht, was an der anderen Anstellung mitgeaendert wurde — eine
+        // Folge der Kundenentscheidung, nicht still (Markus 12.10.2026).
+        $hinweis = \Platform\Recruiting\Services\AnstellungsRegeln::hinweisHr($folgen);
+        $this->flash = 'Aenderungen gespeichert.' . ($hinweis !== '' ? ' ' . $hinweis : '');
         $this->loadFieldValues($employee->fresh());
         unset($this->employee);
     }

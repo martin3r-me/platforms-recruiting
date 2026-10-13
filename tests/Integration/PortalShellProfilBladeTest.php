@@ -223,4 +223,21 @@ class PortalShellProfilBladeTest extends TestCase
         // Eine einzelne Spalte am Rechner nimmt die ganze Breite.
         $this->assertStringContainsString('.portal-body .bcols > :only-child { grid-column: 1 / -1 }', $layout);
     }
+
+    /**
+     * Markus 12.10.2026 (E8): die Arbeitgeber-Frage gilt je Anstellung. Die
+     * Karte „Deine Anstellungen" fuehrt deshalb in das Portal der jeweils
+     * ANDEREN Anstellung (eigener Token derselben Person), und die Komponente
+     * liest dafuer Token und Umstellungs-Stempel mit.
+     */
+    public function test_anstellungen_karte_verlinkt_die_andere_anstellung(): void
+    {
+        $blade = $this->blade();
+        $this->assertStringContainsString("route('recruiting.public.portal-shell', ['token' => \$anstellung->portal_token])", $blade);
+        $this->assertStringContainsString('$anstellung->portal_v2_since !== null', $blade);
+        $this->assertStringContainsString('(int) $anstellung->id === (int) $employeeId', $blade);
+
+        $shell = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Public/PortalShell.php');
+        $this->assertStringContainsString("'portal_token', 'portal_v2_since']", $shell);
+    }
 }

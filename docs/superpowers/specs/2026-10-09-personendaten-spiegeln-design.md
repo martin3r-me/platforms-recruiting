@@ -56,6 +56,22 @@ Festgelegt in einer Konstante `PersonenFelder::SPIEGELN` (neue Klasse
 | Steuer, Versicherung | `tax_class`, `steuer_id`, `sozialversicherungsnummer`, `health_insurance` |
 | Arbeitgeber | `is_main_employer`, `other_employer` |
 
+**Nachtrag 12.10.2026 — Kundenentscheidung Markus (E7/E8) + Generalprobe 13.10.**
+Wörtlich: E7 „nein, muss abweichend sein, wenn 1 Vergeben, dann die zweite Karte 6";
+E8 „auch hier, immer nur 1 x möglich, nicht den gleichen Status 2 x vergeben";
+Generalprobe: Krankenkasse je Anstellung verschieden (MA-Minijob → Knappschaft).
+Folge: `tax_class`, `is_main_employer`, `other_employer`, `health_insurance` stehen
+nicht mehr in `PersonenFelder::SPIEGELN`, sondern in `PersonenFelder::JE_GESELLSCHAFT` —
+nie gespiegelt, nie als Abweichung gemeldet. Der Schalter `tax_class_per_company`
+ist entfallen (Key wirkungslos). Zwischen den Anstellungen eines Menschen gilt die
+Regel aus `Services\AnstellungsRegeln` (eine Stelle, im Beobachter am Eloquent-
+Speichern + Prüfung im Backfill): Hauptarbeitgeber=ja → die andere Anstellung
+Nebenarbeitgeber; Steuerklasse ≠ 6 → die andere 6; „anderer Arbeitgeber X" gilt
+für beide (nicht für eine Schwester, die selbst Haupt ist). Schreiben per
+Query-Builder mit ZAS-Marker und Lohn-Eintrag. ZAS-Lieferungen wenden die Regel
+nicht an; offene Marker schützen die Gesellschaftsfelder weiter
+(`PersonenFelder::MARKER_GESCHUETZT`). Der folgende Absatz ist Historie.
+
 **Steuerklasse — offene Frage ans Lohnbüro.** Markus sagt, RG und MA können
 zeitweise gleichzeitig aktiv sein. Dann wäre der zweite Arbeitgeber üblicherweise
 Steuerklasse 6 und die Steuerklasse gehörte je Gesellschaft. Entscheidung
@@ -367,6 +383,7 @@ Observer), je ein Test, der rot wird, wenn die Regel fehlt:
   MA-Datensatz gemeinsam in der Aktualisierungsdatei. Keine neue Spalte."
 - **Offen für Markus / Lohnbüro:** Steuerklasse je Person oder je Gesellschaft
   (§2.1). Bis zur Antwort: gespiegelt, Schalter vorhanden.
+  → Entschieden 12.10.2026: je Gesellschaft, siehe Nachtrag §2.1.
 - **Nicht Teil dieses Pakets, als nächstes:** Trigger „Einbuchung mit
   MA-Personalnummer → gültiger MA-Vertrag am Veranstaltungstag" (Markus,
   09.10.); offen dort: Vertragsbeginn und -ende.

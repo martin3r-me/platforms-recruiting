@@ -162,6 +162,17 @@ class RecEmployeeExportObserver
                 app(\Platform\Recruiting\Services\PersonenSpiegel::class)
                     ->spiegele($employee, $geaendert, markerSetzen: true, lohnVerfolgen: true, nurInLeere: $erstbefuellung);
             }, 'rec_employee.updated.spiegel', $employee->id);
+
+            // Regeln zwischen den Anstellungen (Kundenentscheidung Markus
+            // 12.10.2026, E7/E8): Steuerklasse != 6 hier -> Schwester 6,
+            // Hauptarbeitgeber hier -> Schwester Nebenarbeitgeber. EINE
+            // Stelle (AnstellungsRegeln) fuer alle Eloquent-Schreibwege
+            // (Portal, HR-Akte, Erklaerung beim Vertrag unterschreiben, altes
+            // Portal). Query-Builder, Marker + Lohn ausdruecklich.
+            self::safelyRun(function () use ($employee): void {
+                $employee->anstellungsFolgen = app(\Platform\Recruiting\Services\AnstellungsRegeln::class)
+                    ->anwenden($employee, array_keys($employee->getChanges()), markerSetzen: true, lohnVerfolgen: true);
+            }, 'rec_employee.updated.anstellungsregeln', $employee->id);
         });
 
         RecEmployeeHrData::saved(static function (RecEmployeeHrData $hr): void {

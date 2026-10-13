@@ -2,12 +2,13 @@
 
 namespace Platform\Recruiting\Support;
 
-use Platform\Recruiting\Models\RecApplicantSettings;
-
 /**
  * Die Felder, die dem MENSCHEN gehoeren und deshalb auf allen Akten (RG, MA)
  * gleich sein muessen (Spec 2026-10-09 §2.1). EINE Liste — Spiegel und
  * Pruefkommando lesen nur hier.
+ *
+ * Kundenentscheidung Markus 12.10.2026: Steuerklasse, Haupt-/Nebenarbeitgeber
+ * und Krankenkasse sind keine Personenfelder mehr (siehe JE_GESELLSCHAFT).
  */
 final class PersonenFelder
 {
@@ -18,42 +19,57 @@ final class PersonenFelder
         'identity_card_number', 'identity_card_valid_until', 'drivers_license_class',
         'marital_status', 'number_of_children', 'religion', 'employment_type',
         'iban', 'bic', 'bank_institute', 'account_holder',
-        'tax_class', 'steuer_id', 'sozialversicherungsnummer', 'health_insurance',
-        'is_main_employer', 'other_employer',
+        'steuer_id', 'sozialversicherungsnummer',
     ];
 
     public const DATUM = ['birth_date', 'identity_card_valid_until'];
     public const BOOL  = ['is_main_employer', 'is_eu_citizen'];
 
     /**
-     * Felder, die der Schalter tax_class_per_company aus dem Spiegel und der
-     * Pruefung nimmt: Steuerklasse und Haupt-/Nebenarbeitgeber haengen an der
-     * Anstellung je Gesellschaft (Review I1, Ruling 09.10.).
+     * Felder, die an der ANSTELLUNG haengen, nicht am Menschen: sie werden
+     * nie gespiegelt und im Personendaten-Abgleich nie als Abweichung
+     * gemeldet.
+     *
+     * Historie: bis 12.10.2026 standen tax_class, is_main_employer und
+     * other_employer in SPIEGELN und liessen sich nur ueber den Team-Schalter
+     * tax_class_per_company herausnehmen (Review I1, Ruling 09.10.).
+     *
+     * Kundenentscheidung Markus 12.10.2026 (E7/E8): Steuerklasse und
+     * Haupt-/Nebenarbeitgeber sind je Gesellschaft verschieden — „wenn 1
+     * vergeben, dann die zweite Karte 6", „nicht den gleichen Status 2 x
+     * vergeben". Die Krankenkasse ebenso (Generalprobe 13.10.: der
+     * MA-Minijob laeuft ueber die Knappschaft/Minijob-Zentrale). Der Schalter
+     * ist damit entfallen; was zwischen den Anstellungen gilt, regelt
+     * AnstellungsRegeln (eine Stelle), nicht der Spiegel.
      */
-    public const JE_GESELLSCHAFT_SCHALTBAR = ['tax_class', 'is_main_employer', 'other_employer'];
+    public const JE_GESELLSCHAFT = ['tax_class', 'is_main_employer', 'other_employer', 'health_insurance'];
 
     /**
-     * Personenfelder fuer ein Team. Liest die Einstellung nur, legt sie nie an
-     * (fehlt die Zeile: Schalter aus). Mit $nurFuer wird die Einstellung nur
-     * gelesen, wenn darunter ein schaltbares Feld ist — sonst kostet ein
-     * Speichern ohne solche Felder keine Abfrage.
+     * Felder, die bei offenem Export-Marker eine ZAS-Lieferung nicht
+     * ueberschreiben darf (ZasInboundEmployeeImporter, Review C1). Die
+     * Gesellschaftsfelder gehoeren weiter dazu: eine eigene Aenderung (auch
+     * die Folgeaenderung aus AnstellungsRegeln) ist auf dem Weg zu ZAS, die
+     * Lieferung traegt den alten Stand. Seit 12.10.2026 als eigene Liste,
+     * damit das Herausnehmen aus SPIEGELN diesen Schutz nicht still abbaut.
+     */
+    public const MARKER_GESCHUETZT = [
+        ...self::SPIEGELN,
+        ...self::JE_GESELLSCHAFT,
+    ];
+
+    /**
+     * Personenfelder fuer ein Team. Seit 12.10.2026 (Kundenentscheidung
+     * Markus, E7/E8) ohne Team-Abhaengigkeit: der Schalter
+     * tax_class_per_company ist entfallen, die Gesellschaftsfelder stehen gar
+     * nicht mehr in SPIEGELN. Signatur bleibt, damit die Aufrufer (Spiegel,
+     * Abgleich) unveraendert lesen; es wird keine Einstellung mehr gelesen.
      *
      * @param  list<string>|null $nurFuer
      * @return list<string>
      */
     public static function fuerTeam(?int $teamId, ?array $nurFuer = null): array
     {
-        $felder = $nurFuer === null ? self::SPIEGELN : array_values(array_intersect(self::SPIEGELN, $nurFuer));
-        if ($teamId === null || array_intersect($felder, self::JE_GESELLSCHAFT_SCHALTBAR) === []) {
-            return $felder;
-        }
-
-        $einstellung = RecApplicantSettings::query()->where('team_id', $teamId)->first();
-        if ($einstellung !== null && (bool) $einstellung->getSetting('tax_class_per_company', false)) {
-            return array_values(array_diff($felder, self::JE_GESELLSCHAFT_SCHALTBAR));
-        }
-
-        return $felder;
+        return $nurFuer === null ? self::SPIEGELN : array_values(array_intersect(self::SPIEGELN, $nurFuer));
     }
 
     /** Vergleichsform: leer = null, Datum ohne Uhrzeit, Bool als '1'/'0'. */

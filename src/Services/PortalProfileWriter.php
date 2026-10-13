@@ -29,6 +29,10 @@ use Platform\Recruiting\Support\ProofTypes;
  * first_aider_certificate_file_id. Das regelt sich also von allein und
  * braucht hier keine zweite Liste, die auseinanderlaufen koennte. Gemessen
  * wird es einzeln in PortalProfileWriterTest.
+ * (Nachtrag 12.10.2026: is_main_employer/other_employer stehen seit
+ * 30.09.2026 doch in RELEVANT_EMPLOYEE_FIELDS — siehe dort. Die Regel
+ * zwischen zwei Anstellungen, Markus 12.10. E7/E8, sitzt in
+ * AnstellungsRegeln und laeuft ueber denselben Beobachter.)
  *
  * DATEIEN laufen NICHT hier durch, sondern ueber ProofWriter. Ein
  * 'file'-Typ wird immer uebersprungen (R20/E8).
@@ -39,9 +43,11 @@ final class PortalProfileWriter
      * @param  array<string,mixed> $formwerte  rohe wire:model-Werte
      * @param  ?string $nurGruppe  Name der offenen Gruppe; alles ausserhalb
      *                             wird verworfen (Verschaerfung von R19)
+     * @param  ?bool $duzen  Anrede fuer den Hinweis zur Schwester-Anstellung;
+     *                        null = aus dem Team lesen (nur wenn es einen gibt)
      * @return array{ok:bool, fehler:?string, meldung:?string}
      */
-    public function speichere(RecEmployee $employee, array $formwerte, ?string $nurGruppe = null): array
+    public function speichere(RecEmployee $employee, array $formwerte, ?string $nurGruppe = null, ?bool $duzen = null): array
     {
         $gruppen = $employee->editableFieldGroups();
         $erlaubt = $employee->editableFieldsFlat();
@@ -201,12 +207,27 @@ final class PortalProfileWriter
             return ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Änderungen.'];   // R23
         }
 
+        $employee->anstellungsFolgen = [];
         $employee->update($updates);
 
         // Eloquent schreibt gar nicht erst, wenn nichts dirty ist — dann gibt
         // es auch keine Aenderung zu melden (und updated_at bleibt stehen).
-        return $employee->wasChanged()
-            ? ['ok' => true, 'fehler' => null, 'meldung' => 'Gespeichert.']
-            : ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Änderungen.'];
+        if (!$employee->wasChanged()) {
+            return ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Änderungen.'];
+        }
+
+        // Kundenentscheidung Markus 12.10.2026 (E7/E8): Hauptarbeitgeber=ja
+        // bzw. Steuerklasse != 6 hier setzt die ANDERE Anstellung desselben
+        // Menschen auf Nebenarbeitgeber bzw. Klasse 6 (AnstellungsRegeln, im
+        // Beobachter). Der Mensch sieht das — nicht still.
+        $meldung = 'Gespeichert.';
+        if ($employee->anstellungsFolgen !== []) {
+            $meldung .= ' ' . \Platform\Recruiting\Services\AnstellungsRegeln::hinweisPortal(
+                $employee->anstellungsFolgen,
+                $duzen ?? $employee->usesInformalAddress(),
+            );
+        }
+
+        return ['ok' => true, 'fehler' => null, 'meldung' => $meldung];
     }
 }

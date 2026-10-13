@@ -171,6 +171,9 @@ class RecApplicantSettings extends Model
         // Call-Sites). Bewusst noch nicht im Einstellungen-Modal editierbar.
         'comms_timezone' => null,
         // Steuerklasse + Haupt-/Nebenarbeitgeber gelten je Gesellschaft (RG/MA) statt je Person: dann spiegelt PersonenSpiegel sie nicht
+        // wirkungslos seit 12.10.2026 (Kundenentscheidung Markus, E7/E8): die Felder gelten immer je
+        // Anstellung (PersonenFelder::JE_GESELLSCHAFT), der Schalter ist aus dem Einstellungsfenster
+        // entfernt. Key bleibt, damit gespeicherte Einstellungen nicht als unbekannt auffallen.
         'tax_class_per_company' => false,
         // HR-Bereich "Mitarbeiter" (Spec 2026-10-12 §6/§7.2): Notfallweg je
         // Team (zweiter Riegel hinter recruiting.konto.weg4_aktiv), Schwelle

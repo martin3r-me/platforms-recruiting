@@ -105,18 +105,19 @@ class PersonendatenAbgleichTest extends TestCase
 
     public function test_steuerklasse_je_gesellschaft_wird_nicht_gemeldet(): void
     {
-        $this->setzeEinstellung(['tax_class_per_company' => true]);
+        // Seit 12.10.2026 (Markus, E7) immer — ohne Schalter. Krankenkasse
+        // ebenso (Generalprobe 13.10.).
         $p = $this->person();
-        $this->akte(['rec_person_id' => $p, 'tax_class' => '1']);
-        $this->akte(['rec_person_id' => $p, 'tax_class' => '6']);
+        $this->akte(['rec_person_id' => $p, 'tax_class' => '1', 'health_insurance' => 'aok']);
+        $this->akte(['rec_person_id' => $p, 'tax_class' => '6', 'health_insurance' => 'knappschaft']);
         [, $aus] = $this->run_([]);
         $this->assertStringContainsString('mit Abweichung: 0', $aus);
     }
 
 
-    public function test_schalter_nimmt_arbeitgeberfelder_aus_der_pruefung(): void
+    public function test_arbeitgeberfelder_werden_nie_gemeldet(): void
     {
-        $this->setzeEinstellung(['tax_class_per_company' => true]);
+        // Seit 12.10.2026 (Markus, E8) immer — ohne Schalter.
         $p = $this->person();
         $this->akte(['rec_person_id' => $p, 'is_main_employer' => 1, 'other_employer' => null]);
         $this->akte(['rec_person_id' => $p, 'is_main_employer' => 0, 'other_employer' => 'RG']);

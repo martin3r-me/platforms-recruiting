@@ -70,7 +70,11 @@ class BackfillEmployerDeclarationTest extends TestCase
             // Zwei Anstellungen derselben Person unterscheiden sich in der
             // Personalnummer — genau der Fall, fuer den es dieses Kommando gibt.
             'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php',
+            'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php',
+            'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php',
             'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
+            'database/migrations/2026_09_28_000001_create_rec_persons_table.php',
+            'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
         ] as $relative) {
             (require $own . '/' . $relative)->up();
         }
@@ -182,6 +186,66 @@ class BackfillEmployerDeclarationTest extends TestCase
         $this->assertSame(2, $counts['set']);
         $this->assertTrue($rg->fresh()->is_main_employer);
         $this->assertTrue($ma->fresh()->is_main_employer);
+    }
+
+    /**
+     * Kundenentscheidung Markus 12.10.2026 (E8): nur EINE Anstellung darf
+     * Hauptarbeitgeber sein. Sind die beiden Anstellungen als eine Person
+     * verbunden, raet der Lauf nicht, welche es ist — er laesst beide leer,
+     * das Portal fragt je Anstellung. Probe: den Aufruf
+     * wuerdeSchwesterUmstellen() im Backfill entfernen -> hier rot.
+     */
+    public function test_verbundene_anstellungen_bekommen_haupt_nicht_geraten(): void
+    {
+        $this->signedContract(510, [EmployerDeclaration::KEY_ROLE => EmployerDeclaration::ROLE_MAIN]);
+        $rg = $this->employee(510, ['personnel_number' => 'RG110']);
+        $ma = $this->employee(510, ['personnel_number' => 'MA110']);
+        $this->verbinden($rg, $ma);
+
+        $counts = $this->lauf(dryRun: false);
+
+        $this->assertSame(0, $counts['set']);
+        $this->assertSame(2, $counts['skipped']);
+        $this->assertNull($rg->fresh()->is_main_employer);
+        $this->assertNull($ma->fresh()->is_main_employer);
+    }
+
+    public function test_verbundene_schwester_ist_schon_neben_dann_wird_haupt_gesetzt(): void
+    {
+        $this->signedContract(511, [EmployerDeclaration::KEY_ROLE => EmployerDeclaration::ROLE_MAIN]);
+        $rg = $this->employee(511, ['personnel_number' => 'RG111']);
+        $ma = $this->employee(512, ['personnel_number' => 'MA111', 'is_main_employer' => false, 'other_employer' => 'RheinGedeck']);
+        $this->verbinden($rg, $ma);
+
+        $counts = $this->lauf(dryRun: false);
+
+        $this->assertSame(1, $counts['set']);
+        $this->assertTrue($rg->fresh()->is_main_employer);
+        $this->assertFalse($ma->fresh()->is_main_employer);
+        $this->assertSame('RheinGedeck', $ma->fresh()->other_employer);
+    }
+
+    public function test_verbundene_neben_erklaerung_wird_beiden_eingetragen(): void
+    {
+        $this->signedContract(513, [
+            EmployerDeclaration::KEY_ROLE  => EmployerDeclaration::ROLE_SECONDARY,
+            EmployerDeclaration::KEY_OTHER => 'Mueller GmbH',
+        ]);
+        $rg = $this->employee(513, ['personnel_number' => 'RG113']);
+        $ma = $this->employee(513, ['personnel_number' => 'MA113']);
+        $this->verbinden($rg, $ma);
+
+        $counts = $this->lauf(dryRun: false);
+
+        $this->assertSame(2, $counts['set'], '„beide Neben" ist erlaubt');
+        $this->assertSame('Mueller GmbH', $ma->fresh()->other_employer);
+        $this->assertNull($ma->fresh()->zas_changed_at, 'Massenlauf: kein Marker');
+    }
+
+    private function verbinden(RecEmployee ...$anstellungen): void
+    {
+        $p = (int) Capsule::table('rec_persons')->insertGetId(['uuid' => uniqid('p', true), 'team_id' => self::TEAM, 'created_at' => '2026-10-01', 'updated_at' => '2026-10-01']);
+        Capsule::table('rec_employees')->whereIn('id', array_map(fn ($a) => $a->id, $anstellungen))->update(['rec_person_id' => $p, 'zas_changed_at' => null]);
     }
 
     public function test_vorhandene_antwort_wird_nie_ueberschrieben(): void

@@ -363,3 +363,14 @@ Die Portal-Huelle aus Canvas 67 wurde mit **austauschbarer Anmeldeschicht** geba
 > „Heute beantwortet sie die Frage „wer ist das?" mit Token plus Geburtsdatum und Ausweis-Endziffern. Spaeter mit Handynummer und Passwort. Die vier Portal-Bereiche wissen nichts davon, wie die Antwort zustande kam."
 
 Das Konto wird also **eingehaengt, nicht eingebaut**. Die Bereiche Start, Nachweise, Profil und Dokumente bleiben unberuehrt; geaendert wird der Anmeldebildschirm und die Kennzeichnung der Gesellschaft an Einsaetzen, Vertraegen und Dokumenten — genau die Abgrenzung, die Eintrag 1744 zieht.
+
+---
+
+**Nachtrag 12.10.2026 (Kundenentscheidung Markus, E7/E8):** Steuerklasse,
+Haupt-/Nebenarbeitgeber und Krankenkasse gehören zur Anstellung, nicht zur
+Person (Details: `2026-10-09-personendaten-spiegeln-design.md` §2.1 Nachtrag).
+Im Portal beantwortet der Mensch die Arbeitgeber-Frage je Anstellung: die
+Karte „Deine Anstellungen" verlinkt die jeweils andere Anstellung (die
+Konto-Anmeldung gilt für beide), die Frage nennt bei MA die eigene
+Gesellschaft, und ein „Ja" an der einen setzt die andere sichtbar auf
+Nebenarbeitgeber (Meldung nach dem Speichern).

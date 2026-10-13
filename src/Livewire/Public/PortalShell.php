@@ -653,6 +653,11 @@ class PortalShell extends Component
      *    schlicht in RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS.
      *    Gemessen wird das am Ergebnis (PortalProfileWriterTest), nicht an
      *    der Schreibart.
+     *    (Nachtrag 12.10.2026: is_main_employer/other_employer stehen seit
+     *    30.09.2026 doch in RELEVANT_EMPLOYEE_FIELDS. Die Regel zwischen zwei
+     *    Anstellungen — Markus 12.10., E7/E8 — haengt am selben Eloquent-
+     *    Speichern: AnstellungsRegeln im Beobachter, Query-Builder mit
+     *    ausdruecklichem Marker UND Lohn-Eintrag, also ohne diese Falle.)
      *
      * berechtigterMitarbeiter() ist auch hier keine Formalitaet: ohne
      * gueltige Anmeldung laeuft $wire.call('speichereGruppe') ins Leere,
@@ -683,7 +688,7 @@ class PortalShell extends Component
         }
 
         $ergebnis = app(PortalProfileWriter::class)
-            ->speichere($employee, $this->profilWerte, $this->profilGruppe);
+            ->speichere($employee, $this->profilWerte, $this->profilGruppe, $this->duzen);
 
         if (!$ergebnis['ok']) {
             // Blatt bleibt offen, Eingaben bleiben stehen.
@@ -1463,7 +1468,9 @@ class PortalShell extends Component
             ->whereIn('id', $ids)
             ->where('is_active', true)
             ->orderBy('id')
-            ->get(['id', 'personnel_number', 'company', 'employment_type']);
+            // portal_token/portal_v2_since: die Karte verlinkt die anderen
+            // Anstellungen (Markus 12.10.2026, Hauptarbeitgeber je Anstellung).
+            ->get(['id', 'personnel_number', 'company', 'employment_type', 'portal_token', 'portal_v2_since']);
     }
 
     private function vorname(RecEmployee $employee): string

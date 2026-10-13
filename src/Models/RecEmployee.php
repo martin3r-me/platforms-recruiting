@@ -31,6 +31,19 @@ class RecEmployee extends Model
 
     protected $table = 'rec_employees';
 
+    /**
+     * Was AnstellungsRegeln beim letzten Speichern DIESER Instanz an der
+     * Schwester-Anstellung geaendert hat (Kundenentscheidung Markus
+     * 12.10.2026, E7/E8). Gesetzt vom Beobachter (RecEmployeeExportObserver)
+     * nach dem tatsaechlichen Schreiben — damit HR-Akte und Portal den
+     * Hinweis aus dem ECHTEN Ergebnis zeigen, nicht aus einer Vorhersage.
+     * Kein Attribut, wird nie gespeichert; Leser setzen es vor dem
+     * Speichern auf [] (ohne Aenderung feuert kein Ereignis).
+     *
+     * @var list<array{id:int, company:?string, aenderungen:array<string,array{old:mixed,new:mixed}>}>
+     */
+    public array $anstellungsFolgen = [];
+
     protected $fillable = [
         'uuid',
         'team_id',
@@ -376,6 +389,22 @@ class RecEmployee extends Model
         $this->attributes['sozialversicherungsnummer'] = TaxAndSvNumber::normalize($value);
     }
 
+    /**
+     * Name der Gesellschaft dieser Anstellung fuer die Frage nach dem
+     * Hauptarbeitgeber. RG (oder leer) bleibt beim gewohnten „Rheingedeck";
+     * jede andere nennt ihr Label aus recruiting.zas.company_labels.
+     */
+    public function hauptarbeitgeberName(): string
+    {
+        $code = trim((string) ($this->company ?? ''));
+        if ($code === '' || $code === 'RG') {
+            return 'Rheingedeck';
+        }
+        $labels = (array) config('recruiting.zas.company_labels', []);
+
+        return (string) ($labels[$code] ?? $code);
+    }
+
     public function editableFieldGroups(): array
     {
         $isNonEu = ($this->is_eu_citizen === false);
@@ -428,7 +457,10 @@ class RecEmployee extends Model
                 // bei der gesammelten Uebertragung.
                 'is_main_employer' => [
                     'type'  => 'bool',
-                    'label' => 'Ist Rheingedeck der Hauptarbeitgeber?',
+                    // Je Anstellung gefragt (Markus 12.10.2026, E8): die
+                    // MA-Anstellung nennt ihre eigene Gesellschaft, sonst
+                    // stuende dort dieselbe Frage wie bei RG.
+                    'label' => 'Ist ' . $this->hauptarbeitgeberName() . ' der Hauptarbeitgeber?',
                     'live'  => true,
                 ],
                 // Die Beschriftung sagt die Bedingung selbst, damit das Feld

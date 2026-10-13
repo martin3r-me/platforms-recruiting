@@ -4,6 +4,8 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\AnstellungsRegeln;
 use Platform\Recruiting\Support\SignedEmployerDeclaration;
 
 /**
@@ -30,6 +32,17 @@ use Platform\Recruiting\Support\SignedEmployerDeclaration;
  * Eloquent-Lauf den halben Bestand in die naechste updates.csv spuelen
  * (Vorfall 02.09.2026). Die Nachlieferung an ZAS ist ein eigener,
  * angekuendigter Schritt.
+ *
+ * HAUPTARBEITGEBER JE ANSTELLUNG (Kundenentscheidung Markus 12.10.2026, E8:
+ * „immer nur 1 x moeglich"). Die Erklaerung haengt am Bewerber, nicht an
+ * einer Anstellung — welche von zwei Anstellungen „Haupt" ist, laesst sich
+ * hier nicht ablesen. Wuerde ein „Hauptarbeitgeber=ja" nach AnstellungsRegeln
+ * die andere Anstellung umstellen (sie ist leer oder selbst Haupt), wird die
+ * Zeile UEBERSPRUNGEN statt geraten: das Portal fragt je Anstellung. Bis
+ * 12.10. bekamen beide Anstellungen denselben Wert. Geschrieben wird an der
+ * Schwester hier nie — auch nicht der andere Arbeitgeber (eine Portal-
+ * Antwort dort ist juenger als der Vertrag; eine leere Schwester derselben
+ * Bewerbung fuellt der Lauf ueber ihre eigene Zeile).
  *
  * Aufruf:
  *   php artisan recruiting:backfill-employer-declaration --dry-run
@@ -106,6 +119,15 @@ class BackfillEmployerDeclaration extends Command
                 continue;
             }
 
+            if (($attributes['is_main_employer'] ?? null) === true && $this->wuerdeSchwesterUmstellen((int) $row->id, $attributes)) {
+                $counts['skipped']++;
+                $out('warn', sprintf(
+                    'MA #%d: uebersprungen — Hauptarbeitgeber=ja wuerde die andere Anstellung umstellen (nur eine darf Haupt sein); das Portal fragt je Anstellung',
+                    $row->id,
+                ));
+                continue;
+            }
+
             $counts['set']++;
             $out('line', sprintf(
                 'MA #%d: Hauptarbeitgeber=%s%s',
@@ -120,5 +142,30 @@ class BackfillEmployerDeclaration extends Command
         }
 
         return $counts;
+    }
+
+    /**
+     * Fragt die Regel (AnstellungsRegeln), schreibt nichts: wuerde dieser
+     * Wert an einer anderen Anstellung derselben Person den
+     * Hauptarbeitgeber umstellen? Gelesen per Eloquent (nur lesen, kein
+     * Speichern — Massenlaeufe schreiben nie ueber Eloquent).
+     *
+     * @param array{is_main_employer?: bool, other_employer?: ?string} $attributes
+     */
+    private function wuerdeSchwesterUmstellen(int $employeeId, array $attributes): bool
+    {
+        $probe = RecEmployee::find($employeeId);
+        if ($probe === null) {
+            return false;
+        }
+        $probe->forceFill($attributes);
+
+        foreach (app(AnstellungsRegeln::class)->folgen($probe, array_keys($attributes)) as $folge) {
+            if (array_key_exists('is_main_employer', $folge['aenderungen'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

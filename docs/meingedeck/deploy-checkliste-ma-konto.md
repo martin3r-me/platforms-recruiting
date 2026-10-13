@@ -115,7 +115,7 @@ Nach jeder `.env`-Änderung dieser beiden: `php artisan config:cache` (S-HR §11
 | `aufgaben_neu_wa_template_id` | `null` | … → Offene Aufgaben — neu | nach Freigabe #6, vor der ersten Welle | SET |
 | `einsatz_pruefung_aktiv` | `false` (aus) | … → Schalter „Einsatz-Prüfung läuft" | **AUS lassen**; einschalten erst nach `nachweise-umziehen` → `personen-anlegen` → `einsatz-pruefung --dry-run` → Zahlen gemeldet (4.4) | SET, Spec §5 |
 | `contract_check_companies` | `[]` (aus) | Einstellungen → Checkboxen „Gesellschaft RG/MA" | **AUS lassen**, Einschalten s. 4.9 | SET, S-Vertrag §8 |
-| `tax_class_per_company` | `false` | Einstellungen → Lohn | AUS lassen bis Antwort Lohnbüro | SET, S-Spiegel §9, M:project_markus_info_dokument_offene_punkte |
+| ~~`tax_class_per_company`~~ | — | **entfällt** (Schalter aus dem Fenster entfernt, Key wirkungslos) | nichts tun — Steuerklasse, Haupt-/Nebenarbeitgeber und Krankenkasse gelten seit Kundenentscheidung Markus 12.10.2026 (E7/E8) immer je Anstellung, Regel in `AnstellungsRegeln` | S-Spiegel §2.1 Nachtrag 12.10. |
 | `konto_notfall_weg_aktiv` | `false` | Einstellungen (Checkbox) | **AUS lassen** | SET, S-HR §11.4 |
 | `hr_erinnert_tage` | `5` | Einstellungen | Vorgabe ok | SET, S-HR |
 | `hr_kontaktiert_ruhe_tage` | `3` | Einstellungen | Vorgabe ok | SET, S-HR §12.3 |
@@ -138,7 +138,7 @@ Selects im Einstellungs-Fenster: nach dem Speichern per SQL nachsehen, ob der We
   - Stichtag Altbestand Fristenlauf (~540 abgelaufene Nachweise) + Vorlagentext #8
   - Zahlen 4/7 (Vorlauf/Pause) des Einsatz-Triggers (Erinnerung vor dem Einsatz entfällt, Markus 12.10.2026); „läuft ab"→„abgelaufen" meldet nicht erneut; zwei Einsätze in einer Pause = eine Nachricht
   - MA-Vertrag: Beginn/Dauer, Tätigkeit, Vertragsarten/Texte, Automatik, Zuschlag/Datei an ZAS
-  - Steuerklasse und Haupt-/Nebenarbeitgeber je Person oder je Gesellschaft (Schalter `tax_class_per_company`)
+  - ~~Steuerklasse und Haupt-/Nebenarbeitgeber je Person oder je Gesellschaft~~ — entschieden 12.10.2026 (E7/E8): je Anstellung, nur eine Anstellung Hauptarbeitgeber, die andere Steuerklasse 6; Krankenkasse ebenfalls je Anstellung (Generalprobe 13.10.)
   - Arbeitgeber-Erklärtext (Auflage 3 vor `portal-umstellen`)
   - ~1320 von 1603 sähen „Ausweis fehlt" bei Umstellung aller (Kommunikationsfrage)
 - [ ] **Offen, fremde Repos (Entscheidung, nicht Deploy-blockierend)**: `trustProxies(at:'*')` in meingedeck einengen; Einmalcode liegt in platform-crm im Klartext (template_params, CommsLog, Log bei failed); steht vor prod ein CDN? [M:project_konto_anmeldeschicht_gate_d]
@@ -174,7 +174,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
    - `seed-rec-contract-extra-fields`: falls in Schritt 4 schon gelaufen, meldet er nur „existiert bereits".
    - `vertraege-an-anstellung --dry-run` → ohne `--dry-run` (4.4 Schritt 4a): NACH seed, VOR `einsatz-pruefung`. Hängt nicht an den Zusatzfeldern, sondern an Vorlagen (`code` AV-%, `company`), Bewerbungen und `rec_employees.rec_applicant_id` — deshalb muss `rec_applicants.csv` im Dump sein (ohne sie leert das Skript `rec_applicant_id`, und alles landet in `ohne_anstellung`). Die Verträge kommen mit dem prod-Anker (`rec_employee_id`, Backfill vom 07.10.); erwartet also nur wenige Zuordnungen plus die bekannten 2× `mehrdeutig` (#385/#386).
    - `einsatz-pruefung --dry-run` (ignoriert den Schalter): Zeilen „Arbeitserlaubnis fehlt: n … davon k neu", „Uebersprungen, weil ohne Personen-Zeile: …", „Vertragsprüfung: …" notieren. Auf der Demo zusätzlich „Gesellschaft MA" anhaken und trocken laufen lassen → Zahl „k Fälle neu" an Sebastian/Markus. Schalter auf der Demo erst danach an. [S-Vertrag §8.1]
-   - `personendaten-abgleich`: Lesemodus, Anzahl Abweichungen notieren. [S-Spiegel §9]
+   - `personendaten-abgleich`: Lesemodus, Anzahl Abweichungen notieren. Steuerklasse, Haupt-/Nebenarbeitgeber, anderer Arbeitgeber und Krankenkasse erscheinen dort seit 12.10.2026 nie mehr als Abweichung (je Anstellung). [S-Spiegel §9, §2.1 Nachtrag]
 7. [ ] **Sichttests aus Abschnitt 6** auf der Demo (Team 6), inkl. Konto-Durchlauf: `recruiting:konto-einladen --ids=<person> --dry-run`, einladen, `/recruiting/konto/anlegen/<token>`, Konto anlegen, abmelden, unter `/recruiting/konto` mit Nummer + Passwort anmelden. [P-Konto Z. 718]
 8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf `b91b584a` ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
 
@@ -284,7 +284,7 @@ Vorher Zähler notieren: `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_a
 - [ ] `contract_check_companies` = leer
 - [ ] `konto_notfall_weg_aktiv` = aus, `RECRUITING_KONTO_WEG4_AKTIV` = false, Feld „Code: Notfall-Weg" = leer
 - [ ] `einsatz_pruefung_aktiv` = aus (bis 4.4 Schritt 8)
-- [ ] `tax_class_per_company` = aus (bis Lohnbüro antwortet)
+- ~~`tax_class_per_company`~~ entfällt (12.10.2026, s. 2.3)
 - [ ] Kein `--welle` im Zeitplan, kein Zeitplan-Eintrag für `nachweise-erinnern`
 - [ ] Kein `portal-umstellen --alle`
 

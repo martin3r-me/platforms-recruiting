@@ -674,17 +674,41 @@
                         <span class="count">{{ $anstellungen->count() }}</span>
                     </div>
                     <div class="card" style="margin-top:11px">
+                        {{-- Markus 12.10.2026 (E7/E8): Steuerklasse und
+                             Hauptarbeitgeber gelten je Anstellung. Damit die
+                             zweite Anstellung ueberhaupt beantwortbar ist, fuehrt
+                             jede andere Zeile in deren Portal (eigener Token
+                             derselben Person, die Konto-Anmeldung gilt fuer
+                             alle). Die Zeile, auf der man steht, ist markiert. --}}
                         @foreach ($anstellungen as $anstellung)
                             @php
                                 $firma = trim((string) ($anstellung->company ?? '')) ?: 'RheinGedeck';
                                 $nummer = trim((string) ($anstellung->personnel_number ?? '')) ?: 'noch keine Nummer';
+                                $istHier = (int) $anstellung->id === (int) $employeeId;
+                                $wechselUrl = (!$istHier && $anstellungen->count() > 1 && trim((string) ($anstellung->portal_token ?? '')) !== '' && $anstellung->portal_v2_since !== null)
+                                    ? route('recruiting.public.portal-shell', ['token' => $anstellung->portal_token])
+                                    : null;
+                                $hierText = $duzen ? 'hier bist du gerade' : 'hier sind Sie gerade';
                             @endphp
-                            <div class="grouprow">
-                                <div>
-                                    <div class="n">{{ $firma }}</div>
-                                    <div class="v">Personalnummer {{ $nummer }}</div>
+                            @if ($wechselUrl !== null)
+                                <a href="{{ $wechselUrl }}" class="grouprow tap" style="text-decoration:none">
+                                    <div>
+                                        <div class="n">{{ $firma }}</div>
+                                        <div class="v">Personalnummer {{ $nummer }}</div>
+                                    </div>
+                                    <span class="chev">›</span>
+                                </a>
+                            @else
+                                <div class="grouprow">
+                                    <div>
+                                        <div class="n">{{ $firma }}</div>
+                                        <div class="v">Personalnummer {{ $nummer }}</div>
+                                        @if ($istHier && $anstellungen->count() > 1)
+                                            <div class="v">{{ $hierText }}</div>
+                                        @endif
+                                    </div>
                                 </div>
-                            </div>
+                            @endif
                         @endforeach
                     </div>
                     @if ($gesellschaften > 1)
@@ -692,6 +716,8 @@
                             {{ $duzen ? 'Du arbeitest' : 'Sie arbeiten' }} für {{ $gesellschaften }} Gesellschaften.
                             {{ $duzen ? 'Deine' : 'Ihre' }} Nachweise gelten für alle —
                             {{ $duzen ? 'du musst' : 'Sie müssen' }} nichts doppelt hochladen.
+                            Steuerklasse und Hauptarbeitgeber {{ $duzen ? 'gibst du' : 'geben Sie' }} dagegen je Anstellung an:
+                            nur eine kann {{ $duzen ? 'dein' : 'Ihr' }} Hauptarbeitgeber sein.
                         </p>
                     @endif
                 </div>

@@ -54,10 +54,11 @@ public function test_datum_mit_uhrzeit_ist_kein_unterschied(): void
 
 public function test_bool_true_und_eins_sind_gleich(): void
 {
+    // Bis 12.10.2026 mit is_main_employer — das ist seitdem kein Personenfeld mehr.
     $p = $this->person();
     $rg = $this->akte(['rec_person_id' => $p]);
-    $ma = $this->akte(['rec_person_id' => $p, 'is_main_employer' => 1]);
-    $this->assertSame([], (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['is_main_employer' => true], true, true));
+    $ma = $this->akte(['rec_person_id' => $p, 'is_eu_citizen' => 1]);
+    $this->assertSame([], (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['is_eu_citizen' => true], true, true));
 }
 
 public function test_gesellschaftsfelder_werden_ignoriert(): void
@@ -71,7 +72,7 @@ public function test_gesellschaftsfelder_werden_ignoriert(): void
 
 public function test_steuerklasse_je_gesellschaft_wird_nicht_gespiegelt(): void
 {
-    $this->setzeEinstellung(['tax_class_per_company' => true]);
+    // Seit 12.10.2026 (Markus, E7) immer — ohne Schalter.
     $p = $this->person();
     $rg = $this->akte(['rec_person_id' => $p]);
     $ma = $this->akte(['rec_person_id' => $p, 'tax_class' => '1', 'city' => 'Alt']);
@@ -108,9 +109,9 @@ public function test_ohne_marker_und_ohne_lohn(): void
     $this->assertSame([], $this->lohn($ma));
 }
 
-public function test_schalter_nimmt_auch_haupt_und_nebenarbeitgeber_aus(): void
+public function test_haupt_und_nebenarbeitgeber_werden_nie_gespiegelt(): void
 {
-    $this->setzeEinstellung(['tax_class_per_company' => true]);
+    // Seit 12.10.2026 (Markus, E8) immer — ohne Schalter.
     $p = $this->person();
     $rg = $this->akte(['rec_person_id' => $p]);
     $ma = $this->akte(['rec_person_id' => $p, 'is_main_employer' => 1, 'other_employer' => null, 'city' => 'Alt']);
@@ -126,7 +127,8 @@ public function test_spiegel_legt_keine_einstellungs_zeile_an(): void
     $rg = $this->akte(['rec_person_id' => $p]);
     $ma = $this->akte(['rec_person_id' => $p, 'tax_class' => '1']);
     (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['city' => 'Neu', 'tax_class' => '6'], false, false);
-    $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'ohne Einstellung: Schalter aus');
+    $this->assertSame('1', (string) $this->zeile($ma)->tax_class, 'seit 12.10.2026 nie gespiegelt, auch ohne Einstellung');
+    $this->assertSame('Neu', $this->zeile($ma)->city);
     $this->assertSame(0, \Illuminate\Database\Capsule\Manager::table('rec_applicant_settings')->count());
 }
 
@@ -138,5 +140,16 @@ public function test_nur_in_leere_felder_schreibt_nicht_ueber_vorhandene_werte()
     (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['street' => 'Neu', 'city' => 'Neu'], true, false, nurInLeere: ['street', 'city']);
     $this->assertSame('Bleibt', $this->zeile($ma)->street);
     $this->assertSame('Neu', $this->zeile($ma)->city);
+}
+
+public function test_krankenkasse_wird_nie_gespiegelt(): void
+{
+    // Generalprobe 13.10.2026: MA-Minijob -> Knappschaft, je Anstellung verschieden.
+    $p = $this->person();
+    $rg = $this->akte(['rec_person_id' => $p, 'health_insurance' => 'aok']);
+    $ma = $this->akte(['rec_person_id' => $p, 'health_insurance' => 'knappschaft']);
+    $this->assertSame([], (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['health_insurance' => 'aok'], true, true));
+    $this->assertSame('knappschaft', $this->zeile($ma)->health_insurance);
+    $this->assertNull($this->zeile($ma)->zas_changed_at);
 }
 }
