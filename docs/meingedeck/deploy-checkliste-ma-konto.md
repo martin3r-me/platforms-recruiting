@@ -48,6 +48,7 @@ Für: Sebastian (Deploy + Generalprobe auf der Demo). Jede Zeile nennt in `[…]
 - [ ] **Einsatz-Trigger**: Schalter „Einsatz-Prüfung läuft" (`einsatz_pruefung_aktiv`, Einstellungen → Kommunikation → Mitarbeiterportal) steht auf **aus** (Vorgabe) → der Stundenlauf überspringt das Team, legt keine HR-Fälle an und verschickt nichts; `--dry-run` ignoriert den Schalter. Zusätzlich: Feld „Offene Aufgaben — neu" leer = kein Versand. Die automatische Erinnerung vor dem Einsatz entfällt, HR „Erneut erinnern" nutzt dieselbe Vorlage „neu"; Vorlage #7 „Aufgaben Erinnerung" ist gestrichen (Markus 12.10.2026). [Spec 2026-10-12-portal-vorlagen-in-einstellungen §5, SET]
 - [ ] **MA-Vertragscheck**: `contract_check_companies = []` = aus. [SET, S-Vertrag §8]
 - [ ] **Fristenlauf Nachweise** (`recruiting:nachweise-erinnern`): absichtlich KEIN Zeitplan-Eintrag; scharfer Lauf bricht ohne `--stichtag` ab. Seit Markus 12.10.2026 gebündelt: EINE WhatsApp je Person für ALLE fälligen Nachweise. **Live-Lauf: mit `--ohne-stichtag` (Markus: alle bekommen eine Nachricht) in Wellen per `--limit=<Personen>`, jede Welle erst als `--dry-run`.** [SP, `SendProofReminders.php`]
+  - [ ] **Nach den Start-Wellen: täglichen Zeitplan für `recruiting:nachweise-erinnern` einschalten** (Eintrag in `RecruitingServiceProvider`, eigener Commit) — sonst wird nach dem Start niemand mehr erinnert. (Stichtag entschieden 13.10.2026: keiner; Wellen von Hand, danach täglich.)
 - [ ] **Dokument-/Vertrags-WhatsApp**: ohne `document_wa_template_id` liegt das Dokument bereit, Status `nicht_konfiguriert`; ohnehin nur an Umgestellte (`STATUS_ALTES_PORTAL`). [S-Dok §12, `DokumentHinweisSender.php`]
 - [ ] **Konto-Einladung** verschickt nichts — HR sieht Link + Code einmal (Kommando bzw. Konto-Kasten). [`KontoEinladen.php`, S-HR §12.1]
 
@@ -168,7 +169,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
 5. [ ] **Pin auf den Zweig**: aktueller Kopf von `feat/ma-konto` (Stand 12.10.: `edb12d57`, main eingemergt; vorher prüfen mit `git rev-parse --short origin/feat/ma-konto`), wie Schritt 1 mit `--ref <kopf>`, Forge-Deploy Demo.
 5a. [ ] **Sichttest im Browser (harter Schritt, VOR dem Einschalten der Einsatz-Prüfung):** Einstellungen → Kommunikation → Mitarbeiterportal: eine Vorlage wählen, Speichern, Fenster neu öffnen — Wahl steht noch da; zusätzlich Wert in `rec_applicant_settings.settings` prüfen. Bekannter Fehler: Selects verlieren beim Speichern die Auswahl. [M:project_settings_modal_select_save_bug]
 6. [ ] **Abschnitt 4.4–4.9 exakt wie auf prod fahren** (alle `--dry-run` zuerst). Erwartungswerte zum Vergleichen:
-   - `migrate`: 16 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
+   - `migrate`: 18 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
    - `nachweise-umziehen`: Demo 29.09. erzeugte **1759 Nachweise bei 1603 Datensätzen**. [M:project_personen_klammer_stufe1]
    - `personen-anlegen --dry-run`: vier Zahlen (Personen angelegt, Anstellungen verbunden, Nummern uneinig, Nummer nicht gesetzt) + Kennungen der HR-Sorten; prod-Vorflug erwartete **~1213 Personen-Zeilen**. [P-Klammer Z. 1127, M:project_personen_klammer_stufe1]
    - `seed-rec-contract-extra-fields`: falls in Schritt 4 schon gelaufen, meldet er nur „existiert bereits".
@@ -211,7 +212,7 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 
 - [ ] Zeitpunkt frei wählbar: Der Stundenlauf `einsatz-pruefung` ist durch den ausgeschalteten Schalter (Vorgabe) wirkungslos. [Spec §5]
 - [ ] Forge-Deploy starten. Skript: git pull, composer, FPM-Reload, vite build, `migrate --force`, `optimize:clear`. **Reißt der Deploy im npm-Teil, ist der PHP-Code schon live, aber `migrate`/`view:clear` fehlen** — dann sofort von Hand `php artisan migrate --force` und `php artisan view:clear`. Ohne migrate knallen: HR-Desk-Liste, MA-Akte, ZAS-Dispo-Import (Lieferung bleibt unverarbeitet → Reprocess), beide Stunden-Jobs. [M:reference_forge_deploy_skript_npm, M:project_ma_konto_merge_risiken]
-- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12'` — alle 16 „Ran":
+- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12|2026_10_13_00000[23]'` — alle 18 „Ran":
 
 | Migration | Art | Hinweis |
 |---|---|---|
@@ -231,8 +232,10 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 | `2026_10_09_000003_make_rec_applicant_id_nullable_on_rec_contracts` | **ändert bestehende Spalte** (`change()`) | **down scheitert absichtlich**, sobald Verträge ohne Bewerbung existieren |
 | `2026_10_12_000002_create_rec_hr_vermerke_table` | neue Tabelle | down = drop |
 | `2026_10_12_000003_add_sitzungen_ungueltig_ab_to_rec_persons` | neue Spalte | down vorhanden |
+| `2026_10_13_000002_create_rec_portal_lange_sitzungen_table` | neue Tabelle | down = drop (Nachtrag 13.10.: fehlte in dieser Liste, liegt nur auf dem Zweig) |
+| `2026_10_13_000003_add_aufgaben_codes_to_rec_persons` | neue Spalte `aufgaben_codes` (TEXT, nullable) — Einsatz-Prüfung meldet nur bei NEUEM Punkt (Markus 13.10.2026) | down vorhanden; Altbestand ohne Codes = Hash-Vergleich wie bisher, kein Backfill nötig |
 
-Keine der 16 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen.
+Keine der 18 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen.
 
 ### 4.4 Einmal-Kommandos, in dieser Reihenfolge
 
@@ -328,7 +331,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 | Versand | Vorlagen-Felder in den Einstellungen leeren (Mitarbeiterportal) bzw. Schalter „Einsatz-Prüfung läuft" aus | Kein `config:cache` nötig; bereits verschickte Nachrichten bleiben |
 | Notfallweg | `RECRUITING_KONTO_WEG4_AKTIV=false` (Not-Aus für alle Teams) oder Team-Haken aus | laufende Anträge: `konto-zuruecksetzen --offen` / `--stopp=<id>` |
 | Vertragscheck | Haken aus | offene Fälle schließt HR |
-| Schema | `migrate:rollback` möglich (alle 16 haben `down()`) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
+| Schema | `migrate:rollback` möglich (alle 18 haben `down()`) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
 
 **Nicht rückholbar:** verschickte WhatsApps; vom Spiegel geschriebene Geschwister-Felder (kein Undo, nur `personendaten-abgleich --nach`); von ZAS bereits abgeholte `updates.csv`-Zeilen; angelegte HR-Fälle (HR schließt); verbrauchte `rec_persons`-Kennungen; Unterschriften im Portal.
 

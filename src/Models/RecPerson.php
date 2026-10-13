@@ -62,8 +62,9 @@ class RecPerson extends Model
     // Geschrieben hat beide im ganzen Modul nie jemand per Eloquent (ueber
     // src/ gegriffen); der Ausbau kostet also nichts.
     //
-    // Dieselbe Tuer bleibt zu fuer die drei Spalten des Einsatz-Triggers
-    // (aufgaben_signatur, aufgaben_gemeldet_at, aufgaben_nachricht_id):
+    // Dieselbe Tuer bleibt zu fuer die Spalten des Einsatz-Triggers
+    // (aufgaben_signatur, aufgaben_gemeldet_at, aufgaben_nachricht_id, seit
+    // 13.10.2026 auch aufgaben_codes):
     // geschrieben werden sie
     // ausschliesslich ueber den Query Builder im Kommando, also
     // beobachter-frei. Per Eloquent geschrieben liefe der Beobachter-Lauf

@@ -530,6 +530,11 @@ final class HrKontoAktionen
                 $stempel = ['aufgaben_gemeldet_at' => now(), 'aufgaben_nachricht_id' => $sender->letzteNachrichtId()];
                 if ($status === AufgabenSender::STATUS_SENT) {
                     $stempel['aufgaben_signatur'] = TriggerRegeln::signatur($stand['punkte']);
+                    // Nachtrag 13.10.2026: auch die gemeldeten CODES — sonst
+                    // stuenden an der Person noch die Codes der vorigen
+                    // Meldung, und die Einsatz-Pruefung hielte einen hier
+                    // gerade gemeldeten Punkt fuer neu und meldete doppelt.
+                    $stempel['aufgaben_codes'] = TriggerRegeln::codesFuerSpalte($stand['punkte']);
                 }
                 DB::table('rec_persons')->where('id', $personId)->update($stempel);
             }

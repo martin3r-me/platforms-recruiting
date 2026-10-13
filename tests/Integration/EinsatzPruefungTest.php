@@ -724,6 +724,171 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     // =================================================================
+    // Nachtrag 13.10.2026 — nur ein NEUER Punkt meldet (Markus, Folie 8)
+    // =================================================================
+
+    /**
+     * Der gemeldete Fall: drei Punkte offen und gemeldet, einer erledigt,
+     * nach der Pause kommt eine neue Buchung. Bis 13.10.2026 war die
+     * Signatur jetzt "anders" und es ging „du hast 2 offene Punkte" raus.
+     * Zusage an Markus: eine neue Nachricht nur, wenn ein Punkt DAZUKOMMT.
+     */
+    public function test_ein_erledigter_punkt_loest_nach_der_pause_nichts_aus(): void
+    {
+        $ma = $this->mitDreiPunkten();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+        $this->assertCount(1, $this->sender->versandt);
+
+        $vorher = (new OffenePunkte())->fuer($ma, '2026-10-01')['punkte'];
+        $this->assertCount(3, $vorher, 'Vorflug: genau drei Punkte offen');
+        $this->assertSame(
+            \Platform\Recruiting\Support\TriggerRegeln::codes($vorher),
+            json_decode((string) $this->person($ma)->aufgaben_codes, true),
+            'die gemeldeten Codes stehen an der Person',
+        );
+
+        // Einen Punkt erledigen.
+        $this->nachweisGueltigBis($ma, 'immatrikulation', '2030-01-01');
+        $nachher = (new OffenePunkte())->fuer($ma, '2026-10-09')['punkte'];
+        $this->assertCount(count($vorher) - 1, $nachher, 'Vorflug: genau ein Punkt weniger');
+        $this->assertNotSame(
+            $this->person($ma)->aufgaben_signatur,
+            \Platform\Recruiting\Support\TriggerRegeln::signatur($nachher),
+            'Vorflug: die Signatur IST anders — nach alter Regel ginge hier eine Nachricht raus',
+        );
+
+        // Nach der Pause, mit einer neuen Buchung.
+        $this->einbuchung($ma, ['datum' => '2026-11-25', 'status_id' => 1]);
+        $this->laufe('2026-10-09');
+        $this->laufe('2026-10-20');
+
+        $this->assertCount(1, $this->sender->versandt, 'Teilmenge der letzten Meldung: keine Nachricht');
+    }
+
+    /**
+     * Studentin und Ersthelferin: ausweis, immatrikulation, ersthelfer —
+     * drei Pflichtpunkte, keiner davon sperrt den Einsatz.
+     */
+    private function mitDreiPunkten(): RecEmployee
+    {
+        return $this->mitarbeiterOhneNachweise(['employment_type' => 'student', 'is_first_aider' => true]);
+    }
+
+    /**
+     * Die Gegenrichtung: ein dazukommender Code meldet (nach der Pause),
+     * und danach stehen die NEUEN Codes an der Person.
+     */
+    public function test_ein_neuer_dritter_code_meldet_und_wird_gespeichert(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+        $this->assertNotContains('ersthelfer', json_decode((string) $this->person($ma)->aufgaben_codes, true));
+
+        $this->ersthelferPflichtDazu($ma);
+        $this->laufe('2026-10-06');
+        $this->assertCount(1, $this->sender->versandt, 'innerhalb der Pause: still (Einsatz weit hinter der Pause)');
+
+        $this->laufe('2026-10-09');
+        $this->assertCount(2, $this->sender->versandt);
+        $this->assertContains('ersthelfer', json_decode((string) $this->person($ma)->aufgaben_codes, true));
+    }
+
+    /** ET-15 gilt fuer den neuen Punkt unveraendert: der nahe Einsatz schlaegt die Pause. */
+    public function test_ein_neuer_code_mit_nahem_einsatz_schlaegt_die_pause(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->laufe('2026-10-03');
+
+        $this->ersthelferPflichtDazu($ma);
+        $this->einbuchung($ma, ['datum' => '2026-10-09', 'status_id' => 1]);
+        $this->laufe('2026-10-05');
+
+        $this->assertCount(2, $this->sender->versandt);
+    }
+
+    /**
+     * Erledigt und spaeter wieder offen: der Punkt stand in der letzten
+     * Meldung, er gilt als bekannt — keine Nachricht. Der Mensch sieht ihn im
+     * Portal als unerledigt (Markus 12.10.: „sollte das im Portal als
+     * unerledigt sehen"). Erst wenn die Liste ganz leer war (ET-16 raeumt
+     * alles), ist beim naechsten Mal wieder alles neu.
+     */
+    public function test_ein_wieder_geoeffneter_bekannter_punkt_meldet_nicht(): void
+    {
+        $ma = $this->mitDreiPunkten();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+        $this->laufe('2026-10-01');
+
+        $code = 'immatrikulation';
+        $this->nachweisGueltigBis($ma, $code, '2030-01-01');
+        $this->laufe('2026-10-09');
+
+        // Der Nachweis wird ersetzt/verworfen — der Punkt ist wieder offen.
+        DB::table('rec_employee_proofs')->where('rec_employee_id', $ma->id)->where('proof_type_code', $code)
+            ->update(['superseded_at' => '2026-10-10 00:00:00']);
+        $this->assertContains($code, \Platform\Recruiting\Support\TriggerRegeln::codes(
+            (new OffenePunkte())->fuer($ma, '2026-10-20')['punkte']
+        ), 'Vorflug: der Punkt ist wieder offen');
+
+        $this->einbuchung($ma, ['datum' => '2026-11-25', 'status_id' => 1]);
+        $this->laufe('2026-10-20');
+
+        $this->assertCount(1, $this->sender->versandt);
+    }
+
+    /**
+     * Altbestand: an der Person steht nur der Hash, keine Codes. Dann gilt
+     * die alte Regel — derselbe Stand schweigt (kein Schwall nach dem
+     * Deploy), ein geaenderter Stand meldet nach der Pause wie bisher.
+     */
+    public function test_altbestand_ohne_codes_vergleicht_wie_bisher_den_hash(): void
+    {
+        $gleich = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($gleich, ['datum' => '2026-11-20', 'status_id' => 1]);
+        $this->signaturSetzen($gleich, '2026-10-01', '2026-09-01 09:00:00');
+        $this->assertNull($this->person($gleich)->aufgaben_codes, 'Vorflug: Altbestand ohne Codes');
+
+        $kleiner = $this->mitDreiPunkten();
+        $this->einbuchung($kleiner, ['datum' => '2026-11-20', 'status_id' => 1]);
+        $this->signaturSetzen($kleiner, '2026-10-01', '2026-09-01 09:00:00');
+        $this->nachweisGueltigBis($kleiner, 'immatrikulation', '2030-01-01');
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame([$kleiner->id], array_column($this->sender->versandt, 'ma'),
+            'derselbe Hash schweigt, ein anderer Hash meldet — Verhalten wie bis 13.10.2026');
+        $this->assertNotNull($this->person($kleiner)->aufgaben_codes, 'nach der Meldung stehen auch die Codes');
+        $this->assertNull($this->person($gleich)->aufgaben_codes);
+    }
+
+    /** ET-16 und ET-23 raeumen die Codes mit der Signatur. */
+    public function test_raeumen_und_nachtraegliches_scheitern_raeumen_die_codes(): void
+    {
+        $leer = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($leer, ['datum' => '2026-01-20', 'status_id' => 1]);
+        $this->laufe('2026-01-01');
+        $this->assertNotNull($this->person($leer)->aufgaben_codes);
+        $this->alleNachweiseErbringen($leer, '2026-01-30', '2026-07-19');
+        $this->laufe('2026-01-30');
+        $this->assertNull($this->person($leer)->aufgaben_codes, 'ET-16');
+
+        $gescheitert = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($gescheitert, ['datum' => '2026-02-20', 'status_id' => 1]);
+        $this->sender->nachrichtId = $this->nachrichtAnlegen('sent');
+        $this->laufe('2026-02-01');
+        $this->assertNotNull($this->person($gescheitert)->aufgaben_codes);
+        DB::table('comms_whatsapp_messages')->where('id', $this->sender->nachrichtId)->update(['status' => 'failed']);
+        $this->sender->antwort = AufgabenSender::STATUS_FAILED;
+        $this->laufe('2026-02-02');
+        $this->assertNull($this->person($gescheitert)->aufgaben_codes, 'ET-23');
+    }
+
+    // =================================================================
     // ET-15 — die Pause darf keine Nachricht hinter ihren Einsatz schieben
     // =================================================================
 
@@ -2133,6 +2298,7 @@ final class EinsatzPruefungTest extends TestCase
             $t->string('uuid', 64)->unique();
             $t->integer('team_id')->nullable();
             $t->string('aufgaben_signatur', 64)->nullable();
+            $t->text('aufgaben_codes')->nullable();
             $t->timestamp('aufgaben_gemeldet_at')->nullable();
             $t->unsignedBigInteger('aufgaben_nachricht_id')->nullable();
             $t->timestamps();

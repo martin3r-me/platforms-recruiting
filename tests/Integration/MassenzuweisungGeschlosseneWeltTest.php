@@ -137,6 +137,9 @@ final class MassenzuweisungGeschlosseneWeltTest extends TestCase
             .'Beobachter-frei aus demselben Grund wie die beiden Spalten darueber; zusaetzlich ist er '
             .'die einzige Handhabe, mit der ein spaeter per Webhook gemeldetes "failed" ueberhaupt '
             .'auffaellt — massenzuweisbar liesse er sich auf eine fremde Nachricht zeigen lassen.',
+        'aufgaben_codes' => 'Die Codes der letzten erfolgreichen Aufgaben-Meldung (Nachtrag 13.10.2026). '
+            .'Beobachter-frei wie die Signatur; zusaetzlich die Bremse „nur ein NEUER Punkt meldet" — '
+            .'massenzuweisbar liesse sie sich mit einer leeren Liste loesen oder mit allen Codes dauerhaft stumm schalten.',
     ];
 
     /**

@@ -375,6 +375,13 @@ class RecruitingServiceProvider extends ServiceProvider
         // Beschreibung des Kommandos). Bis Markus den Stichtag entschieden
         // hat und die Meta-Vorlage genehmigt ist, wird das Kommando von Hand
         // gefahren.
+        // STAND 13.10.2026: der Stichtag ist entschieden — es gibt KEINEN
+        // (Markus: alle bekommen eine Nachricht, Lauf mit --ohne-stichtag).
+        // Die Start-Wellen laufen von Hand (--limit, jede erst --dry-run).
+        // DANACH kommt hier ein TAEGLICHER Eintrag hin, in einem eigenen
+        // Commit — sonst wird nach dem Start niemand mehr erinnert (Deploy-
+        // Checkliste ma-konto, Abschnitt "dunkel bleibt"). Bis dahin bleibt
+        // der Eintrag absichtlich weg.
     }
 
     protected function registerLivewireComponents(): void

@@ -18,6 +18,20 @@ use DateTimeImmutable;
  * Markus' Folie 27 nennt „zu viele Nachrichten" als eines der drei Dinge, die
  * wir vermeiden muessen. Diese Klasse ist die Stelle, an der das durchgesetzt
  * wird.
+ *
+ * NACHTRAG 13.10.2026 (Kundenzusage Markus, Go-live-Folie 8: „Eine neue
+ * Nachricht kommt nur, wenn ein neuer Punkt dazukommt."): die Signatur allein
+ * reicht dafuer nicht. Als Hash ueber die GANZE Menge war sie auch dann
+ * "anders", wenn die Liste nur KLEINER wurde — wer einen von drei Punkten
+ * erledigte, bekam nach der Pause "du hast 2 offene Punkte". Seitdem werden
+ * zusaetzlich die gemeldeten CODES gespeichert (rec_persons.aufgaben_codes)
+ * und darfMelden() fragt `hatNeuenPunkt()`: gemeldet wird nur, wenn
+ * mindestens ein aktueller Code bei der letzten erfolgreichen Meldung NICHT
+ * dabei war. Teilmenge oder gleich → still. Die Signatur bleibt bestehen:
+ * sie ist der Marker "es wurde gemeldet" (Zielkreis ET-16, HR-Liste
+ * „Erinnert"), und fuer den Altbestand, an dem noch keine Codes stehen,
+ * gilt weiter der Hash-Vergleich — sonst ginge nach dem Deploy an jeden mit
+ * altem Stand ein Schwall Nachrichten raus.
  */
 final class TriggerRegeln
 {
@@ -64,18 +78,112 @@ final class TriggerRegeln
         return hash('sha256', implode('|', $codes));
     }
 
+    /**
+     * Die Codes der offenen Punkte — gefiltert, entdoppelt, sortiert. Dieselbe
+     * Filterregel wie signatur(), damit beide ueber dieselbe Menge sprechen.
+     *
+     * @param  list<array{code?:string}> $offenePunkte
+     * @return list<string>
+     */
+    public static function codes(array $offenePunkte): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map(
+            static fn (array $p) => (string) ($p['code'] ?? ''),
+            $offenePunkte
+        ))));
+        sort($codes);
+
+        return $codes;
+    }
+
+    /**
+     * Fuer die Spalte rec_persons.aufgaben_codes: JSON-Liste. Leere Menge →
+     * null (ueber "nichts offen" wird nie gemeldet, also auch nichts
+     * gespeichert).
+     *
+     * @param list<array{code?:string}> $offenePunkte
+     */
+    public static function codesFuerSpalte(array $offenePunkte): ?string
+    {
+        $codes = self::codes($offenePunkte);
+
+        return $codes === [] ? null : json_encode($codes, JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Die Spalte zurueck in eine Code-Liste. Alles, was keine JSON-Liste aus
+     * Strings ist (null, leer, Schrott), ergibt null = "keine Codes lesbar"
+     * — dann gilt in darfMelden() der alte Hash-Vergleich (Altbestand).
+     *
+     * @return list<string>|null
+     */
+    public static function codesAusSpalte(mixed $wert): ?array
+    {
+        if (!is_string($wert) || $wert === '') {
+            return null;
+        }
+
+        $liste = json_decode($wert, true);
+        if (!is_array($liste) || !array_is_list($liste)) {
+            return null;
+        }
+
+        foreach ($liste as $code) {
+            if (!is_string($code)) {
+                return null;
+            }
+        }
+
+        return $liste;
+    }
+
+    /**
+     * Kundenzusage Markus (Folie 8): neu ist nur, was bei der letzten
+     * erfolgreichen Meldung NICHT dabei war. Ein Punkt, der erledigt und
+     * spaeter wieder offen wurde, war in der letzten Meldung enthalten und
+     * gilt deshalb als bekannt — er loest nichts aus. (Wird die Liste ganz
+     * leer, raeumt ET-16 Signatur UND Codes; dann ist beim naechsten Mal
+     * alles wieder neu.)
+     *
+     * @param list<string> $letzteCodes
+     * @param list<string> $neueCodes
+     */
+    public static function hatNeuenPunkt(array $letzteCodes, array $neueCodes): bool
+    {
+        return array_diff($neueCodes, $letzteCodes) !== [];
+    }
+
+    /**
+     * Die beiden Code-Parameter (Nachtrag 13.10.2026) sind optional, damit
+     * der Altbestand ohne gespeicherte Codes beim Hash-Vergleich bleibt:
+     * fehlt einer der beiden (null), entscheidet wie bisher die Signatur.
+     * Die Codes zaehlen NUR, wenn auch eine letzte Signatur steht — ohne sie
+     * gab es keine (gueltige) letzte Meldung, etwa nach ET-23 (nachtraeglich
+     * gescheitert, Signatur geraeumt).
+     *
+     * @param list<string>|null $letzteCodes
+     * @param list<string>|null $neueCodes
+     */
     public static function darfMelden(
         ?string $letzteSignatur,
         ?string $gemeldetAm,
         string $neueSignatur,
         string $jetzt,
         int $pauseTage,
+        ?array $letzteCodes = null,
+        ?array $neueCodes = null,
     ): bool {
         if ($neueSignatur === '') {
             return false;
         }
 
-        if ($letzteSignatur === $neueSignatur) {
+        if ($letzteSignatur !== null && $letzteCodes !== null && $neueCodes !== null) {
+            // Kundenzusage: nur ein NEUER Punkt meldet. Teilmenge → still.
+            if (!self::hatNeuenPunkt($letzteCodes, $neueCodes)) {
+                return false;
+            }
+        } elseif ($letzteSignatur === $neueSignatur) {
+            // Altbestand (nur Hash, keine Codes lesbar): Verhalten wie bis 13.10.2026.
             return false;
         }
 

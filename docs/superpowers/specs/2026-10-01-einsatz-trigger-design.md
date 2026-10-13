@@ -294,3 +294,26 @@ jemand die Regeln anfassen muss.
 
 Dazu, nicht technisch: **der Text der Meta-Vorlage.** Ohne genehmigte Vorlage geht keine
 Nachricht raus — die Aufgabenliste im Portal funktioniert davon unabhängig.
+
+---
+
+## Nachtrag 13.10.2026 — Nachricht nur bei NEUEM offenen Punkt
+
+Kundenzusage an Markus (Go-live-Folie 8): „Eine neue Nachricht kommt nur, wenn ein neuer
+Punkt dazukommt." Bis dahin löste jeder Signatur-Wechsel aus — auch eine **kleinere**
+Liste (1 von 3 erledigt → nach der Pause „du hast 2 offene Punkte").
+
+- Neben `rec_persons.aufgaben_signatur` stehen jetzt die gemeldeten Codes
+  (`rec_persons.aufgaben_codes`, JSON-Liste, TEXT, Migration
+  `2026_10_13_000003_add_aufgaben_codes_to_rec_persons`). Neue Spalte statt Umwidmung der
+  Signatur: die ist `string(64)`, die Codes sind wegen `dokument:<id>`/`vertrag:<id>` nicht
+  längenbegrenzt.
+- Gemeldet wird nur, wenn mindestens ein aktueller Code bei der **letzten erfolgreichen**
+  Meldung fehlte (`TriggerRegeln::hatNeuenPunkt`). Teilmenge oder gleich → still. Ein Punkt,
+  der erledigt und später wieder offen wird, war schon gemeldet und löst nichts aus; erst wenn
+  die Liste ganz leer war (ET-16 räumt Signatur und Codes), ist alles wieder neu.
+- Pause (7 Tage) und ET-15 (Einsatz schlägt Pause) unverändert.
+- Altbestand (Signatur ohne Codes): Hash-Vergleich wie bisher — kein Nachrichten-Schwall nach
+  dem Deploy. Die Codes kommen mit der nächsten erfolgreichen Meldung dazu.
+- HR „Erneut erinnern" schreibt die Codes bei Erfolg ebenfalls mit; ET-23 (nachträglich
+  gescheitert) und ET-16 räumen sie zusammen mit der Signatur.

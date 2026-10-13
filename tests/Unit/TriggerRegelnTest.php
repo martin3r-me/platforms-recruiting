@@ -141,4 +141,72 @@ final class TriggerRegelnTest extends TestCase
             'abc', 'Schrottwert', 'xyz', '2026-10-01 09:00:00', 7
         ));
     }
+
+    // --- Nachtrag 13.10.2026: nur ein NEUER Punkt meldet (Markus, Folie 8) ---
+
+    public function test_eine_kleinere_liste_meldet_nicht_auch_nach_der_pause(): void
+    {
+        $this->assertFalse(TriggerRegeln::darfMelden(
+            'alt', '2026-09-01 09:00:00', 'neu', '2026-10-01 09:00:00', 7,
+            ['ausweis', 'ersthelfer', 'immatrikulation'], ['ausweis', 'ersthelfer'],
+        ));
+    }
+
+    public function test_ein_dazukommender_code_meldet_nach_der_pause(): void
+    {
+        $this->assertTrue(TriggerRegeln::darfMelden(
+            'alt', '2026-09-01 09:00:00', 'neu', '2026-10-01 09:00:00', 7,
+            ['ausweis', 'ersthelfer'], ['ausweis', 'ersthelfer', 'immatrikulation'],
+        ));
+    }
+
+    public function test_ein_dazukommender_code_wartet_trotzdem_die_pause_ab(): void
+    {
+        $this->assertFalse(TriggerRegeln::darfMelden(
+            'alt', '2026-09-28 09:00:00', 'neu', '2026-10-01 09:00:00', 7,
+            ['ausweis'], ['ausweis', 'ersthelfer'],
+        ));
+    }
+
+    public function test_ein_ausgetauschter_code_zaehlt_als_neu(): void
+    {
+        // Gleich gross, aber ein anderer Punkt: der neue war nicht gemeldet.
+        $this->assertTrue(TriggerRegeln::hatNeuenPunkt(['ausweis', 'selfie'], ['ausweis', 'ersthelfer']));
+        $this->assertFalse(TriggerRegeln::hatNeuenPunkt(['ausweis', 'selfie'], ['selfie']));
+        $this->assertFalse(TriggerRegeln::hatNeuenPunkt(['ausweis'], ['ausweis']));
+    }
+
+    public function test_ohne_letzte_signatur_zaehlen_die_codes_nicht(): void
+    {
+        // ET-23 hat die Signatur geraeumt: es gab keine gueltige Meldung.
+        $this->assertTrue(TriggerRegeln::darfMelden(
+            null, '2026-09-01 09:00:00', 'neu', '2026-10-01 09:00:00', 7, ['ausweis'], ['ausweis'],
+        ));
+    }
+
+    public function test_altbestand_ohne_codes_vergleicht_den_hash(): void
+    {
+        $this->assertFalse(TriggerRegeln::darfMelden('abc', '2026-09-01 09:00:00', 'abc', '2026-10-01 09:00:00', 7, null, ['ausweis']));
+        $this->assertTrue(TriggerRegeln::darfMelden('abc', '2026-09-01 09:00:00', 'xyz', '2026-10-01 09:00:00', 7, null, ['ausweis']));
+    }
+
+    public function test_die_codes_sind_sortiert_entdoppelt_und_ohne_leere(): void
+    {
+        $this->assertSame(
+            ['ausweis', 'dokument:12', 'selfie'],
+            TriggerRegeln::codes([['code' => 'selfie'], ['code' => ''], [], ['code' => 'ausweis'], ['code' => 'dokument:12'], ['code' => 'selfie']]),
+        );
+        $this->assertNull(TriggerRegeln::codesFuerSpalte([]));
+    }
+
+    public function test_die_spalte_geht_hin_und_zurueck_und_schrott_gilt_als_altbestand(): void
+    {
+        $spalte = TriggerRegeln::codesFuerSpalte([['code' => 'selfie'], ['code' => 'ausweis']]);
+        $this->assertSame('["ausweis","selfie"]', $spalte);
+        $this->assertSame(['ausweis', 'selfie'], TriggerRegeln::codesAusSpalte($spalte));
+
+        foreach ([null, '', 'Schrott', '{"a":"b"}', '[1,2]', str_repeat('a', 64)] as $wert) {
+            $this->assertNull(TriggerRegeln::codesAusSpalte($wert), var_export($wert, true));
+        }
+    }
 }

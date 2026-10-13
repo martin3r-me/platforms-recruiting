@@ -130,6 +130,33 @@ final class HrErinnernTest extends TestCase
         $this->assertSame(['erneut_erinnert', 'aufgaben', 'sent', null], [$v->art, $v->bezug, $v->ergebnis, $v->notiz], 'Notiz optional');
     }
 
+    /**
+     * Nachtrag 13.10.2026: „Erneut erinnern" schreibt auch die gemeldeten
+     * CODES. Sonst stuenden noch die der vorigen Meldung an der Person, und
+     * die Einsatz-Pruefung hielte einen hier gerade gemeldeten Punkt fuer
+     * neu und meldete ihn ein zweites Mal.
+     */
+    public function test_aufgaben_erneut_erinnern_aktualisiert_die_codes(): void
+    {
+        $id = $this->erinnertePerson();
+        DB::table('rec_persons')->where('id', $id)->update(['aufgaben_codes' => '["selfie"]']);
+
+        $this->aktionen()->erinnereErneut($id, null, 'aufgaben');
+
+        $this->assertSame('["ausweis"]', $this->personZeile($id)->aufgaben_codes);
+    }
+
+    public function test_aufgaben_fehlschlag_laesst_die_codes_stehen(): void
+    {
+        $id = $this->erinnertePerson();
+        DB::table('rec_persons')->where('id', $id)->update(['aufgaben_codes' => '["selfie"]']);
+        $this->aufgaben->status = AufgabenSender::STATUS_FAILED;
+
+        $this->aktionen()->erinnereErneut($id, null, 'aufgaben');
+
+        $this->assertSame('["selfie"]', $this->personZeile($id)->aufgaben_codes, 'wie die Signatur: nur bei Erfolg');
+    }
+
     public function test_aufgaben_fehlschlag_stempelt_trotzdem_nicht_konfiguriert_nicht(): void
     {
         $fehl = $this->erinnertePerson();

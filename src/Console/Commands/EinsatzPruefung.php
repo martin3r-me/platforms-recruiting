@@ -39,6 +39,16 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  * mehr geschrieben. Die Absaetze unten zu F3/F6/ET-26/ET-27 sind
  * Befund-Historie und beschreiben den Stand VOR dieser Entscheidung.
  *
+ * NACHTRAG 13.10.2026 (Markus, Folie 8: „Eine neue Nachricht kommt nur, wenn
+ * ein neuer Punkt dazukommt."): der Signatur-Wechsel allein loest nicht mehr
+ * aus. Neben der Signatur stehen jetzt die gemeldeten CODES an der Person
+ * (`rec_persons.aufgaben_codes`, JSON-Liste); gemeldet wird nur, wenn
+ * mindestens ein aktueller Code bei der letzten ERFOLGREICHEN Meldung fehlte
+ * (TriggerRegeln::hatNeuenPunkt). Wird die Liste nur kleiner, bleibt es
+ * still. Pause und ET-15 unveraendert. Altbestand ohne Codes: Hash-Vergleich
+ * wie bisher, kein Schwall nach dem Deploy. Codes werden geschrieben und
+ * geraeumt, wo die Signatur geschrieben und geraeumt wird.
+ *
  * DUENNE HUELLE (Muster SendProofReminders, PersonPairAudit): die Regeln
  * liegen in reinen, einzeln geprueften Klassen — OffenePunkte (was ist
  * offen), EinsatzBezug (loest es aus), TriggerRegeln (darf gemeldet werden),
@@ -58,6 +68,9 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  *    informiert. An der PERSON, nicht an der Anstellung: wer bei
  *    RHEINGEDECK und MA arbeitet, hat einen Ausweis und soll eine Nachricht
  *    bekommen, nicht zwei.
+ *  - `rec_persons.aufgaben_codes` — WELCHE Punkte (Codes, JSON-Liste) die
+ *    letzte erfolgreiche Meldung enthielt (Nachtrag 13.10.2026). Lebt und
+ *    stirbt mit der Signatur.
  *  - `rec_persons.aufgaben_gemeldet_at` — wann zuletzt VERSUCHT wurde. Der
  *    Stempel ist der Anker der Pause und wird deshalb auch nach einem
  *    Fehlschlag gesetzt (siehe ET-23 unten).
@@ -67,7 +80,7 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  *    Seit Markus 12.10.2026 schreibt dieses Kommando die Spalte NICHT mehr
  *    (Erinnerung entfaellt); sie bleibt im Bestand stehen.
  *
- * ALLE VIER WERDEN OBSERVER-FREI GESCHRIEBEN, ueber `DB::table(...)`, nie
+ * ALLE FUENF WERDEN OBSERVER-FREI GESCHRIEBEN, ueber `DB::table(...)`, nie
  * ueber Eloquent. Dieses Modul exportiert an ZAS immer ganze Zeilen; eine
  * Eloquent-Schreibung liefe mit vollem Beobachter-Lauf und setzte den
  * Aenderungsmarker — eine blosse PRUEFUNG spuelte damit den Bestand in die
@@ -476,6 +489,9 @@ class EinsatzPruefung extends Command
                 } else {
                     $letzteSignatur = $person->aufgaben_signatur;
                     $gemeldetAm     = $person->aufgaben_gemeldet_at;
+                    // Nachtrag 13.10.2026: null = Altbestand (nur Hash) →
+                    // darfMelden() vergleicht wie bisher die Signatur.
+                    $letzteCodes    = TriggerRegeln::codesAusSpalte($person->aufgaben_codes ?? null);
 
                     // ---- ET-23: die gespeicherte Nachricht nachlesen.
                     if ($letzteSignatur !== null
@@ -487,6 +503,7 @@ class EinsatzPruefung extends Command
                             // Stunde.
                             DB::table('rec_persons')->where('id', $personId)->update([
                                 'aufgaben_signatur'     => null,
+                                'aufgaben_codes'        => null,
                                 'aufgaben_nachricht_id' => null,
                             ]);
                         }
@@ -497,12 +514,14 @@ class EinsatzPruefung extends Command
                         // der jemand die Wellengroesse bemisst, und in der
                         // untertreibenden Richtung falsch.
                         $letzteSignatur = null;
+                        $letzteCodes    = null;
                         $z['nachtraeglich']++;
                     }
 
                     $signatur = TriggerRegeln::signatur($punkte);
+                    $codes    = TriggerRegeln::codes($punkte);
 
-                    $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, EinsatzBezug::PAUSE_TAGE);
+                    $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, EinsatzBezug::PAUSE_TAGE, $letzteCodes, $codes);
 
                     // ---- ET-15: der Einsatz schlaegt die Pause.
                     if (!$darf && $loest
@@ -510,7 +529,8 @@ class EinsatzPruefung extends Command
                         // Dieselbe geprueften Funktion, nur ohne Pause: der
                         // Signatur-Waechter bleibt in Kraft, es faellt
                         // ausschliesslich die Wartezeit.
-                        $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, 0);
+                        // Auch der Neu-Punkt-Waechter (13.10.2026) bleibt.
+                        $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, 0, $letzteCodes, $codes);
                     }
 
                     if ($darf && $loest) {
@@ -528,7 +548,7 @@ class EinsatzPruefung extends Command
 
                                 $ergebnis = $sender->sende($bote, $standFuerNeu, 'neu');
                                 $angesprochen[] = sprintf('MA #%d (neu: %s)', $bote->id, $ergebnis);
-                                $this->buchen($personId, $signatur, $ergebnis, $sender->letzteNachrichtId(), $z);
+                                $this->buchen($personId, $signatur, TriggerRegeln::codesFuerSpalte($punkte), $ergebnis, $sender->letzteNachrichtId(), $z);
                             }
                         }
                     }
@@ -1122,6 +1142,7 @@ class EinsatzPruefung extends Command
         }
 
         $stehtWas = $person->aufgaben_signatur !== null
+            || ($person->aufgaben_codes ?? null) !== null
             || $person->aufgaben_gemeldet_at !== null
             || $person->aufgaben_nachricht_id !== null;
 
@@ -1132,6 +1153,7 @@ class EinsatzPruefung extends Command
         if (!$dryRun) {
             DB::table('rec_persons')->where('id', $personId)->update([
                 'aufgaben_signatur'     => null,
+                'aufgaben_codes'        => null,
                 'aufgaben_gemeldet_at'  => null,
                 'aufgaben_nachricht_id' => null,
             ]);
@@ -1143,7 +1165,8 @@ class EinsatzPruefung extends Command
     /**
      * Das Ergebnis eines Versands festhalten — observer-frei.
      *
-     * Der STEMPEL geht in beide Richtungen, die SIGNATUR nur bei Erfolg
+     * Der STEMPEL geht in beide Richtungen, die SIGNATUR (und seit 13.10.2026
+ * die CODES) nur bei Erfolg
      * (ET-23, beide Richtungen): ein Fehlschlag gilt nicht als informiert,
      * bremst die Wiederholung aber auf die Pause herunter.
      *
@@ -1157,7 +1180,7 @@ class EinsatzPruefung extends Command
      *
      * @param  array<string,int>  $z
      */
-    private function buchen(int $personId, string $signatur, string $ergebnis, ?int $nachrichtId, array &$z): void
+    private function buchen(int $personId, string $signatur, ?string $codes, string $ergebnis, ?int $nachrichtId, array &$z): void
     {
         if ($ergebnis === AufgabenSender::STATUS_NICHT_KONFIGURIERT
             || $ergebnis === AufgabenSender::STATUS_VORLAGE_UNTAUGLICH) {
@@ -1169,6 +1192,9 @@ class EinsatzPruefung extends Command
         if ($ergebnis === AufgabenSender::STATUS_SENT) {
             DB::table('rec_persons')->where('id', $personId)->update([
                 'aufgaben_signatur'     => $signatur,
+                // Nachtrag 13.10.2026: die Codes der ERFOLGREICHEN Meldung —
+                // nur bei Erfolg, genau wie die Signatur (ET-23).
+                'aufgaben_codes'        => $codes,
                 'aufgaben_gemeldet_at'  => now(),
                 'aufgaben_nachricht_id' => $nachrichtId,
             ]);

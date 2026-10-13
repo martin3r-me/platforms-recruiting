@@ -362,6 +362,35 @@ final class TriggerStateSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('rec_persons', 'aufgaben_gemeldet_at'));
     }
 
+    /**
+     * Nachtrag 13.10.2026: die gemeldeten CODES (Teilmengen-Pruefung, Markus
+     * Folie 8). TEXT, weil die Codes nicht auf die 13 Nachweise begrenzt sind
+     * (dokument:<id>, vertrag:<id>); nullable, weil Altbestand = keine Codes.
+     */
+    public function test_die_codes_spalte_steht_im_schema_und_ist_umkehrbar(): void
+    {
+        $this->assertTrue(Schema::hasColumn('rec_persons', 'aufgaben_codes'));
+        $this->assertSame('text', Schema::getColumnType('rec_persons', 'aufgaben_codes'));
+
+        $personId = $this->personAnlegen();
+        $this->assertNull(Capsule::table('rec_persons')->where('id', $personId)->value('aufgaben_codes'));
+        $lang = json_encode(array_map(fn ($i) => 'dokument:'.$i, range(1, 40)));
+        Capsule::table('rec_persons')->where('id', $personId)->update(['aufgaben_codes' => $lang]);
+        $this->assertSame($lang, Capsule::table('rec_persons')->where('id', $personId)->value('aufgaben_codes'));
+        $this->assertNotContains('aufgaben_codes', (new RecPerson())->getFillable());
+
+        $ddl = $this->ddlAufMysql('database/migrations/2026_10_13_000003_add_aufgaben_codes_to_rec_persons.php');
+        $this->assertStringContainsString('add `aufgaben_codes` text null after `aufgaben_signatur`', $ddl, "DDL war:\n".$ddl);
+
+        $migration = require dirname(__DIR__, 2).'/database/migrations/2026_10_13_000003_add_aufgaben_codes_to_rec_persons.php';
+        $migration->down();
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('rec_persons', 'aufgaben_codes'));
+        $migration->up();
+        $migration->up();
+        $this->assertTrue(Schema::hasColumn('rec_persons', 'aufgaben_codes'));
+    }
+
     public function test_die_migration_ist_idempotent_und_umkehrbar(): void
     {
         $migration = $this->migration();
