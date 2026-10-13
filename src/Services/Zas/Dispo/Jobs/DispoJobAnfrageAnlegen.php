@@ -16,9 +16,11 @@ use Symfony\Component\Uid\UuidV7;
 final class DispoJobAnfrageAnlegen
 {
     /**
-     * @param array{filial_nr:int, von:string, bis:string, modus:string, template_id:int,
+     * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
      *   schichten: list<array{event:int, datum:string, von:?string, taetigkeit:string, gesucht:int|string}>,
      *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, minuten: int} $daten
+     * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
+     * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
      * @throws \InvalidArgumentException wenn keine Schicht mit gesucht > 0 uebrig bleibt
      */
     public static function anlegen(array $daten, int $teamId, ?int $userId): RecDispoJobRequest
@@ -35,6 +37,7 @@ final class DispoJobAnfrageAnlegen
                 'zeitraum_von'         => $daten['von'],
                 'zeitraum_bis'         => $daten['bis'],
                 'modus'                => $daten['modus'],
+                'anlass'               => DispoJobAnlass::istGueltig((string) ($daten['anlass'] ?? '')) ? (string) $daten['anlass'] : null,
                 'whatsapp_template_id' => (int) $daten['template_id'],
                 'status'               => RecDispoJobRequest::STATUS_ENTWURF,
                 'created_by_user_id'   => $userId,

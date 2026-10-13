@@ -291,6 +291,7 @@ class SendDispoJobWaveJobTest extends TestCase
             [$own, 'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],

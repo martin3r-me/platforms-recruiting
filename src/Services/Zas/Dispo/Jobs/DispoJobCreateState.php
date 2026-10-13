@@ -9,7 +9,8 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
  * testbar sind. kannWeiter() liefert die Meldung fuer den Disponenten oder null.
  *
  * Erwartete Schluessel in $state: heute, filial_nr, von, bis, event_ids,
- * gesucht (Schluessel => Zahl), andere (list<{gesucht}>), template_id,
+ * gesucht (Schluessel => Zahl), andere (list<{gesucht}>), anlass, template_id
+ * (die zum Anlass hinterlegte Vorlage),
  * vorlagen_problem, gruppen, bloecke, modus.
  */
 final class DispoJobCreateState
@@ -86,8 +87,11 @@ final class DispoJobCreateState
 
     private static function empfaenger(array $state): ?string
     {
+        if (!DispoJobAnlass::istGueltig((string) ($state['anlass'] ?? ''))) {
+            return 'Bitte wähle einen Anlass.';
+        }
         if (!self::istZahl($state['template_id'] ?? null)) {
-            return 'Bitte wähle eine Vorlage für die Nachricht.';
+            return 'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.';
         }
         if (($state['vorlagen_problem'] ?? null) !== null) {
             return (string) $state['vorlagen_problem'];

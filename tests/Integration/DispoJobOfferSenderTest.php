@@ -214,6 +214,7 @@ class DispoJobOfferSenderTest extends TestCase
         foreach ([
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
             [$own, 'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ] as [$root, $relative]) {

@@ -17,6 +17,7 @@ final class DispoJobCreateStateTest extends TestCase
             'event_ids' => [5],
             'gesucht' => ['sabc' => '3'],
             'andere' => [],
+            'anlass' => 'vier_wochen',
             'template_id' => '7',
             'vorlagen_problem' => null,
             'gruppen' => ['0'],
@@ -66,6 +67,25 @@ final class DispoJobCreateStateTest extends TestCase
         // eine andere Schicht reicht auch
         $this->assertNull(DispoJobCreateState::kannWeiter(4, self::state(['gesucht' => [], 'andere' => [['gesucht' => '2']]])));
         $this->assertNotNull(DispoJobCreateState::kannWeiter(4, self::state(['gesucht' => [], 'andere' => [['gesucht' => '0']]])));
+    }
+
+    public function testSchritt5BrauchtGueltigenAnlass(): void
+    {
+        $this->assertSame('Bitte wähle einen Anlass.', DispoJobCreateState::kannWeiter(5, self::state(['anlass' => ''])));
+        $this->assertSame('Bitte wähle einen Anlass.', DispoJobCreateState::kannWeiter(5, self::state(['anlass' => 'irgendwann'])));
+        $this->assertSame('Bitte wähle einen Anlass.', DispoJobCreateState::kannWeiter(5, array_diff_key(self::state(), ['anlass' => 1])));
+        foreach (['vier_wochen', 'naechste_woche', 'dringend'] as $a) {
+            $this->assertNull(DispoJobCreateState::kannWeiter(5, self::state(['anlass' => $a])), $a);
+        }
+    }
+
+    public function testSchritt5AnlassOhneHinterlegteVorlageSperrt(): void
+    {
+        $this->assertSame(
+            'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.',
+            DispoJobCreateState::kannWeiter(5, self::state(['template_id' => '']))
+        );
+        $this->assertNotNull(DispoJobCreateState::kannWeiter(5, self::state(['template_id' => null])));
     }
 
     public function testSchritt5BrauchtVorlageOhneProblemUndEmpfaengerAuswahl(): void

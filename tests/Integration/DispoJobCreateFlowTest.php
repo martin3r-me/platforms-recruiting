@@ -38,6 +38,7 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -62,7 +63,7 @@ class DispoJobCreateFlowTest extends TestCase
     {
         return $o + [
             'filial_nr' => 200, 'von' => '2026-10-13', 'bis' => '2026-11-09', 'modus' => RecDispoJobRequest::MODUS_SAMMELN,
-            'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
+            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
             'schichten' => [
                 ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
@@ -79,7 +80,8 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame(200, $fresh->filial_nr);
         $this->assertSame(RecDispoJobRequest::STATUS_ENTWURF, $fresh->status);
         $this->assertSame(42, (int) $fresh->created_by_user_id);
-        $this->assertSame(7, $fresh->whatsapp_template_id);
+        $this->assertSame(7, $fresh->whatsapp_template_id, 'die beim Anlegen aufgeloeste Vorlage');
+        $this->assertSame('dringend', $fresh->anlass);
         $this->assertSame('2026-10-13', $fresh->zeitraum_von->format('Y-m-d'));
         $this->assertSame('2026-11-09', $fresh->zeitraum_bis->format('Y-m-d'));
 
