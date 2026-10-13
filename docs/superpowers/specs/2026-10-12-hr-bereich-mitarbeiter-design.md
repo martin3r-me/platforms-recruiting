@@ -195,7 +195,7 @@ Vier Quellen, jede als Chip mit Alter („Aufgaben · erinnert vor 6 Tagen“):
 
   | Chip | Sender | Stempel danach (Query-Builder) | Pause (wie heute) |
   |---|---|---|---|
-  | Aufgaben | `AufgabenSender::sende($bote, OffenePunkte::fuer($bote), 'erinnerung')` unter der Laufsperre der Einsatz-Prüfung (`EinsatzPruefung::LAUF_SPERRE`, wird `public`) | `aufgaben_gemeldet_at = now`, `aufgaben_nachricht_id` (auch nach Fehlschlag, wie ET-23) | 7 Tage ab `aufgaben_gemeldet_at` |
+  | Aufgaben | `AufgabenSender::sende($bote, OffenePunkte::fuer($bote), 'erinnerung')` — seit Markus 12.10.2026 `'neu'` (Erinnerungs-Vorlage entfallen) unter der Laufsperre der Einsatz-Prüfung (`EinsatzPruefung::LAUF_SPERRE`, wird `public`) | `aufgaben_gemeldet_at = now`, `aufgaben_nachricht_id` (auch nach Fehlschlag, wie ET-23) | 7 Tage ab `aufgaben_gemeldet_at` |
   | Nachweis | `ProofReminderSender::send()` — nur `portal_v2_since` (Ruling C2) | `reminded_at = now` nur bei `STATUS_SENT` | 7 Tage ab `reminded_at` |
   | Dokument | `DokumentService::erneutSenden()` (stempelt selbst `notified_at`) | — | 7 Tage ab `notified_at` |
   | Vertrag | `VertragHinweisSender::sende($anstellung)` | — (Vertrag hat keinen Hinweis-Stempel) | 7 Tage ab max(`sent_at`, letzter Vermerk `erneut_erinnert` mit Ergebnis `sent`) |

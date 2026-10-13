@@ -1103,11 +1103,12 @@
                     </div>
                 @endif
 
-                {{-- Mitarbeiterportal (Spec Portal-Vorlagen §2/§7): neun Vorlagen plus der
+                {{-- Mitarbeiterportal (Spec Portal-Vorlagen §2/§7): acht Vorlagen plus der
                      Schalter Einsatz-Pruefung. Feldliste, Beschriftung und Hinweise kommen
                      fertig aus ApplicantSettingsModal::portalVorlagenFelder() (Beschriftung =
                      PortalVorlagen::FELDNAMEN, derselbe Text wie in den Sender-Logs), daher
-                     hier eine Schleife statt neun Kopien. Alle Schluessel stehen in
+                     hier eine Schleife statt acht Kopien. Die Vorlage Offene Aufgaben Erinnerung
+                     ist entfallen (Markus 12.10.2026). Alle Schluessel stehen in
                      DEFAULT_SETTINGS, das entangle der Selects findet sie also schon beim
                      Seitenaufbau. Festgenagelt in SettingsModalPortalVorlagenTest. --}}
                 <div class="space-y-4 border-t border-[var(--ui-border)]/40 pt-5">

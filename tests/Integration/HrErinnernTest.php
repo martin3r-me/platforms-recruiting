@@ -121,7 +121,8 @@ final class HrErinnernTest extends TestCase
         $e = $this->aktionen()->erinnereErneut($id, null, 'aufgaben');
 
         $this->assertTrue($e->istOk());
-        $this->assertSame('erinnerung', $this->aufgaben->versandt[0]['anlass']);
+        // Markus 12.10.2026: HR „Erneut erinnern" schickt die Aufgaben-Vorlage 'neu'.
+        $this->assertSame('neu', $this->aufgaben->versandt[0]['anlass']);
         $zeile = $this->personZeile($id);
         $this->assertSame('2026-10-12 10:00:00', (string) $zeile->aufgaben_gemeldet_at);
         $this->assertSame(77, (int) $zeile->aufgaben_nachricht_id);

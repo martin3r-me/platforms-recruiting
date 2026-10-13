@@ -35,14 +35,15 @@ final class PortalVorlagenTest extends TestCase
     public function test_vorgaben_stehen_in_default_settings(): void
     {
         foreach ([PortalVorlagen::CODE_PASSWORT, PortalVorlagen::CODE_NUMMERNWECHSEL, PortalVorlagen::CODE_NOTFALL,
-            PortalVorlagen::HINWEIS_ALTE_NUMMER, PortalVorlagen::AUFGABEN_NEU, PortalVorlagen::AUFGABEN_ERINNERUNG] as $schluessel) {
+            PortalVorlagen::HINWEIS_ALTE_NUMMER, PortalVorlagen::AUFGABEN_NEU] as $schluessel) {
             $this->assertArrayHasKey($schluessel, RecApplicantSettings::DEFAULT_SETTINGS);
             $this->assertNull(RecApplicantSettings::DEFAULT_SETTINGS[$schluessel]);
         }
         $this->assertFalse(RecApplicantSettings::DEFAULT_SETTINGS[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV]);
     }
 
-    public function test_feldnamen_decken_genau_die_neun_schluessel_ab(): void
+    /** Acht seit Markus 12.10.2026 — „Offene Aufgaben — Erinnerung" ist entfallen. */
+    public function test_feldnamen_decken_genau_die_acht_schluessel_ab(): void
     {
         $this->assertSame([
             'konto_code_passwort_wa_template_id'       => 'Code: Passwort vergessen',
@@ -50,7 +51,6 @@ final class PortalVorlagenTest extends TestCase
             'konto_code_notfall_wa_template_id'        => 'Code: Notfall-Weg',
             'konto_hinweis_alte_nummer_wa_template_id' => 'Hinweis an die alte Nummer',
             'aufgaben_neu_wa_template_id'              => 'Offene Aufgaben — neu',
-            'aufgaben_erinnerung_wa_template_id'       => 'Offene Aufgaben — Erinnerung',
             'proof_reminder_wa_template_id'            => 'Nachweis läuft ab (Fristenlauf)',
             'document_wa_template_id'                  => 'Dokument liegt im Portal',
             'employee_contract_wa_template_id'         => 'Vertrag zur Unterschrift',

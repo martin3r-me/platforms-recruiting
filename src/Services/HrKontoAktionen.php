@@ -519,7 +519,11 @@ final class HrKontoAktionen
                 return HrAktionErgebnis::hinweis('Inzwischen ist nichts mehr offen — keine Erinnerung nötig.');
             }
             $sender = app(AufgabenSender::class);
-            $status = (string) $sender->sende($bote, $stand, 'erinnerung');
+            // Kundenentscheidung Markus 12.10.2026: es gibt nur noch die
+            // Aufgaben-Vorlage 'neu' (eine Info, offen im Portal) — die
+            // eigene Erinnerungs-Vorlage ist entfallen. HR „Erneut erinnern"
+            // schickt dieselbe Nachricht noch einmal.
+            $status = (string) $sender->sende($bote, $stand, 'neu');
 
             // F1 der Einsatz-Pruefung: ohne brauchbare Vorlage kein Stempel.
             if (!in_array($status, [AufgabenSender::STATUS_NICHT_KONFIGURIERT, AufgabenSender::STATUS_VORLAGE_UNTAUGLICH], true)) {

@@ -65,7 +65,6 @@ final class AufgabenSenderTest extends TestCase
 
     private const VORLAGE_NEU = 'aufgaben_neu';
 
-    private const VORLAGE_ERINNERUNG = 'aufgaben_erinnerung';
 
     private const TOKEN = 'portal-token-abc';
 
@@ -190,16 +189,16 @@ final class AufgabenSenderTest extends TestCase
 
     public function testEinGeleertesFeldVerhindertDenVersandUndNenntFeldUndOrt(): void
     {
-        $this->feldSetzen('erinnerung', null);
+        $this->feldSetzen('neu', null);
 
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'erinnerung');
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
         $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
         $this->assertSame([], $this->meta->calls);
         $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
         $grund = (string) $this->log->zeilen[0]['daten']['grund'];
         $this->assertStringContainsString(PortalVorlagen::ORT, $grund);
-        $this->assertStringContainsString('Offene Aufgaben — Erinnerung', $grund);
+        $this->assertStringContainsString('Offene Aufgaben — neu', $grund);
         $this->assertStringContainsString('Keine Vorlage gewählt', $grund);
         $this->assertStringNotContainsString('Eingangsbest', $grund);
     }
@@ -222,6 +221,16 @@ final class AufgabenSenderTest extends TestCase
         DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->update(['status' => 'REJECTED']);
 
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt', $this->logGrund());
+    }
+
+    /** Seit Markus 12.10.2026 ist auch 'erinnerung' ein unbekannter Anlass. */
+    public function testDerEntfalleneAnlassErinnerungIstNichtKonfiguriert(): void
+    {
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'erinnerung');
 
         $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
         $this->assertSame([], $this->meta->calls);
@@ -280,17 +289,20 @@ final class AufgabenSenderTest extends TestCase
     }
 
     /**
-     * Die Erinnerung erwartet {{datum}} — ohne bevorstehenden Einsatz ist der
-     * Wert nicht befuellbar, und die Nachricht geht nicht raus. Eine leere
-     * Vorlage mit Datum waere formal zustellbar und MISSVERSTAENDLICH ("am "
-     * ohne Tag) — lieber kein Versand als ein falscher.
+     * {{datum}} ist mit der Erinnerung entfallen (Markus 12.10.2026): eine
+     * Vorlage, die es noch traegt, gilt als unbefuellbar und geht nicht raus
+     * — auch wenn ein Einsatz bevorsteht. Sonst stuende dort still etwas
+     * Geratenes.
      */
-    public function testFehlenderEinsatzBeiDerErinnerungVerhindertDenVersand(): void
+    public function testEineVorlageMitDatumGehtNichtMehrRaus(): void
     {
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(datum: null), 'erinnerung');
+        $this->rumpfSetzen(self::VORLAGE_NEU, 'Du hast {{anzahl}} offene Punkte, Einsatz am {{datum}}.');
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(datum: '2026-10-20'), 'neu');
 
         $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.platzhalter_unbefuellbar', $this->logGrund());
     }
 
     /**
@@ -423,31 +435,6 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_FAILED, $sender->sende($this->ma, $this->stand(), 'neu'));
         $this->assertNull($sender->letzteNachrichtId());
-    }
-
-    /**
-     * ET-20 (Review 01.10.2026): das Datum geht als `d.m.Y` an den Menschen,
-     * NICHT im ISO-Format, das `OffenePunkte::fuer()` liefert. Vor der
-     * Nachbesserung zementierte dieser Test die ISO-Form ("2026-10-20") als
-     * Erwartung — genau der Fehler, den der Pruefer fand.
-     */
-    public function testErinnerungSchicktAuchDasDatum(): void
-    {
-        $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 1, datum: '2026-10-20'), 'erinnerung');
-
-        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
-        $this->assertSame(
-            [
-                ['type' => 'body', 'parameters' => [
-                    ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '1'],
-                    ['type' => 'text', 'parameter_name' => 'datum', 'text' => '20.10.2026'],
-                ]],
-                ['type' => 'button', 'sub_type' => 'url', 'index' => 0, 'parameters' => [
-                    ['type' => 'text', 'text' => self::TOKEN],
-                ]],
-            ],
-            $this->meta->calls[0]['components'],
-        );
     }
 
     /**
@@ -854,7 +841,8 @@ final class AufgabenSenderTest extends TestCase
      */
     private function metaVorlagenAnlegen(array $ueberschreiben = []): void
     {
-        foreach ([self::VORLAGE_NEU, self::VORLAGE_ERINNERUNG] as $name) {
+        // Seit Markus 12.10.2026 nur noch die Vorlage 'neu' (Erinnerung entfallen).
+        foreach ([self::VORLAGE_NEU] as $name) {
             $id = (int) DB::table('integrations_whatsapp_templates')->insertGetId(array_merge([
                 'uuid'                => 'tpl-'.$name,
                 'external_id'         => 'ext-'.$name,
@@ -862,13 +850,13 @@ final class AufgabenSenderTest extends TestCase
                 'language'            => 'de',
                 'status'              => 'APPROVED',
                 'category'            => 'UTILITY',
-                'components'          => json_encode($this->vorlagenAufbau(rumpf: $name === self::VORLAGE_ERINNERUNG ? 'Du hast {{anzahl}} offene Punkte, Einsatz am {{datum}}.' : 'Du hast {{anzahl}} offene Punkte.')),
+                'components'          => json_encode($this->vorlagenAufbau()),
                 'whatsapp_account_id' => 1,
                 'user_id'             => 1,
                 'created_at'          => self::ANGEFASST,
                 'updated_at'          => self::ANGEFASST,
             ], $ueberschreiben));
-            $this->feldSetzen($name === self::VORLAGE_NEU ? 'neu' : 'erinnerung', $id);
+            $this->feldSetzen('neu', $id);
         }
     }
 

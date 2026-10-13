@@ -21,7 +21,8 @@ use Platform\Recruiting\Support\PortalVorlagen;
 
 /**
  * Sektion „Mitarbeiterportal" im Einstellungsfenster (Reiter Kommunikation):
- * neun WhatsApp-Vorlagen plus der Schalter Einsatz-Pruefung.
+ * acht WhatsApp-Vorlagen plus der Schalter Einsatz-Pruefung (die neunte,
+ * „Offene Aufgaben — Erinnerung", ist entfallen, Markus 12.10.2026).
  *
  * Gemessen an der ECHTEN Komponente (openSettings/save gegen SQLite, Muster
  * SettingsModalToggleWriteTest) und am ECHTEN Kompilat der Blade: die
@@ -43,14 +44,13 @@ class SettingsModalPortalVorlagenTest extends TestCase
 
     private const BLADE = 'resources/views/livewire/applicant/applicant-settings-modal.blade.php';
 
-    /** Die neun Vorlagen-Schluessel in der Reihenfolge der Sektion. */
+    /** Die acht Vorlagen-Schluessel in der Reihenfolge der Sektion. */
     private const SCHLUESSEL = [
         PortalVorlagen::CODE_PASSWORT,
         PortalVorlagen::CODE_NUMMERNWECHSEL,
         PortalVorlagen::CODE_NOTFALL,
         PortalVorlagen::HINWEIS_ALTE_NUMMER,
         PortalVorlagen::AUFGABEN_NEU,
-        PortalVorlagen::AUFGABEN_ERINNERUNG,
         'proof_reminder_wa_template_id',
         'document_wa_template_id',
         'employee_contract_wa_template_id',
@@ -210,7 +210,7 @@ class SettingsModalPortalVorlagenTest extends TestCase
         $this->assertSame(['team_id' => self::TEAM, 'user_id' => 42, 'an' => false], $zeilen[1]['daten']);
     }
 
-    public function testKommunikationsReiterZeigtDieSektionMitAllenNeunSelectsUndDemSchalter(): void
+    public function testKommunikationsReiterZeigtDieSektionMitAllenAchtSelectsUndDemSchalter(): void
     {
         $html = $this->rendere('comms', [['id' => 1, 'label' => 'vorlage_a (de)']]);
 
@@ -233,12 +233,14 @@ class SettingsModalPortalVorlagenTest extends TestCase
 
         $sektion = substr($html, (int) strpos($html, '>Mitarbeiterportal<'));
         $this->assertSame(1, substr_count($sektion, 'nullLabel="– wie Dokumente –"'));
-        $this->assertSame(8, substr_count($sektion, 'nullLabel="– Template wählen –"'), 'Acht Felder mit „– Template wählen –"');
+        $this->assertSame(7, substr_count($sektion, 'nullLabel="– Template wählen –"'), 'Sieben Felder mit „– Template wählen –"');
         $this->assertStringContainsString('Vorlage mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname. Kein Knopf mit Variable. Kategorie UTILITY.', $html);
         $this->assertStringContainsString('Geht nur raus, wenn der Notfall-Weg freigeschaltet ist.', $html);
         $this->assertStringContainsString('Ohne Platzhalter oder nur mit Vorname. Nennt die neue Nummer bewusst nicht.', $html);
         $this->assertStringContainsString('&#123;&#123;anzahl&#125;&#125;, optional Vorname, und ein URL-Knopf, dessen Variable am Ende steht.', $html);
-        $this->assertStringContainsString('&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;, optional Vorname, URL-Knopf wie oben.', $html);
+        // Der Hinweis der entfallenen Erinnerungs-Vorlage ist weg (Markus 12.10.2026).
+        $this->assertStringNotContainsString('&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;', $html);
+        $this->assertStringNotContainsString('aufgaben_erinnerung_wa_template_id', $html);
         $this->assertStringContainsString('&#123;&#123;nachweis&#125;&#125;', $html, 'Fristenlauf-Hinweis nennt die Platzhalter');
 
         $this->assertMatchesRegularExpression('/type="checkbox"\s+wire:model="settings\.einsatz_pruefung_aktiv"/', $html);

@@ -2,7 +2,6 @@
 
 namespace Platform\Recruiting\Services\Comms;
 
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecEmployee;
@@ -29,7 +28,7 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *     Platzhalter still den Vornamen ein. Deshalb wird diese geteilte Klasse
  *     hier GAR NICHT benutzt: die Komponenten baut `platzhalter()` selbst,
  *     und ein Platzhalter, den wir nicht befuellen koennen (oder dessen
- *     Wert gerade leer ist — etwa `datum` ohne bevorstehenden Einsatz),
+ *     Wert gerade leer ist),
  *     verhindert den Versand.
  *
  * ET-11 (Review vor Aufgabe 9): `sendTemplate()` steht in einem try/catch.
@@ -46,7 +45,8 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *    ISO-Format, das `OffenePunkte::fuer()` zusagt. Die Umformung passiert
  *    HIER, nicht dort — `OffenePunkte`s Vertrag ist ISO (das Portal sortiert
  *    danach), die Lesbarkeit fuer ein Handy ist eine Eigenschaft der
- *    NACHRICHT, nicht der Datenquelle.
+ *    NACHRICHT, nicht der Datenquelle. (Mit {{datum}} entfallen, Markus
+ *    12.10.2026 — die Nachricht nennt kein Datum mehr.)
  *  - ET-21: ohne lesbare Rufnummer wird NICHT verschickt (genau wie
  *    `EinmalcodeSender::sende()` bei `PhoneE164::normalize() === null`
  *    abbricht) — sonst ginge ein bezahlter, von vornherein aussichtsloser
@@ -85,7 +85,7 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  * den Punkten eine neue Nachricht erzeugen.
  *
  * WOHER DIE VORLAGE KOMMT: aus der TEAM-EINSTELLUNG, je Anlass ein Feld
- * (PortalVorlagen::AUFGABEN_SCHLUESSEL — 'neu' und 'erinnerung', im Fenster
+ * (PortalVorlagen::AUFGABEN_SCHLUESSEL — seit Markus 12.10.2026 nur 'neu', im Fenster
  * unter PortalVorlagen::ORT). Aufgeloest ueber
  * HoldingTemplateSender::resolveTarget(): Einstellung → Vorlage (APPROVED) →
  * Account → Kanal. Name, Sprache und Platzhalter kommen aus der gewaehlten
@@ -94,17 +94,19 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  * das Log nennt das Feld.
  *
  * ANFORDERUNGEN AN DIE META-VORLAGE (frueher als Kommentar in der Config):
- *  - Befuellbar sind {{anzahl}} (Zahl der offenen Punkte), {{datum}} (der
- *    naechste Einsatz, nur bei 'erinnerung' sinnvoll) und der Vorname
+ *  - Befuellbar sind {{anzahl}} (Zahl der offenen Punkte) und der Vorname
  *    ({{name}}, {{vorname}}). Ein anderer Platzhalter verhindert den Versand.
+ *    {{datum}} (der naechste Einsatz) war nur fuer die Erinnerung gedacht und
+ *    ist mit ihr entfallen (Markus 12.10.2026) — eine Vorlage mit {{datum}}
+ *    gilt jetzt als unbefuellbar und geht nicht raus.
  *  - GENAU EIN dynamischer URL-Knopf fuer den Portal-Link (F1 unten).
  *  - Zwei Anlaesse, weil der Text sich unterscheidet: die erste Nachricht
  *    und die Erinnerung, wenn der Einsatz naeher rueckt.
- *    Kundenentscheidung Markus 12.10.2026: die AUTOMATISCHE Erinnerung vor
- *    dem Einsatz entfaellt (recruiting:einsatz-pruefung sendet nur noch
- *    'neu'). Der Anlass 'erinnerung' samt {{datum}} bleibt trotzdem, weil
- *    der HR-Knopf „Erneut erinnern" (HrKontoAktionen::erinnereAufgaben) ihn
- *    benutzt.
+ *    Kundenentscheidung Markus 12.10.2026: die Erinnerung vor dem Einsatz
+ *    entfaellt, und auch HR „Erneut erinnern"
+ *    (HrKontoAktionen::erinnereAufgaben) schickt die Vorlage 'neu'. Der
+ *    Anlass 'erinnerung' ist entfernt; wer ihn noch uebergibt, landet bei
+ *    „Unbekannter Anlass" (nicht konfiguriert).
  *
  * KEINE VOLLE RUFNUMMER IM LOG (Datenschutz, gleiche Kuerzung wie in
  * `KontoWriter`/`EinmalcodeSender`): `PhoneE164::suffix()` liefert die
@@ -179,7 +181,7 @@ final class AufgabenSender
 
     /**
      * @param  array{punkte: list<array{code:string, label:string, status:string, ko:bool}>, einsatz: ?array{datum:string, taetigkeit:?string, event:?string}, gesperrt: bool}  $stand  Rueckgabe von OffenePunkte::fuer()
-     * @param  string  $anlass  'neu' oder 'erinnerung'
+     * @param  string  $anlass  'neu' (der einzige Anlass seit Markus 12.10.2026)
      */
     public function sende(RecEmployee $employee, array $stand, string $anlass): string
     {
@@ -243,9 +245,10 @@ final class AufgabenSender
             return self::STATUS_FAILED;
         }
 
+        // {{datum}} gibt es nicht mehr (nur die entfallene Erinnerung hat es
+        // gebraucht, Markus 12.10.2026).
         $werte = [
             'anzahl' => (string) $anzahl,
-            'datum'  => $this->menschlichesDatum((string) ($stand['einsatz']['datum'] ?? '')),
         ];
         // Der Vorname fuer die Name-Platzhalter; leer = unbefuellbar (FAILED).
         $vorname = trim((string) $employee->first_name);
@@ -382,30 +385,6 @@ final class AufgabenSender
         $this->letzteNachrichtId = isset($nachricht->id) ? (int) $nachricht->id : null;
 
         return self::STATUS_SENT;
-    }
-
-    /**
-     * ET-20 (Review 01.10.2026): das Datum geht als `d.m.Y` an den Menschen.
-     * `OffenePunkte::fuer()` sagt bewusst ISO zu (das Portal sortiert
-     * danach) — die Umformung fuer ein lesbares Handy gehoert hierher, nicht
-     * in die Datenquelle. Ein leerer Eingabewert bleibt leer (der
-     * Platzhalter-Check oben entscheidet dann ueber "unbefuellbar"); ein
-     * NICHT im `Y-m-d`-Format vorliegender Wert faellt auf sich selbst
-     * zurueck, statt den Versand mit einer Ausnahme abzubrechen — das kann
-     * nach heutigem Vertrag von `OffenePunkte` nicht vorkommen, ist aber
-     * billiger als ein Fehlschlag mitten im Format.
-     */
-    private function menschlichesDatum(string $iso): string
-    {
-        if ($iso === '') {
-            return '';
-        }
-
-        try {
-            return Carbon::createFromFormat('Y-m-d', $iso)->format('d.m.Y');
-        } catch (\Throwable) {
-            return $iso;
-        }
     }
 
     /** Die letzten vier Stellen — NIE die volle Nummer ins Log. */

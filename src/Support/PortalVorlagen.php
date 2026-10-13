@@ -16,7 +16,6 @@ final class PortalVorlagen
     public const CODE_NOTFALL           = 'konto_code_notfall_wa_template_id';
     public const HINWEIS_ALTE_NUMMER    = 'konto_hinweis_alte_nummer_wa_template_id';
     public const AUFGABEN_NEU           = 'aufgaben_neu_wa_template_id';
-    public const AUFGABEN_ERINNERUNG    = 'aufgaben_erinnerung_wa_template_id';
     public const EINSATZ_PRUEFUNG_AKTIV = 'einsatz_pruefung_aktiv';
 
     /** Zweck (KontoWriter::ZWECK_*) → Schluessel. 'anmeldung' fehlt bewusst (wird nirgends verschickt). */
@@ -29,14 +28,14 @@ final class PortalVorlagen
     /**
      * Anlass → Schluessel.
      *
-     * 'erinnerung' bleibt BEWUSST stehen, obwohl die Einsatz-Pruefung seit
-     * der Kundenentscheidung Markus 12.10.2026 keine Erinnerung vor dem
-     * Einsatz mehr verschickt: der HR-Knopf „Erneut erinnern" fuer offene
-     * Aufgaben (HrKontoAktionen::erinnereAufgaben) sendet ueber genau diesen
-     * Anlass und diese Vorlage. Ohne sie liefe der Knopf auf
-     * „nicht konfiguriert".
+     * Kundenentscheidung Markus 12.10.2026: nur noch 'neu'. Die Erinnerung
+     * vor dem Einsatz entfaellt, und der HR-Knopf „Erneut erinnern"
+     * (HrKontoAktionen::erinnereAufgaben) schickt ueber dieselbe Vorlage
+     * AUFGABEN_NEU. Der fruehere Schluessel aufgaben_erinnerung_wa_template_id
+     * kann in bestehenden Team-Einstellungen noch stehen — er wird nicht
+     * mehr gelesen und bewusst nicht aus der Datenbank geraeumt.
      */
-    public const AUFGABEN_SCHLUESSEL = ['neu' => self::AUFGABEN_NEU, 'erinnerung' => self::AUFGABEN_ERINNERUNG];
+    public const AUFGABEN_SCHLUESSEL = ['neu' => self::AUFGABEN_NEU];
 
     /** Schluessel → Feldname in den Einstellungen; Teil jeder Fehlermeldung der Sender. */
     public const FELDNAMEN = [
@@ -45,7 +44,6 @@ final class PortalVorlagen
         'konto_code_notfall_wa_template_id'        => 'Code: Notfall-Weg',
         'konto_hinweis_alte_nummer_wa_template_id' => 'Hinweis an die alte Nummer',
         'aufgaben_neu_wa_template_id'              => 'Offene Aufgaben — neu',
-        'aufgaben_erinnerung_wa_template_id'       => 'Offene Aufgaben — Erinnerung',
         'proof_reminder_wa_template_id'            => 'Nachweis läuft ab (Fristenlauf)',
         'document_wa_template_id'                  => 'Dokument liegt im Portal',
         'employee_contract_wa_template_id'         => 'Vertrag zur Unterschrift',
