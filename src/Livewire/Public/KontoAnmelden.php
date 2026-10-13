@@ -136,8 +136,8 @@ class KontoAnmelden extends Component
      * vergeht, und ohne den Satz sucht ein Gesperrter den Fehler bei sich.
      * Gesagt wird er allen gleichermassen.
      */
-    public const MELDUNG = 'Das hat nicht geklappt. Bitte prüfen Sie Handynummer und Passwort '
-        . 'und versuchen Sie es in einigen Minuten noch einmal.';
+    public const MELDUNG = 'Das hat nicht geklappt. Bitte prüfe Handynummer und Passwort '
+        . 'und versuche es in einigen Minuten noch einmal.';
 
     /**
      * EINE Meldung fuer jeden Fehlschlag auf den Wegen zurueck.
@@ -153,8 +153,8 @@ class KontoAnmelden extends Component
      * schon die Auskunft, dass der Code stimmte). "Ihre Eingaben" trifft jeden
      * dieser Faelle gleichermassen.
      */
-    public const MELDUNG_ZURUECK = 'Das hat nicht geklappt. Bitte prüfen Sie Ihre Eingaben '
-        . 'und versuchen Sie es in einigen Minuten noch einmal.';
+    public const MELDUNG_ZURUECK = 'Das hat nicht geklappt. Bitte prüfe deine Eingaben '
+        . 'und versuche es in einigen Minuten noch einmal.';
 
     /**
      * Wie viele Anforderungen eines Einmalcodes ueber die Rueckwege je
@@ -409,7 +409,7 @@ class KontoAnmelden extends Component
         // trivial. Diese Meldung verraet nichts: sie haengt an der EIGENEN
         // Eingabe und nicht daran, was gespeichert ist.
         if (trim($this->nummer) === '' || $this->passwort === '') {
-            $this->fehler = 'Bitte geben Sie Handynummer und Passwort ein.';
+            $this->fehler = 'Bitte gib Handynummer und Passwort ein.';
 
             // Auch hier leeren (Fund Q3): dieser Zweig kehrt zurueck, BEVOR
             // das Leeren weiter unten kommt — ein getipptes Passwort neben
@@ -636,7 +636,7 @@ class KontoAnmelden extends Component
         // sie haengt an der EIGENEN Eingabe und nicht daran, was gespeichert
         // ist.
         if (trim($this->nummer) === '' || $this->passwort === '' || trim($this->neueNummer) === '') {
-            $this->fehler = 'Bitte füllen Sie alle drei Felder aus.';
+            $this->fehler = 'Bitte fülle alle drei Felder aus.';
             $this->leereGeheimnisse();
 
             return;
@@ -649,7 +649,7 @@ class KontoAnmelden extends Component
         $neu = PhoneE164::normalize($this->neueNummer);
 
         if ($neu === null) {
-            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfen Sie die Schreibweise.';
+            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfe die Schreibweise.';
             $this->leereGeheimnisse();
 
             return;
@@ -708,7 +708,7 @@ class KontoAnmelden extends Component
         $this->fehler = '';
 
         if (trim($this->code) === '') {
-            $this->fehler = 'Bitte geben Sie den Code ein, den wir Ihnen geschickt haben.';
+            $this->fehler = 'Bitte gib den Code ein, den wir dir geschickt haben.';
 
             return;
         }
@@ -788,7 +788,7 @@ class KontoAnmelden extends Component
         $this->fehler = '';
 
         if (trim($this->nummer) === '') {
-            $this->fehler = 'Bitte geben Sie Ihre Handynummer ein.';
+            $this->fehler = 'Bitte gib deine Handynummer ein.';
 
             return;
         }
@@ -835,14 +835,14 @@ class KontoAnmelden extends Component
         $this->fehler = '';
 
         if (trim($this->code) === '' || trim($this->geburtsdatum) === '' || $this->neuesPasswort === '') {
-            $this->fehler = 'Bitte füllen Sie alle Felder aus.';
+            $this->fehler = 'Bitte fülle alle Felder aus.';
             $this->leereGeheimnisse();
 
             return;
         }
 
         if ($this->neuesPasswort !== $this->neuesPasswortWiederholung) {
-            $this->fehler = 'Die beiden Passwörter sind nicht gleich. Bitte tippen Sie sie noch einmal.';
+            $this->fehler = 'Die beiden Passwörter sind nicht gleich. Bitte tippe sie noch einmal.';
             $this->leereGeheimnisse();
 
             return;
@@ -939,7 +939,7 @@ class KontoAnmelden extends Component
 
         if (trim($this->nummer) === '' || trim($this->geburtsdatum) === ''
             || trim($this->ausweis) === '' || trim($this->neueNummer) === '') {
-            $this->fehler = 'Bitte füllen Sie alle Felder aus.';
+            $this->fehler = 'Bitte fülle alle Felder aus.';
 
             return;
         }
@@ -947,7 +947,7 @@ class KontoAnmelden extends Component
         $neu = PhoneE164::normalize($this->neueNummer);
 
         if ($neu === null) {
-            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfen Sie die Schreibweise.';
+            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfe die Schreibweise.';
 
             return;
         }
@@ -1032,7 +1032,7 @@ class KontoAnmelden extends Component
         $this->fehler = '';
 
         if (trim($this->code) === '') {
-            $this->fehler = 'Bitte geben Sie den Code ein, den wir Ihnen geschickt haben.';
+            $this->fehler = 'Bitte gib den Code ein, den wir dir geschickt haben.';
 
             return;
         }

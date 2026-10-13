@@ -37,23 +37,23 @@
     unterscheiden koennte, darf dort nicht stehen - und der Mensch hat die
     Nummer gerade selbst getippt.
 
-    Die Seite siezt. Sie ist oeffentlich und weiss vor der Anmeldung nicht,
+    Die Seite duzt immer. Sie ist oeffentlich und weiss vor der Anmeldung nicht,
     wer davor sitzt - und damit auch nicht, welches Team welche Anrede
-    eingestellt hat. Geduzt wird ab dem Portal, das die Anstellung kennt.
+    eingestellt hat. Entscheidung des Inhabers: hier gilt durchgehend du.
 --}}
 <div>
 @php
     // Vorberechnet, nicht im Attribut entschieden (Hausregel).
     $codeUrl = route('recruiting.public.konto-anlegen-code');
-    $ohneZielTitel = 'Sie sind angemeldet';
-    $ohneZielText = 'Ihr eigener Bereich ist noch nicht freigeschaltet. '
-        . 'Bitte wenden Sie sich an Ihre Ansprechperson bei RheinGedeck.';
+    $ohneZielTitel = 'Du bist angemeldet';
+    $ohneZielText = 'Dein eigener Bereich ist noch nicht freigeschaltet. '
+        . 'Bitte wende dich an deine Ansprechperson bei RheinGedeck.';
 
     // Angemeldet bleiben: das Haekchen fuer den ersten Aufbau (Livewire
-    // uebernimmt danach ueber wire:model) und der Hinweis. Die Seite siezt.
+    // uebernimmt danach ueber wire:model) und der Hinweis. Die Seite duzt.
     $bleibenHaken = $angemeldetBleiben ? 'checked' : '';
-    $bleibenHinweis = 'Nur auf Ihrem eigenen Handy. Sie bleiben 180 Tage angemeldet, '
-        . 'solange Sie das Konto in dieser Zeit nutzen.';
+    $bleibenHinweis = 'Nur auf deinem eigenen Handy. Du bleibst 180 Tage angemeldet, '
+        . 'solange du das Konto in dieser Zeit nutzen.';
 
     $passwortHinweis = sprintf(
         'Mindestens %d Zeichen. Laenge zaehlt mehr als Sonderzeichen.',
@@ -62,49 +62,49 @@
 
     // Weg 1+2 (Spec 5): alte Nummer, Passwort, neue Nummer.
     $nummerTitel = 'Neue Handynummer eintragen';
-    $nummerText = 'Melden Sie sich mit Ihrer bisherigen Nummer und Ihrem Passwort an. '
+    $nummerText = 'Melde dich mit deiner bisherigen Nummer und deinem Passwort an. '
         . 'Den Bestaetigungscode schicken wir an die neue Nummer.';
     $nummerCodeTitel = 'Code eingeben';
-    $nummerCodeText = 'Wir haben einen Code an Ihre neue Handynummer geschickt.';
+    $nummerCodeText = 'Wir haben einen Code an deine neue Handynummer geschickt.';
 
     // Weg 3 (Spec 5): Passwort vergessen.
     $vergessenTitel = 'Passwort vergessen';
-    $vergessenText = 'Wir schicken Ihnen einen Code an Ihre Handynummer.';
+    $vergessenText = 'Wir schicken dir einen Code an deine Handynummer.';
     // DIESER TEXT SAGT BEWUSST "Falls": er steht genauso da, wenn wir die
     // Nummer gar nicht kennen. Ein "Wir haben Ihnen einen Code geschickt"
     // waere in diesem Fall gelogen - und die Bestaetigung, dass es die
     // Nummer gibt.
     $vergessenCodeTitel = 'Code und Geburtsdatum';
-    $vergessenCodeText = 'Falls wir diese Handynummer kennen, haben wir Ihnen gerade einen Code '
-        . 'geschickt. Bitte geben Sie ihn zusammen mit Ihrem Geburtsdatum ein und waehlen Sie '
+    $vergessenCodeText = 'Falls wir diese Handynummer kennen, haben wir dir gerade einen Code '
+        . 'geschickt. Bitte gib ihn zusammen mit deinem Geburtsdatum ein und waehle '
         . 'ein neues Passwort.';
 
     // Weg 4 (Spec 5): Nummer weg UND Passwort vergessen.
     $notfallTitel = 'Nummer und Passwort weg';
-    $notfallText = 'Damit wir sicher sind, dass Sie es sind, brauchen wir Ihr Geburtsdatum und '
-        . 'die letzten vier Ziffern Ihrer Ausweisnummer. Den Bestaetigungscode schicken wir an '
+    $notfallText = 'Damit wir sicher sind, dass du es bist, brauchen wir dein Geburtsdatum und '
+        . 'die letzten vier Ziffern deiner Ausweisnummer. Den Bestaetigungscode schicken wir an '
         . 'die neue Nummer.';
     // AUCH DIESER TEXT SAGT "Falls": er steht genauso da, wenn die Nachweise
     // nicht gestimmt haben. Sonst waeren die Ausweisziffern ein Orakel.
     $notfallCodeTitel = 'Code eingeben';
-    $notfallCodeText = 'Falls Ihre Angaben stimmen, haben wir gerade einen Code an Ihre neue '
+    $notfallCodeText = 'Falls deine Angaben stimmen, haben wir gerade einen Code an deine neue '
         . 'Handynummer geschickt.';
 
     $fertigTitel = match ($fertigGrund) {
-        'nummer'  => 'Ihre Handynummer ist geaendert',
-        'notfall' => 'Wir haben Ihre Meldung',
-        default   => 'Ihr Passwort steht',
+        'nummer'  => 'Deine Handynummer ist geaendert',
+        'notfall' => 'Wir haben deine Meldung',
+        default   => 'Dein Passwort steht',
     };
     $fertigText = match ($fertigGrund) {
-        'nummer'  => 'Ab jetzt melden Sie sich mit der neuen Nummer und Ihrem bisherigen Passwort an.',
+        'nummer'  => 'Ab jetzt meldest du dich mit der neuen Nummer und deinem bisherigen Passwort an.',
         // Der Antrag wirkt erst nach der Frist, und danach fehlt immer noch
         // das Passwort - beides gehoert hier gesagt, sonst wartet der Mensch
         // auf etwas anderes, als passiert.
-        'notfall' => 'Ihre neue Handynummer wird am ' . $wirksamAb . ' uebernommen. '
-            . 'Danach waehlen Sie ueber "Passwort vergessen" ein neues Passwort. '
-            . 'Wenn Sie das nicht selbst veranlasst haben, melden Sie sich bitte sofort bei '
-            . 'Ihrer Ansprechperson bei RheinGedeck.',
-        default   => 'Ab jetzt melden Sie sich mit Ihrer Handynummer und dem neuen Passwort an.',
+        'notfall' => 'Deine neue Handynummer wird am ' . $wirksamAb . ' uebernommen. '
+            . 'Danach waehlst du ueber "Passwort vergessen" ein neues Passwort. '
+            . 'Wenn du das nicht selbst veranlasst hast, melde dich bitte sofort bei '
+            . 'deiner Ansprechperson bei RheinGedeck.',
+        default   => 'Ab jetzt meldest du dich mit deiner Handynummer und dem neuen Passwort an.',
     };
 @endphp
 
@@ -144,21 +144,21 @@
 
             <form class="card login" wire:submit="nummerAnfordern">
                 <label class="feld">
-                    <span class="n">Ihre bisherige Handynummer</span>
+                    <span class="n">Deine bisherige Handynummer</span>
                     <input type="tel" wire:model="nummer" required
                            autocomplete="tel" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0151 23456789">
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihr Passwort</span>
+                    <span class="n">Dein Passwort</span>
                     <input type="password" wire:model="passwort" required
                            autocomplete="current-password" autocapitalize="off"
                            autocorrect="off" spellcheck="false">
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihre neue Handynummer</span>
+                    <span class="n">Deine neue Handynummer</span>
                     <input type="tel" wire:model="neueNummer" required
                            autocomplete="off" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0170 98765432">
@@ -185,7 +185,7 @@
 
             <form class="card login" wire:submit="nummerBestaetigen">
                 <label class="feld">
-                    <span class="n">Ihr Code</span>
+                    <span class="n">Dein Code</span>
                     {{--
                         Bewusst KEIN Attribut, das am Handy die reine
                         Zahlentastatur erzwingt. Das war am 06.08.2026 schon
@@ -219,7 +219,7 @@
 
             <form class="card login" wire:submit="passwortCodeAnfordern">
                 <label class="feld">
-                    <span class="n">Ihre Handynummer</span>
+                    <span class="n">Deine Handynummer</span>
                     <input type="tel" wire:model="nummer" required
                            autocomplete="tel" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0151 23456789">
@@ -246,14 +246,14 @@
 
             <form class="card login" wire:submit="passwortSetzen">
                 <label class="feld">
-                    <span class="n">Ihr Code</span>
+                    <span class="n">Dein Code</span>
                     <input type="text" wire:model="code" required maxlength="10"
                            autocomplete="one-time-code" autocapitalize="off"
                            autocorrect="off" spellcheck="false">
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihr Geburtsdatum</span>
+                    <span class="n">Dein Geburtsdatum</span>
                     {{--
                         Gebunden an eine Y-m-d-Zeichenkette, nie an eine
                         Datums-Umwandlung.
@@ -262,7 +262,7 @@
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihr neues Passwort</span>
+                    <span class="n">Dein neues Passwort</span>
                     <input type="password" wire:model="neuesPasswort" required
                            autocomplete="new-password" autocapitalize="off"
                            autocorrect="off" spellcheck="false">
@@ -297,14 +297,14 @@
 
             <form class="card login" wire:submit="notfallAnfordern">
                 <label class="feld">
-                    <span class="n">Ihre bisherige Handynummer</span>
+                    <span class="n">Deine bisherige Handynummer</span>
                     <input type="tel" wire:model="nummer" required
                            autocomplete="tel" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0151 23456789">
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihr Geburtsdatum</span>
+                    <span class="n">Dein Geburtsdatum</span>
                     {{--
                         Gebunden an eine Y-m-d-Zeichenkette, nie an eine
                         Datums-Umwandlung.
@@ -313,7 +313,7 @@
                 </label>
 
                 <label class="feld">
-                    <span class="n">Die letzten vier Ziffern Ihrer Ausweisnummer</span>
+                    <span class="n">Die letzten vier Ziffern deiner Ausweisnummer</span>
                     {{--
                         Bewusst KEIN Attribut, das am Handy die reine
                         Zahlentastatur erzwingt: Ausweisnummern enthalten
@@ -326,7 +326,7 @@
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihre neue Handynummer</span>
+                    <span class="n">Deine neue Handynummer</span>
                     <input type="tel" wire:model="neueNummer" required
                            autocomplete="off" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0170 98765432">
@@ -353,7 +353,7 @@
 
             <form class="card login" wire:submit="notfallBestaetigen">
                 <label class="feld">
-                    <span class="n">Ihr Code</span>
+                    <span class="n">Dein Code</span>
                     <input type="text" wire:model="code" required maxlength="10"
                            autocomplete="one-time-code" autocapitalize="off"
                            autocorrect="off" spellcheck="false">
@@ -375,12 +375,12 @@
         @else
             <div class="greet">
                 <h2>Anmelden</h2>
-                <p>Mit Ihrer Handynummer und Ihrem Passwort.</p>
+                <p>Mit deiner Handynummer und deinem Passwort.</p>
             </div>
 
             <form class="card login" wire:submit="anmelden">
                 <label class="feld">
-                    <span class="n">Ihre Handynummer</span>
+                    <span class="n">Deine Handynummer</span>
                     {{--
                         type="tel" ist hier erlaubt und anderswo nicht: eine
                         Rufnummer kann keine Buchstaben enthalten. Das
@@ -396,7 +396,7 @@
                 </label>
 
                 <label class="feld">
-                    <span class="n">Ihr Passwort</span>
+                    <span class="n">Dein Passwort</span>
                     <input type="password" wire:model="passwort" required
                            autocomplete="current-password" autocapitalize="off"
                            autocorrect="off" spellcheck="false">
@@ -454,7 +454,7 @@
                 Rahmen. Die Adresse bleibt unveraendert am href.
             --}}
             <p class="fuss-konto">
-                Sie haben noch kein Konto?
+                Du hast noch kein Konto?
                 <a href="{{ $codeUrl }}">Ich habe einen Einladungscode</a>
             </p>
         @endif
