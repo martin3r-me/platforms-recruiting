@@ -106,4 +106,16 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('Du bist eingetragen', $view);
         $this->assertStringContainsString('zurückgezogen</span>', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
     }
+
+    public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Index.php');
+        $this->assertMatchesRegularExpression('/#\[Url\]\s+public string \$filter = \'offen\';/', $src);
+        $this->assertStringContainsString('DispoJobUebersichtZahlen::laden(', $src);
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/index.blade.php');
+        $this->assertStringContainsString(">Noch in ZAS</th>", $view);
+        $this->assertStringContainsString("{{ \$z['zugesagt'] }} / {{ \$z['gesucht'] }}", $view);
+        $this->assertStringContainsString("\$set('filter', '{{ \$wert }}')", $view);
+    }
 }
