@@ -9,7 +9,7 @@ use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoDeclineCheck;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTemplateSettings;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
 use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
 use Platform\Recruiting\Support\Filialen;
 
@@ -39,8 +39,10 @@ class Settings extends Component
     public string $escalationTemplate2Id = '';
     public string $alarmTemplateId = '';
     public string $infoTemplateId = '';
-    /** @var list<string> */
-    public array $jobOfferTemplateIds = [];
+    /** Jobs anbieten: je Anlass eine Vorlage (DispoJobAnlass). */
+    public string $jobTemplateVierWochenId = '';
+    public string $jobTemplateNaechsteWocheId = '';
+    public string $jobTemplateDringendId = '';
     /** Alarm ans Diensthandy bei moeglicher Absage (Spec 2026-10-08). */
     public string $declineAlarmTemplateId = '';
 
@@ -83,7 +85,9 @@ class Settings extends Component
         $this->escalationTemplate1Id = (string) ($settings->getSetting('dispo_escalation_template_1_id') ?? '');
         $this->escalationTemplate2Id = (string) ($settings->getSetting('dispo_escalation_template_2_id') ?? '');
         $this->alarmTemplateId       = (string) ($settings->getSetting('dispo_alarm_template_id') ?? '');
-        $this->jobOfferTemplateIds   = array_map('strval', DispoJobTemplateSettings::lesen($settings));
+        $this->jobTemplateVierWochenId    = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('vier_wochen')) ?? '');
+        $this->jobTemplateNaechsteWocheId = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('naechste_woche')) ?? '');
+        $this->jobTemplateDringendId      = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('dringend')) ?? '');
         $this->infoTemplateId        = (string) ($settings->getSetting('dispo_info_template_id') ?? '');
         $this->declineAlarmTemplateId = (string) ($settings->getSetting(DispoDeclineAlarm::SETTINGS_KEY) ?? '');
 
@@ -169,6 +173,9 @@ class Settings extends Component
             'alarmTemplateId'       => 'nullable|string|max:20',
             'infoTemplateId'        => 'nullable|string|max:20',
             'declineAlarmTemplateId' => 'nullable|string|max:20',
+            'jobTemplateVierWochenId'    => 'nullable|string|max:20',
+            'jobTemplateNaechsteWocheId' => 'nullable|string|max:20',
+            'jobTemplateDringendId'      => 'nullable|string|max:20',
         ]);
 
         // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
@@ -206,7 +213,9 @@ class Settings extends Component
         $settings->setSetting('dispo_escalation_template_2_id', $this->toNullableId($this->escalationTemplate2Id));
         $settings->setSetting('dispo_alarm_template_id', $this->toNullableId($this->alarmTemplateId));
         $settings->setSetting('dispo_info_template_id', $this->toNullableId($this->infoTemplateId));
-        $settings->setSetting(DispoJobTemplateSettings::KEY, DispoJobTemplateSettings::normalisieren($this->jobOfferTemplateIds));
+        $settings->setSetting(DispoJobAnlass::settingsKey('vier_wochen'), $this->toNullableId($this->jobTemplateVierWochenId));
+        $settings->setSetting(DispoJobAnlass::settingsKey('naechste_woche'), $this->toNullableId($this->jobTemplateNaechsteWocheId));
+        $settings->setSetting(DispoJobAnlass::settingsKey('dringend'), $this->toNullableId($this->jobTemplateDringendId));
         $settings->setSetting(DispoDeclineAlarm::SETTINGS_KEY, $this->toNullableId($this->declineAlarmTemplateId));
         $settings->setSetting('dispo_contact_backfill_enabled', $this->contactBackfillEnabled !== '');
 
