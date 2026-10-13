@@ -3,7 +3,7 @@
      hell (bg-white, bg-gray-50), und der eingebettete Vertragstext bringt keine
      eigene Farbe mit — ohne diese Klasse erbt er im Dunkelmodus Weiss und steht
      unlesbar auf weisser Karte (Clara/RHEINGEDECK 28.08.2026). --}}
-<div class="min-h-screen bg-gray-50 text-gray-900 py-8 px-4 sm:px-6 lg:px-8">
+<div class="vertrag-seite min-h-screen bg-gray-50 text-gray-900 py-8 px-4 sm:px-6 lg:px-8">
     <div class="max-w-3xl mx-auto">
 
         {{-- Ungültiger Token --}}
@@ -346,16 +346,20 @@
             {{-- Step 2: Vertrag & Unterschrift --}}
             @if($step === 2)
                 <div class="space-y-6">
-                    {{-- Vertragstext --}}
-                    <div class="bg-white rounded-lg border border-gray-200 p-8">
+                    {{-- Vertragstext. Am Handy (Stilblock unten) ohne Scrollbox:
+                         volle Breite, die Seite scrollt, Tabellen scrollen in sich. --}}
+                    <div class="vertrag-karte bg-white rounded-lg border border-gray-200 p-8">
                         <h2 class="text-xl font-bold text-gray-900 mb-4">{{ $contractTemplateName }}</h2>
-                        <div class="prose prose-sm max-w-none border border-gray-100 rounded-lg p-6 bg-gray-50 max-h-[60vh] overflow-y-auto">
+                        <div class="prose prose-sm max-w-none border border-gray-100 rounded-lg p-6 bg-gray-50 max-h-[60vh] overflow-y-auto vertrag-text">
                             {!! $contractContent !!}
                         </div>
+                        <a href="#unterschrift" class="vertrag-sprung">
+                            Zum Unterschreiben @svg('heroicon-o-arrow-down', 'w-4 h-4')
+                        </a>
                     </div>
 
                     {{-- Unterschrift --}}
-                    <div class="bg-white rounded-lg border border-gray-200 p-8">
+                    <div id="unterschrift" class="vertrag-unterschrift bg-white rounded-lg border border-gray-200 p-8">
                         <h3 class="text-lg font-bold text-gray-900 mb-4">Unterschrift</h3>
 
                         @if($contentIncomplete)
@@ -403,4 +407,31 @@
             @endif
         @endif
     </div>
+
+    {{-- Lesen am Handy (Demo 13.10.2026). Eigene, gescopte Stile statt
+         Tailwind-Klassen: sie wirken ohne neuen Asset-Build und schlagen als
+         ungeschichtete Regeln die Utilities. Am Desktop gilt nur die erste
+         Regel (Sprunglink aus) — dort bleibt alles wie es war. --}}
+    <style>
+        .vertrag-sprung { display: none; }
+
+        @media (max-width: 639px) {
+            .vertrag-seite { padding: 1rem 0.5rem; }
+            .vertrag-karte { padding: 1.25rem 1rem; }
+            .vertrag-unterschrift { padding: 1.25rem 1rem; scroll-margin-top: 1rem; }
+            .vertrag-text { max-height: none; overflow: visible; border: 0; border-radius: 0; padding: 0; background: transparent; font-size: 1rem; line-height: 1.6; overflow-wrap: break-word; }
+            .vertrag-text p, .vertrag-text ul, .vertrag-text ol, .vertrag-text blockquote { margin: 0 0 0.9em; }
+            .vertrag-text h1, .vertrag-text h2, .vertrag-text h3, .vertrag-text h4 { font-weight: 700; line-height: 1.3; margin: 1.25em 0 0.5em; }
+            .vertrag-text h1 { font-size: 1.25rem; }
+            .vertrag-text h2 { font-size: 1.15rem; }
+            .vertrag-text h3, .vertrag-text h4 { font-size: 1.05rem; }
+            .vertrag-text ul { list-style: disc; padding-left: 1.25em; }
+            .vertrag-text ol { list-style: decimal; padding-left: 1.25em; }
+            .vertrag-text table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-collapse: collapse; }
+            .vertrag-text td, .vertrag-text th { padding: 0.25em 0.5em; vertical-align: top; }
+            .vertrag-text img { max-width: 100%; height: auto; }
+            .vertrag-text pre { white-space: pre-wrap; }
+            .vertrag-sprung { position: sticky; bottom: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.375rem; width: max-content; margin: 1rem auto 0; padding: 0.5rem 1rem; border-radius: 9999px; background: #16a34a; color: #fff; font-size: 0.875rem; font-weight: 600; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); text-decoration: none; }
+        }
+    </style>
 </div>
