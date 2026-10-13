@@ -40,4 +40,16 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertNotFalse($liste);
         $this->assertLessThan($liste, $kopf, 'Fortschritt vor der Liste');
     }
+
+    public function test_eintragen_knoepfe_haengen_am_baustein(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Show.php');
+        $this->assertStringContainsString('DispoJobZasHaken::alle($this->anfrage(), $shiftId', $src);
+        $this->assertStringContainsString('DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId', $src);
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+        $this->assertStringContainsString('wire:click="alleEintragen({{ (int) $s->id }})"', $view);
+        $this->assertStringContainsString('DispoJobZasListe::text(', $view);
+        $this->assertStringContainsString('navigator.clipboard.writeText', $view);
+    }
 }

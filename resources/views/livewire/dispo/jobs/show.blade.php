@@ -241,6 +241,12 @@
                     $s->taetigkeit,
                 ]));
                 $voll = (int) $s->zugesagt >= (int) $s->gesucht;
+                $offeneHaken = count(array_filter($zeilen, fn ($z) => $z->zas_entered_at === null));
+                $listeText = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasListe::text(array_map(
+                    fn ($z) => $rueck['info'][(int) ($z->offer?->rec_employee_id ?? 0)] ?? ['name' => '#' . (int) ($z->offer?->rec_employee_id ?? 0), 'personnel_number' => '', 'phone' => ''],
+                    $zeilen
+                ));
+                $alleText = $offeneHaken . ' ' . ($offeneHaken === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markieren?';
             @endphp
             <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border bg-white p-4 space-y-2 {{ $voll ? 'border-green-200' : 'border-gray-200' }}">
                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -251,6 +257,25 @@
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">in ZAS eingetragen {{ $s->eingetragen }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">angekommen {{ $s->angekommen }}</span>
                     </div>
+                    @if ($offen && $zeilen !== [])
+                        <div class="flex items-center gap-2" x-data="{ ok: false, zeigen: false, kopieren() {
+                                const text = $refs.liste.value;
+                                if (navigator.clipboard && window.isSecureContext) {
+                                    navigator.clipboard.writeText(text).then(() => { this.ok = true; setTimeout(() => this.ok = false, 2000); });
+                                } else {
+                                    this.zeigen = !this.zeigen;
+                                }
+                            } }">
+                            <button type="button" x-on:click="kopieren()" class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+                                <span x-show="!ok">Liste kopieren</span><span x-show="ok" x-cloak>kopiert</span>
+                            </button>
+                            <textarea x-ref="liste" x-show="zeigen" x-cloak readonly rows="3" class="w-72 rounded border border-gray-300 px-2 py-1 text-xs">{{ $listeText }}</textarea>
+                            @if ($offeneHaken > 0)
+                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }})" wire:confirm="{{ $alleText }}"
+                                        class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">Alle als in ZAS eingetragen markieren</button>
+                            @endif
+                        </div>
+                    @endif
                 </div>
                 @if ($zeilen === [])
                     <p class="text-xs text-gray-400">Noch keine Zusage.</p>

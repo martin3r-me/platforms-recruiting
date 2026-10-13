@@ -20,6 +20,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasHaken;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo;
 
 /**
@@ -326,20 +327,14 @@ class Show extends Component
 
     public function zasHaken(int $offerShiftId): void
     {
-        $request = $this->anfrage();
-        $zeile = RecDispoJobOfferShift::query()
-            ->whereKey($offerShiftId)
-            ->whereNotNull('accepted_at')
-            ->whereHas('offer', fn ($q) => $q->where('request_id', $request->id))
-            ->first();
-        if ($zeile === null) {
-            return;
-        }
-        $an = $zeile->zas_entered_at === null;
-        $zeile->update([
-            'zas_entered_at'         => $an ? now() : null,
-            'zas_entered_by_user_id' => $an && auth()->id() !== null ? (int) auth()->id() : null,
-        ]);
+        DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
+    }
+
+    public function alleEintragen(int $shiftId): void
+    {
+        $this->fehler = '';
+        $n = DispoJobZasHaken::alle($this->anfrage(), $shiftId, auth()->id() !== null ? (int) auth()->id() : null);
+        $this->hinweis = $n > 0 ? $n . ' ' . ($n === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markiert.' : '';
     }
 
     public function abschliessen(): void
