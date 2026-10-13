@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Services\PersonLinker;
 use Platform\Recruiting\Support\PersonGroupPlanner;
+use Platform\Recruiting\Support\PhoneE164;
 use Throwable;
 
 /**
@@ -127,6 +128,19 @@ final class BackfillPersons extends Command
         $nummernUneinig = [];
         /** @var list<list<int>> $kollisionen */
         $kollisionen = [];
+        // Nur fuer den Trockenlauf: welche Nummern haetten fruehere Gruppen
+        // dieses Laufs schon belegt? Schluessel "team|E.164".
+        //
+        // WARUM (Generalprobe 13.10.2026): Trockenlauf "Nummer nicht gesetzt:
+        // 0", scharfer Lauf danach 32. Der Trockenlauf rollt jede Gruppe
+        // sofort zurueck; teilen sich zwei VERSCHIEDENE Menschen eine Nummer,
+        // ist sie fuer den zweiten deshalb nie vergeben -- im echten Lauf
+        // steht die erste Zeile dagegen fest. Ohne dieses Gedaechtnis
+        // verspricht der Trockenlauf HR eine Zahl, die der echte Lauf nicht
+        // haelt. Normalisiert wird wie in PersonLinker (PhoneE164), sonst
+        // waeren "0151 …" und "+49151 …" zwei Nummern.
+        /** @var array<string, true> $belegtImTrockenlauf */
+        $belegtImTrockenlauf = [];
 
         foreach ($plan['gruppen'] as $gruppe) {
             $ids = $gruppe['ids']; // bereits aufsteigend sortiert (PersonGroupPlanner::plan())
@@ -183,6 +197,18 @@ final class BackfillPersons extends Command
 
             if ($dryRun) {
                 DB::rollBack();
+
+                if (!$warSchonGebunden && !$nummerFehlt) {
+                    $normal = PhoneE164::normalize($gruppe['phone']);
+                    if ($normal !== null) {
+                        $schluessel = ($teamId ?? 'null') . '|' . $normal;
+                        if (isset($belegtImTrockenlauf[$schluessel])) {
+                            $nummerFehlt = true;
+                        } else {
+                            $belegtImTrockenlauf[$schluessel] = true;
+                        }
+                    }
+                }
             } else {
                 DB::commit();
             }

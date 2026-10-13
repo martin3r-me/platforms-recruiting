@@ -232,6 +232,31 @@ final class BackfillPersonsTest extends TestCase
     }
 
     /**
+     * Generalprobe 13.10.2026: der Trockenlauf meldete "Nummer nicht gesetzt:
+     * 0", der scharfe Lauf danach 32. Der Trockenlauf rollt jede Gruppe sofort
+     * zurueck -- die Nummer der ersten Person ist also nie "schon vergeben",
+     * wenn die zweite kommt. Er muss sich die Nummern frueherer Gruppen merken,
+     * sonst verspricht er HR eine Zahl, die der echte Lauf nicht haelt.
+     */
+    public function test_dry_run_zaehlt_nummern_kollisionen_wie_der_echte_lauf(): void
+    {
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915112345678', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 2, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '0151 12345678', 'is_active' => 1, 'updated_at' => '2026-02-01 00:00:00'],
+            ['id' => 3, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915199999999', 'is_active' => 1, 'updated_at' => '2026-03-01 00:00:00'],
+        ]);
+
+        $trocken = $this->lauf(true)->ausgabe();
+
+        $this->assertSame(0, (int) DB::table('rec_persons')->count(), 'Trockenlauf hinterlaesst nichts');
+        $this->assertStringContainsString('Nummer nicht gesetzt (Dublette oder unlesbar): 1', $trocken);
+        $this->assertMatchesRegularExpression('/Nummer nicht gesetzt \(Dublette oder unlesbar\) \(Mitarbeiter-Kennungen, ohne Namen\):\s+2\b/', $trocken);
+
+        $scharf = $this->lauf()->ausgabe();
+        $this->assertStringContainsString('Nummer nicht gesetzt (Dublette oder unlesbar): 1', $scharf);
+    }
+
+    /**
      * Ruling T4-A (Fixrunde 1): "wiederholbar" heisst auch, dass ein
      * SPAETERER Lauf mit einem neu dazugekommenen Geschwister (gleicher
      * person_key) dieses Geschwister an die ALTE Person haengt. Reines
