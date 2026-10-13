@@ -807,7 +807,7 @@ function sqlWert(?string $wert): string
 }
 
 /** Erste Zeile nach dem Kopf: Backslash-Escaping gilt sicher, egal wie der Server eingestellt ist. */
-const SQL_MODUS = "SET SESSION sql_mode = REPLACE(REPLACE(REPLACE(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES', ''), 'NO_BACKSLASH_ESCAPES,', ''), 'NO_BACKSLASH_ESCAPES', '');";
+const SQL_MODUS = "SET NAMES utf8mb4;\nSET SESSION sql_mode = REPLACE(REPLACE(REPLACE(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES', ''), 'NO_BACKSLASH_ESCAPES,', ''), 'NO_BACKSLASH_ESCAPES', '');";
 
 /**
  * CSV mit Kopfzeile lesen. Zeilen mit falscher Feldzahl werden uebersprungen
