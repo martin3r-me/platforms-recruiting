@@ -1,8 +1,9 @@
 # Deploy-Checkliste `feat/ma-konto` → `main` → Produktion (meingedeck)
 
-Stand: 12.10.2026 · Zweig `feat/ma-konto` @ `edb12d57` (359 Commits über `origin/main` `b91b584a`,
-`origin/main` ist vollständig enthalten → ff-Merge möglich) · Host-App `meingedeck` pinnt heute
+Stand: 13.10.2026 · Zweig `feat/ma-konto` @ `cedb8544` (Generalprobe auf der Demo gelaufen, Markus-Antworten vom 12.10. eingearbeitet) · Host-App `meingedeck` pinnt heute
 `platform-recruiting` auf `b91b584a` (`composer.lock`, Commit `97b88812`).
+
+> **Vor dem Merge (Stand 13.10.): `origin/main` ist 8 Commits weiter als der Zweig** (Jobs anbieten / Anlass, Personenwechsel im Dispo-Import, Schulungsnachbereitung) → ff-Merge NICHT möglich. Ablauf: `origin/main` in den Zweig mergen → volle Suite → Demo auf den neuen Kopf pinnen → kurzer Sichttest → dann 4.1. Neuer Kopf und Rollback-Referenz neu notieren (prod-Pin kann bis dahin auch weitergelaufen sein: `grep -A3 platform-recruiting meingedeck/composer.lock`).
 
 Für: Sebastian (Deploy + Generalprobe auf der Demo). Jede Zeile nennt in `[…]` ihre Quelle.
 
@@ -91,6 +92,8 @@ Allgemeine Regeln, aus dem Code abgeleitet:
 | — | Portal-Benachrichtigung (bestehend) | `RecEmployee::sendPortalNotification` | `employee_portal_wa_template_id` (unverändert) | unverändert | unverändert | — | — | Altfehler: meldet Meta-`failed` als Erfolg (M:project_ma_portal_locked_fix) — nicht im Zweig geändert |
 | — | Konto-Einladung | **kein Sender** | — | — | — | — | — | HR gibt Link + Code von Hand weiter [`KontoEinladen.php`, S-HR §12.1] |
 
+**Eine Vorlage für alles (Sebastian 13.10.):** Eine universelle Meta-Vorlage „Hallo {{vorname}}, in deinem Mitarbeiterportal ist etwas für dich offen — schau bitte über den Knopf unten rein." + 1 URL-Knopf mit Variable passt in #6, #8, #9 und #10 (alle Platzhalter dort optional). Für #6 darf sie **kein `{{datum}}`** enthalten (wird seit dem Wegfall der Erinnerung vor dem Einsatz nicht mehr befüllt → kein Versand). #6 bedient auch den HR-Knopf „Erneut erinnern", der Text darf also keinen bestimmten Einsatz voraussetzen.
+
 Name und Sprache kommen aus der gewählten Vorlage; die Sprach-Schlüssel `RECRUITING_*_VORLAGE_SPRACHE` gibt es nicht mehr. Die Sprache der Meta-Vorlage muss deutsch sein, weil die Texte deutsch sind — die Sender lesen sie aus der Vorlage. [Spec §3]
 
 ### 2.2 `.env`-Schlüssel (Produktion)
@@ -110,7 +113,7 @@ Nach jeder `.env`-Änderung dieser beiden: `php artisan config:cache` (S-HR §11
 |---|---|---|---|---|
 | `document_wa_template_id` | `null` | Einstellungen → Kommunikation → Mitarbeiterportal → Dokument liegt im Portal | setzen, sobald #9 genehmigt | SET, S-Dok §12 |
 | `employee_contract_wa_template_id` | `null` | … → Vertrag zur Unterschrift | optional (Rückfall auf #9) | SET, S-Vertrag §8 |
-| `proof_reminder_wa_template_id` | `null` | … → Nachweis läuft ab (Fristenlauf) | erst mit Stichtag-Entscheidung | SET, `ProofReminderSender::SETTINGS_KEY` |
+| `proof_reminder_wa_template_id` | `null` | … → Nachweis läuft ab (Fristenlauf) | vor der ersten Fristenlauf-Welle (4.8); kein Stichtag (Markus 12.10.) | SET, `ProofReminderSender::SETTINGS_KEY` |
 | `konto_code_passwort_wa_template_id`, `konto_code_nummernwechsel_wa_template_id`, `konto_code_notfall_wa_template_id` | `null` | … → Code: Passwort vergessen / neue Nummer bestätigen / Notfall-Weg | nach Freigabe #1–#3 (Notfall zuletzt) | SET, Spec §2 |
 | `konto_hinweis_alte_nummer_wa_template_id` | `null` | … → Hinweis an die alte Nummer | nach Freigabe #5 | SET |
 | `aufgaben_neu_wa_template_id` | `null` | … → Offene Aufgaben — neu | nach Freigabe #6, vor der ersten Welle | SET |
@@ -136,7 +139,10 @@ Selects im Einstellungs-Fenster: nach dem Speichern per SQL nachsehen, ob der We
 - [ ] **Entscheidung Nachweis-Block** in der Akte: hinter `portal_v2_since` legen (Code-Änderung) ODER HR vorwarnen. [M:project_ma_konto_merge_risiken Nr. 2]
 - [ ] **Schalter Einsatz-Prüfung bleibt aus (Vorgabe).** Der Zeitplan-Eintrag bleibt unverändert und ist bei ausgeschaltetem Schalter ein No-op — kein Zeitfenster-Rennen mehr nötig. Reihenfolge: `nachweise-umziehen` → `personen-anlegen` → `einsatz-pruefung --dry-run` → Zahlen melden → Schalter an (Schritt in 4.4). [Spec §5, M:project_ma_konto_merge_risiken „Deploy-Reihenfolge"]
 - [ ] **Offene Fragen an Markus, die das Einschalten blockieren** [M:project_markus_info_dokument_offene_punkte, M:project_nachweise_selbstbedienung, M:project_einsatz_trigger_und_zas_sperrfeld, S-Vertrag §9]:
-  - Stichtag Altbestand Fristenlauf (~540 abgelaufene Nachweise) + Vorlagentext #8
+  - ~~Stichtag Altbestand Fristenlauf~~ — entschieden 12.10.: kein Stichtag, alle bekommen EINE gebündelte Nachricht, Versand in Wellen (4.8)
+  - **Vor dem Start von Markus nötig:** E1 Go, E2 Namen Pilotgruppe (10–20, davon 2–3 mit RG+MA), E4 Vorlauf 60/30 Tage bestätigen (Kommentar-Antwort Folie 17, 13.10.)
+  - ~~Firmenname MA (E5)~~ — erledigt: „RheinGedeck Lease | MA Dienstleistungen für die Gastronomie UG (haftungsbeschränkt)" (`company_labels`)
+  - **MA-Verträge: auf prod existiert KEIN einziger MA-Vertrag und keine MA-Vorlage** (Sebastian 13.10.) → Vertrag aus der MA-Akte und Vertragscheck laufen ins Leere, bis E12 beantwortet und Vorlagen angelegt sind; Automatik (Markus: „voll automatisch") wartet auf E10–E12, E15
   - Zahlen 4/7 (Vorlauf/Pause) des Einsatz-Triggers (Erinnerung vor dem Einsatz entfällt, Markus 12.10.2026); „läuft ab"→„abgelaufen" meldet nicht erneut; zwei Einsätze in einer Pause = eine Nachricht
   - MA-Vertrag: Beginn/Dauer, Tätigkeit, Vertragsarten/Texte, Automatik, Zuschlag/Datei an ZAS
   - ~~Steuerklasse und Haupt-/Nebenarbeitgeber je Person oder je Gesellschaft~~ — entschieden 12.10.2026 (E7/E8): je Anstellung, nur eine Anstellung Hauptarbeitgeber, die andere Steuerklasse 6; Krankenkasse ebenfalls je Anstellung (Generalprobe 13.10.)
@@ -144,7 +150,7 @@ Selects im Einstellungs-Fenster: nach dem Speichern per SQL nachsehen, ob der We
   - ~1320 von 1603 sähen „Ausweis fehlt" bei Umstellung aller (Kommunikationsfrage)
 - [ ] **Offen, fremde Repos (Entscheidung, nicht Deploy-blockierend)**: `trustProxies(at:'*')` in meingedeck einengen; Einmalcode liegt in platform-crm im Klartext (template_params, CommsLog, Log bei failed); steht vor prod ein CDN? [M:project_konto_anmeldeschicht_gate_d]
 - [ ] **Hotfix altes Portal** (`ec85cc58` + `9280a97b`, LIVE-Lücke auf main): Wenn er VOR dem Merge separat auf main geht, ist kein ff mehr möglich → main erneut in den Zweig mergen, Suite, Demo neu pinnen. Am einfachsten: mit diesem Merge ausrollen. [M:project_hr_bereich_mitarbeiter]
-- [ ] **Was auf main gebumpt, aber laut Memory noch nicht deployt ist** — läuft mit diesem Forge-Deploy mit: „Nicht zugestellt" (migrate), „Versand vormerken" (migrate + queue:restart), „Teilnehmer verschieben" (migrate), „Schulung voll" (queue:restart + Settings-Key), „Sammelversand ohne Einsatz" (queue:restart + Settings-Key), „Anleitungen" (view:clear). Vorher prüfen, was davon schon gelaufen ist. [MEMORY.md-Einträge dazu]
+- [ ] **Was auf main gebumpt, aber laut Memory noch nicht deployt ist** — läuft mit diesem Forge-Deploy mit: „Nicht zugestellt" (migrate), „Versand vormerken" (migrate + queue:restart), „Teilnehmer verschieben" (migrate), „Schulung voll" (queue:restart + Settings-Key), „Sammelversand ohne Einsatz" (queue:restart + Settings-Key), „Anleitungen" (view:clear), **„Jobs anbieten" (migrate + queue:restart + view:clear, drei Vorlagen je Anlass eintragen)**. Vorher prüfen, was davon schon gelaufen ist. [MEMORY.md-Einträge dazu]
 
 ---
 
@@ -179,6 +185,8 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
    - `personendaten-abgleich`: Lesemodus, Anzahl Abweichungen notieren. Steuerklasse, Haupt-/Nebenarbeitgeber, anderer Arbeitgeber und Krankenkasse erscheinen dort seit 12.10.2026 nie mehr als Abweichung (je Anstellung). [S-Spiegel §9, §2.1 Nachtrag]
 7. [ ] **Sichttests aus Abschnitt 6** auf der Demo (Team 6), inkl. Konto-Durchlauf: `recruiting:konto-einladen --ids=<person> --dry-run`, einladen, `/recruiting/konto/anlegen/<token>`, Konto anlegen, abmelden, unter `/recruiting/konto` mit Nummer + Passwort anmelden. [P-Konto Z. 718]
 8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf `b91b584a` ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
+
+**Stand Generalprobe 13.10.2026:** Schritte 1–7 gelaufen (Zahlen in 4.4 als Vergleich eingetragen; offene Punkte für Markus/HR im Dokument „Generalprobe MA-Konto: offene Punkte"). **Offen:** Schritt 8 Rollback-Probe, Sichttest Vertrag mobil. Auf der Demo von Hand nachgezogen (prod braucht das NICHT, dort läuft `nachweise-umziehen` schon mit dem Fix): `UPDATE rec_employee_proofs SET valid_until = NULL WHERE proof_type_code='erstbescheinigung'`.
 
 Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Memory: Forge-Deploy reißt im npm-Teil → Code live, aber `migrate`/`view:clear` fehlen → von Hand nachholen (M:reference_forge_deploy_skript_npm); Liste leer trotz Daten → falsches `--team` beim Dump; Login unmöglich → Nummern-Normalisierung (Dump-Skript Z. ~76).
 
@@ -279,7 +287,7 @@ Vorher Zähler notieren: `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_a
 
 - [ ] Vorlagen-Felder in Einstellungen → Kommunikation → Mitarbeiterportal wählen, sobald die Meta-Vorlage genehmigt ist (Tabelle 2.1, Notfall-Code zuletzt); danach per SQL prüfen, dass die IDs stehen. [M:project_settings_modal_select_save_bug]
 - [ ] „Dokument liegt im Portal" (`document_wa_template_id`) sobald #9 genehmigt; „Vertrag zur Unterschrift" (`employee_contract_wa_template_id`) optional.
-- [ ] „Nachweis läuft ab (Fristenlauf)" (`proof_reminder_wa_template_id`) erst mit Stichtag; das Feld steht jetzt im Fenster, bei Bedarf per SQL:
+- [ ] „Nachweis läuft ab (Fristenlauf)" (`proof_reminder_wa_template_id`) vor der ersten Welle (4.8), kein Stichtag; das Feld steht im Fenster, bei Bedarf per SQL:
   `UPDATE rec_applicant_settings SET settings = JSON_SET(settings, '$.proof_reminder_wa_template_id', <id>) WHERE team_id = 3;` [M:project_settings_modal_select_save_bug]
 - [ ] Je Vertragsart eine AV-Vorlage mit `company = MA` anlegen — ohne Vorlage ist der Knopf in MA-Akten leer. [S-Vertrag §8]
 - [ ] Schalter „Einsatz-Prüfung läuft" bleibt aus, bis 4.4 Schritt 8.
@@ -300,6 +308,8 @@ Voraussetzung: Sichttest am echten Gerät (iPhone + Android), `is_main_employer`
 - [ ] `php artisan recruiting:portal-umstellen --ids=<MA-IDs> --dry-run` → liest „Mitgenommen (gleiche Person): …" (ganze Menschen, RG+MA) und ggf. Zweifelsfälle (werden NICHT mitgenommen) und Warnung „Nachweise nur in den Altspalten" (dann zuerst `nachweise-umziehen`).
 - [ ] `php artisan recruiting:portal-umstellen --ids=<MA-IDs> --ich-habe-den-sichttest-gemacht`
 - [ ] `php artisan recruiting:konto-einladen --ids=<rec_persons.id> --dry-run` → ohne `--dry-run`; Code/Link steht NUR auf dem Bildschirm (nur Hash gespeichert) → sofort weitergeben. Nicht eingeladen werden: schon Konto, keine Nummer, Nummer `unavailable`, **kein Geburtsdatum**. Achtung: `--ids` hier = **Personen**, bei `portal-umstellen` = **Mitarbeiter**. [`KontoEinladen.php`]
+- [ ] **Fristenlauf-Welle für die Umgestellten** (erreicht NUR Anstellungen mit `portal_v2_since` — wer im alten Portal ist, wird immer übersprungen; die Wellen folgen also den `portal-umstellen`-Wellen): `php artisan recruiting:nachweise-erinnern --team=3 --ohne-stichtag --limit=<Personen> --dry-run` → Tabelle (eine Zeile je Person: Anzahl, Nachweise, dringendstes Datum) lesen → ohne `--dry-run`. Jede Person bekommt EINE Nachricht für alle fälligen Nachweise; alle bekommen `reminded_at`. Wiederholen je Umstellungs-Welle.
+- [ ] **Nach der letzten Welle (altes Portal abgeschaltet): täglichen Zeitplan für `recruiting:nachweise-erinnern --ohne-stichtag` einschalten** (eigener Commit in `RecruitingServiceProvider`, Merge, Bump). Ohne ihn wird nach dem Start niemand mehr an Ablaufendes erinnert.
 - [ ] Erste scharfe Trigger-Welle erst nach genehmigter Vorlage #6 (Feld „Offene Aufgaben — neu" gewählt) UND eingeschaltetem Schalter (`--ids=` ohne `--dry-run` respektiert ihn): `php artisan recruiting:einsatz-pruefung --ids=<MA-IDs> --dry-run`, dann `--ids=<MA-IDs> --welle=<n>`. Erst zählen, dann Welle. [P-Trigger Z. 1933, Spec §5]
 
 ### 4.9 MA-Vertragscheck einschalten (später, nicht am Deploy-Tag)
@@ -315,7 +325,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 
 ### 4.11 Beobachten (erste Tage)
 
-- [ ] Zeitplan-Läufe: `recruiting:einsatz-pruefung` (stündlich, `withoutOverlapping(30)`; bei Schalter aus Bericht „Einsatz-Prüfung ist aus … übersprungen"), `recruiting:konto-zuruecksetzen --faellig` (stündlich, ohne Anträge No-op). [SP]
+- [ ] Zeitplan-Läufe: `recruiting:sitzungen-aufraeumen` (stündlich, räumt „angemeldet bleiben"-Sitzungen; Lottery-GC ist host-weit aus — ohne diesen Lauf wächst die Session-Tabelle), `recruiting:einsatz-pruefung` (stündlich, `withoutOverlapping(30)`; bei Schalter aus Bericht „Einsatz-Prüfung ist aus … übersprungen"), `recruiting:konto-zuruecksetzen --faellig` (stündlich, ohne Anträge No-op). [SP]
 - [ ] Log-Präfixe: `recruiting.aufgaben.*` (u. a. `vorlage_fehlt` (mit `grund`), `vorlage_ohne_link`, `vorlage_mehrere_knoepfe`, `kein_portal_token`, `abgelehnt`), `recruiting.dokumente.*` (`nicht_konfiguriert`, `vorlage_ohne_link`, `platzhalter_unbekannt`, `keine_nummer`), `recruiting.konto.*` (`einmalcode_versand`, `weg4_abgeschaltet`, `nummer_gewechselt`, `nummernwechsel_beantragt`, `anmeldung_mehrdeutig`, `contact_phone_sync_failed`), `[ProofReminderSender] Versand <status>`, `recruiting.einsatz_pruefung.schalter` (Umschalten), `rec_employee.updated.spiegel`. [Sender-Klassen, `RecEmployeeExportObserver`]
 - [ ] HR-Schreibtisch: Anzahl neuer Fälle „Arbeitserlaubnis fehlt" gegen Trockenlauf-Zahl k.
 - [ ] `updates.csv`-Volumen nach dem ersten ZAS-Abruf (Spiegel → beide Gesellschaften). [S-Spiegel §9, M:project_zas_update_export_vorfall]
@@ -350,6 +360,10 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - [ ] **Einsatz-Trigger**: Einbuchung `status_id = 1` in 10 Tagen → `--dry-run` zeigt den Menschen mit offenen Punkten. [P-Trigger Z. 1932]
 - [ ] **Spiegel**: Adresse in RG-Akte ändern → MA-Akte zieht mit, beide Marker gesetzt.
 - [ ] **Altes Portal**: Token-Link allein zeigt keine Stammdaten (Fix `ec85cc58`).
+- [ ] **Angemeldet bleiben**: Haken ist vorausgewählt; nach Login Browser schließen/öffnen → noch angemeldet (180 Tage); „Abmelden" führt auf `/recruiting/konto`.
+- [ ] **Je-Gesellschaft-Regel**: Person mit RG+MA — Steuerklasse 1 an RG speichern → MA zeigt 6 + Hinweis; Portal „Hauptarbeitgeber ja" an einer Anstellung → andere „Neben".
+- [ ] **Mitarbeiter-Reiter**: Mitarbeiter · Dokumente · Lohnänderungen (Zähler offener Lohnänderungen am Reiter); Dokumente: Empfänger Opt-in, „Alle Treffer auswählen", Bestätigung vor dem Versand.
+- [ ] **Vertrag mobil**: Vertrag im Portal am Handy lesen + „Zum Unterschreiben ↓" (Generalprobe: offen).
 
 ### Bekannte Folgetickets
 
@@ -373,7 +387,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 |---|---|---|---|
 | 1 | **Stundenlauf `einsatz-pruefung` legt nach dem Einschalten sofort HR-Fälle an**, vor `nachweise-umziehen` falsche (Tabelle leer), ungedeckelt | Schalter „Einsatz-Prüfung läuft" bleibt aus (Vorgabe). Reihenfolge: `nachweise-umziehen` → `personen-anlegen` → `einsatz-pruefung --dry-run` → Zahlen melden → Schalter an (4.4 Schritt 8); HR vorwarnen | Spec §5, M:project_ma_konto_merge_risiken Nr. 1, SP |
 | 2 | **Vertragscheck blind eingeschaltet** → Hunderte HR-Fälle (ZAS-Bestand hat meist keinen AV) | Vorgabe `[]`, Trockenlauf auf Demo mit Prod-Abzug, Zahl melden, dann einschalten | SET-Kommentar, S-Vertrag §8 |
-| 3 | **Fristenlauf ohne Stichtag** → >500 WhatsApps (~540 abgelaufene Nachweise) auf einen Schlag | Kein Zeitplan-Eintrag; Lauf bricht ohne `--stichtag` ab; `--ohne-stichtag` nur bewusst; `--limit` | `SendProofReminders.php`, SP |
+| 3 | **Fristenlauf auf den Altbestand** (kein Stichtag, Markus 12.10.) → viele WhatsApps auf einmal | Gebündelt (eine je Person), nur Umgestellte, Wellen per `--limit` mit `--dry-run` vorweg; Zeitplan erst nach den Wellen; ohne `--stichtag`/`--ohne-stichtag` bricht der Lauf ab | `SendProofReminders.php`, SP |
 | 4 | **Code vor Schema**: Forge reißt im npm-Teil → HR-Desk, Akte, Dispo-Import, Stundenjobs knallen | Deploy-Log prüfen, sonst `migrate --force` + `view:clear` sofort von Hand | M:reference_forge_deploy_skript_npm, M:project_ma_konto_merge_risiken |
 | 5 | **`personen-anlegen` vergessen** → Konto, HR-Bereich, Trigger-Nachricht wirkungslos | Fester Schritt 4.4.2, Zähler `rec_person_id IS NULL`; Schalter erst danach an | M:project_konto_anmeldeschicht_gate_d |
 | 6 | **Code-Vorlagen-Kategorie**: AUTHENTICATION passt nicht zum Sender (nur Body, kein Knopf) | Als UTILITY mit benanntem `{{code}}` einreichen; bei Meta-Ablehnung Sender-Änderung nötig | `EinmalcodeSender.php`, S-Konto §10 |
@@ -390,4 +404,4 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 | 17 | **Doppelversand Dokumente** bei mehreren Queue-Workern | Ein Worker; beobachten | M:project_dokumente_gegenzeichnen |
 | 18 | **Mitlaufende main-Deploys** (Nicht zugestellt, Versand vormerken, …) mit eigenen migrate/queue/Settings-Schritten | Vorab-Abgleich 2.4 | MEMORY.md |
 
-**Zeitplan-Einträge, die direkt nach dem Deploy laufen** (SP): `recruiting:einsatz-pruefung` stündlich (bei Vorgabe-Schalter aus = No-op; nach dem Einschalten prüft + legt HR-Fälle an, versendet ohne `--welle` nichts) · `recruiting:konto-zuruecksetzen --faellig` stündlich (ohne Anträge No-op). `recruiting:nachweise-erinnern` hat bewusst keinen Eintrag.
+**Zeitplan-Einträge, die direkt nach dem Deploy laufen** (SP): `recruiting:einsatz-pruefung` stündlich (bei Vorgabe-Schalter aus = No-op; nach dem Einschalten prüft + legt HR-Fälle an, versendet ohne `--welle` nichts) · `recruiting:konto-zuruecksetzen --faellig` stündlich (ohne Anträge No-op) · `recruiting:sitzungen-aufraeumen` stündlich. `recruiting:nachweise-erinnern` hat bewusst keinen Eintrag (bis nach den Wellen, 4.8).
