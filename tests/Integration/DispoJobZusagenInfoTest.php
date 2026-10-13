@@ -119,6 +119,33 @@ class DispoJobZusagenInfoTest extends TestCase
         $this->assertSame(['Sternebewertung (Altbestand)' => 4], $info[$ma]['ratings'], 'Luecke aus dem RG-Datensatz gefuellt');
     }
 
+    public function test_bewertungen_werden_je_kriterium_aus_der_gruppe_gefuellt(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            $rg = $this->employee(['first_name' => 'Alt', 'personnel_number' => 'RG8', 'phone' => null]);
+            $ma = $this->employee(['first_name' => 'Neu', 'personnel_number' => 'MA8', 'phone' => '0176 12345678']);
+            foreach ([$rg, $ma] as $id) {
+                Capsule::table('crm_contact_links')->insert([
+                    'uuid' => (string) \Illuminate\Support\Str::uuid(), 'contact_id' => 78, 'team_id' => 3, 'created_by_user_id' => 1,
+                    'linkable_id' => $id, 'linkable_type' => (new RecEmployee())->getMorphClass(), 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+            // MA hat nur Auffassungsgabe; RG liefert Erscheinungsbild und (nachrangig) eine abweichende Auffassungsgabe.
+            Capsule::table('rec_employee_hr_data')->insert(['uuid' => (string) \Illuminate\Support\Str::uuid(), 'team_id' => 3, 'rec_employee_id' => $ma,
+                'rating_auffassungsgabe' => 3, 'created_at' => now(), 'updated_at' => now()]);
+            Capsule::table('rec_employee_hr_data')->insert(['uuid' => (string) \Illuminate\Support\Str::uuid(), 'team_id' => 3, 'rec_employee_id' => $rg,
+                'rating_erscheinungsbild' => 4, 'rating_auffassungsgabe' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+            $info = DispoJobZusagenInfo::laden([$ma], '2026-10');
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
+
+        $this->assertSame(['Erscheinungsbild & Hygiene' => 4, 'Auffassungsgabe & Lernbereitschaft' => 3], $info[$ma]['ratings'], 'je Kriterium das erste Gruppenmitglied, feste Reihenfolge');
+        $this->assertSame('4 · – · 3 · – · –', DispoJobZusagenInfo::bewertung($info[$ma]['ratings'])['text']);
+    }
+
     public function test_passt_und_bewertungstext(): void
     {
         $this->assertTrue(DispoJobZusagenInfo::passt(' zapfer ', ['Zapfer']));
@@ -127,6 +154,8 @@ class DispoJobZusagenInfoTest extends TestCase
 
         $this->assertSame(['text' => '4 · 5 · 3 · 4 · 4', 'title' => 'Erscheinungsbild & Hygiene 4, Fachliche Grundkompetenz 5, Auffassungsgabe & Lernbereitschaft 3, Auftreten & Kommunikation 4, Teamintegration & Verhalten 4'],
             DispoJobZusagenInfo::bewertung(['Erscheinungsbild & Hygiene' => 4, 'Fachliche Grundkompetenz' => 5, 'Auffassungsgabe & Lernbereitschaft' => 3, 'Auftreten & Kommunikation' => 4, 'Teamintegration & Verhalten' => 4]));
+        $this->assertSame(['text' => '4 · – · 3 · – · –', 'title' => 'Erscheinungsbild & Hygiene 4, Auffassungsgabe & Lernbereitschaft 3'],
+            DispoJobZusagenInfo::bewertung(['Auffassungsgabe & Lernbereitschaft' => 3, 'Erscheinungsbild & Hygiene' => 4]), 'Luecken behalten ihre Position, feste Reihenfolge');
         $this->assertSame(['text' => '★ 4', 'title' => 'Sternebewertung (Altbestand) 4'], DispoJobZusagenInfo::bewertung(['Sternebewertung (Altbestand)' => 4]));
         $this->assertSame(['text' => '–', 'title' => 'keine Bewertung'], DispoJobZusagenInfo::bewertung([]));
     }

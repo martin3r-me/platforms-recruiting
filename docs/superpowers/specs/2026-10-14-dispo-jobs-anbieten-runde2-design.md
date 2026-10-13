@@ -56,7 +56,7 @@ Im Modus „Alle Zusagen sammeln“ sucht der Disponent aus. Dafür bekommt jede
 |---|---|---|
 | Einsätze | Zahl der Auftrags-Einsatztage im laufenden Monat, über alle Datensätze der Person | `DispoEinsatzZaehler::proMonat` mit Identitätsgruppe (wie in Schritt 3) |
 | Tätigkeit | „passt“ (grün) wenn die Tätigkeit der Schicht in den ZAS-Tätigkeiten der Person steht, sonst „andere“ (grau) mit Tooltip der eigenen Tätigkeiten; „keine aus ZAS“ wenn die Liste leer ist | `hrData.dispo_taetigkeiten`, Vergleich wie `DispoJobRecipientPlanner` (kleingeschrieben, getrimmt) |
-| Bewertung | die fünf Termin-Bewertungen als Ziffern „4 · 5 · 3 · 4 · 4“ in fester Reihenfolge, Tooltip mit den fünf Labels; Altbestand ohne Termin-Bewertung: „★ 4“ aus `star_rating`; nichts vorhanden: „–“ | `DispoEmployeeGateway::profileCards` (Lücken aus der Gruppe füllen wie `crewCard` auf der VA-Seite) |
+| Bewertung | die fünf Termin-Bewertungen als Ziffern „4 · 5 · 3 · 4 · 4“ in fester Reihenfolge (Erscheinungsbild, Fachkompetenz, Auffassungsgabe, Auftreten, Teamintegration), fehlende Werte als „–“ an ihrer Position („4 · – · 3 · – · –“), Tooltip mit den vorhandenen Labels; Altbestand ohne Termin-Bewertung: „★ 4“ aus `star_rating`; nichts vorhanden: „–“ | `DispoEmployeeGateway::profileCards` (Lücken je Kriterium aus der Gruppe füllen: erstes Mitglied, das das Kriterium hat) |
 
 Neuer Baustein `DispoJobZusagenInfo::laden(array $employeeIds, string $monat): array` (DB-Rand, ein Durchlauf pro Seitenaufruf): liefert je Mitarbeiter-ID `['name', 'personnel_number', 'phone', 'einsaetze', 'taetigkeiten', 'ratings']`. Er ersetzt in `Show::rueckmeldungen()` den bisherigen `contacts()`-Aufruf. Zwei bis vier Queries für alle Zeilen zusammen, nie pro Zeile.
 
