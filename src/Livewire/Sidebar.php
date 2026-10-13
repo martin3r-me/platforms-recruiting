@@ -6,6 +6,7 @@ use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Platform\Core\Models\Team;
+use Platform\Recruiting\Livewire\Employees\PayrollChanges;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
@@ -113,10 +114,7 @@ class Sidebar extends Component
                 ->whereHas('postings.position', fn ($q) => $q->where('is_direct_hire', true)->where('is_active', true))
                 ->count(),
             'active_employees' => RecEmployee::where('team_id', $teamId)->where('is_active', true)->count(),
-            'pending_payroll_changes' => RecEmployee::where('team_id', $teamId)
-                ->where('is_active', true)
-                ->whereNotNull('payroll_data_changed_at')
-                ->count(),
+            'pending_payroll_changes' => PayrollChanges::offeneAnzahl($teamId),
         ];
     }
 

@@ -1,7 +1,9 @@
 {{-- Reiter des Mitarbeiter-Bereichs (Mitarbeiter / Dokumente / Lohnaenderungen),
-     ersetzt die beiden Seitenleisten-Eintraege. Aufruf mit ['reiter' => 'mitarbeiter'|'dokumente'|'lohn']. --}}
+     ersetzt die beiden Seitenleisten-Eintraege. Aufruf mit ['reiter' => 'mitarbeiter'|'dokumente'|'lohn'];
+     $lohnOffen (aus render() der Seite) = Zaehler am Reiter Lohnaenderungen. --}}
 @php
     $reiterAktuell = $reiter ?? 'mitarbeiter';
+    $reiterLohnOffen = (int) ($lohnOffen ?? 0);
     $reiterListe = [
         'mitarbeiter' => ['label' => 'Mitarbeiter', 'href' => route('recruiting.employees.index')],
         'dokumente'   => ['label' => 'Dokumente', 'href' => route('recruiting.employees.documents')],
@@ -16,8 +18,13 @@
             $reiterIstAktiv = $reiterSchluessel === $reiterAktuell;
             $reiterKlasse = $reiterIstAktiv ? $reiterAktivKlasse : $reiterInaktivKlasse;
             $reiterAria = $reiterIstAktiv ? 'page' : 'false';
+            $reiterZaehler = $reiterSchluessel === 'lohn' ? $reiterLohnOffen : 0;
         @endphp
         <a href="{{ $reiterEintrag['href'] }}" wire:navigate data-reiter="{{ $reiterSchluessel }}" aria-current="{{ $reiterAria }}"
-           class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{ $reiterKlasse }}">{{ $reiterEintrag['label'] }}</a>
+           class="-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium {{ $reiterKlasse }}">{{ $reiterEintrag['label'] }}
+            @if ($reiterZaehler > 0)
+                <span data-reiter-zaehler class="inline-flex items-center justify-center rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600">{{ $reiterZaehler }}</span>
+            @endif
+        </a>
     @endforeach
 </nav>

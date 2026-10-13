@@ -55,7 +55,7 @@ final class MitarbeiterReiterTest extends TestCase
         parent::tearDown();
     }
 
-    private function rendern(string $reiter): string
+    private function rendern(string $reiter, array $daten = []): string
     {
         $files = new Filesystem();
         $compiler = new BladeCompiler($files, $this->cacheDir);
@@ -66,7 +66,7 @@ final class MitarbeiterReiterTest extends TestCase
         $factory = new ViewFactory($resolver, $finder, new Dispatcher(new Container()));
         $factory->addExtension('blade.php', 'blade');
 
-        return $factory->make('recruiting::livewire.employees._reiter', ['reiter' => $reiter])->render();
+        return $factory->make('recruiting::livewire.employees._reiter', ['reiter' => $reiter] + $daten)->render();
     }
 
     /** @return array<string, string> reiter => aria-current */
@@ -90,7 +90,28 @@ final class MitarbeiterReiterTest extends TestCase
         $this->assertStringContainsString('href="https://meingedeck.de/recruiting/employees"', $html);
         $this->assertStringContainsString('href="https://meingedeck.de/recruiting/employees/documents"', $html);
         $this->assertStringContainsString('href="https://meingedeck.de/recruiting/employees/payroll-changes"', $html);
-        $this->assertStringContainsString('>Lohnänderungen</a>', $html);
+        $this->assertStringContainsString('>Lohnänderungen', $html);
+    }
+
+    public function test_zaehler_offener_lohnaenderungen_nur_am_lohn_reiter_und_nur_wenn_etwas_offen_ist(): void
+    {
+        foreach (['mitarbeiter', 'dokumente', 'lohn'] as $aktiv) {
+            $html = $this->rendern($aktiv, ['lohnOffen' => 7]);
+            $this->assertSame(1, substr_count($html, 'data-reiter-zaehler'), "aktiv: {$aktiv}");
+            $this->assertMatchesRegularExpression('/data-reiter="lohn"[^>]*>Lohnänderungen\s*<span data-reiter-zaehler[^>]*>7<\/span>\s*<\/a>/', $html);
+        }
+        $this->assertStringNotContainsString('data-reiter-zaehler', $this->rendern('lohn', ['lohnOffen' => 0]));
+        $this->assertStringNotContainsString('data-reiter-zaehler', $this->rendern('lohn'), 'ohne Variable kein Zaehler, kein Fehler');
+    }
+
+    public function test_alle_drei_seiten_reichen_den_zaehler_aus_derselben_quelle_wie_die_seitenleiste(): void
+    {
+        $src = __DIR__ . '/../../src/Livewire/';
+        foreach (['Employees/Index.php', 'Employees/Documents.php', 'Employees/PayrollChanges.php'] as $datei) {
+            $quelle = (string) file_get_contents($src . $datei);
+            $this->assertMatchesRegularExpression("/'lohnOffen' => (self|PayrollChanges)::offeneAnzahl\(/", $quelle, $datei);
+        }
+        $this->assertStringContainsString("'pending_payroll_changes' => PayrollChanges::offeneAnzahl(\$teamId)", (string) file_get_contents($src . 'Sidebar.php'));
     }
 
     public function test_alle_drei_seiten_binden_das_partial_mit_ihrem_reiter_ein(): void

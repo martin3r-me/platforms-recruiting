@@ -411,7 +411,9 @@ class Documents extends Component
 
     public function render()
     {
-        return view('recruiting::livewire.employees.documents')
+        return view('recruiting::livewire.employees.documents', [
+            'lohnOffen' => PayrollChanges::offeneAnzahl((int) auth()->user()->currentTeam->id),
+        ])
             ->layout('platform::layouts.app');
     }
 }

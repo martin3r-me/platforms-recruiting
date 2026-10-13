@@ -95,7 +95,9 @@ class Index extends Component
 
     public function render()
     {
-        return view('recruiting::livewire.employees.index')
+        return view('recruiting::livewire.employees.index', [
+            'lohnOffen' => PayrollChanges::offeneAnzahl((int) auth()->user()->currentTeam->id),
+        ])
             ->layout('platform::layouts.app');
     }
 }

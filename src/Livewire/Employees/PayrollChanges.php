@@ -15,6 +15,19 @@ use Platform\Recruiting\Models\RecEmployee;
 class PayrollChanges extends Component
 {
     /**
+     * Zahl der MA mit offenen lohnrelevanten Aenderungen — Zaehler am Reiter
+     * „Lohnänderungen" (frueher Abzeichen am Seitenleisten-Eintrag).
+     */
+    public static function offeneAnzahl(int $teamId): int
+    {
+        return RecEmployee::query()
+            ->where('team_id', $teamId)
+            ->where('is_active', true)
+            ->whereNotNull('payroll_data_changed_at')
+            ->count();
+    }
+
+    /**
      * Flattened rows: jeder payroll_data_changed_fields-Eintrag wird
      * zu einer eigenen Zeile mit MA-Kontext.
      */
@@ -123,7 +136,9 @@ class PayrollChanges extends Component
 
     public function render()
     {
-        return view('recruiting::livewire.employees.payroll-changes')
+        return view('recruiting::livewire.employees.payroll-changes', [
+            'lohnOffen' => self::offeneAnzahl((int) auth()->user()->currentTeam->id),
+        ])
             ->layout('platform::layouts.app');
     }
 }
