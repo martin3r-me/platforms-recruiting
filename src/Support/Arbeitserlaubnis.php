@@ -9,6 +9,9 @@ namespace Platform\Recruiting\Support;
  * in dem Augenblick, in dem ein Dokument ablaeuft — und genau dann waere er
  * falsch.
  *
+ * Gesperrt ist, wer KEINEN der K.-o.-Nachweise (Aufenthaltstitel bzw.
+ * Arbeitsgenehmigung, Folie 14) gueltig hat — einer reicht.
+ *
  * Nur fehlend oder abgelaufen sperrt. "Laeuft ab" sperrt NICHT: sonst sperrt
  * die Vorlaufzeit von sechzig Tagen Menschen, die alles richtig gemacht
  * haben.
@@ -37,10 +40,23 @@ final class Arbeitserlaubnis
         $gruende = [];
 
         foreach ($checkliste as $zeile) {
-            if (ProofTypes::istKo($zeile['code'] ?? '')
-                && in_array($zeile['status'] ?? '', self::SPERRENDE_ZUSTAENDE, true)) {
-                $gruende[] = $zeile['code'];
+            if (!ProofTypes::istKo($zeile['code'] ?? '')) {
+                continue;
             }
+
+            // FOLIE 14 ALS "BZW." (Sebastian 13.10.2026): "Aufenthaltstitel /
+            // Arbeitserlaubnis" meint das Dokument, das das Arbeiten erlaubt —
+            // EINES der beiden gueltig (ok oder laeuft bald ab) reicht. Als
+            // "und" gelesen sperrte die Regel in der Generalprobe auch
+            // Menschen mit gueltigem Titel ohne Zusatzblatt; die Erlaubnis
+            // steht oft direkt auf dem Titel. Fiktionsbescheinigung und Visum
+            // nennt die Folie nicht — sie sind keine K.-o.-Codes und ersetzen
+            // hier nichts.
+            if (!in_array($zeile['status'] ?? '', self::SPERRENDE_ZUSTAENDE, true)) {
+                return [];
+            }
+
+            $gruende[] = $zeile['code'];
         }
 
         return $gruende;

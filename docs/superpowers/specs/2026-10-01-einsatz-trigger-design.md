@@ -144,6 +144,8 @@ nicht arbeiten darf, darf auch ohne Einsatz nicht arbeiten.
 Sie wird deshalb **abgeleitet, nicht gespeichert**: ein gespeicherter Zustand veraltet
 in dem Augenblick, in dem ein Dokument abläuft.
 
+**Lesart (Sebastian 13.10.2026, nach der Generalprobe):** der Schrägstrich in „Aufenthaltstitel / Arbeitserlaubnis“ ist ein „bzw.“ — gesperrt ist, wer **keinen** der beiden gültig hat; einer reicht. Fiktionsbescheinigung und Visum nennt die Folie nicht und zählen nicht. Generalprobe: 74 Fälle als „und“, davon 45 ganz ohne Nachweis in der Akte.
+
 ---
 
 ## 3. Der Motor

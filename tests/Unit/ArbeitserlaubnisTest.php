@@ -81,4 +81,50 @@ final class ArbeitserlaubnisTest extends TestCase
 
         $this->assertSame(['aufenthaltstitel', 'arbeitsgenehmigung'], $gruende);
     }
+
+    // ----- Folie 14 als "bzw." (Sebastian 13.10.2026) -----------------------
+    //
+    // "Aufenthaltstitel / Arbeitserlaubnis": EINES der beiden gueltig reicht.
+    // Generalprobe 13.10.: als "und" gelesen sperrte die Regel auch Menschen
+    // mit gueltigem Titel, nur weil kein Zusatzblatt vorlag — die Erlaubnis
+    // steht oft direkt auf dem Titel.
+
+    public function test_gueltiger_titel_ohne_zusatzblatt_sperrt_nicht(): void
+    {
+        $this->assertFalse(Arbeitserlaubnis::istGesperrt([
+            ['code' => 'aufenthaltstitel',   'status' => 'ok'],
+            ['code' => 'arbeitsgenehmigung', 'status' => 'fehlt'],
+        ]));
+        $this->assertSame([], Arbeitserlaubnis::gruende([
+            ['code' => 'aufenthaltstitel',   'status' => 'ok'],
+            ['code' => 'arbeitsgenehmigung', 'status' => 'fehlt'],
+        ]));
+    }
+
+    public function test_gueltiges_zusatzblatt_bei_abgelaufenem_titel_sperrt_nicht(): void
+    {
+        $this->assertFalse(Arbeitserlaubnis::istGesperrt([
+            ['code' => 'aufenthaltstitel',   'status' => 'abgelaufen'],
+            ['code' => 'arbeitsgenehmigung', 'status' => 'laeuft_ab'],
+        ]));
+    }
+
+    public function test_beide_fehlend_oder_abgelaufen_sperrt(): void
+    {
+        $this->assertTrue(Arbeitserlaubnis::istGesperrt([
+            ['code' => 'aufenthaltstitel',   'status' => 'abgelaufen'],
+            ['code' => 'arbeitsgenehmigung', 'status' => 'fehlt'],
+        ]));
+    }
+
+    public function test_fiktion_und_visum_ersetzen_nichts(): void
+    {
+        // Folie 14 nennt sie nicht — sie zaehlen nicht als gueltige Grundlage.
+        $this->assertTrue(Arbeitserlaubnis::istGesperrt([
+            ['code' => 'aufenthaltstitel',      'status' => 'fehlt'],
+            ['code' => 'arbeitsgenehmigung',    'status' => 'fehlt'],
+            ['code' => 'fiktionsbescheinigung', 'status' => 'ok'],
+            ['code' => 'visum',                 'status' => 'ok'],
+        ]));
+    }
 }
