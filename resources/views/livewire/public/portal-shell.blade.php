@@ -740,7 +740,7 @@
                         ? 'Fotografiere den Nachweis oder wähle eine Datei aus.'
                         : 'Fotografieren Sie den Nachweis oder wählen Sie eine Datei aus.';
                 @endphp
-                <div class="upload-overlay" wire:click.self="schliesseUpload">
+                <div class="upload-overlay nachweis-overlay" wire:click.self="schliesseUpload">
                     <form class="upload-sheet" wire:submit="speichereNachweis">
                         <div class="upload-head">
                             <h3>{{ $uploadLabel }}</h3>
@@ -906,6 +906,38 @@
                                 @endif
                             </label>
                         @endforeach
+
+                        {{-- Nachweis-Kacheln im Blatt (13.10.2026): z. B. die
+                             Erstbescheinigung, solange oben "Ja" gewaehlt ist
+                             (upload_if im Feldkatalog, live). Dieselbe Kachel
+                             wie im Profil, derselbe Klick ins Nachweis-Blatt
+                             -- kein zweiter Upload-Weg (R20/E8). Freiwillig:
+                             Speichern verlangt keinen Upload. --}}
+                        @if (!empty($profilNachweise))
+                            @php
+                                $blattNachweisHinweis = $duzen
+                                    ? 'Den Nachweis kannst du gleich hier hochladen.'
+                                    : 'Den Nachweis können Sie gleich hier hochladen.';
+                            @endphp
+                            {{-- Bewusst NICHT in .feld: dessen .n-Regel
+                                 ist spezifischer und wuerde die
+                                 Kachelbeschriftung umfaerben. --}}
+                            <div style="display:flex; flex-direction:column; gap:8px">
+                                <p class="upload-sub" style="margin:0">{{ $blattNachweisHinweis }}</p>
+                                <div class="uploads">
+                                    @foreach ($profilNachweise as $nachweis)
+                                        @php
+                                            $nachweisKlasse = $nachweis['da'] ? 'up tap filled' : 'up tap';
+                                            $nachweisStatus = $nachweis['da'] ? '✓ hochgeladen' : '+ Foto aufnehmen';
+                                        @endphp
+                                        <button type="button" class="{{ $nachweisKlasse }}" wire:click="oeffneUpload('{{ $nachweis['code'] }}')">
+                                            <div class="n">{{ $nachweis['label'] }}</div>
+                                            <div class="s">{{ $nachweisStatus }}</div>
+                                        </button>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
 
                         @if ($profilFehler !== '')
                             <div class="alert crit">

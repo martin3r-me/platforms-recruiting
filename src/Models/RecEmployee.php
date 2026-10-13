@@ -465,13 +465,32 @@ class RecEmployee extends Model
                 'schulbescheinigung_file_id'      => ['type' => 'file', 'label' => 'Schulbescheinigung'],
                 'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
             ],
+            // 'upload_if' (nur das neue Portal, PortalShell): solange die
+            // Bedingung gilt -- gegen den FORMULARstand, also schon vor dem
+            // Speichern --, zeigt das Gruppen-Blatt die Nachweis-Kachel
+            // dieses Datei-Felds und fuehrt in dasselbe Nachweis-Blatt wie
+            // ueberall. Keine Pflicht: dafuer ist required_if da. Deshalb
+            // ist die Ja/Nein-Frage davor 'live'.
             'Gesundheit' => [
-                'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
+                'has_infection_protection_certificate' => [
+                    'type'  => 'bool',
+                    'label' => 'Infektionsschutzbescheinigung vorhanden?',
+                    'live'  => true,
+                ],
                 'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
-                'erstbescheinigung_file_id'            => ['type' => 'file', 'label' => 'Erstbescheinigung (Datei)'],
+                // Freiwillig wie im alten Portal (Entscheidung 13.10.2026).
+                'erstbescheinigung_file_id'            => [
+                    'type'      => 'file',
+                    'label'     => 'Erstbescheinigung (Datei)',
+                    'upload_if' => ['has_infection_protection_certificate' => true],
+                ],
             ],
             'Arbeitsschutz' => [
-                'is_first_aider' => ['type' => 'bool', 'label' => 'Ersthelfer (gueltiger Erste-Hilfe-Schein)'],
+                'is_first_aider' => [
+                    'type'  => 'bool',
+                    'label' => 'Ersthelfer (gueltiger Erste-Hilfe-Schein)',
+                    'live'  => true,
+                ],
                 // required_if: erst Pflicht, wenn oben "Ja" steht. Bei "Nein"
                 // oder unbeantwortet werden die beiden nicht als fehlend
                 // gemeldet — sonst haette jeder Nicht-Ersthelfer dauerhaft
@@ -485,6 +504,7 @@ class RecEmployee extends Model
                     'type'        => 'file',
                     'label'       => 'Ersthelfer-Schein (Datei)',
                     'required_if' => ['is_first_aider' => true],
+                    'upload_if'   => ['is_first_aider' => true],
                 ],
             ],
             'Arbeitskleidung' => [

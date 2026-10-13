@@ -234,6 +234,11 @@
             background: color-mix(in srgb, black 45%, transparent);
             display: flex; align-items: flex-end; justify-content: center;
         }
+        /* Das Nachweis-Blatt kann UEBER dem offenen Gruppen-Blatt aufgehen
+           (Kachel im Fenster Gesundheit). Beide haben z-index 20, das
+           Gruppen-Blatt steht spaeter im DOM und gewaenne -- deshalb eins
+           hoeher. */
+        .portal-body .upload-overlay.nachweis-overlay { z-index: 21 }
         @media (min-width: 900px) {
             .portal-body .upload-overlay { align-items: center }
         }

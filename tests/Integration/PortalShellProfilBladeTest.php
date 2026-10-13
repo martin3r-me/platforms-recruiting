@@ -64,6 +64,34 @@ class PortalShellProfilBladeTest extends TestCase
         $this->assertStringNotContainsString('wire:model="upload', $gruppenBlatt);
     }
 
+    public function test_das_gruppen_blatt_zeigt_nachweis_kacheln_die_das_nachweis_blatt_oeffnen(): void
+    {
+        // Erstbescheinigung direkt im Fenster Gesundheit (13.10.2026): die
+        // Kachel im Gruppen-Blatt oeffnet DASSELBE Nachweis-Blatt -- kein
+        // zweiter Upload-Weg (die Pruefung oben auf wire:model="upload
+        // innerhalb des Gruppen-Blatts bleibt bestehen).
+        $blade = $this->blade();
+        $start = strpos($blade, 'wire:submit="speichereGruppe"');
+        $ende = strpos($blade, 'wire:click="schliesseGruppe">Abbrechen</button>', $start);
+        $gruppenBlatt = substr($blade, $start, $ende - $start);
+
+        $this->assertStringContainsString('$profilNachweise', $gruppenBlatt);
+        $this->assertStringContainsString('type="button"', $gruppenBlatt);
+        $this->assertStringContainsString("wire:click=\"oeffneUpload('{{ \$nachweis['code'] }}')\"", $gruppenBlatt);
+    }
+
+    public function test_das_nachweis_blatt_liegt_ueber_dem_gruppen_blatt(): void
+    {
+        // Beide Blaetter sind gleichzeitig offen, wenn die Kachel im
+        // Gruppen-Blatt angetippt wird. Das Nachweis-Blatt muss oben liegen,
+        // sonst verdeckt das Gruppen-Blatt (spaeter im DOM) das Formular.
+        $blade = $this->blade();
+        $this->assertStringContainsString('class="upload-overlay nachweis-overlay"', $blade);
+
+        $layout = file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
+        $this->assertMatchesRegularExpression('/\.upload-overlay\.nachweis-overlay\s*\{[^}]*z-index:\s*21/', $layout);
+    }
+
     public function test_das_gruppen_blatt_traegt_den_erklaertext(): void
     {
         $blade = $this->blade();

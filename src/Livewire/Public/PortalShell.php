@@ -857,6 +857,8 @@ class PortalShell extends Component
             'profilHinweis'   => $profil['hinweis'],
             'nurLesen'        => $profil['nurLesen'],
             'kacheln'         => $profil['kacheln'],
+            // Nachweis-Kacheln IM offenen Gruppen-Blatt ('upload_if'), siehe profilDaten().
+            'profilNachweise' => $profil['nachweise'],
             // Aufgabe 11: dieselbe Checkliste wie 'aufgaben' oben, aber MIT
             // dem naechsten Einsatz als Bezug (OffenePunkte, Aufgabe 8) --
             // eigener Schluessel, weil 'aufgaben' schon die flache,
@@ -898,7 +900,7 @@ class PortalShell extends Component
      * @param list<string> $offeneNachweisCodes  Nachweisarten, die schon als
      *        offene Aufgabe gelistet sind -- damit eine Pflichtangabe, die an
      *        einem Nachweis haengt (Ersthelfer-Schein), nicht zweimal zaehlt.
-     * @return array{gruppen:array, stand:array, felder:array, hinweis:?string, nurLesen:array, kacheln:array, pflicht:list<array{feld:string, gruppe:string, label:string}>}
+     * @return array{gruppen:array, stand:array, felder:array, hinweis:?string, nurLesen:array, kacheln:array, nachweise:list<array{code:string, label:string, da:bool}>, pflicht:list<array{feld:string, gruppe:string, label:string}>}
      */
     private function profilDaten(?RecEmployee $employee, array $offeneNachweisCodes = []): array
     {
@@ -910,6 +912,7 @@ class PortalShell extends Component
                 'hinweis'  => null,
                 'nurLesen' => [],
                 'kacheln'  => [],
+                'nachweise' => [],
                 'pflicht'  => [],
             ];
         }
@@ -1009,6 +1012,7 @@ class PortalShell extends Component
         $stand = PortalCompleteness::stand($flach, $datensatz);
 
         $profilFelder = [];
+        $blattNachweise = [];
         $hinweis = null;
         if ($this->profilGruppe !== null && array_key_exists($this->profilGruppe, $sichtbar)) {
             $hinweis = PortalSectionHints::fuer($this->profilGruppe, $this->duzen);
@@ -1056,7 +1060,29 @@ class PortalShell extends Component
 
             foreach ($offeneGruppeSichtbar as $schluessel => $meta) {
                 if (($meta['type'] ?? 'text') === 'file') {
-                    continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
+                    // Dateien laufen ueber das Nachweis-Blatt (R20/E8) --
+                    // auch hier kein Eingabefeld. Hat das Datei-Feld aber ein
+                    // 'upload_if' (Erstbescheinigung, Ersthelfer-Schein) und
+                    // gilt es gerade im FORMULAR, steht die Nachweis-Kachel
+                    // direkt im Blatt; ein Klick oeffnet dasselbe
+                    // Nachweis-Blatt (oeffneUpload/speichereNachweis) wie die
+                    // Kacheln im Profil. Ohne 'upload_if' keine Kachel: im
+                    // Fenster Schul-/Imma stuenden sonst beide Arten fuer
+                    // jeden. Doppelte Codes fasst dieselbe Regel wie unten
+                    // zusammen ("da", sobald eine Altspalte belegt ist).
+                    $bedingung = $meta['upload_if'] ?? null;
+                    $code = ProofTypes::codeForLegacyColumn($schluessel);
+                    if (is_array($bedingung) && $bedingung !== [] && $code !== null
+                        && PortalFieldRelevance::istRelevant(['required_if' => $bedingung], $datensatzOffeneGruppe)
+                    ) {
+                        $da = $employee->getAttribute($schluessel) !== null;
+                        $blattNachweise[$code] = [
+                            'code'  => $code,
+                            'label' => ProofTypes::label($code),
+                            'da'    => ($blattNachweise[$code]['da'] ?? false) || $da,
+                        ];
+                    }
+                    continue;
                 }
                 // F4: die fuenf Ablaufdaten stehen im Blatt, aber NUR LESEND
                 // -- sie gehoeren dem Nachweis (siehe PortalProfileWriter).
@@ -1120,6 +1146,7 @@ class PortalShell extends Component
             'hinweis'  => $hinweis,
             'nurLesen' => $employee->readOnlyDisplayFields(),
             'kacheln'  => $kacheln,
+            'nachweise' => array_values($blattNachweise),
             'pflicht'  => $pflicht,
         ];
     }

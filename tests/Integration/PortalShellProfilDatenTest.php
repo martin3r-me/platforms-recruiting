@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\PortalShell;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\ProofTypes;
 use ReflectionMethod;
 
 /**
@@ -377,5 +378,141 @@ final class PortalShellProfilDatenTest extends TestCase
         $this->assertNull($profil['hinweis']);
         $this->assertSame([], $profil['felder']);
         $this->assertSame([], $profil['kacheln']);
+        $this->assertSame([], $profil['nachweise']);
+    }
+
+    // -----------------------------------------------------------------
+    // Nachweis-Kachel IM Gruppen-Blatt (Wunsch Markus 13.10.2026): wer im
+    // Fenster "Gesundheit" "Ja" sagt, soll die Erstbescheinigung gleich dort
+    // hochladen koennen -- freiwillig, wie im alten Portal. Die Kachel
+    // oeffnet DASSELBE Nachweis-Blatt (oeffneUpload/speichereNachweis), es
+    // gibt keinen zweiten Upload-Weg.
+    // -----------------------------------------------------------------
+
+    public function test_gesundheit_mit_ja_im_formular_zeigt_die_erstbescheinigung(): void
+    {
+        $ma = $this->mitarbeiter();
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+
+        // Live-Auswahl, noch NICHT gespeichert -- der Datensatz sagt nichts.
+        $shell->profilWerte['has_infection_protection_certificate'] = '1';
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertSame([[
+            'code'  => 'erstbescheinigung',
+            'label' => ProofTypes::label('erstbescheinigung'),
+            'da'    => false,
+        ]], $profil['nachweise']);
+        // Die Datei steht weiterhin NICHT als Eingabefeld im Blatt.
+        $this->assertArrayNotHasKey('erstbescheinigung_file_id', $profil['felder']);
+    }
+
+    public function test_die_ja_nein_frage_im_fenster_gesundheit_wirkt_sofort(): void
+    {
+        $ma = $this->mitarbeiter();
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertTrue($profil['felder']['has_infection_protection_certificate']['live']);
+    }
+
+    public function test_gesundheit_mit_nein_oder_ohne_antwort_zeigt_keine_kachel(): void
+    {
+        $ma = $this->mitarbeiter();
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+
+        $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise'], 'unbeantwortet');
+
+        $shell->profilWerte['has_infection_protection_certificate'] = '0';
+        $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise'], 'Nein');
+    }
+
+    public function test_gespeichertes_nein_mit_formularwert_ja_zeigt_die_kachel(): void
+    {
+        $ma = $this->mitarbeiter(['has_infection_protection_certificate' => false]);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+        $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise']);
+
+        $shell->profilWerte['has_infection_protection_certificate'] = '1';
+
+        $this->assertSame(['erstbescheinigung'], array_column($this->profilDaten($shell, $ma)['nachweise'], 'code'));
+    }
+
+    public function test_hochgeladene_erstbescheinigung_erscheint_als_vorhanden(): void
+    {
+        $ma = $this->mitarbeiter([
+            'has_infection_protection_certificate' => true,
+            'erstbescheinigung_file_id'            => 7701,
+        ]);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertCount(1, $profil['nachweise']);
+        $this->assertTrue($profil['nachweise'][0]['da']);
+    }
+
+    public function test_ohne_offenes_blatt_gibt_es_keine_blatt_kacheln(): void
+    {
+        $ma = $this->mitarbeiter(['has_infection_protection_certificate' => true]);
+        $shell = $this->shell($ma);
+
+        $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise']);
+    }
+
+    public function test_arbeitsschutz_zeigt_den_ersthelferschein_nur_bei_ja(): void
+    {
+        $ma = $this->mitarbeiter(['is_first_aider' => false]);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Arbeitsschutz');
+
+        $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise']);
+
+        $shell->profilWerte['is_first_aider'] = '1';
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertSame(['ersthelfer'], array_column($profil['nachweise'], 'code'));
+        $this->assertTrue($profil['felder']['is_first_aider']['live']);
+    }
+
+    public function test_gruppen_ohne_bedingung_bekommen_keine_blatt_kacheln(): void
+    {
+        // Ausweis und Schul-/Imma-Bescheinigung haben Datei-Felder OHNE
+        // Ja/Nein-Frage davor. Sie laufen weiter nur ueber die Kacheln im
+        // Profil -- im Fenster Schul-/Imma stuenden sonst beide Arten fuer
+        // jeden, auch fuer den Schueler die Immatrikulation.
+        $ma = $this->mitarbeiter(['employment_type' => 'student']);
+        foreach (['Ausweis', 'Schul-/Immatrikulationsbescheinigung'] as $gruppe) {
+            $shell = $this->shell($ma);
+            $shell->oeffneGruppe($gruppe);
+            $this->assertSame($gruppe, $shell->profilGruppe, "Testvoraussetzung: {$gruppe} laesst sich oeffnen");
+
+            $this->assertSame([], $this->profilDaten($shell, $ma)['nachweise'], $gruppe);
+        }
+    }
+
+    public function test_gesundheit_mit_ja_ohne_datei_laesst_sich_speichern(): void
+    {
+        // Freiwillig, wie im alten Portal: "Ja" plus Datum ohne Upload
+        // blockiert das Speichern NICHT.
+        $ma = $this->mitarbeiter();
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Gesundheit');
+        $shell->profilWerte['has_infection_protection_certificate'] = '1';
+        $shell->profilWerte['infection_protection_first_issued_at'] = '2026-10-01';
+
+        $shell->speichereGruppe();
+
+        $this->assertSame('', $shell->profilFehler);
+        $frisch = RecEmployee::find($ma->id);
+        $this->assertTrue($frisch->has_infection_protection_certificate);
+        $this->assertNull($frisch->erstbescheinigung_file_id);
     }
 }
