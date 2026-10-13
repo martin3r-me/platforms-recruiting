@@ -27,6 +27,18 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
 /**
  * Der Ausloeser: ein gebuchter Einsatz prueft, was dem Menschen davor fehlt.
  *
+ * KUNDENENTSCHEIDUNG MARKUS 12.10.2026 (Go-live-Folie 8): „7 Tage Ruhe?
+ * Mitarbeiter bekommt eine Info und sollte das im Portal als unerledigt
+ * sehen … Keine weitere Info noetig als Nachricht, da er auf BAR steht."
+ * Damit gibt es nur noch EINEN Nachrichten-Anlass: 'neu' (neue offene
+ * Punkte, Signatur-Wechsel, Pause PAUSE_TAGE — unveraendert). Der Anlass
+ * 'erinnerung' (kurz vor dem Einsatz) ist samt seiner Bremsen (F3, ET-26,
+ * ET-27, F6-Erinnerungshaelfte) aus diesem Kommando ENTFERNT, nicht nur
+ * abgeschaltet: kein Versand, kein Stempel `aufgaben_erinnert_at` mehr. Die
+ * Spalte bleibt im Bestand (Migration unangetastet), wird hier aber nicht
+ * mehr geschrieben. Die Absaetze unten zu F3/F6/ET-26/ET-27 sind
+ * Befund-Historie und beschreiben den Stand VOR dieser Entscheidung.
+ *
  * DUENNE HUELLE (Muster SendProofReminders, PersonPairAudit): die Regeln
  * liegen in reinen, einzeln geprueften Klassen — OffenePunkte (was ist
  * offen), EinsatzBezug (loest es aus), TriggerRegeln (darf gemeldet werden),
@@ -52,6 +64,8 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  *  - `rec_persons.aufgaben_nachricht_id` — WELCHE Nachricht das war (ET-23).
  *  - `rec_dispo_assignments.aufgaben_erinnert_at` — die Erinnerung haengt an
  *    der EINBUCHUNG, weil sie sich auf genau diesen Einsatz bezieht.
+ *    Seit Markus 12.10.2026 schreibt dieses Kommando die Spalte NICHT mehr
+ *    (Erinnerung entfaellt); sie bleibt im Bestand stehen.
  *
  * ALLE VIER WERDEN OBSERVER-FREI GESCHRIEBEN, ueber `DB::table(...)`, nie
  * ueber Eloquent. Dieses Modul exportiert an ZAS immer ganze Zeilen; eine
@@ -172,7 +186,8 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  * eine Erinnerung an jemanden, der nichts bekommen hat.
  *
  * ET-27 — DIE PAUSE DARF AUCH AUF DEM ERINNERUNGS-PFAD KEINE NACHRICHT
- * HINTER IHREN EINSATZ SCHIEBEN. Siehe abgedeckt().
+ * HINTER IHREN EINSATZ SCHIEBEN. (abgedeckt() ist mit der Erinnerung
+ * entfernt, Markus 12.10.2026.)
  *
  * ===================================================================
  * DIE BETRIEBSVORGABEN
@@ -207,7 +222,9 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  * vollstaendig: der HR-Fall entsteht, die Signatur wird geraeumt, der
  * Bericht zeigt die ganze Wahrheit. Gedeckelt ist nur der Versand.
  * Gezaehlt werden MENSCHEN, nicht Nachrichten: wer in dieser Welle schon
- * angeschrieben wurde, darf auch noch seine Erinnerung bekommen.
+ * angeschrieben wurde, darf auch noch seine Erinnerung bekommen. (Seit
+ * Markus 12.10.2026 gibt es je Mensch und Lauf ohnehin nur noch die eine
+ * Nachricht 'neu'.)
  *
  * --dry-run SCHREIBT NICHTS UND VERSCHICKT NICHTS — auch nicht das Raeumen
  * der Signatur. Ein Trockenlauf, der "nur ein bisschen" schreibt, ist
@@ -237,7 +254,9 @@ use Platform\Recruiting\Support\VertragsVorbelegung;
  * in JEDEM stuendlichen Lauf erneut. Fail-closed: uebersprungen und im
  * Bericht genannt. Der HR-Fall entsteht trotzdem, denn er haengt am
  * Mitarbeiter; und die ERINNERUNG geht ebenfalls raus (F6), denn ihr Zustand
- * haengt an der Einbuchung.
+ * haengt an der Einbuchung. (Die Erinnerung entfaellt seit Markus
+ * 12.10.2026 — ohne Personen-Zeile geht also gar keine Nachricht mehr raus,
+ * nur der HR-Fall entsteht.)
  * Geheilt wird das mit recruiting:personen-anlegen; neue Anstellungen aus
  * Funnel und ZAS entstehen weiterhin ohne Personen-Zeile, der Fleck waechst
  * also nach.
@@ -257,17 +276,6 @@ class EinsatzPruefung extends Command
      * Oeffentlich: auch HR-"Erneut erinnern" nimmt diese Sperre (Spec HR-Bereich §3.3).
      */
     public const LAUF_SPERRE = 'recruiting:einsatz-pruefung:lauf';
-
-    /**
-     * Die Marke, mit der die Pause der ERINNERUNG ueber dieselbe geprueften
-     * Funktion gefragt wird wie die der neuen Nachricht (F3). Zwei der drei
-     * Waechter in TriggerRegeln::darfMelden() sind dabei absichtlich
-     * wirkungslos: die Marke ist nie leer, und die "letzte Signatur" ist
-     * immer null, also nie gleich. Uebrig bleibt genau die Pausen-Rechnung —
-     * und die soll fuer beide Nachrichten DIESELBE sein, statt ein zweites
-     * Mal nachgebaut zu werden.
-     */
-    private const ERINNERUNG_MARKE = 'erinnerung';
 
     /**
      * Grosszuegig, weil ein scharfer Lauf ueber den Bestand viele
@@ -337,11 +345,7 @@ class EinsatzPruefung extends Command
             'geraeumt'        => 0,
             'nachtraeglich'   => 0,
             'faellig_neu'     => 0,
-            'faellig_erinn'   => 0,
-            'erinn_pause'     => 0,
-            'erinn_mit_neu'   => 0,
             'gesendet_neu'    => 0,
-            'gesendet_erinn'  => 0,
             'fehlversand'     => 0,
             'abgebrochen'     => 0,
             'faelle_neu'      => 0,
@@ -405,9 +409,9 @@ class EinsatzPruefung extends Command
                 // ---- MA-Vertragscheck (Spec Vertrag aus der Akte §3.2). VOR
                 // dem Kurzschluss darunter: wer sonst nichts offen hat, wuerde
                 // sonst nie geprueft. Dieselbe Menge kommender Auftraege wie
-                // fuer Anlass und Erinnerung (eine Abfrage, kein Auseinanderlaufen).
+                // fuer den Anlass (eine Abfrage, kein Auseinanderlaufen).
                 // Eigener Fehlerkaefig: ein Fehler im Vertragscheck kostet
-                // nicht Nachricht, Erinnerung und Raeumen dieses Menschen,
+                // nicht Nachricht und Raeumen dieses Menschen,
                 // faerbt aber den Lauf (abgebrochen) wie jeder andere Abbruch.
                 $kommende = $this->kommendeAuftraege($umfang['ids'], $heute);
                 try {
@@ -423,8 +427,8 @@ class EinsatzPruefung extends Command
                     ]);
                 }
 
-                // ---- Ist nichts offen, ist auch nichts zu melden und nichts
-                // zu erinnern. Vorher raeumen (ET-16), dann fertig.
+                // ---- Ist nichts offen, ist auch nichts zu melden. Vorher
+                // raeumen (ET-16), dann fertig.
                 if ($punkte === []) {
                     $this->raeumen($personId, $dryRun, $z);
                     continue;
@@ -457,10 +461,6 @@ class EinsatzPruefung extends Command
                 $ausloeser = $this->ausloesenderEinsatz($kommende, $heute);
                 $loest     = $ausloeser !== null;
 
-                // ET-26, siehe unten im Erinnerungs-Block.
-                $neuFaellig    = false;
-                $neuVerschickt = false;
-
                 // ---- Die neue Nachricht. NUR sie braucht die Personen-Zeile:
                 // ihr Zustand (Signatur, Stempel) liegt in rec_persons.
                 $person = $personId !== null
@@ -468,10 +468,10 @@ class EinsatzPruefung extends Command
                     : null;
 
                 if ($person === null) {
-                    // Keine oder eine verwaiste Personen-Zeile. F6: das
-                    // ueberspringt ab hier NUR die neue Nachricht, nicht mehr
-                    // die Erinnerung — deren Zustand haengt an der
-                    // Einbuchung und braucht keine Personen-Zeile.
+                    // Keine oder eine verwaiste Personen-Zeile: keine neue
+                    // Nachricht (kein Ort fuer "schon gemeldet"). Die
+                    // Erinnerung, die hier frueher noch lief (F6), entfaellt
+                    // seit Markus 12.10.2026.
                     $z['ohne_person']++;
                 } else {
                     $letzteSignatur = $person->aufgaben_signatur;
@@ -518,12 +518,6 @@ class EinsatzPruefung extends Command
                             $z['altes_portal']++;
                         } else {
                             $z['faellig_neu']++;
-                            // ET-26: in diesem Lauf steht fuer diesen
-                            // Menschen schon eine Nachricht an. Die Flagge
-                            // haengt BEWUSST an der Faelligkeit und nicht am
-                            // Versand — sonst zaehlte der Trockenlauf anders
-                            // als der scharfe Lauf (derselbe Fehler wie F5).
-                            $neuFaellig = true;
 
                             if (!$dryRun && $this->welleNimmt($schluessel, $welle, $angeschrieben)) {
                                 // Der Anlass ist der AUSLOESENDE Einsatz, nicht
@@ -535,130 +529,16 @@ class EinsatzPruefung extends Command
                                 $ergebnis = $sender->sende($bote, $standFuerNeu, 'neu');
                                 $angesprochen[] = sprintf('MA #%d (neu: %s)', $bote->id, $ergebnis);
                                 $this->buchen($personId, $signatur, $ergebnis, $sender->letzteNachrichtId(), $z);
-                                $neuVerschickt = $ergebnis === AufgabenSender::STATUS_SENT;
                             }
                         }
                     }
                 }
 
-                // ---- Die Erinnerung. F6: sie laeuft AUCH ohne Personen-Zeile
-                // — ihr Zustand steht in rec_dispo_assignments.
-                if ($amAltenPortal) {
-                    continue;
-                }
-
-                $faellige = $this->faelligeErinnerungen($kommende, $heute);
-                if ($faellige === []) {
-                    continue;
-                }
-
-                // ---- ET-26: KEIN MENSCH BEKOMMT ZWEI NACHRICHTEN IN EINEM
-                // LAUF. Seit F2 ist das ueberhaupt erst moeglich: vorher
-                // sperrte ein naher Einsatz die neue Nachricht, genau der
-                // Fund. Jetzt koennen "neu" (fuer den fernen Einsatz) und
-                // "Erinnerung" (fuer den nahen) im selben Durchgang
-                // zusammentreffen. Die F3-Bremse faengt das nicht, sie
-                // bremst je ANLASS.
-                //
-                // Die NEUE Nachricht gewinnt: sie nennt den Einsatz, fuer
-                // den die Aufgaben noch zu schaffen sind. Die Erinnerung
-                // entfaellt — und wird TROTZDEM gestempelt, wenn die neue
-                // wirklich rausging, denn ueber dieselbe Punktliste ist der
-                // Mensch in diesem Lauf informiert worden. Ohne den Stempel
-                // kaeme sie in der naechsten Stunde.
-                //
-                // GESTEMPELT WIRD NUR NACH EINEM ECHTEN VERSAND: war die
-                // Welle voll oder ist der Versand gescheitert, hat der
-                // Mensch nichts bekommen, und ein Stempel verbraennte seine
-                // Erinnerung lautlos.
-                if ($neuFaellig) {
-                    if ($neuVerschickt) {
-                        $this->erinnerungStempeln($this->abgedeckt($kommende, $heute));
-                    }
-                    $z['erinn_mit_neu']++;
-                    continue;
-                }
-
-                // ---- F3: EINE BREMSE JE MENSCH. Die Erinnerung hing an gar
-                // nichts ausser dem Stempel je EINBUCHUNG — gemessen drei
-                // WhatsApp in EINEM Lauf und 16 in 14 Tagen, und --welle
-                // bremst das nicht (die zaehlt Menschen und laesst einen
-                // bereits aufgenommenen durch). Eine fuenftaegige Messe ist
-                // in rec_dispo_assignments eine Zeile JE TAG. Markus' Folie
-                // 27 nennt "zu viele Nachrichten" als eines der drei Dinge,
-                // die zu vermeiden sind.
-                //
-                // Zwei Riegel: HOECHSTENS EINE Erinnerung je Mensch und Lauf,
-                // und dieselbe Pause wie bei der neuen Nachricht, gemessen am
-                // juengsten Stempel ueber ALLE Anstellungen des Menschen.
-                //
-                // WAS DAS KOSTET, damit es niemand spaeter entdeckt: zwei
-                // verschiedene Einsaetze innerhalb einer Pause ergeben nur
-                // EINE Erinnerung. Der Inhalt ist bis aufs Datum derselbe
-                // ("du hast X offene Punkte"), und der Mensch wurde gerade
-                // erst erreicht — gegen eine Kette gleicher Nachrichten ist
-                // das der kleinere Preis. Seit ET-27 ist dieser Verzicht
-                // wenigstens SICHTBAR: der zweite Einsatz wird mitgestempelt
-                // statt mit leerem Stempel liegenzubleiben (siehe
-                // abgedeckt()).
-                $letzteErinnerung  = $this->letzteErinnerung($umfang['ids']);
-                $erinnerungErlaubt = TriggerRegeln::darfMelden(
-                    null,
-                    $letzteErinnerung,
-                    self::ERINNERUNG_MARKE,
-                    $jetzt,
-                    EinsatzBezug::PAUSE_TAGE,
-                );
-
-                // ---- ET-27: DIE PAUSE DARF AUCH HIER KEINE NACHRICHT HINTER
-                // IHREN EINSATZ SCHIEBEN. Das ist ET-15, nur auf dem
-                // Erinnerungs-Pfad — und ohne diese Zeile war der Preis der
-                // F3-Bremse nicht "eine Erinnerung statt zwei", sondern fuer
-                // den zweiten Einsatz GAR KEINE: gemessen Einsaetze am 05.10.
-                // und 09.10., der 09.10. wird am 07.10. faellig, ist bis zum
-                // 10.10. gesperrt und danach vorbei. Sein Stempel blieb NULL
-                // und blieb es. Dieselbe vorhandene Ausnahme, dieselbe
-                // Rechnung, keine neue Zahl.
-                if (!$erinnerungErlaubt
-                    && $this->einsatzVorPausenende($letzteErinnerung, EinsatzBezug::PAUSE_TAGE, $faellige[0]['bezug']['datum'])) {
-                    $erinnerungErlaubt = TriggerRegeln::darfMelden(
-                        null,
-                        $letzteErinnerung,
-                        self::ERINNERUNG_MARKE,
-                        $jetzt,
-                        0,
-                    );
-                }
-
-                if (!$erinnerungErlaubt) {
-                    $z['erinn_pause']++;
-                    continue;
-                }
-
-                $z['faellig_erinn']++;
-
-                if ($dryRun || !$this->welleNimmt($schluessel, $welle, $angeschrieben)) {
-                    continue;
-                }
-
-                // Genannt wird der NAECHSTLIEGENDE faellige Einsatz; die
-                // Nachricht spricht aber fuer alle in dieser Frist, deshalb
-                // werden auch alle gestempelt.
-                $standFuerErinnerung = $stand;
-                $standFuerErinnerung['einsatz'] = $faellige[0]['bezug'];
-
-                $ergebnis = $sender->sende($bote, $standFuerErinnerung, 'erinnerung');
-                $angesprochen[] = sprintf('MA #%d (Erinnerung: %s)', $bote->id, $ergebnis);
-
-                if ($ergebnis === AufgabenSender::STATUS_SENT) {
-                    $this->erinnerungStempeln($this->abgedeckt($kommende, $heute));
-                    $z['gesendet_erinn']++;
-                } else {
-                    // KEIN Stempel: eine nicht angenommene Erinnerung wird
-                    // morgen erneut versucht, solange der Einsatz noch in
-                    // der Frist liegt (Muster SendProofReminders).
-                    $z['fehlversand']++;
-                }
+                // ---- Die Erinnerung vor dem Einsatz ENTFAELLT
+                // (Kundenentscheidung Markus 12.10.2026, siehe Klassen-
+                // Docblock): hier stand der Erinnerungs-Pfad (F3, ET-26,
+                // ET-27, F6). Kein Versand, kein Stempel
+                // aufgaben_erinnert_at. Wer offen hat, sieht es im Portal.
             } catch (\Throwable $e) {
                 if (!$vertragAbgebrochen) {
                     $z['abgebrochen']++;
@@ -710,7 +590,7 @@ class EinsatzPruefung extends Command
             // diese Zeile fuer die tragende haelt: eine verschwundene
             // Einbuchung wird weiter unten ohnehin zweimal ausgeschlossen —
             // in OffenePunkte::naechsterEinsatz() und in
-            // erinnerungsKandidaten(). Faellt sie hier weg, kaeme der Mensch
+            // kommendeAuftraege(). Faellt sie hier weg, kaeme der Mensch
             // zwar in den Zielkreis, bekaeme aber trotzdem nichts. Sie bleibt
             // stehen, weil sie den Zielkreis klein haelt, nicht weil eine
             // Regel an ihr haengt.
@@ -1160,10 +1040,11 @@ class EinsatzPruefung extends Command
 
     /**
      * ALLE kommenden Auftraege dieses Menschen, frueheste zuerst — die
-     * gemeinsame Grundlage fuer den Anlass (F2) und die Erinnerung.
+     * gemeinsame Grundlage fuer den Anlass (F2) und den Vertragscheck (bis
+     * Markus 12.10.2026 auch fuer die inzwischen entfallene Erinnerung).
      *
-     * Eine Abfrage statt zweier: die beiden brauchen dieselbe Menge, und
-     * zwei Abfragen koennten zwischen ihnen auseinanderlaufen.
+     * Eine Abfrage statt mehrerer: alle brauchen dieselbe Menge, und
+     * mehrere Abfragen koennten zwischen ihnen auseinanderlaufen.
      *
      * `missing_since` muss leer sein: eine aus der ZAS-Lieferung gefallene
      * Einbuchung ist keine verlaessliche Grundlage fuer eine Nachricht.
@@ -1219,137 +1100,6 @@ class EinsatzPruefung extends Command
         }
 
         return null;
-    }
-
-    /**
-     * Die Einbuchungen in der Erinnerungsfrist, die noch keinen Stempel
-     * tragen — frueheste zuerst.
-     *
-     * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
-     * @return list<array{id:int, bezug: array{datum:string, taetigkeit:?string, event:?string}}>
-     */
-    private function faelligeErinnerungen($kommende, string $heute): array
-    {
-        $faellige = [];
-
-        foreach ($kommende as $einbuchung) {
-            if ($einbuchung->aufgaben_erinnert_at !== null) {
-                continue;
-            }
-
-            $datum = $einbuchung->datum?->format('Y-m-d') ?? '';
-
-            if (!EinsatzBezug::erinnerungFaellig(
-                ['datum' => $datum, 'status_id' => (int) $einbuchung->status_id],
-                $heute,
-                EinsatzBezug::ERINNERUNG_TAGE,
-            )) {
-                continue;
-            }
-
-            $faellige[] = [
-                'id'    => (int) $einbuchung->id,
-                'bezug' => [
-                    'datum'      => $datum,
-                    'taetigkeit' => $einbuchung->taetigkeit,
-                    'event'      => $einbuchung->event?->name,
-                ],
-            ];
-        }
-
-        return $faellige;
-    }
-
-    /**
-     * WAS DIESE EINE NACHRICHT MIT ABDECKT (ET-27).
-     *
-     * Nicht nur die gerade faellige Einbuchung, sondern JEDE kommende,
-     * ungestempelte, die vor dem Ende der Pause liegt — denn genau die
-     * waeren es, deren Erinnerungsfrist vollstaendig in die Pause fiele und
-     * die danach vorbei waeren. Vorher blieb ihr Stempel NULL und blieb es:
-     * das System glaubte, ihnen noch eine Erinnerung zu schulden, und loeste
-     * sie nie ein (gemessen: Einsaetze am 05.10. und 09.10., elf Laeufe,
-     * Stempel 09.10. dauerhaft NULL).
-     *
-     * UND DAS IST ZUGLEICH DIE WACHE, DIE DIE ET-27-AUSNAHME ERST SICHER
-     * MACHT: nach dieser Abdeckung kann es eine faellige, ungestempelte
-     * Einbuchung innerhalb der Pause nur noch geben, wenn sie SEIT der
-     * letzten Nachricht dazugekommen ist — eine neue ZAS-Lieferung also,
-     * und damit echte neue Information. Ohne die Abdeckung schlueg die
-     * Ausnahme bei jedem dicht gebuchten Menschen taeglich zu und machte die
-     * F3-Bremse zunichte (gemessen: 13 Erinnerungen in 14 Tagen statt 2,
-     * und vier statt einer fuer die fuenftaegige Messe).
-     *
-     * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
-     * @return list<int>
-     */
-    private function abgedeckt($kommende, string $heute): array
-    {
-        $grenze = $this->tagePlus($heute, EinsatzBezug::PAUSE_TAGE);
-        $ids = [];
-
-        foreach ($kommende as $einbuchung) {
-            if ($einbuchung->aufgaben_erinnert_at !== null) {
-                continue;
-            }
-
-            $datum = $einbuchung->datum?->format('Y-m-d') ?? '';
-            if ($datum === '' || $grenze === null || $datum >= $grenze) {
-                continue;
-            }
-
-            $ids[] = (int) $einbuchung->id;
-        }
-
-        return $ids;
-    }
-
-    /**
-     * Den Erinnerungs-Stempel setzen — fuer alles, was diese eine Nachricht
-     * abdeckt.
-     *
-     * `whereNull` zusaetzlich: macht das Update wiederholbar, falls zwei
-     * Laeufe dieselbe Einbuchung treffen. Query Builder, weil die Spalte
-     * bewusst nicht in `$fillable` steht.
-     *
-     * @param  list<int>  $ids
-     */
-    private function erinnerungStempeln(array $ids): void
-    {
-        if ($ids === []) {
-            return;
-        }
-
-        DB::table('rec_dispo_assignments')
-            ->whereIn('id', $ids)
-            ->whereNull('aufgaben_erinnert_at')
-            ->update(['aufgaben_erinnert_at' => now()]);
-    }
-
-    /** Y-m-d plus n Tage; null, wenn das Datum unlesbar ist. */
-    private function tagePlus(string $datum, int $tage): ?string
-    {
-        try {
-            return (new DateTimeImmutable($datum))->setTime(0, 0)->modify('+'.$tage.' days')->format('Y-m-d');
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    /**
-     * Wann wurde dieser MENSCH zuletzt erinnert? Der juengste Stempel ueber
-     * alle seine Anstellungen (F3) — die Erinnerung gehoert dem Menschen,
-     * auch wenn ihr Zustand an der Einbuchung haengt.
-     *
-     * @param  list<int>  $umfangIds
-     */
-    private function letzteErinnerung(array $umfangIds): ?string
-    {
-        $wert = DB::table('rec_dispo_assignments')
-            ->whereIn('rec_employee_id', $umfangIds)
-            ->max('aufgaben_erinnert_at');
-
-        return $wert === null ? null : (string) $wert;
     }
 
     /**
@@ -1436,8 +1186,8 @@ class EinsatzPruefung extends Command
     /**
      * Passt dieser Mensch noch in die Welle?
      *
-     * Gezaehlt werden MENSCHEN: wer schon drin ist, darf auch noch seine
-     * Erinnerung bekommen, sonst bliebe eine halbe Ansprache stehen.
+     * Gezaehlt werden MENSCHEN: wer schon drin ist, zaehlt nicht doppelt.
+     * (Bis Markus 12.10.2026 durfte er so noch seine Erinnerung bekommen.)
      *
      * @param  array<string, true>  $angeschrieben
      */
@@ -1469,13 +1219,11 @@ class EinsatzPruefung extends Command
             $z['anstellungen'],
         ));
 
+        // Nur noch die neue Nachricht — die Erinnerung vor dem Einsatz
+        // entfaellt (Markus 12.10.2026).
         $this->line(sprintf(
-            'Faellig: %d Mensch(en) fuer eine neue Nachricht, %d Mensch(en) fuer eine Erinnerung '
-            .'(%d warten noch die Pause ab, %d bekommen in diesem Lauf schon die neue Nachricht).',
+            'Faellig: %d Mensch(en) fuer eine neue Nachricht.',
             $z['faellig_neu'],
-            $z['faellig_erinn'],
-            $z['erinn_pause'],
-            $z['erinn_mit_neu'],
         ));
 
         if ($dryRun) {
@@ -1485,9 +1233,8 @@ class EinsatzPruefung extends Command
                 .'HR-Faelle und das Raeumen der Signatur sind davon nicht betroffen.');
         } else {
             $this->line(sprintf(
-                'Verschickt: %d neu, %d Erinnerung(en), %d fehlgeschlagen.',
+                'Verschickt: %d neu, %d fehlgeschlagen.',
                 $z['gesendet_neu'],
-                $z['gesendet_erinn'],
                 $z['fehlversand'],
             ));
 

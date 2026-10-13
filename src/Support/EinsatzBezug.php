@@ -14,7 +14,7 @@ use DateTimeImmutable;
  *
  * Ausgeloest wird nur bei AUFTRAG (status_id 1), nicht bei ANGEBOT (0):
  * angefragt ist nicht gebucht, und wer absagt, soll nichts bekommen. Das gilt
- * fuer alle drei Methoden — auch naechster() filtert seit der ET-13-Korrektur
+ * fuer alle Methoden — auch naechster() filtert seit der ET-13-Korrektur
  * auf AUFTRAG (vorher lieferte sie auch einen stornierten oder beendeten
  * Einsatz als "naechsten Bezug" zurueck, siehe BEENDET=2/STORNO=3 in
  * RecDispoAssignment: ein Storno als Anlass fuer eine Aufgabe waere eine
@@ -23,11 +23,15 @@ use DateTimeImmutable;
  * Die Mindest-Vorlaufzeit ist keine Bequemlichkeit: eine Nachricht, die am
  * Vorabend „lade deinen Ausweis hoch" sagt, ist keine Hilfe. Der Fall gehoert
  * dann auf die HR-Liste, nicht ins Handy des Mitarbeiters.
+ *
+ * Kundenentscheidung Markus 12.10.2026: die Erinnerung vor dem Einsatz
+ * entfaellt („Keine weitere Info noetig als Nachricht, da er auf BAR steht").
+ * Mit ihr sind erinnerungFaellig() und ERINNERUNG_TAGE (2 Tage) entfernt —
+ * einziger Nutzer war der Erinnerungs-Pfad von recruiting:einsatz-pruefung.
  */
 final class EinsatzBezug
 {
     public const VORLAUF_TAGE     = 4;
-    public const ERINNERUNG_TAGE  = 2;
     public const PAUSE_TAGE       = 7;
 
     private const STATUS_AUFTRAG = 1;
@@ -42,25 +46,6 @@ final class EinsatzBezug
         $tage = self::tageBis($einsatz['datum'] ?? '', $heute);
 
         return $tage !== null && $tage >= $vorlaufTage;
-    }
-
-    /**
-     * ET-7-Korrektur: ohne untere Schranke erfuellte ein VERGANGENER Einsatz
-     * (tageBis negativ) "tage <= schwelle" ebenso wie ein kommender — die
-     * Erinnerung waere fuer etwas Vorbeies faellig gewesen. "$tage >= 0"
-     * schliesst das aus; ein Einsatz HEUTE (tage = 0) loest weiterhin aus.
-     *
-     * @param array{datum?:string, status_id?:int} $einsatz
-     */
-    public static function erinnerungFaellig(array $einsatz, string $heute, int $schwelleTage): bool
-    {
-        if ((int) ($einsatz['status_id'] ?? -1) !== self::STATUS_AUFTRAG) {
-            return false;
-        }
-
-        $tage = self::tageBis($einsatz['datum'] ?? '', $heute);
-
-        return $tage !== null && $tage >= 0 && $tage <= $schwelleTage;
     }
 
     /**

@@ -345,7 +345,10 @@ class ApplicantSettingsModal extends Component
             PortalVorlagen::CODE_NOTFALL        => $code . ' Geht nur raus, wenn der Notfall-Weg freigeschaltet ist.',
             PortalVorlagen::HINWEIS_ALTE_NUMMER => 'Ohne Platzhalter oder nur mit Vorname. Nennt die neue Nummer bewusst nicht.',
             PortalVorlagen::AUFGABEN_NEU        => '&#123;&#123;anzahl&#125;&#125;, optional Vorname, und ein URL-Knopf, dessen Variable am Ende steht.',
-            PortalVorlagen::AUFGABEN_ERINNERUNG => '&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;, optional Vorname, URL-Knopf wie oben.',
+            // Seit Markus 12.10.2026 keine automatische Erinnerung vor dem
+            // Einsatz mehr — die Vorlage traegt nur noch HR „Erneut erinnern".
+            PortalVorlagen::AUFGABEN_ERINNERUNG => 'Geht nur noch raus, wenn HR „Erneut erinnern“ klickt — die automatische Erinnerung vor dem Einsatz entfällt. '
+                . '&#123;&#123;anzahl&#125;&#125; und &#123;&#123;datum&#125;&#125;, optional Vorname, URL-Knopf wie oben.',
             // Anforderungen aus ProofReminderSender::send(): nur diese Platzhalter
             // sind befuellbar, und buildTokenComponents verlangt genau einen
             // dynamischen URL-Knopf. Seit Markus 12.10.2026 gebuendelt: eine

@@ -79,6 +79,13 @@ informiert, die letzte Nachricht ist lange genug her, und der Einsatz ist weit g
 Moment, in dem es wirklich drängt — und bisher merkt es niemand, bis jemand vor Ort
 steht.
 
+> **Nachtrag: Erinnerung entfällt (Markus 12.10.2026).** Go-live-Folie 8: „7 Tage Ruhe?
+> Mitarbeiter bekommt eine Info und sollte das im Portal als unerledigt sehen … Keine
+> weitere Info nötig als Nachricht, da er auf BAR steht." Der zweite Anlass ist aus
+> `recruiting:einsatz-pruefung` entfernt — kein Versand, kein Stempel an der Einbuchung
+> mehr; die Spalte bleibt im Bestand. Es bleibt allein der erste Anlass. Die
+> Erinnerungsschwelle (§ Zahlen) entfällt mit ihm.
+
 Ein Schub von Aufträgen am selben Tag erzeugt damit **eine** Nachricht, nicht drei. Ein
 abgelaufener Nachweis meldet sich, weil sich die Punkte geändert haben.
 
@@ -204,7 +211,7 @@ gespeichert.
 |---|---|---|
 | Person | Fingerabdruck der zuletzt gemeldeten Punkte | „über genau diese Punkte wurde schon informiert" |
 | Person | Zeitpunkt dieser Meldung | die Mindestpause |
-| Einbuchung | Zeitpunkt der Erinnerung | der zweite Anlass |
+| Einbuchung | Zeitpunkt der Erinnerung | der zweite Anlass — entfällt seit Markus 12.10.2026, wird nicht mehr geschrieben |
 
 Der Fingerabdruck haengt an der **Person**, nicht an der Anstellung — sonst bekaeme ein
 Mensch mit zwei Anstellungen zwei Nachrichten mit demselben Inhalt (§2.5).
@@ -279,7 +286,7 @@ Stelle, damit sie änderbar bleiben:
 | | Vorschlag | Begruendung |
 |---|---|---|
 | **Mindest-Vorlaufzeit** | 4 Tage | Darunter ist die Nachricht keine Hilfe mehr: Dokument suchen, abfotografieren, hochladen braucht einen Abend, und ein Vertrag will gelesen werden. Faelle darunter stehen auf der HR-Liste. |
-| **Erinnerungsschwelle** | 2 Tage vorher | Letzter Moment, an dem der Mensch noch handeln **und** HR noch Ersatz suchen kann. |
+| **Erinnerungsschwelle** (entfällt, Markus 12.10.2026) | 2 Tage vorher | Letzter Moment, an dem der Mensch noch handeln **und** HR noch Ersatz suchen kann. |
 | **Mindestpause** | 7 Tage | Eine Woche ist die uebliche Taktung der Einsaetze; kuerzer wird es Rauschen. |
 
 Die drei Zahlen stehen als Konstanten an **einer** Stelle und sind aenderbar, ohne dass

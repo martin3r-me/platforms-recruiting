@@ -26,7 +26,16 @@ final class PortalVorlagen
         'notfall'        => self::CODE_NOTFALL,
     ];
 
-    /** Anlass → Schluessel. */
+    /**
+     * Anlass → Schluessel.
+     *
+     * 'erinnerung' bleibt BEWUSST stehen, obwohl die Einsatz-Pruefung seit
+     * der Kundenentscheidung Markus 12.10.2026 keine Erinnerung vor dem
+     * Einsatz mehr verschickt: der HR-Knopf „Erneut erinnern" fuer offene
+     * Aufgaben (HrKontoAktionen::erinnereAufgaben) sendet ueber genau diesen
+     * Anlass und diese Vorlage. Ohne sie liefe der Knopf auf
+     * „nicht konfiguriert".
+     */
     public const AUFGABEN_SCHLUESSEL = ['neu' => self::AUFGABEN_NEU, 'erinnerung' => self::AUFGABEN_ERINNERUNG];
 
     /** Schluessel → Feldname in den Einstellungen; Teil jeder Fehlermeldung der Sender. */

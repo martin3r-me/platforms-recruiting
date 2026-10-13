@@ -100,6 +100,11 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *  - GENAU EIN dynamischer URL-Knopf fuer den Portal-Link (F1 unten).
  *  - Zwei Anlaesse, weil der Text sich unterscheidet: die erste Nachricht
  *    und die Erinnerung, wenn der Einsatz naeher rueckt.
+ *    Kundenentscheidung Markus 12.10.2026: die AUTOMATISCHE Erinnerung vor
+ *    dem Einsatz entfaellt (recruiting:einsatz-pruefung sendet nur noch
+ *    'neu'). Der Anlass 'erinnerung' samt {{datum}} bleibt trotzdem, weil
+ *    der HR-Knopf „Erneut erinnern" (HrKontoAktionen::erinnereAufgaben) ihn
+ *    benutzt.
  *
  * KEINE VOLLE RUFNUMMER IM LOG (Datenschutz, gleiche Kuerzung wie in
  * `KontoWriter`/`EinmalcodeSender`): `PhoneE164::suffix()` liefert die

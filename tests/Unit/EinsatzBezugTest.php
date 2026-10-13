@@ -49,20 +49,6 @@ final class EinsatzBezugTest extends TestCase
         ));
     }
 
-    public function test_zwei_tage_vorher_ist_die_erinnerung_faellig(): void
-    {
-        $this->assertTrue(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-10-03', 'status_id' => 1], '2026-10-01', 2
-        ));
-    }
-
-    public function test_drei_tage_vorher_noch_nicht(): void
-    {
-        $this->assertFalse(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-10-04', 'status_id' => 1], '2026-10-01', 2
-        ));
-    }
-
     public function test_der_naechste_einsatz_ist_der_zeitlich_naechste_kommende(): void
     {
         $naechster = EinsatzBezug::naechster([
@@ -81,26 +67,6 @@ final class EinsatzBezugTest extends TestCase
         ], '2026-10-01'));
     }
 
-    /**
-     * ET-7-Korrektur: erinnerungFaellig() hatte keine untere Schranke. Ein
-     * VERGANGENER Einsatz (tageBis = -1) erfuellte "-1 <= schwelle" und loeste
-     * eine Erinnerung fuer etwas aus, das schon vorbei ist.
-     */
-    public function test_ein_vergangener_einsatz_loest_keine_erinnerung_aus(): void
-    {
-        $this->assertFalse(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-09-30', 'status_id' => 1], '2026-10-01', 2
-        ));
-    }
-
-    /** Ein Einsatz HEUTE (tage = 0) muss weiterhin ausloesen. */
-    public function test_ein_einsatz_heute_loest_die_erinnerung_aus(): void
-    {
-        $this->assertTrue(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-10-01', 'status_id' => 1], '2026-10-01', 2
-        ));
-    }
-
     /** Ein unlesbares Datum darf keinen Versand ausloesen — die sichere Richtung. */
     public function test_ein_unlesbares_datum_loest_nichts_aus(): void
     {
@@ -110,15 +76,16 @@ final class EinsatzBezugTest extends TestCase
     }
 
     /**
-     * Die drei Zahlen werden hereingereicht, damit Tests sie ausschreiben
+     * Die Zahlen werden hereingereicht, damit Tests sie ausschreiben
      * koennen — dieser Test sichert ihre tatsaechlichen Werte zu, sonst
-     * prueft nichts, dass sie 4, 2 und 7 sind.
+     * prueft nichts, dass sie 4 und 7 sind. ERINNERUNG_TAGE (2) ist mit der
+     * Erinnerung vor dem Einsatz entfallen (Markus 12.10.2026).
      */
-    public function test_die_drei_konstanten_haben_die_vereinbarten_werte(): void
+    public function test_die_konstanten_haben_die_vereinbarten_werte(): void
     {
         $this->assertSame(4, EinsatzBezug::VORLAUF_TAGE);
-        $this->assertSame(2, EinsatzBezug::ERINNERUNG_TAGE);
         $this->assertSame(7, EinsatzBezug::PAUSE_TAGE);
+        $this->assertFalse(defined(EinsatzBezug::class.'::ERINNERUNG_TAGE'), 'die Erinnerung vor dem Einsatz ist entfallen');
     }
 
     // --- Nachbesserungsrunde 1 (Pruefbericht task-6-7-review.md) ---------
@@ -132,19 +99,6 @@ final class EinsatzBezugTest extends TestCase
     {
         $this->assertFalse(EinsatzBezug::loestAus(
             ['datum' => '2026-10-20'], '2026-10-01', 4
-        ));
-    }
-
-    /**
-     * EB-11: der Statuswaechter in erinnerungFaellig() ist eine eigene Kopie
-     * des Waechters in loestAus() — bisher ungetestet. Ein storniertes
-     * Angebot (STATUS_STORNO = 3 in RecDispoAssignment) darf keine
-     * Erinnerung ausloesen, obwohl es im Vorlauffenster liegt.
-     */
-    public function test_ein_stornierter_einsatz_loest_keine_erinnerung_aus(): void
-    {
-        $this->assertFalse(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-10-02', 'status_id' => 3], '2026-10-01', 2
         ));
     }
 
@@ -186,19 +140,6 @@ final class EinsatzBezugTest extends TestCase
     {
         $this->assertFalse(EinsatzBezug::loestAus(
             ['datum' => '2026-10-06', 'status_id' => 1], '2026-10-01', 10
-        ));
-    }
-
-    /**
-     * EB-8b: erinnerungFaellig() muss die uebergebene Schwelle benutzen,
-     * nicht die Konstante 2 fest verdrahten. Mit schwelleTage=5 ist ein
-     * Einsatz in 4 Tagen faellig — ein hartcodiertes "2" wuerde hier
-     * faelschlich false liefern.
-     */
-    public function test_eine_andere_schwelle_als_zwei_wird_tatsaechlich_benutzt(): void
-    {
-        $this->assertTrue(EinsatzBezug::erinnerungFaellig(
-            ['datum' => '2026-10-05', 'status_id' => 1], '2026-10-01', 5
         ));
     }
 
