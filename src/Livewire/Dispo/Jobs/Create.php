@@ -21,6 +21,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\Filialen;
@@ -52,11 +53,12 @@ class Create extends Component
     public array $tage = [];
     /** DispoJobSchichten::schluessel => Zahl (String). @var array<string, string> */
     public array $gesucht = [];
-    /** Freie Schichten: list<{event, datum, von, taetigkeit, gesucht}>. */
+    /** Freie Schichten: list<{event, datum, von, bis, taetigkeit, gesucht}>. */
     public array $andere = [];
 
     public string $neuEventTag = '';
     public string $neuVon = '';
+    public string $neuBis = '';
     public string $neuTaetigkeit = '';
     public string $neuGesucht = '';
 
@@ -222,6 +224,7 @@ class Create extends Component
         [$eventId, $datum] = array_pad(explode('|', $this->neuEventTag, 2), 2, '');
         $eventId = (int) $eventId;
         $von = trim($this->neuVon);
+        $bis = trim($this->neuBis);
         $taet = trim($this->neuTaetigkeit);
         $gesucht = ctype_digit(trim($this->neuGesucht)) ? (int) trim($this->neuGesucht) : 0;
 
@@ -230,8 +233,8 @@ class Create extends Component
 
             return;
         }
-        if ($von !== '' && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $von) !== 1) {
-            $this->fehler = 'Der Beginn muss als Uhrzeit (HH:MM) angegeben werden.';
+        if (($zeitProblem = DispoJobZeit::problem($von, $bis)) !== null) {
+            $this->fehler = $zeitProblem;
 
             return;
         }
@@ -246,8 +249,9 @@ class Create extends Component
             return;
         }
 
-        $this->andere[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'taetigkeit' => $taet, 'gesucht' => (string) $gesucht];
+        $this->andere[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => (string) $gesucht];
         $this->neuVon = '';
+        $this->neuBis = '';
         $this->neuTaetigkeit = '';
         $this->neuGesucht = '';
     }
@@ -411,7 +415,7 @@ class Create extends Component
      * Alle Schichten der aktuellen Auswahl (ZAS-Schichten der aktiven Tage + andere),
      * auch mit gesucht 0 — DispoJobAnfrageAnlegen filtert.
      *
-     * @return list<array{event:int, datum:string, von:string, taetigkeit:string, gesucht:int}>
+     * @return list<array{event:int, datum:string, von:string, bis:string, taetigkeit:string, gesucht:int}>
      */
     #[Computed]
     public function gewaehlteSchichten(): array
@@ -424,7 +428,7 @@ class Create extends Component
                     continue;
                 }
                 foreach ($schichten as $s) {
-                    $out[] = ['event' => (int) $eventId, 'datum' => $datum, 'von' => $s['von'], 'taetigkeit' => $s['taetigkeit'],
+                    $out[] = ['event' => (int) $eventId, 'datum' => $datum, 'von' => $s['von'], 'bis' => $s['bis'], 'taetigkeit' => $s['taetigkeit'],
                         'gesucht' => self::zahl($this->gesucht[$s['key']] ?? '')];
                 }
             }
@@ -435,12 +439,13 @@ class Create extends Component
             $eventId = (int) ($a['event'] ?? 0);
             $datum = (string) ($a['datum'] ?? '');
             $von = trim((string) ($a['von'] ?? ''));
+            $bis = trim((string) ($a['bis'] ?? ''));
             $taet = trim((string) ($a['taetigkeit'] ?? ''));
             if (!in_array($datum, $eventTage[$eventId] ?? [], true) || !in_array($taet, $katalog, true)
-                || ($von !== '' && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $von) !== 1)) {
+                || DispoJobZeit::problem($von, $bis) !== null) {
                 continue;
             }
-            $out[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'taetigkeit' => $taet, 'gesucht' => self::zahl($a['gesucht'] ?? '')];
+            $out[] = ['event' => $eventId, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => self::zahl($a['gesucht'] ?? '')];
         }
 
         return $out;

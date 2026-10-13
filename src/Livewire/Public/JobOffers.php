@@ -11,6 +11,7 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
@@ -121,6 +122,7 @@ class JobOffers extends Component
                 'event'          => (int) $shift->rec_dispo_event_id,
                 'datum'          => $shift->datum->toDateString(),
                 'von'            => $shift->von,
+                'zeit'           => DispoJobZeit::spanne($shift->von, $shift->bis),
                 'taetigkeit'     => $shift->taetigkeit,
                 'laeuft'         => $shift->request->laeuft(),
                 'closed'         => $shift->closed_at !== null,
@@ -146,6 +148,7 @@ class JobOffers extends Component
             $groups[$row['event']]['days'][$row['datum']][] = [
                 'offer_shift_id' => $row['offer_shift_id'],
                 'von'            => $row['von'],
+                'zeit'           => $row['zeit'],
                 'taetigkeit'     => $row['taetigkeit'],
                 'accepted'       => $row['accepted'],
                 'zuerst'         => $row['zuerst'],

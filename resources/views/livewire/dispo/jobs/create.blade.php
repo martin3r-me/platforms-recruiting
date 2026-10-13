@@ -139,7 +139,7 @@
                                 <table class="w-full text-sm">
                                     <thead>
                                         <tr class="text-left text-xs text-gray-500">
-                                            <th class="py-1 pr-3 font-medium">Beginn</th>
+                                            <th class="py-1 pr-3 font-medium">Zeit</th>
                                             <th class="py-1 pr-3 font-medium">Tätigkeit</th>
                                             <th class="py-1 pr-3 font-medium">Zeilen</th>
                                             <th class="py-1 pr-3 font-medium">laut ZAS unbesetzt</th>
@@ -148,8 +148,11 @@
                                     </thead>
                                     <tbody>
                                         @foreach ($schichten as $s)
+                                            @php
+                                                $spanne = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($s['von'], $s['bis'] ?? '');
+                                            @endphp
                                             <tr wire:key="s-{{ $s['key'] }}" class="border-t border-gray-100">
-                                                <td class="py-1 pr-3 tabular-nums">{{ $s['von'] !== '' ? $s['von'] : '–' }}</td>
+                                                <td class="py-1 pr-3 tabular-nums">{{ $spanne !== '' ? $spanne : '–' }}</td>
                                                 <td class="py-1 pr-3">{{ $s['taetigkeit'] !== '' ? $s['taetigkeit'] : '–' }}</td>
                                                 <td class="py-1 pr-3 tabular-nums">{{ $s['zeilen'] }}</td>
                                                 <td class="py-1 pr-3 text-xs text-amber-700">
@@ -184,7 +187,7 @@
                         <tr class="text-left text-xs text-gray-500">
                             <th class="py-1 pr-3 font-medium">Veranstaltung</th>
                             <th class="py-1 pr-3 font-medium">Tag</th>
-                            <th class="py-1 pr-3 font-medium">Beginn</th>
+                            <th class="py-1 pr-3 font-medium">Zeit</th>
                             <th class="py-1 pr-3 font-medium">Tätigkeit</th>
                             <th class="py-1 pr-3 font-medium">gesucht</th>
                             <th></th>
@@ -192,11 +195,14 @@
                     </thead>
                     <tbody>
                         @foreach ($andere as $i => $a)
-                            @php $andereVa = $gewaehlt->get((int) $a['event']); @endphp
+                            @php
+                                $andereVa = $gewaehlt->get((int) $a['event']);
+                                $andereSpanne = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($a['von'], $a['bis'] ?? '');
+                            @endphp
                             <tr wire:key="andere-{{ $i }}" class="border-t border-gray-100">
                                 <td class="py-1 pr-3">{{ $andereVa?->name ?? '–' }}</td>
                                 <td class="py-1 pr-3 tabular-nums">{{ \Illuminate\Support\Carbon::parse($a['datum'])->format('d.m.Y') }}</td>
-                                <td class="py-1 pr-3 tabular-nums">{{ $a['von'] !== '' ? $a['von'] : '–' }}</td>
+                                <td class="py-1 pr-3 tabular-nums">{{ $andereSpanne !== '' ? $andereSpanne : '–' }}</td>
                                 <td class="py-1 pr-3">{{ $a['taetigkeit'] }}</td>
                                 <td class="py-1 pr-3">
                                     <input type="number" min="0" max="999" inputmode="numeric" wire:model="andere.{{ $i }}.gesucht" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
@@ -227,6 +233,10 @@
                     <label class="flex flex-col gap-1 text-sm">
                         <span class="text-xs font-medium text-gray-500">Beginn</span>
                         <input type="time" wire:model="neuVon" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                    </label>
+                    <label class="flex flex-col gap-1 text-sm">
+                        <span class="text-xs font-medium text-gray-500">Ende <span class="font-normal">(optional)</span></span>
+                        <input type="time" wire:model="neuBis" class="rounded border border-gray-300 px-2 py-1 text-sm">
                     </label>
                     <label class="flex flex-col gap-1 text-sm">
                         <span class="text-xs font-medium text-gray-500">Tätigkeit</span>

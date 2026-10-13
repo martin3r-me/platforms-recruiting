@@ -237,7 +237,7 @@
                 $schichtTitel = implode(' · ', array_filter([
                     $s->event?->name,
                     $s->datum->locale('de')->isoFormat('dd DD.MM.YYYY'),
-                    $s->von !== '' ? $s->von . ' Uhr' : null,
+                    $s->von !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($s->von, $s->bis) . ' Uhr' : null,
                     $s->taetigkeit,
                 ]));
                 $voll = (int) $s->zugesagt >= (int) $s->gesucht;

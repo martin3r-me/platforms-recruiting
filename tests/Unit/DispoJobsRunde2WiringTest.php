@@ -74,4 +74,13 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('in drei Schritten', $doku);
         $this->assertStringNotContainsString('fünf Schritten', $doku);
     }
+
+    public function test_endzeit_wird_ueberall_als_spanne_gezeigt(): void
+    {
+        $this->assertStringContainsString('DispoJobZeit::problem($von, $bis)', self::datei('src/Livewire/Dispo/Jobs/Create.php'));
+        $this->assertStringContainsString('wire:model="neuBis"', self::datei('resources/views/livewire/dispo/jobs/create.blade.php'));
+        $this->assertStringContainsString('DispoJobZeit::spanne($s->von, $s->bis)', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
+        $this->assertStringContainsString('DispoJobZeit::spanne($shift->von, $shift->bis)', self::datei('src/Livewire/Public/JobOffers.php'));
+        $this->assertStringContainsString("\$shift['zeit']", self::datei('resources/views/livewire/public/job-offers.blade.php'));
+    }
 }
