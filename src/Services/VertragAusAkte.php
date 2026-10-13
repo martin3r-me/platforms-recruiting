@@ -111,6 +111,12 @@ final class VertragAusAkte
                 trim((string) $anstellung->company) !== '' ? $anstellung->company : '—'
             ));
         }
+        if ($vorlage->zuschlagQuelle() === null) {
+            throw new \DomainException(sprintf(
+                'Die Vorlage %s hat einen festen Zuschlag im Text — aus der Akte entstehen nur Verträge aus Vorlagen, die den eingetragenen Zuschlag übernehmen (z. B. AV-default).',
+                $vorlage->code
+            ));
+        }
         if (!YmdDate::isValid($angaben->beginn)) {
             throw new \DomainException('Bitte einen gültigen Vertragsbeginn eintragen.');
         }

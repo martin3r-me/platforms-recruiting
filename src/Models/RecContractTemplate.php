@@ -507,4 +507,27 @@ class RecContractTemplate extends Model
 
         return '';
     }
+
+    /**
+     * Woraus loest die Vorlage den Zuschlag auf? (Einzige Quelle der Wahrheit.)
+     *   'applicant' → applicant.zuschlag (AV-default, der Regelfall)
+     *   'contract'  → contract.extra_field.zuschlag
+     *   null        → gar nicht: Altbestands-Variante mit festem Betrag im Text
+     * Geprueft wird das MAPPING, nicht der Text.
+     */
+    public function zuschlagQuelle(): ?string
+    {
+        $mappings = $this->field_mappings;
+        if (!is_array($mappings)) {
+            return null;
+        }
+        if (in_array('applicant.zuschlag', $mappings, true)) {
+            return 'applicant';
+        }
+        if (in_array('contract.extra_field.zuschlag', $mappings, true)) {
+            return 'contract';
+        }
+
+        return null;
+    }
 }

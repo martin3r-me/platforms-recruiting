@@ -82,6 +82,18 @@ final class VertragAusAkteOberflaecheTest extends TestCase
         $this->assertSame([['id' => $passend->id, 'label' => 'AV MA Logistik (Logistiker)']], $this->akte($this->anstellung())->vertragsVorlagen());
     }
 
+    /** Generalprobe: AV-110 haette 1,10 statt 1,60 gedruckt. */
+    public function test_vorlage_mit_festem_zuschlag_wird_nicht_angeboten(): void
+    {
+        $passend = $this->maVorlage();
+        $this->vorlage('AV-110', 'MA', ['content' => '<p>Zuschlag 1,10 €</p>']
+            + ['field_mappings' => ['vorname' => 'contact.first_name']]);
+        $contract = $this->vorlage('AV-MA-LIVE', 'MA', ['field_mappings' => ['z' => 'contract.extra_field.zuschlag']]);
+
+        $ids = array_column($this->akte($this->anstellung())->vertragsVorlagen(), 'id');
+        $this->assertSame([(int) $passend->id, (int) $contract->id], $ids);
+    }
+
     /** Review-Focus 4. */
     public function test_erstellen_mit_komma_zuschlag_landet_in_der_liste(): void
     {

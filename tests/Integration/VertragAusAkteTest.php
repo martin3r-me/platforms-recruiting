@@ -65,6 +65,21 @@ final class VertragAusAkteTest extends TestCase
         ]);
     }
 
+    public function test_vorlage_mit_festem_zuschlag_im_text_wird_abgelehnt(): void
+    {
+        $ma = $this->anstellung();
+        $fest = $this->vorlage('AV-110', 'MA', ['field_mappings' => ['vorname' => 'contact.first_name']]);
+
+        try {
+            $this->service()->erstellen($ma, $fest, new VertragsAngaben('2026-10-01', '2026-10-31', 1.6), 42);
+            $this->fail('DomainException erwartet');
+        } catch (\DomainException $e) {
+            $this->assertStringContainsString('AV-110 hat einen festen Zuschlag im Text', $e->getMessage());
+        }
+        $this->assertSame(0, RecContract::query()->count());
+        $this->assertSame([], $this->sender->an);
+    }
+
     /** Spec-Test 1 + Review-Focus 4 ("0,60"). */
     public function test_legt_vertrag_an_der_anstellung_an_mit_feldern_link_und_status_sent(): void
     {

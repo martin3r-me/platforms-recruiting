@@ -3,7 +3,7 @@
     @include('recruiting::livewire.employees._modal-fehler', ['fehler' => $fehler])
     @if(empty($vertragVorlagen))
         <p class="text-sm text-amber-700">
-            Für die Gesellschaft {{ $vertragFirma !== '' ? $vertragFirma : '—' }} ist keine Arbeitsvertrags-Vorlage angelegt.
+            Für die Gesellschaft {{ $vertragFirma !== '' ? $vertragFirma : '—' }} ist keine Arbeitsvertrags-Vorlage angelegt, die den eingetragenen Zuschlag übernimmt.
         </p>
     @else
         <div>

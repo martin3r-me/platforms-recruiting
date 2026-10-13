@@ -450,24 +450,7 @@ class ReissueContractService
      */
     private function zuschlagSource($template): ?string
     {
-        $mappings = $template->field_mappings;
-        if (!is_array($mappings)) {
-            return null;
-        }
-
-        foreach ($mappings as $source) {
-            if ($source === 'applicant.zuschlag') {
-                return 'applicant';
-            }
-        }
-
-        foreach ($mappings as $source) {
-            if ($source === 'contract.extra_field.zuschlag') {
-                return 'contract';
-            }
-        }
-
-        return null;
+        return $template->zuschlagQuelle();
     }
 
     /**

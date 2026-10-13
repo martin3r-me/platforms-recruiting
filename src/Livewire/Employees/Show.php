@@ -731,7 +731,7 @@ class Show extends Component
 
     /**
      * Die Vertragsarten dieser Akte (Spec §2.1): aktive Vorlagen vom Typ
-     * Vertrag, Code AV-*, Gesellschaft = Gesellschaft der Akte.
+     * Vertrag, Code AV-*, Gesellschaft = Gesellschaft der Akte, Zuschlag aus dem Mapping.
      *
      * @return list<array{id:int, label:string}>
      */
@@ -752,7 +752,9 @@ class Show extends Component
             ->where('company', $firma)
             ->orderBy('sort_order')
             ->orderBy('name')
-            ->get(['id', 'name', 'taetigkeit'])
+            ->get(['id', 'name', 'taetigkeit', 'field_mappings'])
+            // Feste Betraege im Text (AV-110 …) wuerden den eingetragenen Zuschlag nicht drucken.
+            ->filter(fn (RecContractTemplate $t) => $t->zuschlagQuelle() !== null)
             ->map(fn (RecContractTemplate $t) => [
                 'id'    => (int) $t->id,
                 'label' => $t->name . (trim((string) $t->taetigkeit) !== '' ? ' (' . VorlagenMerkmale::taetigkeit($t->taetigkeit) . ')' : ''),

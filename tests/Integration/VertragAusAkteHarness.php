@@ -198,7 +198,8 @@ trait VertragAusAkteHarness
         return RecContractTemplate::create(array_merge([
             'team_id' => $this->team, 'name' => $code, 'code' => $code, 'company' => $company,
             'is_active' => true, 'content' => '<p>{{vorname}} {{nachname}}</p>',
-            'field_mappings' => ['vorname' => 'contact.first_name', 'nachname' => 'contact.last_name'],
+            // Standard wie AV-default: der eingetragene Zuschlag wird uebernommen.
+            'field_mappings' => ['vorname' => 'contact.first_name', 'nachname' => 'contact.last_name', 'zuschlag' => 'applicant.zuschlag'],
         ], $set));
     }
 
