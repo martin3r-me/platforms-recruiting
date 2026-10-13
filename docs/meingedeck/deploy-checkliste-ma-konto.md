@@ -1,9 +1,10 @@
 # Deploy-Checkliste `feat/ma-konto` → `main` → Produktion (meingedeck)
 
 Stand: 13.10.2026 · Zweig `feat/ma-konto` @ `cedb8544` (Generalprobe auf der Demo gelaufen, Markus-Antworten vom 12.10. eingearbeitet) · Host-App `meingedeck` pinnt heute
-`platform-recruiting` auf `b91b584a` (`composer.lock`, Commit `97b88812`).
+`platform-recruiting` auf `5c9a412f` (`composer.lock`, Commit `c0ac5a1e`, Stand 13.10. abends; vorher `b91b584a`).
 
-> **Vor dem Merge (Stand 13.10.): `origin/main` ist 8 Commits weiter als der Zweig** (Jobs anbieten / Anlass, Personenwechsel im Dispo-Import, Schulungsnachbereitung) → ff-Merge NICHT möglich. Ablauf: `origin/main` in den Zweig mergen → volle Suite → Demo auf den neuen Kopf pinnen → kurzer Sichttest → dann 4.1. Neuer Kopf und Rollback-Referenz neu notieren (prod-Pin kann bis dahin auch weitergelaufen sein: `grep -A3 platform-recruiting meingedeck/composer.lock`).
+> **13.10. abends erledigt:** `origin/main` in den Zweig gemergt (`e5f358c6`), Demo gepinnt — ff-Merge wieder möglich. **Vor dem Merge erneut prüfen:** `git log HEAD..origin/main` muss leer sein, sonst:
+> **(Stand vorher) `origin/main` war 8 Commits weiter als der Zweig** (Jobs anbieten / Anlass, Personenwechsel im Dispo-Import, Schulungsnachbereitung) → ff-Merge NICHT möglich. Ablauf: `origin/main` in den Zweig mergen → volle Suite → Demo auf den neuen Kopf pinnen → kurzer Sichttest → dann 4.1. Neuer Kopf und Rollback-Referenz neu notieren (prod-Pin kann bis dahin auch weitergelaufen sein: `grep -A3 platform-recruiting meingedeck/composer.lock`).
 
 Für: Sebastian (Deploy + Generalprobe auf der Demo). Jede Zeile nennt in `[…]` ihre Quelle.
 
@@ -184,7 +185,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
    - `personendaten-abgleich --je-gesellschaft`: Anzahl Personen mit Verstoß notieren (Liste geht in 4.4 Schritt 3a an HR).
    - `personendaten-abgleich`: Lesemodus, Anzahl Abweichungen notieren. Steuerklasse, Haupt-/Nebenarbeitgeber, anderer Arbeitgeber und Krankenkasse erscheinen dort seit 12.10.2026 nie mehr als Abweichung (je Anstellung). [S-Spiegel §9, §2.1 Nachtrag]
 7. [ ] **Sichttests aus Abschnitt 6** auf der Demo (Team 6), inkl. Konto-Durchlauf: `recruiting:konto-einladen --ids=<person> --dry-run`, einladen, `/recruiting/konto/anlegen/<token>`, Konto anlegen, abmelden, unter `/recruiting/konto` mit Nummer + Passwort anmelden. [P-Konto Z. 718]
-8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf `b91b584a` ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
+8. [ ] **Rollback proben**: `portal-umstellen --ids=<id> --zurueck`; Pin zurück auf den prod-Stand (13.10.: `5c9a412f`) ohne Schema-Rückbau → Akte, HR-Schreibtisch, Dispo-Import müssen mit main-Code laufen (Schema additiv). [S-HR §11 „Rollback: Code zurück genügt"]
 
 **Stand Generalprobe 13.10.2026:** Schritte 1–7 gelaufen (Zahlen in 4.4 als Vergleich eingetragen; offene Punkte für Markus/HR im Dokument „Generalprobe MA-Konto: offene Punkte"). **Offen:** Schritt 8 Rollback-Probe, Sichttest Vertrag mobil. Auf der Demo von Hand nachgezogen (prod braucht das NICHT, dort läuft `nachweise-umziehen` schon mit dem Fix): `UPDATE rec_employee_proofs SET valid_until = NULL WHERE proof_type_code='erstbescheinigung'`.
 
@@ -211,7 +212,7 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 
 ### 4.2 meingedeck bumpen
 
-- [ ] **Rollback-Referenz notieren: `platform-recruiting` = `b91b584a`** (meingedeck `97b88812`).
+- [ ] **Rollback-Referenz notieren: `platform-recruiting` = aktueller prod-Pin** (13.10.: `5c9a412f`, meingedeck `c0ac5a1e`; vor dem Deploy neu ablesen).
 - [ ] `composer update martin3r/platform-recruiting -d /Users/shaustein/Documents/dev/platforms/meingedeck --no-interaction --no-scripts`
 - [ ] `git -C /Users/shaustein/Documents/dev/platforms/meingedeck diff composer.lock` — nur `reference` (source + dist) von platform-recruiting darf sich ändern; `composer.json` des Moduls ist im Zweig unverändert. [M:feedback_bump_meingedeck, M:project_ma_konto_merge_risiken „Entwarnungen"]
 - [ ] Commit `chore: bump platform-recruiting to <kopf feat/ma-konto> (feat/ma-konto: Konto, Nachweise, Einsatz-Trigger, Dokumente, Spiegel, Vertrag aus Akte, HR-Bereich)`, push. Bei veraltetem Hash: Packagist-CDN-Cache, `composer clear-cache`. [M:feedback_bump_meingedeck]
@@ -336,7 +337,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 
 | Was | Wie | Grenze |
 |---|---|---|
-| Code | meingedeck `composer.lock` auf `b91b584a` zurück (Revert des Bump-Commits), push, Forge-Deploy, `view:clear`, `queue:restart` | Schema bleibt stehen; alle neuen Spalten nullable/zusätzlich → main-Code läuft weiter (S-HR §11 „Code zurück genügt"). Vorher auf der Demo geprobt (3.8). |
+| Code | meingedeck `composer.lock` auf den notierten prod-Pin (13.10.: `5c9a412f`) zurück (Revert des Bump-Commits), push, Forge-Deploy, `view:clear`, `queue:restart` | Schema bleibt stehen; alle neuen Spalten nullable/zusätzlich → main-Code läuft weiter (S-HR §11 „Code zurück genügt"). Vorher auf der Demo geprobt (3.8). |
 | Einzelne Personen vom neuen Portal | `php artisan recruiting:portal-umstellen --ids=<…> --zurueck` (keine Bestätigung nötig, zieht ganze Personen mit) oder `--alle --zurueck` | Daten aus dem neuen Portal bleiben in `rec_employee_proofs` |
 | Versand | Vorlagen-Felder in den Einstellungen leeren (Mitarbeiterportal) bzw. Schalter „Einsatz-Prüfung läuft" aus | Kein `config:cache` nötig; bereits verschickte Nachrichten bleiben |
 | Notfallweg | `RECRUITING_KONTO_WEG4_AKTIV=false` (Not-Aus für alle Teams) oder Team-Haken aus | laufende Anträge: `konto-zuruecksetzen --offen` / `--stopp=<id>` |
