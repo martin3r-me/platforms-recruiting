@@ -220,6 +220,16 @@ class ZasInboundEmployeeImporter
                     } catch (\Throwable $e) {
                         Log::warning('[zas-inbound] Datenuebernahme bei Paarung fehlgeschlagen', ['employee_id' => (int) $employee->id, 'error' => $e->getMessage()]);
                     }
+
+                    // Je-Gesellschaft-Regel (Markus 12.10.2026, E7/E8): ist
+                    // die vorhandene Anstellung Hauptarbeitgeber bzw. hat
+                    // Klasse != 6, bekommt die neue ZAS-Akte Neben bzw. 6 —
+                    // die Uebernahme oben kopiert diese Felder nicht mehr.
+                    try {
+                        app(\Platform\Recruiting\Services\AnstellungsRegeln::class)->beiNeuerAnstellung((int) $employee->id);
+                    } catch (\Throwable $e) {
+                        Log::warning('[zas-inbound] Je-Gesellschaft-Regel bei Paarung fehlgeschlagen', ['employee_id' => (int) $employee->id, 'error' => $e->getMessage()]);
+                    }
                 }
             } catch (\Throwable $e) {
                 $failed[] = $this->failure($row['ZasPersonalNr'] ?? null, $e->getMessage(), $inbound, $dryRun);

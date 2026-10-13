@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\AnstellungsRegeln;
 use Platform\Recruiting\Services\PersonenSpiegel;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Support\PersonenFelder;
@@ -21,7 +22,13 @@ use Platform\Recruiting\Support\PersonenFelder;
  * Export-Marker + Lohn-Eintraege).
  *
  * Gruppen ohne rec_person_id (Paarung ueber person_key) werden mit
- * "key:<8 Zeichen>" gelistet, sind aber nicht adressierbar.
+ * "key:<8 Zeichen>" gelistet, sind aber nicht adressierbar. *
+ * --je-gesellschaft (Nachrunde Markus 12.10.2026, E7/E8): rein lesende
+ * HR-Liste der Verstoesse gegen die Je-Gesellschaft-Regel unter den AKTIVEN
+ * Anstellungen eines Menschen — mehr als eine Hauptarbeitgeber, mehr als
+ * eine Steuerklasse != 6. Kein automatisches Heilen: HR entscheidet je
+ * Person (in der Akte speichern, dann zieht AnstellungsRegeln die andere
+ * Anstellung nach). Nicht kombinierbar mit --nach.
  */
 final class PersonendatenAbgleich extends Command
 {
@@ -29,7 +36,8 @@ final class PersonendatenAbgleich extends Command
         {--team= : Nur Akten dieses Teams als Ausgangspunkt}
         {--person= : rec_person_id — nur diese Person}
         {--nach= : rec_employee_id — Personenfelder dieser Akte auf alle Geschwister uebertragen (nur mit --person)}
-        {--felder= : komma-getrennt, Ausgabe und Angleichen (--nach) auf diese Felder begrenzen}';
+        {--felder= : komma-getrennt, Ausgabe und Angleichen (--nach) auf diese Felder begrenzen}
+        {--je-gesellschaft : nur lesen — Verstoesse beide Hauptarbeitgeber / beide Steuerklasse ungleich 6 als HR-Liste}';
 
     protected $description = 'Personenfelder je Person ueber alle Akten vergleichen; mit --person --nach gezielt angleichen';
 
@@ -51,6 +59,16 @@ final class PersonendatenAbgleich extends Command
             $this->error('--nach geht nur zusammen mit --person. Es wird nichts geschrieben.');
 
             return self::FAILURE;
+        }
+
+        if ($this->option('je-gesellschaft')) {
+            if ($nach !== null) {
+                $this->error('--je-gesellschaft liest nur und geht nicht zusammen mit --nach. Es wird nichts geschrieben.');
+
+                return self::FAILURE;
+            }
+
+            return $this->jeGesellschaft($person);
         }
 
         $nurFelder = null;
@@ -102,6 +120,61 @@ final class PersonendatenAbgleich extends Command
         if ($nach !== null) {
             return $this->gleicheAn($nach, $nurFelder);
         }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * HR-Liste: je Person mit mindestens zwei aktiven Anstellungen die
+     * Verstoesse gegen die Je-Gesellschaft-Regel (AnstellungsRegeln::verstoesse).
+     * Schreibt nichts.
+     */
+    private function jeGesellschaft(?int $person): int
+    {
+        $zeilen = [];
+        $personen = 0;
+        $mitVerstoss = 0;
+        foreach ($this->gruppen($person) as $g) {
+            $akten = DB::table('rec_employees')->whereIn('id', $g['ids'])->orderBy('id')
+                ->get(['id', 'personnel_number', 'company', 'first_name', 'last_name', 'is_active', 'is_main_employer', 'tax_class'])
+                ->map(fn ($r) => (array) $r)->all();
+            $aktiv = array_values(array_filter($akten, fn (array $a) => (bool) $a['is_active']));
+            if (count($aktiv) < 2) {
+                continue;
+            }
+            $personen++;
+            $verstoesse = AnstellungsRegeln::verstoesse($aktiv);
+            if ($verstoesse === []) {
+                continue;
+            }
+            $mitVerstoss++;
+            $name = trim(($aktiv[0]['first_name'] ?? '') . ' ' . ($aktiv[0]['last_name'] ?? ''));
+            foreach ($verstoesse as $v) {
+                $zellen = array_map(function (array $a) use ($v) {
+                    $wert = $v === 'haupt'
+                        ? match (PersonenFelder::normalisiere('is_main_employer', $a['is_main_employer'])) { '1' => 'Haupt', '0' => 'Neben', default => 'leer' }
+                        : (PersonenFelder::normalisiere('tax_class', $a['tax_class']) ?? 'leer');
+
+                    return sprintf('#%d (%s %s): %s', $a['id'], $a['company'] ?? '-', $a['personnel_number'] ?? '-', $wert);
+                }, $aktiv);
+                $zeilen[] = array_merge([
+                    $g['label'],
+                    $name !== '' ? $name : '-',
+                    $v === 'haupt' ? 'beide Hauptarbeitgeber' : 'beide Steuerklasse ungleich 6',
+                ], $zellen);
+            }
+        }
+
+        if ($zeilen !== []) {
+            $breite = max(array_map('count', $zeilen));
+            $kopf = ['Person', 'Name', 'Verstoss'];
+            for ($i = 3; $i < $breite; $i++) {
+                $kopf[] = 'Akte (Firma PNr): Wert';
+            }
+            $this->table($kopf, array_map(fn ($z) => array_pad($z, $breite, ''), $zeilen));
+        }
+
+        $this->line("Geprueft: {$personen} Personen mit mehreren aktiven Anstellungen · mit Verstoss: {$mitVerstoss} (nur gelesen — HR entscheidet je Person)");
 
         return self::SUCCESS;
     }

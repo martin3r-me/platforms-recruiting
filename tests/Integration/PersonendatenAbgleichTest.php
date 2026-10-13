@@ -18,7 +18,7 @@ class PersonendatenAbgleichTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::baueWelt(false);
+        self::baueWelt(false, ['2026_08_26_000002_add_company_to_rec_employees']);
     }
 
     /** @return array{0: int, 1: string} */
@@ -153,6 +153,43 @@ class PersonendatenAbgleichTest extends TestCase
         $this->assertStringContainsString('key:abcdef12', $aus);
         $this->assertStringContainsString('abweichende Felder: 1', $aus);
         $this->assertStringNotContainsString('A 1', $aus);
+    }
+
+    /**
+     * Nachrunde 12.10.2026 (Bedenken 2): rein lesende HR-Liste der Verstoesse
+     * gegen die Je-Gesellschaft-Regel. Schreibt nichts, setzt keinen Marker.
+     */
+    public function test_je_gesellschaft_listet_verstoesse_und_schreibt_nichts(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'company' => 'RG', 'personnel_number' => 'RG5', 'first_name' => 'Ada', 'last_name' => 'Lovelace', 'is_main_employer' => 1, 'tax_class' => '1']);
+        $ma = $this->akte(['rec_person_id' => $p, 'company' => 'MA', 'personnel_number' => 'MA5', 'first_name' => 'Ada', 'last_name' => 'Lovelace', 'is_main_employer' => 1, 'tax_class' => '3']);
+        $ok = $this->person();
+        $this->akte(['rec_person_id' => $ok, 'company' => 'RG', 'is_main_employer' => 1, 'tax_class' => '1']);
+        $this->akte(['rec_person_id' => $ok, 'company' => 'MA', 'is_main_employer' => 0, 'tax_class' => '6']);
+        $inaktiv = $this->person();
+        $this->akte(['rec_person_id' => $inaktiv, 'company' => 'RG', 'is_main_employer' => 1, 'tax_class' => '1']);
+        $this->akte(['rec_person_id' => $inaktiv, 'company' => 'MA', 'is_main_employer' => 1, 'tax_class' => '1', 'is_active' => 0]);
+
+        [$code, $aus] = $this->run_(['--je-gesellschaft' => true]);
+
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('beide Hauptarbeitgeber', $aus);
+        $this->assertStringContainsString('beide Steuerklasse ungleich 6', $aus);
+        $this->assertStringContainsString('Ada Lovelace', $aus);
+        $this->assertStringContainsString("#{$rg} (RG RG5): Haupt", $aus);
+        $this->assertStringContainsString("#{$ma} (MA MA5): 3", $aus);
+        $this->assertStringContainsString('Geprueft: 2 Personen mit mehreren aktiven Anstellungen · mit Verstoss: 1', $aus);
+        $this->assertNull($this->zeile($ma)->zas_changed_at);
+        $this->assertSame(1, (int) $this->zeile($ma)->is_main_employer, 'kein Heilen');
+    }
+
+    public function test_je_gesellschaft_geht_nicht_mit_nach(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p]);
+        [$code] = $this->run_(['--je-gesellschaft' => true, '--person' => (string) $p, '--nach' => (string) $rg]);
+        $this->assertSame(1, $code);
     }
 }
 

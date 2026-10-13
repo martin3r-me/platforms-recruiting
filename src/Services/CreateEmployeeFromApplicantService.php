@@ -205,6 +205,20 @@ class CreateEmployeeFromApplicantService
         // beliebig; hier begruendet die Schwere der Folge sie.
         $this->linkPerson($employee);
 
+        // Je-Gesellschaft-Regel (Markus 12.10.2026, E7/E8): hat der Mensch
+        // schon eine Anstellung (Haupt bzw. Klasse != 6), bekommt die neue
+        // Neben bzw. 6. Heute meist ohne Wirkung, weil linkPerson eine eigene
+        // Personen-Zeile anlegt; greift, sobald eine Geschwister-Akte
+        // erkennbar ist. Darf die Anlage nie kippen.
+        try {
+            app(\Platform\Recruiting\Services\AnstellungsRegeln::class)->beiNeuerAnstellung($employee);
+        } catch (\Throwable $e) {
+            Log::warning('[CreateEmployeeFromApplicantService] Je-Gesellschaft-Regel nach MA-Anlage fehlgeschlagen', [
+                'employee_id' => $employee->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
         // WEG (b) DER ZERTIFIKAT-AUSSTELLUNG, und die Stelle ist die Aussage:
         // HIER, hinter dem schliessenden `});` der Transaktion, nicht in ihrer
         // letzten Zeile. Innerhalb waere "alles oder nichts" die Zusage, und

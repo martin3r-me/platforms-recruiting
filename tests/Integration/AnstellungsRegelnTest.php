@@ -228,4 +228,74 @@ class AnstellungsRegelnTest extends TestCase
         $this->assertSame('Ist Rheingedeck der Hauptarbeitgeber?', RecEmployee::find($rg)->editableFieldGroups()['Arbeitgeber']['is_main_employer']['label']);
         $this->assertSame('Ist MA der Hauptarbeitgeber?', RecEmployee::find($ma)->editableFieldGroups()['Arbeitgeber']['is_main_employer']['label']);
     }
+
+    // ---- Neue Anstellung (Nachrunde 12.10.) --------------------------------------
+
+    public function test_neue_anstellung_bekommt_neben_und_klasse_6_ohne_lohn(): void
+    {
+        $this->setzeEinstellung(['employee_payroll_tracked_fields' => ['tax_class', 'is_main_employer']]);
+        [$rg, $ma] = $this->paar(['is_main_employer' => 1, 'tax_class' => '1', 'health_insurance' => 'aok'],
+            ['is_main_employer' => 1, 'tax_class' => '3', 'health_insurance' => 'knappschaft']);
+
+        $folgen = (new AnstellungsRegeln())->beiNeuerAnstellung($ma);
+
+        $this->assertSame(['is_main_employer', 'tax_class'], array_keys($folgen[0]['aenderungen']));
+        $this->assertSame(0, (int) $this->zeile($ma)->is_main_employer);
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class);
+        $this->assertSame('knappschaft', $this->zeile($ma)->health_insurance);
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at);
+        $this->assertSame([], $this->lohn($ma), 'Anlage, keine Aenderung');
+        $this->assertSame(1, (int) $this->zeile($rg)->is_main_employer, 'vorhandene bleibt');
+        $this->assertNull($this->zeile($rg)->zas_changed_at);
+    }
+
+    public function test_neue_anstellung_anderer_arbeitgeber_nur_ins_leere_feld(): void
+    {
+        [, $ma] = $this->paar(['is_main_employer' => 0, 'other_employer' => 'Mueller GmbH'], ['other_employer' => null]);
+        (new AnstellungsRegeln())->beiNeuerAnstellung($ma);
+        $this->assertSame('Mueller GmbH', $this->zeile($ma)->other_employer);
+
+        [, $ma2] = $this->paar(['is_main_employer' => 0, 'other_employer' => 'Mueller GmbH'], ['other_employer' => 'Schulz AG']);
+        (new AnstellungsRegeln())->beiNeuerAnstellung($ma2);
+        $this->assertSame('Schulz AG', $this->zeile($ma2)->other_employer);
+    }
+
+    public function test_neue_anstellung_ohne_schwester_oder_ohne_vorgabe_bleibt(): void
+    {
+        $allein = $this->akte(['company' => 'MA', 'tax_class' => '1', 'is_main_employer' => 1]);
+        $this->assertSame([], (new AnstellungsRegeln())->beiNeuerAnstellung($allein));
+
+        [, $ma] = $this->paar(['tax_class' => '6', 'is_main_employer' => null], ['tax_class' => '1', 'is_main_employer' => 1]);
+        $this->assertSame([], (new AnstellungsRegeln())->beiNeuerAnstellung($ma));
+        $this->assertNull($this->zeile($ma)->zas_changed_at);
+    }
+
+    public function test_verstoesse_zaehlen_nur_aktive_anstellungen(): void
+    {
+        $this->assertSame(['haupt', 'steuerklasse'], AnstellungsRegeln::verstoesse([
+            ['is_active' => 1, 'is_main_employer' => 1, 'tax_class' => '1'],
+            ['is_active' => 1, 'is_main_employer' => true, 'tax_class' => '3'],
+        ]));
+        $this->assertSame([], AnstellungsRegeln::verstoesse([
+            ['is_active' => 1, 'is_main_employer' => 1, 'tax_class' => '1'],
+            ['is_active' => 0, 'is_main_employer' => 1, 'tax_class' => '1'],
+        ]));
+        $this->assertSame([], AnstellungsRegeln::verstoesse([
+            ['is_active' => 1, 'is_main_employer' => 1, 'tax_class' => '1'],
+            ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => '6'],
+        ]));
+    }
+
+    public function test_frage_nennt_mit_labels_beide_gesellschaften_voll(): void
+    {
+        $config = Container::getInstance()->make('config');
+        $config->set('recruiting.zas.company_labels', ['RG' => 'RheinGedeck GmbH', 'MA' => 'RheinGedeck Lease | MA']);
+        try {
+            [$rg, $ma] = $this->paar();
+            $this->assertSame('Ist RheinGedeck GmbH der Hauptarbeitgeber?', RecEmployee::find($rg)->editableFieldGroups()['Arbeitgeber']['is_main_employer']['label']);
+            $this->assertSame('Ist RheinGedeck Lease | MA der Hauptarbeitgeber?', RecEmployee::find($ma)->editableFieldGroups()['Arbeitgeber']['is_main_employer']['label']);
+        } finally {
+            $config->set('recruiting.zas.company_labels', null);
+        }
+    }
 }

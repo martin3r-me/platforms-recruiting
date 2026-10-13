@@ -75,6 +75,15 @@ class ContractSigning extends Component
      */
     public ?string $employerOther = null;
 
+    /**
+     * Gesellschaft des Vertrags fuer die Arbeitgeber-Erklaerung (Markus
+     * 12.10.2026, E8: Hauptarbeitgeber je Anstellung). Vorher stand dort fest
+     * „RheinGedeck" — bei einem MA-Vertrag einer Person mit zwei Anstellungen
+     * falsch. Nur Anzeige, vom Server gesetzt.
+     */
+    #[Locked]
+    public string $arbeitgeberName = 'RheinGedeck';
+
     public ?string $signatureData = null;
 
     /** URL zurück ins Bewerber-Portal mit allen Verträgen — nach Signieren angezeigt */
@@ -121,6 +130,8 @@ class ContractSigning extends Component
         $this->contractId = $contract->id;
         $this->contractContent = $contract->personalized_content ?? '';
         $this->contractTemplateName = $contract->contractTemplate?->name ?? 'Vertrag';
+        $firma = \Platform\Recruiting\Support\VorlagenMerkmale::firma($contract->contractTemplate?->company);
+        $this->arbeitgeberName = $firma !== '' ? $firma : 'RheinGedeck';
 
         // Arbeitsvertraege (AV-*) fragen §15/§16 ab, die 140-Tage-Erklaerung
         // (AT-140) das Rest-Kontingent. IFSG und alles andere geht direkt

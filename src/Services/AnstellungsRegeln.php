@@ -180,6 +180,108 @@ class AnstellungsRegeln
     }
 
     /**
+     * Eine NEUE Anstellung kommt zu einem Menschen dazu (Nachrunde 12.10.2026,
+     * Koordinator zu Bedenken 4): ZAS-Neuanlage mit Auto-Paarung
+     * (ZasInboundEmployeeImporter nach uebernimmBeiPaarung) und Anlage aus
+     * der Bewerbung (CreateEmployeeFromApplicantService nach linkPerson).
+     * Die VORHANDENEN Anstellungen sind Quelle, die neue bekommt die Folgen:
+     * vorhandene Haupt -> neue Neben, vorhandene Klasse != 6 -> neue 6.
+     * Der andere Arbeitgeber X wird nur in ein LEERES Feld der neuen
+     * Anstellung getragen (eine von ZAS mitgelieferte Angabe bleibt).
+     *
+     * Bewusst NICHT fuer das Verbinden zweier BESTEHENDER Anstellungen
+     * (Audit --link/--pair, recruiting:personen-anlegen): dort gibt es keine
+     * „neue" Seite, die Regel muesste raten. Solche Verstoesse listet
+     * recruiting:personendaten-abgleich --je-gesellschaft fuer HR.
+     *
+     * Marker ja (ZAS muss Neben/6 fuer die neue Gesellschaft kennen), kein
+     * Lohn-Eintrag (Anlage, keine Aenderung — wie uebernimmBeiPaarung).
+     *
+     * @return list<array{id:int, team_id:?int, company:?string, aenderungen:array<string,array{old:mixed,new:mixed}>}>
+     */
+    public function beiNeuerAnstellung(RecEmployee|int $neu, bool $markerSetzen = true): array
+    {
+        // Mit Modell: keine Abfrage, solange keine Geschwister erkennbar sind
+        // (die Query-Zahl der MA-Anlage ist festgenagelt, EmployeeCreationCertificateTest).
+        $neu = $neu instanceof RecEmployee ? $neu : RecEmployee::find($neu);
+        if ($neu === null || !$neu->is_active) {
+            return [];
+        }
+        $neueId = (int) $neu->id;
+        $ids = app(PersonenSpiegel::class)->geschwister($neu);
+        if ($ids === []) {
+            return [];
+        }
+
+        $stand = (array) DB::table('rec_employees')->where('id', $neueId)
+            ->first(array_merge(['id', 'team_id', 'company'], self::AUSLOESER));
+        $vorhandene = DB::table('rec_employees')->whereIn('id', $ids)->where('is_active', true)->orderBy('id')
+            ->get(self::AUSLOESER);
+
+        $aenderungen = [];
+        foreach ($vorhandene as $v) {
+            foreach (self::folgenFuerSchwester((array) $v, self::AUSLOESER, $stand) as $feld => $wert) {
+                if (array_key_exists($feld, $aenderungen)) {
+                    continue;   // erste vorhandene Anstellung gewinnt
+                }
+                if ($feld === 'other_employer' && PersonenFelder::normalisiere($feld, $stand[$feld] ?? null) !== null) {
+                    continue;
+                }
+                $aenderungen[$feld] = ['old' => $stand[$feld] ?? null, 'new' => $wert];
+                $stand[$feld] = $wert;
+            }
+        }
+        if ($aenderungen === []) {
+            return [];
+        }
+
+        $update = [];
+        foreach ($aenderungen as $feld => $w) {
+            $update[$feld] = is_bool($w['new']) ? (int) $w['new'] : $w['new'];
+        }
+        $update['updated_at'] = now();
+        if ($markerSetzen) {
+            $update['zas_changed_at'] = now();
+        }
+        DB::table('rec_employees')->where('id', $neueId)->update($update);
+
+        return [[
+            'id'          => $neueId,
+            'team_id'     => $stand['team_id'] !== null ? (int) $stand['team_id'] : null,
+            'company'     => $stand['company'] !== null ? (string) $stand['company'] : null,
+            'aenderungen' => $aenderungen,
+        ]];
+    }
+
+    /**
+     * Verstoesse unter den AKTIVEN Anstellungen eines Menschen — nur lesend,
+     * fuer die HR-Liste (recruiting:personendaten-abgleich --je-gesellschaft).
+     *
+     * @param  list<array<string,mixed>> $akten  je Akte mind. is_active, is_main_employer, tax_class
+     * @return list<string> 'haupt' (mehr als eine Haupt), 'steuerklasse' (mehr als eine != 6)
+     */
+    public static function verstoesse(array $akten): array
+    {
+        $aktiv = array_values(array_filter($akten, fn (array $a) => (bool) ($a['is_active'] ?? false)));
+        $haupt = count(array_filter($aktiv, fn (array $a) => PersonenFelder::normalisiere('is_main_employer', $a['is_main_employer'] ?? null) === '1'));
+        $klasse = count(array_filter($aktiv, function (array $a) {
+            $k = PersonenFelder::normalisiere('tax_class', $a['tax_class'] ?? null);
+
+            return $k !== null && $k !== self::NEBEN_STEUERKLASSE;
+        }));
+
+        $aus = [];
+        if ($haupt > 1) {
+            $aus[] = 'haupt';
+        }
+        if ($klasse > 1) {
+            $aus[] = 'steuerklasse';
+        }
+
+        return $aus;
+    }
+
+    /**
      * Hinweissatz fuer HR (Akte): „Anstellung MA wurde auf Steuerklasse 6 /
      * Nebenarbeitgeber gesetzt." Leer, wenn es keine Folgen gab.
      *

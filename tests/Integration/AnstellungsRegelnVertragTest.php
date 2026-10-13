@@ -69,4 +69,33 @@ final class AnstellungsRegelnVertragTest extends TestCase
         $this->assertFalse($ma->fresh()->is_main_employer);
         $this->assertSame('Aenderungen gespeichert. Anstellung MA wurde auf Steuerklasse 6 / Nebenarbeitgeber gesetzt.', $show->flash);
     }
+
+    /** Nachrunde 12.10. (Bedenken 6): das HR-Label nennt die Gesellschaft der Akte. */
+    public function test_hr_akte_label_ist_gesellschaftsneutral(): void
+    {
+        $ma = $this->anstellung(['company' => 'MA', 'personnel_number' => 'MA4713']);
+        $show = new \Platform\Recruiting\Livewire\Employees\Show();
+        $show->employeeId = $ma->id;
+
+        $this->assertSame(
+            'Hauptarbeitgeber ist diese Gesellschaft (MA Dienstleistung für die Gastronomie UG)',
+            $show->fieldGroups()['Arbeitgeber']['is_main_employer']['label'],
+        );
+    }
+
+    /** Nachrunde 12.10. (Bedenken 6): die Erklaerung beim Unterschreiben nennt die Gesellschaft des Vertrags. */
+    public function test_vertragsunterschrift_nennt_die_gesellschaft_des_vertrags(): void
+    {
+        $ma = $this->anstellung(['company' => 'MA', 'personnel_number' => 'MA4714']);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG', 'MA'));
+
+        $signing = new ContractSigning();
+        $signing->mount($v->getOrCreatePublicFormLink()->token);
+
+        $this->assertSame('MA Dienstleistung für die Gastronomie UG', $signing->arbeitgeberName);
+
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/contract-signing.blade.php');
+        $this->assertStringNotContainsString("'RheinGedeck ist dein Hauptarbeitgeber", $blade);
+        $this->assertStringContainsString('e($arbeitgeberName)', $blade);
+    }
 }

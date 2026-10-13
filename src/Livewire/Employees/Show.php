@@ -1156,7 +1156,11 @@ class Show extends Component
             // "(HR-only)". HR sieht es mit, weil die Angabe steuerlich zaehlt
             // (Steuerklasse VI) und bei Rueckfragen greifbar sein muss.
             'Arbeitgeber' => [
-                'is_main_employer' => ['type' => 'bool', 'label' => 'Rheingedeck ist Hauptarbeitgeber'],
+                // Gesellschaftsneutral (Markus 12.10.2026, E8: je Anstellung) —
+                // an einer MA-Akte stand vorher „Rheingedeck ist Hauptarbeitgeber".
+                'is_main_employer' => ['type' => 'bool', 'label' => $emp !== null
+                    ? 'Hauptarbeitgeber ist diese Gesellschaft (' . $emp->hauptarbeitgeberName() . ')'
+                    : 'Hauptarbeitgeber ist diese Gesellschaft'],
                 'other_employer'   => ['type' => 'text', 'label' => 'Hauptarbeitgeber (falls nicht wir)'],
             ],
             // Sicherheitsbeauftragter benennt HR, nicht der MA — bleibt gelb.

@@ -198,6 +198,53 @@ class ZasInboundSpiegelTest extends TestCase
         $this->assertSame('1', (string) $this->zeile($rg)->tax_class);
     }
 
+    /**
+     * Nachrunde 12.10.2026 (Bedenken 4): ZAS legt fuer einen bekannten
+     * Menschen die MA-Akte neu an (Auto-Paarung, Folie 5 „uebernimmt unsere
+     * Daten"). Die Uebernahme kopiert Steuerklasse, Haupt-/Nebenarbeitgeber
+     * und Krankenkasse NICHT mehr; Haupt/Klasse folgen der Regel: unsere
+     * Anstellung ist Haupt mit Klasse 1 -> die neue MA-Akte Neben + 6.
+     * Probe: beiNeuerAnstellung-Aufruf im Importer entfernen -> rot.
+     */
+    public function test_paarung_mit_neuer_zas_akte_wendet_die_je_gesellschaft_regel_an(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'first_name' => 'Max', 'last_name' => 'Muster',
+            'birth_date' => '1990-01-01', 'tax_class' => '1', 'is_main_employer' => 1, 'other_employer' => null,
+            'health_insurance' => 'aok', 'personnel_number' => 'RG1', 'company' => 'RG']);
+
+        $report = $this->run_($this->row(['ZasPersonalNr' => 'MA78', 'Status' => 'GO', 'Vorname' => 'Max', 'Name' => 'Muster',
+            'Geburtsdatum' => '01.01.1990', 'Steuerklasse' => '1']));
+
+        $this->assertSame([], $report['failed']);
+        $this->assertSame('paired', $report['created'][0]['person_pairing'] ?? null, 'Vorbedingung: Paarung');
+        $ma = (int) Capsule::table('rec_employees')->where('personnel_number', 'MA78')->value('id');
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'vorhandene Klasse 1 -> neue Anstellung 6');
+        $this->assertSame(0, (int) $this->zeile($ma)->is_main_employer, 'vorhandene Haupt -> neue Neben');
+        $this->assertNotNull($this->zeile($ma)->is_main_employer);
+        $this->assertNull($this->zeile($ma)->health_insurance, 'Krankenkasse wird nicht kopiert');
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at);
+        $this->assertSame('1', (string) $this->zeile($rg)->tax_class, 'die vorhandene Anstellung bleibt');
+        $this->assertSame(1, (int) $this->zeile($rg)->is_main_employer);
+        $this->assertSame('aok', $this->zeile($rg)->health_insurance);
+        $this->assertSame([], $this->lohn($ma));
+    }
+
+    public function test_paarung_vorhandene_neben_mit_klasse_6_aendert_die_neue_akte_nicht(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'first_name' => 'Max', 'last_name' => 'Muster',
+            'birth_date' => '1990-01-01', 'tax_class' => '6', 'is_main_employer' => 0, 'other_employer' => null,
+            'personnel_number' => 'RG1', 'company' => 'RG']);
+
+        $this->run_($this->row(['ZasPersonalNr' => 'MA79', 'Status' => 'GO', 'Vorname' => 'Max', 'Name' => 'Muster',
+            'Geburtsdatum' => '01.01.1990', 'Steuerklasse' => '1']));
+
+        $ma = (int) Capsule::table('rec_employees')->where('personnel_number', 'MA79')->value('id');
+        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+        $this->assertNull($this->zeile($ma)->is_main_employer);
+    }
+
     public function test_zas_spiegel_laesst_geschwister_mit_offenem_marker_aus(): void
     {
         $p = $this->person();

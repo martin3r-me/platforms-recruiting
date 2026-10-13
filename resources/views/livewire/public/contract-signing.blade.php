@@ -237,12 +237,14 @@
                         $arbeitgeberFrage = $duzen
                             ? 'Du kannst nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Arbeitest du nur bei uns, sind wir das. Ein Minijob bei jemand anderem zählt nicht mit. Unsicher? Frag uns kurz — die Angabe wirkt sich auf deine Steuer aus.'
                             : 'Sie können nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Arbeiten Sie nur bei uns, sind wir das. Ein Minijob bei jemand anderem zählt nicht mit. Unsicher? Fragen Sie uns kurz — die Angabe wirkt sich auf Ihre Steuer aus.';
+                        // Gesellschaft des Vertrags statt fest „RheinGedeck"
+                        // (Markus 12.10.2026, E8: je Anstellung).
                         $hauptText = $duzen
-                            ? 'RheinGedeck ist dein Hauptarbeitgeber — du hast keinen anderen Hauptarbeitgeber.'
-                            : 'RheinGedeck ist Ihr Hauptarbeitgeber — Sie haben keinen anderen Hauptarbeitgeber.';
+                            ? e($arbeitgeberName) . ' ist dein Hauptarbeitgeber — du hast keinen anderen Hauptarbeitgeber.'
+                            : e($arbeitgeberName) . ' ist Ihr Hauptarbeitgeber — Sie haben keinen anderen Hauptarbeitgeber.';
                         $nebenText = $duzen
-                            ? 'Du hast bereits einen anderen Hauptarbeitgeber und arbeitest zusätzlich bei RheinGedeck.'
-                            : 'Sie haben bereits einen anderen Hauptarbeitgeber und arbeiten zusätzlich bei RheinGedeck.';
+                            ? 'Du hast bereits einen anderen Hauptarbeitgeber und arbeitest zusätzlich bei ' . e($arbeitgeberName) . '.'
+                            : 'Sie haben bereits einen anderen Hauptarbeitgeber und arbeiten zusätzlich bei ' . e($arbeitgeberName) . '.';
                         // Das Namensfeld gibt es NUR bei "Nebenarbeitgeber"
                         // (Entscheidung 25.09.2026). Damit hat es genau eine
                         // Bedeutung — der Hauptarbeitgeber — und kann nicht mit

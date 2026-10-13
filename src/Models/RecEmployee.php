@@ -391,18 +391,27 @@ class RecEmployee extends Model
 
     /**
      * Name der Gesellschaft dieser Anstellung fuer die Frage nach dem
-     * Hauptarbeitgeber. RG (oder leer) bleibt beim gewohnten „Rheingedeck";
-     * jede andere nennt ihr Label aus recruiting.zas.company_labels.
+     * Hauptarbeitgeber (Markus 12.10.2026, E8: je Anstellung). Label aus
+     * recruiting.zas.company_labels ueber VorlagenMerkmale::firma — auch fuer
+     * RG, sonst stuende bei zwei Anstellungen zweimal „Rheingedeck" (die
+     * MA-Gesellschaft heisst „RheinGedeck Lease | MA …"). Ohne Firma oder
+     * ohne Label fuer RG: das gewohnte „Rheingedeck".
      */
     public function hauptarbeitgeberName(): string
     {
         $code = trim((string) ($this->company ?? ''));
-        if ($code === '' || $code === 'RG') {
+        if ($code === '') {
             return 'Rheingedeck';
         }
-        $labels = (array) config('recruiting.zas.company_labels', []);
+        // Ohne Config-Bindung (reine Modell-Tests) wie ohne Label.
+        $labels = \Illuminate\Container\Container::getInstance()->bound('config')
+            ? (array) config('recruiting.zas.company_labels', [])
+            : [];
+        if ($code === 'RG' && !isset($labels['RG'])) {
+            return 'Rheingedeck';
+        }
 
-        return (string) ($labels[$code] ?? $code);
+        return \Platform\Recruiting\Support\VorlagenMerkmale::firma($code, $labels);
     }
 
     public function editableFieldGroups(): array
