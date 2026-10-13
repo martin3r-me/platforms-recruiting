@@ -277,7 +277,7 @@
                             </button>
                             <textarea x-ref="liste" x-show="zeigen" x-cloak readonly rows="3" class="w-72 rounded border border-gray-300 px-2 py-1 text-xs">{{ $listeText }}</textarea>
                             @if ($offeneHaken > 0)
-                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }})" wire:confirm="{{ $alleText }}"
+                                <button type="button" wire:click="alleEintragen({{ (int) $s->id }}, {{ (int) $offeneHaken }})" wire:confirm="{{ $alleText }}"
                                         class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">Alle als in ZAS eingetragen markieren</button>
                             @endif
                         </div>

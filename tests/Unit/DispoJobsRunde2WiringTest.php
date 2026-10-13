@@ -51,7 +51,10 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId', $src);
 
         $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
-        $this->assertStringContainsString('wire:click="alleEintragen({{ (int) $s->id }})"', $view);
+        $this->assertStringContainsString('wire:click="alleEintragen({{ (int) $s->id }}, {{ (int) $offeneHaken }})"', $view, 'die angezeigte Zahl geht mit');
+        $this->assertStringContainsString('public function alleEintragen(int $shiftId, int $erwartet = 0): void', $src);
+        $this->assertStringContainsString('DispoJobZasHaken::abweichung($erwartet, $n)', $src);
+        $this->assertMatchesRegularExpression('/\$this->fehler = \$abweichung/', $src);
         $this->assertStringContainsString('DispoJobZasListe::text(', $view);
         $this->assertStringContainsString('navigator.clipboard.writeText', $view);
     }

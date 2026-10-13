@@ -332,11 +332,16 @@ class Show extends Component
         DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
     }
 
-    public function alleEintragen(int $shiftId): void
+    /** @param int $erwartet Zahl der offenen Haken, die die Seite beim Klick gezeigt hat */
+    public function alleEintragen(int $shiftId, int $erwartet = 0): void
     {
         $this->fehler = '';
         $n = DispoJobZasHaken::alle($this->anfrage(), $shiftId, auth()->id() !== null ? (int) auth()->id() : null);
         $this->hinweis = $n > 0 ? $n . ' ' . ($n === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markiert.' : '';
+        $abweichung = DispoJobZasHaken::abweichung($erwartet, $n);
+        if ($abweichung !== null) {
+            $this->fehler = $abweichung;
+        }
     }
 
     public function abschliessen(): void
