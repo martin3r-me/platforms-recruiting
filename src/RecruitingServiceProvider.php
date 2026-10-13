@@ -37,6 +37,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\PersonendatenAbgleich::class,
                 \Platform\Recruiting\Console\Commands\SeedDemoEmployees::class,
                 \Platform\Recruiting\Console\Commands\KontoZuruecksetzen::class,
+                \Platform\Recruiting\Console\Commands\SitzungenAufraeumen::class,
                 \Platform\Recruiting\Console\Commands\KontoEinladen::class,
                 \Platform\Recruiting\Console\Commands\ReleaseStaleSeats::class,
                 \Platform\Recruiting\Console\Commands\RelinkOrphanedThreads::class,
@@ -131,6 +132,18 @@ class RecruitingServiceProvider extends ServiceProvider
         // Zugriffsstufe "Nur Veranstaltungen" (Gate Stufe 1): haengt in der
         // web-Gruppe, ist fuer alle Nicht-Recruiting-Requests ein No-op.
         $this->app['router']->pushMiddlewareToGroup('web', \Platform\Recruiting\Http\Middleware\RecruitingAccessGate::class);
+
+        // "Auf diesem Geraet angemeldet bleiben" (Konto, 180 Tage): die
+        // Lebensdauer muss VOR StartSession feststehen, deshalb sitzt die
+        // Middleware in der web-Gruppe direkt davor (Begruendung an
+        // LangeSitzungVerlaengern::einhaengen). Und die Lotterie-Aufraeumung
+        // des Datenbank-Treibers ist fuer JEDE Anfrage aus — auch fuer
+        // Sitzungen ausserhalb der web-Gruppe —, weil eine gewinnende
+        // 2-Stunden-Anfrage alle langen Sitzungen abraeumte. Aufgeraeumt wird
+        // stattdessen stuendlich (recruiting:sitzungen-aufraeumen, unten im
+        // Zeitplan). Bei einem anderen Treiber als database: beides No-op.
+        \Platform\Recruiting\Http\Middleware\LangeSitzungVerlaengern::einhaengen($this->app['router']);
+        \Platform\Recruiting\Support\LangeSitzung::schalteLotterieAb();
 
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
@@ -337,6 +350,18 @@ class RecruitingServiceProvider extends ServiceProvider
         // zwei gleichzeitige Laeufe denselben Menschen zweimal anschreiben
         // koennten (die Signatur wird erst NACH dem Versand geschrieben).
         Schedule::command('recruiting:einsatz-pruefung')
+            ->hourly()
+            ->withoutOverlapping(30)
+            ->runInBackground();
+
+        // Die Sitzungstabelle aufraeumen — ANSTELLE der Lotterie des
+        // Datenbank-Treibers, die der ServiceProvider abschaltet (s. boot()
+        // und Support\LangeSitzung). Ohne diesen Eintrag waechst die
+        // Tabelle unbegrenzt. Stuendlich: eine kurze Sitzung liegt damit
+        // hoechstens eine Stunde laenger als ihre 2 Stunden in der Tabelle;
+        // GELESEN wird sie nach 2 Stunden trotzdem nicht mehr (die Pruefung
+        // beim Lesen bleibt die des Treibers).
+        Schedule::command('recruiting:sitzungen-aufraeumen')
             ->hourly()
             ->withoutOverlapping(30)
             ->runInBackground();

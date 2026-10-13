@@ -15,6 +15,7 @@ use Platform\Recruiting\Services\Comms\EinmalcodeSender;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Support\LangeSitzung;
 use Platform\Recruiting\Support\PasswortRegeln;
 use Platform\Recruiting\Support\PhoneE164;
 
@@ -46,16 +47,19 @@ use Platform\Recruiting\Support\PhoneE164;
  * ausdruecklich in ihre Anstellungen auf, und nur deren Kennungen erreichen
  * sessionKey().
  *
- * OFFEN, BEWUSST NICHT GEBAUT (Ruling GD-10): "Angemeldet bleiben". Spec 2.1
- * nennt den Haken fuer das eigene Handy, und er stand hier schon einmal — er
- * setzte einen Merker in die Sitzung und bewirkte damit NICHTS. Eine
- * Verlaengerung braucht eine Middleware im Wirt, die die Lebensdauer dieser
- * Sitzung heraufsetzt; das liegt ausserhalb dieses Moduls und wartet auf eine
- * Freigabe. Bis dahin steht der Haken bewusst nicht da: ein
- * Kontrollkaestchen, das nichts tut, ist ein Versprechen, das nicht gehalten
- * wird — der Mensch hakt es an, fliegt nach zwei Stunden heraus und ruft HR
- * an. Was dabei NIE kommen darf, ist ein dauerhaftes Geheimnis im Browser
- * (ein "remember me"-Token): das waere ein zweiter Anmeldeweg ohne Passwort.
+ * "AUF DIESEM GERAET ANGEMELDET BLEIBEN" (Spec 2.1; Freigabe 13.10., loest
+ * das Ruling GD-10 ab, das den Haken bis zu einer echten Verlaengerung
+ * draussen hielt). Der Haken ist VORAUSGEWAEHLT. Mit Haken gilt die Sitzung
+ * 180 Tage seit der letzten Benutzung, ohne zwei Stunden wie bisher.
+ *
+ * Die Verlaengerung ist die LEBENSDAUER DER SITZUNG SELBST — kein zweiter
+ * Anmeldeweg und kein dauerhaftes Geheimnis im Browser ("remember me"-Token),
+ * diese Vorgabe aus GD-10 gilt unveraendert. Die Seite traegt die Sitzung
+ * nur ein und setzt einen Merker-Cookie ohne Geheimnis (Wert "1"); die
+ * Lebensdauer setzt die Middleware LangeSitzungVerlaengern VOR StartSession
+ * herauf. Alles Weitere — warum der Merker allein nichts oeffnet, warum
+ * HR-Sitzungen kurz bleiben, wer statt der Lotterie aufraeumt — steht an
+ * Support\LangeSitzung.
  *
  * DIE BREMSE liegt nicht an dieser Route, sondern in PortalAuth: fuenf
  * Versuche je Nummer und fuenfzehn Minuten, dazu dreissig Fehlversuche je
@@ -283,6 +287,14 @@ class KontoAnmelden extends Component
     public string $passwort = '';
 
     /**
+     * "Auf diesem Geraet angemeldet bleiben" — VORAUSGEWAEHLT (Freigabe
+     * 13.10.). Bewusst NICHT gesperrt: es ist die Wahl des Menschen, und sie
+     * wirkt nur auf die EIGENE Sitzung und erst nach dem Passwortnachweis in
+     * anmelden(). Wer sie per $wire.set aendert, aendert seine eigene Wahl.
+     */
+    public bool $angemeldetBleiben = true;
+
+    /**
      * WESSEN Vorgang hier laeuft, liegt in der SITZUNG und ist KEINE
      * oeffentliche Eigenschaft.
      *
@@ -458,6 +470,16 @@ class KontoAnmelden extends Component
         // Dieselbe Liste in die Sitzung: nach der Weiterleitung braucht das
         // Abmelden im Portal sie, um die GANZE Anmeldung zu beenden.
         PortalAuth::merkeKontoAnmeldung($kennungen);
+
+        // "Angemeldet bleiben": NACH dem Passwortnachweis und NACHDEM die
+        // Sitzung die Portal-Schluessel traegt. Ohne Haken wird eine
+        // fruehere Eintragung DIESES Geraets beendet — sonst hielte eine alte
+        // Anmeldung mit Haken die neue ohne Haken 180 Tage am Leben.
+        if ($this->angemeldetBleiben) {
+            LangeSitzung::beginne((int) $ergebnis['personId']);
+        } else {
+            LangeSitzung::beende();
+        }
 
         // DENSELBEN STEMPEL wie der Token-Weg (PortalShell::verify): an ihm
         // haengt die Frage "wer nutzt das Portal ueberhaupt?", mit der die

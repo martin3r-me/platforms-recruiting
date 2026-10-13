@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
+use Platform\Recruiting\Support\LangeSitzung;
 use Platform\Recruiting\Support\PhoneE164;
 
 /**
@@ -534,6 +535,10 @@ final class PortalAuth
             $sitzung->forget(self::sessionKey((int) $kennung));
         }
         $sitzung->forget(self::KONTO_ANMELDUNG);
+
+        // "Angemeldet bleiben" endet mit: Eintragung dieser Sitzung und
+        // Merker-Cookie weg. Sonst bliebe eine leere Sitzung 180 Tage stehen.
+        LangeSitzung::beende();
     }
 
     /**

@@ -134,6 +134,21 @@
             display: block; padding: 11px 0 0;
         }
 
+        /* "Auf diesem Geraet angemeldet bleiben": Kaestchen links, Text und
+           Hinweis rechts daneben. Eigene Klasse statt .feld, weil .feld input
+           volle Breite und appearance:none setzt. 22px Kaestchen und die
+           ganze Zeile als Trefferflaeche — am Handy gut zu treffen. */
+        .portal-body .screen.konto .bleiben {
+            display: flex; align-items: flex-start; gap: 11px; cursor: pointer;
+        }
+        .portal-body .screen.konto .bleiben input {
+            width: 22px; height: 22px; margin: 0; flex: none;
+            accent-color: var(--brand); cursor: pointer;
+        }
+        .portal-body .screen.konto .bleiben-text { display: flex; flex-direction: column; gap: 3px }
+        .portal-body .screen.konto .bleiben .n { font-size: 14px; font-weight: 600; color: var(--ink-2); line-height: 22px }
+        .portal-body .screen.konto .bleiben-hinweis { font-size: 12px; color: var(--ink-3); line-height: 1.4 }
+
         /* Der Passworthinweis unter dem Feld. .hint des Entwurfs ist WEISSE
            Schrift auf dem dunklen Praesentationsband und wird nur unterhalb
            940px Fensterbreite eingefaerbt — in einer hellen Karte am Rechner

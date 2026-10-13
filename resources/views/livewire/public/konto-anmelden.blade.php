@@ -49,6 +49,12 @@
     $ohneZielText = 'Ihr eigener Bereich ist noch nicht freigeschaltet. '
         . 'Bitte wenden Sie sich an Ihre Ansprechperson bei RheinGedeck.';
 
+    // Angemeldet bleiben: das Haekchen fuer den ersten Aufbau (Livewire
+    // uebernimmt danach ueber wire:model) und der Hinweis. Die Seite siezt.
+    $bleibenHaken = $angemeldetBleiben ? 'checked' : '';
+    $bleibenHinweis = 'Nur auf Ihrem eigenen Handy. Sie bleiben 180 Tage angemeldet, '
+        . 'solange Sie das Konto in dieser Zeit nutzen.';
+
     $passwortHinweis = sprintf(
         'Mindestens %d Zeichen. Laenge zaehlt mehr als Sonderzeichen.',
         \Platform\Recruiting\Support\PasswortRegeln::MINDESTLAENGE,
@@ -397,13 +403,22 @@
                 </label>
 
                 {{--
-                    HIER STAND EINMAL "Angemeldet bleiben" (Ruling GD-10).
-                    Der Haken setzte einen Merker in die Sitzung und bewirkte
-                    sonst nichts; eine echte Verlaengerung braucht Middleware
-                    im Wirt und wartet auf eine Freigabe. Ein
-                    Kontrollkaestchen, das nichts tut, ist ein Versprechen,
-                    das nicht gehalten wird.
+                    Angemeldet bleiben (Spec 2.1, Freigabe 13.10.):
+                    vorausgewaehlt, 180 Tage. Verlaengert wird nur die
+                    Lebensdauer der Sitzung - kein Geheimnis im Browser
+                    (Support/LangeSitzung). Nicht in .feld: dort sind
+                    Eingaben volle Breite ohne Browser-Optik, ein
+                    Kontrollkaestchen verschwaende darin. Das Haekchen fuer
+                    den ersten Aufbau ist oben vorberechnet, nie als
+                    Direktive im Tag.
                 --}}
+                <label class="bleiben">
+                    <input type="checkbox" wire:model="angemeldetBleiben" {!! $bleibenHaken !!}>
+                    <span class="bleiben-text">
+                        <span class="n">Auf diesem Gerät angemeldet bleiben</span>
+                        <span class="bleiben-hinweis">{{ $bleibenHinweis }}</span>
+                    </span>
+                </label>
 
                 @if ($fehler !== '')
                     <div class="alert crit">

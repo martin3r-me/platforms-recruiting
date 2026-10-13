@@ -27,6 +27,7 @@ use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\KontoAnmelden;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Support\LangeSitzung;
 
 /**
  * Die Anmeldeseite des Mitarbeiterkontos: Handynummer und Passwort.
@@ -197,10 +198,15 @@ final class KontoAnmeldenTest extends TestCase
             $t->timestamp('locked_at')->nullable();
             $t->integer('merged_into_person_id')->nullable();
             $t->timestamp('letzte_anmeldung_at')->nullable();
+            $t->timestamp('sitzungen_ungueltig_ab')->nullable();
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
         });
+
+        // "Angemeldet bleiben": die ECHTE Migration des Moduls.
+        (require dirname(__DIR__, 2)
+            . '/database/migrations/2026_10_13_000002_create_rec_portal_lange_sitzungen_table.php')->up();
 
         $this->capsule->schema()->create('rec_employees', function ($t) {
             $t->increments('id');
@@ -904,38 +910,143 @@ final class KontoAnmeldenTest extends TestCase
     // ------------------------------------------------------------- Cookies
 
     /**
-     * DIE ANMELDUNG SETZT KEINEN COOKIE — weder bei Erfolg noch bei einem
-     * Fehlversuch.
-     *
-     * Das ist die bindende Vorgabe hinter "Angemeldet bleiben": ein
-     * dauerhaftes Geheimnis im Browser ("remember me") waere ein zweiter
-     * Anmeldeweg ohne Passwort. Der Haken selbst ist mit Ruling GD-10 wieder
-     * ausgebaut worden (er bewirkte ohne Middleware im Wirt nichts), diese
-     * Zusicherung bleibt aber stehen: sonst faellt die Vorgabe mit dem Haken
-     * aus der Deckung, und der Naechste, der ihn nachbaut, baut ihn mit
-     * Cookie.
+     * DER HAKEN IST VORAUSGEWAEHLT (Freigabe 13.10.): wer nichts tut, bleibt
+     * angemeldet. Abwaehlen ist die Ausnahme fuer ein fremdes Geraet.
      */
-    public function test_die_anmeldung_setzt_keinen_cookie(): void
+    public function test_der_haken_ist_vorausgewaehlt(): void
+    {
+        $this->assertTrue((new KontoAnmelden())->angemeldetBleiben);
+        $this->assertTrue($this->seite()->angemeldetBleiben);
+    }
+
+    /**
+     * MIT HAKEN: genau EIN Cookie, der Merker — Wert "1", 180 Tage, Secure,
+     * HttpOnly, SameSite=Lax. Und die Sitzung ist eingetragen.
+     *
+     * Die bindende Vorgabe aus Ruling GD-10 bleibt in der Deckung: im Cookie
+     * steht KEIN Geheimnis. Kein Token, keine Kennung, keine Sitzungsnummer —
+     * die Verlaengerung ist die Lebensdauer der Sitzung selbst, kein zweiter
+     * Anmeldeweg.
+     */
+    public function test_mit_haken_merker_cookie_180_tage_und_eintragung(): void
     {
         $seite = $this->anmeldung();
         $seite->anmelden($this->auth());
 
-        $this->assertSame(
-            [],
-            $this->cookies->getQueuedCookies(),
-            'Die gelungene Anmeldung hat einen Cookie gesetzt — dort gehoert kein Geheimnis hin.',
-        );
+        $cookies = $this->cookies->getQueuedCookies();
+        $this->assertCount(1, $cookies, 'Ausser dem Merker gehoert kein Cookie hierher.');
+        $merker = $cookies[0];
 
+        $this->assertSame(LangeSitzung::COOKIE, $merker->getName());
+        $this->assertSame('1', $merker->getValue(), 'Im Merker steht etwas anderes als "1" — dort gehoert kein Geheimnis hin.');
+        $this->assertGreaterThan(time() + 179 * 86400, $merker->getExpiresTime());
+        $this->assertLessThan(time() + 181 * 86400, $merker->getExpiresTime());
+        $this->assertTrue($merker->isSecure());
+        $this->assertTrue($merker->isHttpOnly());
+        $this->assertSame('lax', $merker->getSameSite());
+
+        $zeile = DB::table(LangeSitzung::TABELLE)->where('session_id', $this->session->getId())->first();
+        $this->assertNotNull($zeile, 'Die Sitzung ist nicht eingetragen — dann verlaengert die Middleware nichts.');
+        $this->assertSame(self::PERSON_GREGOR, (int) $zeile->rec_person_id);
+    }
+
+    /** OHNE HAKEN: kein Merker, keine Eintragung — zwei Stunden wie bisher. */
+    public function test_ohne_haken_kein_merker_und_keine_eintragung(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->angemeldetBleiben = false;
+        $seite->anmelden($this->auth());
+
+        foreach ($this->cookies->getQueuedCookies() as $cookie) {
+            $this->assertFalse(
+                $cookie->getValue() === '1' && $cookie->getExpiresTime() > time(),
+                'Ohne Haken wurde ein gueltiger Merker gesetzt.',
+            );
+        }
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+    }
+
+    /** Erneut anmelden OHNE Haken auf einem Geraet, das ihn vorher hatte: die Eintragung faellt weg. */
+    public function test_ohne_haken_faellt_eine_fruehere_eintragung_weg(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+        $this->assertSame(1, DB::table(LangeSitzung::TABELLE)->count());
+
+        $zweite = $this->anmeldung();
+        $zweite->angemeldetBleiben = false;
+        $zweite->anmelden($this->auth());
+
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+    }
+
+    /** Ein Fehlversuch setzt keinen Cookie und traegt nichts ein. */
+    public function test_ein_fehlversuch_setzt_keinen_cookie(): void
+    {
         $fehl = $this->seite();
         $fehl->nummer = self::NUMMER_GETIPPT;
         $fehl->passwort = self::FALSCHES_PASSWORT;
         $fehl->anmelden($this->auth());
 
-        $this->assertSame(
-            [],
-            $this->cookies->getQueuedCookies(),
-            'Ein Fehlversuch hat einen Cookie gesetzt.',
-        );
+        $this->assertSame([], $this->cookies->getQueuedCookies(), 'Ein Fehlversuch hat einen Cookie gesetzt.');
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+    }
+
+    /** Abmelden raeumt Merker und Eintragung — auf der Konto-Seite ... */
+    public function test_abmelden_auf_der_konto_seite_beendet_die_lange_sitzung(): void
+    {
+        DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)
+            ->update(['portal_v2_since' => null]);
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $this->assertSame(1, DB::table(LangeSitzung::TABELLE)->count());
+
+        $seite->abmelden();
+
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+        $this->assertMerkerGeloescht();
+    }
+
+    /** ... und im Portal. */
+    public function test_abmelden_im_portal_beendet_die_lange_sitzung(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+
+        $this->huelle(self::ANSTELLUNG_GREGOR, 'tok-gregor')->logout();
+
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+        $this->assertMerkerGeloescht();
+    }
+
+    /**
+     * HR setzt das Konto zurueck (rec_persons.sitzungen_ungueltig_ab): auch
+     * eine LANGE Sitzung ist damit tot. Die Verlaengerung betrifft nur die
+     * Lebensdauer — die Pruefung in PortalAuth::sitzungGueltig bleibt dieselbe.
+     */
+    public function test_sitzungen_ungueltig_ab_beendet_auch_eine_lange_sitzung(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+        $this->assertSame(1, DB::table(LangeSitzung::TABELLE)->count(), 'Vorflug: es ist eine lange Sitzung');
+        $this->assertTrue(PortalAuth::sitzungGueltig(self::ANSTELLUNG_GREGOR), 'Vorflug: die Sitzung gilt');
+
+        DB::table('rec_persons')->where('id', self::PERSON_GREGOR)
+            ->update(['sitzungen_ungueltig_ab' => date('Y-m-d H:i:s', time() + 60)]);
+
+        $this->assertFalse(PortalAuth::sitzungGueltig(self::ANSTELLUNG_GREGOR));
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+    }
+
+    private function assertMerkerGeloescht(): void
+    {
+        $merker = null;
+        foreach ($this->cookies->getQueuedCookies() as $cookie) {
+            if ($cookie->getName() === LangeSitzung::COOKIE) {
+                $merker = $cookie;
+            }
+        }
+        $this->assertNotNull($merker, 'Abmelden hat den Merker nicht geloescht.');
+        $this->assertLessThan(time(), $merker->getExpiresTime(), 'Der Merker lebt nach dem Abmelden weiter.');
+        $this->assertTrue($merker->isSecure(), 'Ein Secure-Cookie wird nur von einem Secure-Set-Cookie ueberschrieben.');
     }
 
     // ------------------------------------------------- Der Portal-Stempel
@@ -1264,6 +1375,9 @@ final class KontoAnmeldenTest extends TestCase
                 . 'Weg 4 und wird bei JEDEM Aufruf erneut gegen '
                 . 'RecEmployee::verifyPortalAccess() geprueft — gesperrt koennte er sie gar '
                 . 'nicht eintippen',
+            'angemeldetBleiben' => 'die Wahl des Menschen. Sie verlaengert nur die Lebensdauer der '
+                . 'EIGENEN Sitzung und erst NACH dem Passwortnachweis in anmelden(); wer sie '
+                . 'setzt, setzt seine eigene Wahl',
             'fehler'            => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen '
                 . 'eigenen Bildschirm',
         ];
@@ -1339,16 +1453,21 @@ final class KontoAnmeldenTest extends TestCase
      * die Nebentuer hinein — unsicherer als der heutige Token-Weg.
      */
     /**
-     * Ruling GD-10: der Haken "Angemeldet bleiben" ist wieder draussen. Er
-     * bewirkte ohne Middleware im Wirt nichts — ein Kontrollkaestchen, das
-     * nichts tut, ist ein Versprechen, das nicht gehalten wird.
+     * Der Haken steht da, vorausgewaehlt, mit dem Hinweis aufs eigene Handy.
+     * Gerendert mit dem echten BladeCompiler: ein still nicht kompiliertes
+     * "checked" fiele sonst nicht auf.
      */
-    public function test_die_seite_verspricht_keine_lange_sitzung(): void
+    public function test_die_seite_zeigt_den_haken_vorausgewaehlt(): void
     {
         $html = $this->rendere($this->seite());
 
-        $this->assertStringNotContainsString('type="checkbox"', $html);
-        $this->assertStringNotContainsStringIgnoringCase('Angemeldet bleiben</span>', $html);
+        $this->assertMatchesRegularExpression('/<input type="checkbox" wire:model="angemeldetBleiben"[^>]*\schecked[\s>]/', $html);
+        $this->assertStringContainsString('Auf diesem Gerät angemeldet bleiben', $html);
+        $this->assertStringContainsString('eigenen Handy', $html);
+
+        $ohne = $this->seite();
+        $ohne->angemeldetBleiben = false;
+        $this->assertDoesNotMatchRegularExpression('/wire:model="angemeldetBleiben"[^>]*\schecked[\s>]/', $this->rendere($ohne));
     }
 
     public function test_die_seite_bietet_das_alte_verfahren_nicht_an(): void
