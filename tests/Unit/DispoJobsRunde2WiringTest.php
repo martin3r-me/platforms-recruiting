@@ -27,4 +27,17 @@ final class DispoJobsRunde2WiringTest extends TestCase
         }
         $this->assertStringNotContainsString("\$rueck['kontakte']", $view);
     }
+
+    public function test_fortschritt_steht_ueber_den_schichten_und_offene_kommen_zuerst(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Show.php');
+        $this->assertStringContainsString('DispoJobFortschritt::berechnen($this->schichten)', $src);
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+        $kopf = strpos($view, '{{ $fortschritt[\'zugesagt\'] }}</strong> von');
+        $liste = strpos($view, 'array_merge($fortschritt[\'offen\'], $fortschritt[\'voll\'])');
+        $this->assertNotFalse($kopf);
+        $this->assertNotFalse($liste);
+        $this->assertLessThan($liste, $kopf, 'Fortschritt vor der Liste');
+    }
 }

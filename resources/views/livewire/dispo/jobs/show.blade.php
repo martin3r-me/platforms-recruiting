@@ -2,6 +2,7 @@
 @php
     $anfrage = $this->vorgang;
     $schichten = $this->schichten;
+    $fortschritt = $this->fortschritt;
     $wellen = $this->wellen;
     $rueck = $this->rueckmeldungen;
     $filialLabel = \Platform\Recruiting\Support\Filialen::code($anfrage->filial_nr) ?? ('#' . $anfrage->filial_nr);
@@ -216,7 +217,21 @@
     {{-- ============================ Schichten + Rückmeldungen ============================ --}}
     <div class="space-y-4">
         <div class="font-medium text-gray-700">Schichten und Rückmeldungen</div>
-        @foreach ($schichten as $s)
+        @php
+            $plaetze = $fortschritt['gesucht'] === 1 ? 'Platz' : 'Plätzen';
+            $balkenKlasse = $fortschritt['prozent'] >= 100 ? 'bg-green-500' : 'bg-blue-500';
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+            <div class="text-sm text-gray-800">
+                <strong>{{ $fortschritt['zugesagt'] }}</strong> von {{ $fortschritt['gesucht'] }} {{ $plaetze }} zugesagt
+                · {{ $fortschritt['eingetragen'] }} in ZAS eingetragen
+                · {{ $fortschritt['angekommen'] }} angekommen
+            </div>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div class="h-2 rounded-full {{ $balkenKlasse }}" style="width: {{ $fortschritt['prozent'] }}%"></div>
+            </div>
+        </div>
+        @foreach (array_merge($fortschritt['offen'], $fortschritt['voll']) as $s)
             @php
                 $zeilen = $rueck['zeilen'][$s->id] ?? [];
                 $schichtTitel = implode(' · ', array_filter([
@@ -227,9 +242,9 @@
                 ]));
                 $voll = (int) $s->zugesagt >= (int) $s->gesucht;
             @endphp
-            <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+            <div wire:key="schicht-{{ $s->id }}" class="rounded-lg border bg-white p-4 space-y-2 {{ $voll ? 'border-green-200' : 'border-gray-200' }}">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <div class="font-medium text-gray-800">{{ $schichtTitel }}</div>
+                    <div class="font-medium {{ $voll ? 'text-green-800' : 'text-gray-800' }}">{{ $schichtTitel }}</div>
                     <div class="flex flex-wrap gap-1.5 text-xs">
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">gesucht {{ $s->gesucht }}</span>
                         <span class="rounded-full border px-2 py-0.5 {{ $voll ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-700' }}">zugesagt {{ $s->zugesagt }}</span>

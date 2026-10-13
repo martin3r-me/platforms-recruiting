@@ -15,6 +15,7 @@ use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
@@ -147,6 +148,13 @@ class Show extends Component
             ])
             ->orderBy('datum')->orderBy('von')->orderBy('taetigkeit')
             ->get();
+    }
+
+    /** @return array{gesucht:int, zugesagt:int, eingetragen:int, angekommen:int, prozent:int, offen:list<\Platform\Recruiting\Models\RecDispoJobShift>, voll:list<\Platform\Recruiting\Models\RecDispoJobShift>} */
+    #[Computed]
+    public function fortschritt(): array
+    {
+        return DispoJobFortschritt::berechnen($this->schichten);
     }
 
     /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, info: array<int, array<string,mixed>>} */
