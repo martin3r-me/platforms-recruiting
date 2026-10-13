@@ -109,6 +109,17 @@ final class LangeSitzung
             ['rec_person_id' => $personId, 'created_at' => now()],
         );
 
+        // Schon DIESE Antwort soll den Sitzungs-Cookie fuer 180 Tage setzen:
+        // StartSession liest die Lebensdauer fuer das Cookie-Ablaufdatum erst
+        // NACH dem Handler aus der Config. Ohne diese Zeile bekaeme der
+        // Browser bei der Anmeldung einen 2-Stunden-Cookie und behielte die
+        // Sitzung nur, wenn innerhalb von zwei Stunden noch eine Anfrage
+        // kommt (Zustand 'ohne-ziel', Browser gleich zugemacht). Die Zeile
+        // selbst ist hiervon nicht beruehrt: gelesen ist sie schon.
+        if (self::moeglich()) {
+            config(['session.lifetime' => self::MINUTEN]);
+        }
+
         if (app()->bound('cookie')) {
             $korb = app('cookie');
             // Pfad und Domain: die Vorgaben des Korbs (aus der Session-Config),

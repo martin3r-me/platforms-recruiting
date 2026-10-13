@@ -408,6 +408,36 @@ final class LangeSitzungTest extends TestCase
         $this->assertSame(LangeSitzung::MINUTEN, config('session.lifetime'));
     }
 
+    /**
+     * Schon die ANMELDE-Antwort setzt den Sitzungs-Cookie fuer 180 Tage —
+     * nicht erst die naechste Anfrage. Sonst verloere der Browser die
+     * Sitzung, wenn nach der Anmeldung zwei Stunden lang nichts kommt.
+     */
+    public function test_die_anmelde_antwort_setzt_den_sitzungs_cookie_schon_fuer_180_tage(): void
+    {
+        $id = self::kennung('g');
+        $this->sitzung($id, 60);
+
+        $manager = new SessionManager($this->container);
+        $this->container->instance('session', $manager);
+
+        $antwort = (new LangeSitzungVerlaengern())->handle(
+            $this->anfrage([self::COOKIE_SITZUNG => $id]),
+            function (Request $r) use ($manager) {
+                return (new StartSession($manager))->handle($r, function () {
+                    PortalAuth::erneuereSitzungskennung();
+                    LangeSitzung::beginne(2);
+
+                    return new Response('ok');
+                });
+            },
+        );
+
+        $cookie = $this->sitzungsCookie($antwort);
+        $this->assertNotNull($cookie);
+        $this->assertGreaterThan(time() + 179 * 86400, $cookie->getExpiresTime());
+    }
+
     // -------------------------------------------------- Die Stelle im Stapel
 
     /**
