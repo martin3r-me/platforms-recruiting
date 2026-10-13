@@ -148,8 +148,11 @@
         .portal-body .brail { display: none }
 
         /* Die zwei Listen stehen auf dem Handy untereinander. Der Entwurf
-           setzt .bcols von Haus aus zweispaltig — das gilt erst am Rechner. */
-        .portal-body .bcols { display: flex; flex-direction: column; gap: 17px }
+           setzt .bcols von Haus aus zweispaltig — das gilt erst am Rechner.
+           align-items: stretch ist Pflicht: der Entwurf bringt fuers Raster
+           align-items:start mit, und im Stapel hiesse das "nur so breit wie
+           der Inhalt" — die Karte "Liegt vor" endete rechts zu frueh. */
+        .portal-body .bcols { display: flex; flex-direction: column; align-items: stretch; gap: 17px }
 
         /* ---------- Rechner: Seitenleiste statt Reiterleiste ----------
            So sieht es im Entwurf aus (.bbody/.brail/.bmain). Dieselben
@@ -198,6 +201,9 @@
                 align-items: start;
                 gap: 19px;
             }
+            /* Steht nur eine der beiden Listen da, nimmt sie die ganze
+               Breite statt der linken Spalte. */
+            .portal-body .bcols > :only-child { grid-column: 1 / -1 }
         }
 
         /* Die Navigationspunkte sind bei uns Knoepfe, im Entwurf waren es
@@ -221,7 +227,7 @@
         /* Aufgabenzeilen sind jetzt Knoepfe (Upload antippen) — der Entwurf
            kannte sie nur als Deko-Divs. */
         .portal-body .task.tap { cursor: pointer; background: none; border: none;
-            font-family: var(--body); text-align: left; width: 100%; padding-right: 13px }
+            color: inherit; font-family: var(--body); text-align: left; width: 100%; padding-right: 13px }
         .portal-body .task.tap:hover { background: var(--surface-2) }
 
         /* --- Upload-Formular: Ueberlagerung ueber dem ganzen Bildschirm --- */

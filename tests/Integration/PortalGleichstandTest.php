@@ -1484,6 +1484,7 @@ final class PortalGleichstandTest extends TestCase
             'initialen'    => 'Identitaet, faehrt im Schnappschuss mit',
             'duzen'        => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
             'profilGruppe' => 'entscheidet, WELCHE Felder geschrieben werden',
+            'profilFokus'  => 'nur vom Server gesetzt (oeffneAngabe), haengt am offenen Blatt',
         ];
 
         $klasse = new \ReflectionClass(PortalShell::class);

@@ -524,4 +524,140 @@ final class PortalShellProfilTest extends TestCase
             $shell->schliesseGruppe();
         }
     }
+
+    // -----------------------------------------------------------------
+    // 13.10.2026 (Demo-Rundgang): "Das fehlt noch" springt direkt ins
+    // passende Fenster -- ohne Umweg ueber den Profil-Reiter. oeffneAngabe()
+    // sucht die Gruppe des Felds in derselben Quelle wie oeffneGruppe()
+    // (editableFieldGroups) und laesst das Oeffnen selbst bei oeffneGruppe:
+    // dieselben Waechter, kein zweiter Weg.
+    // -----------------------------------------------------------------
+
+    public function test_angabe_staatsangehoerigkeit_oeffnet_die_gruppe_mit_dem_feld(): void
+    {
+        $ma = $this->mitarbeiter(['nationality' => null]);
+        $shell = $this->shell($ma);
+
+        $shell->oeffneAngabe('nationality');
+
+        $this->assertSame('Adresse', $this->gruppeMitFeld($ma, 'nationality'), 'Testvoraussetzung: nationality steht in der Gruppe Adresse.');
+        $this->assertSame('Adresse', $shell->profilGruppe);
+        $this->assertArrayHasKey('nationality', $shell->profilWerte);
+        $this->assertSame('nationality', $shell->profilFokus);
+        $this->assertNull($shell->uploadCode, 'Eine Angabe ist kein Nachweis.');
+    }
+
+    public function test_angabe_hauptarbeitgeber_oeffnet_die_arbeitgeber_gruppe(): void
+    {
+        $ma = $this->mitarbeiter(['is_main_employer' => null]);
+        $shell = $this->shell($ma);
+
+        $shell->oeffneAngabe('is_main_employer');
+
+        $this->assertSame('Arbeitgeber', $this->gruppeMitFeld($ma, 'is_main_employer'));
+        $this->assertSame('Arbeitgeber', $shell->profilGruppe);
+        $this->assertSame('is_main_employer', $shell->profilFokus);
+    }
+
+    public function test_angabe_ohne_anmeldung_oeffnet_nichts(): void
+    {
+        $shell = $this->shell($this->mitarbeiter(['nationality' => null]), angemeldet: false);
+
+        $shell->oeffneAngabe('nationality');
+
+        $this->assertNull($shell->profilGruppe);
+        $this->assertNull($shell->profilFokus);
+        $this->assertSame([], $shell->profilWerte);
+    }
+
+    public function test_unbekannte_angabe_laeuft_still_ins_leere(): void
+    {
+        $shell = $this->shell($this->mitarbeiter());
+
+        $shell->oeffneAngabe('gibtesnicht');
+
+        $this->assertNull($shell->profilGruppe);
+        $this->assertNull($shell->profilFokus);
+        $this->assertNull($shell->uploadCode);
+    }
+
+    public function test_angabe_aus_einer_fremden_gruppe_oeffnet_nichts(): void
+    {
+        // Die Gruppe wird im Katalog DIESES Menschen gesucht: fuer einen
+        // EU-Buerger gibt es "Aufenthalt (Non-EU)" nicht, also oeffnet ein
+        // Feld daraus weder ein Blatt noch das Nachweis-Blatt.
+        $shell = $this->shell($this->mitarbeiter(['is_eu_citizen' => true]));
+
+        $shell->oeffneAngabe('residence_permit_valid_until');
+
+        $this->assertNull($shell->profilGruppe);
+        $this->assertNull($shell->uploadCode);
+        $this->assertNull($shell->profilFokus);
+    }
+
+    public function test_nachweis_angabe_oeffnet_das_upload_blatt(): void
+    {
+        // Haengt eine Pflichtangabe an einer Datei (Ersthelfer-Schein) oder
+        // ihrem Ablaufdatum, fuehrt der Klick ins Nachweis-Blatt -- dasselbe
+        // oeffneUpload() wie ueberall.
+        $shell = $this->shell($this->mitarbeiter(['is_first_aider' => true]));
+        $code = \Platform\Recruiting\Support\ProofTypes::codeForLegacyColumn('first_aider_certificate_file_id');
+        $this->assertNotNull($code);
+
+        $shell->oeffneAngabe('first_aider_certificate_file_id');
+        $this->assertSame($code, $shell->uploadCode);
+        $this->assertNull($shell->profilGruppe);
+
+        $shell->schliesseUpload();
+        $shell->oeffneAngabe('first_aider_valid_until');
+        $this->assertSame($code, $shell->uploadCode);
+        $this->assertNull($shell->profilGruppe);
+    }
+
+    public function test_nach_dem_speichern_ist_die_angabe_erledigt_und_der_fokus_weg(): void
+    {
+        $ma = $this->mitarbeiter(['nationality' => null, 'is_main_employer' => true]);
+        $shell = $this->shell($ma);
+        $vorher = array_column($this->pflicht($shell, $ma), 'feld');
+        $this->assertContains('nationality', $vorher, 'Testvoraussetzung: Staatsangehoerigkeit fehlt.');
+
+        $shell->oeffneAngabe('nationality');
+        $shell->profilWerte['nationality'] = 'deutsch';
+        $shell->speichereGruppe();
+
+        $this->assertSame('', $shell->profilFehler);
+        $this->assertNull($shell->profilGruppe);
+        $this->assertNull($shell->profilFokus);
+        $this->assertNotContains('nationality', array_column($this->pflicht($shell, $ma->fresh()), 'feld'));
+    }
+
+    public function test_schliessen_raeumt_den_fokus_ab(): void
+    {
+        $shell = $this->shell($this->mitarbeiter(['nationality' => null]));
+
+        $shell->oeffneAngabe('nationality');
+        $shell->schliesseGruppe();
+
+        $this->assertNull($shell->profilFokus);
+    }
+
+    public function test_pflicht_zeilen_tragen_ihr_feld(): void
+    {
+        $zeilen = PortalShell::pflichtAufgaben([
+            ['feld' => 'nationality', 'gruppe' => 'Adresse', 'label' => 'Staatsangehörigkeit'],
+            ['feld' => 'is_main_employer', 'gruppe' => 'Arbeitgeber', 'label' => 'Hauptarbeitgeber'],
+        ], true);
+
+        $this->assertSame('nationality', $zeilen[0]['feld']);
+        $this->assertSame('is_main_employer', $zeilen[1]['feld']);
+    }
+
+    /** @return list<array{feld:string, gruppe:string, label:string}> */
+    private function pflicht(PortalShell $shell, RecEmployee $ma): array
+    {
+        $methode = new \ReflectionMethod($shell, 'profilDaten');
+        $methode->setAccessible(true);
+
+        return $methode->invoke($shell, $ma)['pflicht'];
+    }
 }

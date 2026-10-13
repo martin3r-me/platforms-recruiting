@@ -174,4 +174,53 @@ class PortalShellProfilBladeTest extends TestCase
 
         $this->assertSame(0, $code, implode("\n", $ausgabe));
     }
+
+    /** Der Block "Das fehlt noch" -- von der Ueberschrift bis "Liegt vor". */
+    private function fehltNochBlock(): string
+    {
+        $blade = $this->blade();
+        $start = strpos($blade, 'Das fehlt noch <span');
+        $this->assertNotFalse($start, 'Kein Block "Das fehlt noch" im Blade.');
+        $ende = strpos($blade, 'Liegt vor <span', $start);
+        $this->assertNotFalse($ende);
+
+        return substr($blade, $start, $ende - $start);
+    }
+
+    public function test_das_fehlt_noch_springt_direkt_ins_passende_fenster(): void
+    {
+        $block = $this->fehltNochBlock();
+
+        // Knopf (Tastatur, Vorleser), kein Div -- und der Klick geht ueber
+        // oeffneAngabe() direkt ins Fenster, nicht mehr in den Profil-Reiter.
+        $this->assertStringContainsString(
+            '<button type="button" class="task tap" wire:click="oeffneAngabe(\'{{ $aufgabe[\'feld\'] }}\')">',
+            $block,
+        );
+        $this->assertStringNotContainsString("tab = 'me'", $block, 'Der Umweg ueber den Profil-Reiter ist zurueck.');
+    }
+
+    public function test_das_gruppen_blatt_fokussiert_die_angeklickte_angabe(): void
+    {
+        $blade = $this->blade();
+
+        $this->assertStringContainsString('$profilFokus', $blade);
+        $this->assertStringContainsString('scrollIntoView', $blade);
+    }
+
+    public function test_die_spalten_auf_dem_handy_sind_volle_breite(): void
+    {
+        // portal-styles setzt .bcols{align-items:start} fuer das Raster am
+        // Rechner. Im Handy-Stapel (flex-direction:column) hiesse das:
+        // jede Spalte nur so breit wie ihr Inhalt -- "Liegt vor" endete
+        // rechts zu frueh.
+        $layout = file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
+
+        $this->assertMatchesRegularExpression(
+            '#\.portal-body \.bcols \{ display: flex; flex-direction: column; align-items: stretch;#',
+            $layout,
+        );
+        // Eine einzelne Spalte am Rechner nimmt die ganze Breite.
+        $this->assertStringContainsString('.portal-body .bcols > :only-child { grid-column: 1 / -1 }', $layout);
+    }
 }

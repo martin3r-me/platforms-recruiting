@@ -310,18 +310,22 @@
                                 haengt die Steuerklasse, an der
                                 Staatsangehoerigkeit der ZAS-Export, an der
                                 Ersthelfer-Kopplung der Arbeitsschutz. Ein
-                                Klick fuehrt ins Profil -- dort stehen die
-                                eigentlichen Fragen, kein Upload-Formular.
+                                Klick oeffnet DIREKT das Fenster der Gruppe,
+                                in der die Angabe steht (oeffneAngabe, seit
+                                13.10.2026) -- der Mensch bleibt auf Start,
+                                das Blatt steht ausserhalb der Reiter. Haengt
+                                die Angabe an einem Nachweis, geht stattdessen
+                                das Nachweis-Blatt auf.
                             --}}
                             @foreach ($pflichtAufgaben as $aufgabe)
-                                <div class="task tap" @click="tab = 'me'">
+                                <button type="button" class="task tap" wire:click="oeffneAngabe('{{ $aufgabe['feld'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
                                     <div>
                                         <div class="t">{{ $aufgabe['label'] }}</div>
                                         <div class="s">{{ $aufgabe['text'] }}</div>
                                     </div>
                                     <span class="chev">›</span>
-                                </div>
+                                </button>
                             @endforeach
                         </div>
                     </div>
@@ -832,8 +836,15 @@
                                 // Vorberechnen statt @if im Attribut — Hausregel.
                                 $randKlasse = $feld['fehlt'] ? 'feld fehlt' : 'feld';
                                 $optionen   = $feld['type'] === 'lookup' ? $this->lookupOptionen($feld['lookup'] ?? '') : [];
+                                // Kam der Klick aus "Das fehlt noch" (oeffneAngabe),
+                                // rollt das Blatt zu genau diesem Feld und setzt den
+                                // Fokus hinein. Fertiger Attribut-String, kein
+                                // Nutzertext darin.
+                                $fokusAttribut = ($profilFokus ?? null) === $schluessel
+                                    ? 'x-init="$nextTick(() => { $el.scrollIntoView({ block: \'center\' }); $el.querySelector(\'input, select, textarea\')?.focus() })"'
+                                    : '';
                             @endphp
-                            <label class="{{ $randKlasse }}">
+                            <label class="{{ $randKlasse }}" {!! $fokusAttribut !!}>
                                 <span class="n">{{ $feld['label'] }}</span>
 
                                 @if (!empty($feld['fest']))

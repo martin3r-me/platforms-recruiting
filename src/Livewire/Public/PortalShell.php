@@ -112,6 +112,14 @@ class PortalShell extends Component
      * (PortalProfileWriter::speichere()).
      */
     public array $profilWerte = [];
+
+    /**
+     * Welches Feld im offenen Blatt den Fokus bekommt -- gesetzt nur von
+     * oeffneAngabe() (Klick in "Das fehlt noch"), reine Anzeigehilfe.
+     * #[Locked], damit der Schnappschuss nur Werte traegt, die der Server
+     * gesetzt hat.
+     */
+    #[Locked] public ?string $profilFokus = null;
     public string $profilFehler = '';
     public string $profilMeldung = '';
 
@@ -376,6 +384,7 @@ class PortalShell extends Component
      */
     public function oeffneGruppe(string $gruppe): void
     {
+        $this->profilFokus = null;
         $this->profilFehler = '';
         $this->profilMeldung = '';
         $this->profilGruppe = null;
@@ -408,9 +417,72 @@ class PortalShell extends Component
         }
     }
 
+    /**
+     * Eine offene Angabe aus "Das fehlt noch" antippen (13.10.2026) --
+     * fuehrt DIREKT in das Fenster, in dem sie ausgefuellt wird, ohne
+     * Umweg ueber den Profil-Reiter. Der Mensch bleibt auf Start; beide
+     * Blaetter stehen ausserhalb der Reiter.
+     *
+     * Kein zweiter Weg: die Gruppe des Felds kommt aus derselben Quelle wie
+     * bei oeffneGruppe() (editableFieldGroups), das Oeffnen selbst --
+     * samt Anmelde- und Sichtbarkeitspruefung -- macht oeffneGruppe().
+     * Haengt die Angabe an einem Nachweis (Datei-Feld oder sein
+     * Ablaufdatum, z. B. der Ersthelfer-Schein), oeffnet oeffneUpload()
+     * das Nachweis-Blatt. Unbekannte Felder laufen still ins Leere.
+     */
+    public function oeffneAngabe(string $feld): void
+    {
+        $this->profilFokus = null;
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null) {
+            return;
+        }
+
+        foreach ($employee->editableFieldGroups() as $gruppe => $felder) {
+            if (!array_key_exists($feld, $felder)) {
+                continue;
+            }
+
+            $nachweis = ($felder[$feld]['type'] ?? 'text') === 'file'
+                ? ProofTypes::codeForLegacyColumn($feld)
+                : $this->nachweisZumAblaufdatum($feld);
+            if ($nachweis !== null) {
+                $this->oeffneUpload($nachweis);
+
+                return;
+            }
+            if (($felder[$feld]['type'] ?? 'text') === 'file') {
+                return;   // Datei ohne Nachweisart: kein Blatt, das sie aufnimmt
+            }
+
+            $this->oeffneGruppe((string) $gruppe);
+            if ($this->profilGruppe !== null && array_key_exists($feld, $this->profilWerte)) {
+                $this->profilFokus = $feld;
+            }
+
+            return;
+        }
+    }
+
+    /** Nachweisart, der dieses Ablaufdatum gehoert (F4), sonst null. */
+    private function nachweisZumAblaufdatum(string $feld): ?string
+    {
+        if (!ProofTypes::istAblaufSpalte($feld)) {
+            return null;
+        }
+        foreach (ProofTypes::all() as $code) {
+            if (ProofTypes::legacyExpiryColumn($code) === $feld) {
+                return $code;
+            }
+        }
+
+        return null;
+    }
+
     /** Das Profil-Blatt schliessen, ohne zu speichern -- z. B. „Abbrechen". */
     public function schliesseGruppe(): void
     {
+        $this->profilFokus = null;
         $this->profilGruppe = null;
         $this->profilWerte = [];
         $this->profilFehler = '';
@@ -602,6 +674,7 @@ class PortalShell extends Component
 
         $this->profilFehler = '';
         $this->profilMeldung = (string) $ergebnis['meldung'];
+        $this->profilFokus = null;
         $this->profilGruppe = null;
         $this->profilWerte = [];
     }
@@ -649,16 +722,18 @@ class PortalShell extends Component
      * still keinen Text.
      *
      * @param list<array{feld:string, gruppe:string, label:string}> $pflicht
-     * @return list<array{code:string, label:string, punkt:string, text:string, offen:bool}>
+     * @return list<array{feld:string, code:string, label:string, punkt:string, text:string, offen:bool}>
      */
     public static function pflichtAufgaben(array $pflicht, bool $duzen): array
     {
         return array_map(static function (array $eintrag) use ($duzen): array {
+            // 'feld' traegt den Klick in "Das fehlt noch" (oeffneAngabe).
             if ($eintrag['feld'] === 'is_main_employer') {
-                return self::arbeitgeberAufgabe($duzen);
+                return self::arbeitgeberAufgabe($duzen) + ['feld' => 'is_main_employer'];
             }
 
             return [
+                'feld'  => $eintrag['feld'],
                 // Praefix, damit der Code niemals versehentlich eine echte
                 // Nachweisart trifft und ein Klick das Upload-Formular
                 // oeffnet (dieselbe Vorsicht wie bei 'arbeitgeber_frage').
