@@ -39,6 +39,7 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
+            'database/migrations/2026_10_14_000001_add_bis_and_withdrawn_at_to_rec_dispo_job_tables.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -65,7 +66,7 @@ class DispoJobCreateFlowTest extends TestCase
             'filial_nr' => 200, 'von' => '2026-10-13', 'bis' => '2026-11-09', 'modus' => RecDispoJobRequest::MODUS_SAMMELN,
             'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
             'schichten' => [
-                ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
+                ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
             ],
         ];
@@ -89,6 +90,8 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertCount(2, $shifts);
         $this->assertSame(['17:00', 20, 'Zapfer'], [$shifts[0]->von, $shifts[0]->gesucht, $shifts[0]->taetigkeit]);
         $this->assertSame('', $shifts[1]->von, 'leerer Beginn als Leerstring, nie null');
+        $this->assertSame('23:00', $shifts[0]->bis);
+        $this->assertSame('', $shifts[1]->bis, 'ohne Ende: Leerstring, nie null');
 
         $waves = RecDispoJobWave::where('request_id', $request->id)->get();
         $this->assertCount(1, $waves);
