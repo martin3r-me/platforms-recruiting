@@ -105,6 +105,7 @@ class ZasDispoWebexportImporter
             // Lieferung abgelegt und ihre Bestaetigung geleert.
             $veraltet = RecZasDispoInboundFile::query()
                 ->where('id', '>', $file->id)
+                ->where('is_test', false)
                 ->where('parse_status', 'processed')
                 ->exists();
 
@@ -136,8 +137,9 @@ class ZasDispoWebexportImporter
                         $summary['reconfirm_marked']++;
                     }
 
-                    $m = $matcher->match($attrs['pnr_raw']);
-                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
+                    // Veraltet: gezaehlt wird die Nummer, die stehen bleibt.
+                    $pnr = isset($wechsel[$dsRef]) && $veraltet ? $wechsel[$dsRef]['alt_pnr'] : $attrs['pnr_raw'];
+                    self::tallyMatch($summary, $matcher->match($pnr), $pnr);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
 
@@ -207,7 +209,6 @@ class ZasDispoWebexportImporter
                     }
 
                     $m = $matcher->match($attrs['pnr_raw']);
-                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
 
                     if (isset($wechsel[$dsRef]) && $veraltet) {
                         // Aeltere Datei: Person bleibt, wie die neuere Lieferung sie gesetzt hat.
@@ -233,6 +234,10 @@ class ZasDispoWebexportImporter
                             $summary['reconfirm_marked']++;
                         }
                     }
+
+                    // Gezaehlt wird die Nummer, die geschrieben wird — auf dem
+                    // Veraltet-Pfad die stehende, nicht die verworfene.
+                    self::tallyMatch($summary, $m['reason'] === 'kept' ? $matcher->match($attrs['pnr_raw']) : $m, $attrs['pnr_raw']);
 
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],

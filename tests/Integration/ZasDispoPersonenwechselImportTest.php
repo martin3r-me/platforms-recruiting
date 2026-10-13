@@ -258,7 +258,23 @@ class ZasDispoPersonenwechselImportTest extends TestCase
         $this->assertSame('RG2002', $live->pnr_raw);
         $this->assertSame($ben->id, (int) $live->rec_employee_id);
         $this->assertNotNull($live->confirmed_at, 'Die Bestaetigung aus der neueren Lieferung bleibt.');
-        $this->assertSame(0, RecDispoAssignment::where('ds_ref', 'like', '%~alt%')->count());
+        $this->assertSame(0, RecDispoAssignment::where('ds_ref', 'like', '%~alt%')->count());        $this->assertSame([], $summary['unmatched_pnrs'], 'Die verworfene Nummer ist nie geschrieben worden.');
+        $this->assertSame(1, $summary['matched']);
+    }
+
+    public function test_an_older_file_with_an_unknown_number_does_not_report_it_as_unmatched(): void
+    {
+        $this->employee('RG2002');
+        $alteDatei = $this->importiereDatei($this->zeile('RG9999'));
+        $this->importiere($this->zeile('RG2002'));
+
+        $summary = $this->importer()->import($alteDatei);
+        $vorschau = $this->importer()->import($alteDatei, true);
+
+        $this->assertSame(1, $summary['personenwechsel_veraltet']);
+        $this->assertSame([], $summary['unmatched_pnrs']);
+        $this->assertSame(0, $summary['unmatched']);
+        $this->assertSame([], $vorschau['unmatched_pnrs'], 'Die Vorschau zaehlt wie der Lauf.');
     }
 
     public function test_references_by_row_id_move_to_the_archive_row(): void
