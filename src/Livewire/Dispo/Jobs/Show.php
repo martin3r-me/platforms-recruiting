@@ -12,7 +12,6 @@ use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
-use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
@@ -20,6 +19,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo;
 
 /**
  * Seite einer Anfrage „Jobs anbieten“ (Spec 2026-10-12 §4.6–4.7): Kopf,
@@ -149,13 +149,13 @@ class Show extends Component
             ->get();
     }
 
-    /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, kontakte: array<int, array<string,mixed>>} */
+    /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, info: array<int, array<string,mixed>>} */
     #[Computed]
     public function rueckmeldungen(): array
     {
         $shiftIds = $this->schichten->pluck('id')->all();
         if ($shiftIds === []) {
-            return ['zeilen' => [], 'kontakte' => []];
+            return ['zeilen' => [], 'info' => []];
         }
         $zeilen = RecDispoJobOfferShift::query()
             ->whereIn('shift_id', $shiftIds)
@@ -167,8 +167,8 @@ class Show extends Component
         $ids = $zeilen->map(fn ($z) => (int) $z->offer?->rec_employee_id)->filter()->unique()->values()->all();
 
         return [
-            'zeilen'   => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
-            'kontakte' => app(DispoEmployeeGateway::class)->contacts($ids),
+            'zeilen' => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
+            'info'   => DispoJobZusagenInfo::laden($ids, now()->format('Y-m')),
         ];
     }
 

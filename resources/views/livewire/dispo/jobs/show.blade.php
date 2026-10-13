@@ -246,6 +246,9 @@
                                 <th class="py-1 pr-3 font-medium">Name</th>
                                 <th class="py-1 pr-3 font-medium">Zusage</th>
                                 <th class="py-1 pr-3 font-medium">Handynummer</th>
+                                <th class="py-1 pr-3 font-medium" title="Auftrags-Einsatztage im laufenden Monat">Einsätze</th>
+                                <th class="py-1 pr-3 font-medium">Tätigkeit</th>
+                                <th class="py-1 pr-3 font-medium">Bewertung</th>
                                 <th class="py-1 font-medium">ZAS</th>
                             </tr>
                         </thead>
@@ -253,8 +256,11 @@
                             @foreach ($zeilen as $z)
                                 @php
                                     $maId = (int) ($z->offer?->rec_employee_id ?? 0);
-                                    $kontakt = $rueck['kontakte'][$maId] ?? null;
-                                    $maName = $kontakt['name'] ?? ('#' . $maId);
+                                    $info = $rueck['info'][$maId] ?? null;
+                                    $maName = $info['name'] ?? ('#' . $maId);
+                                    $taetPasst = $info !== null && \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo::passt((string) $s->taetigkeit, $info['taetigkeiten']);
+                                    $taetListe = $info !== null && $info['taetigkeiten'] !== [] ? implode(', ', $info['taetigkeiten']) : 'keine Tätigkeiten aus ZAS';
+                                    $bewertung = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo::bewertung($info['ratings'] ?? []);
                                 @endphp
                                 <tr wire:key="zusage-{{ $z->id }}" class="border-t border-gray-100">
                                     <td class="py-1 pr-3">
@@ -265,7 +271,18 @@
                                         @endif
                                     </td>
                                     <td class="py-1 pr-3 tabular-nums text-gray-600">{{ $z->accepted_at->format('d.m. H:i') }}</td>
-                                    <td class="py-1 pr-3 tabular-nums text-gray-600">{{ $kontakt['phone'] ?? '–' }}</td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-600">{{ ($info['phone'] ?? '') !== '' ? $info['phone'] : '–' }}</td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-700">{{ $info['einsaetze'] ?? 0 }}</td>
+                                    <td class="py-1 pr-3">
+                                        @if ($info === null || $info['taetigkeiten'] === [])
+                                            <span class="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-400">keine aus ZAS</span>
+                                        @elseif ($taetPasst)
+                                            <span class="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700" title="{{ $taetListe }}">passt</span>
+                                        @else
+                                            <span class="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600" title="{{ $taetListe }}">andere</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-1 pr-3 tabular-nums text-gray-700" title="{{ $bewertung['title'] }}">{{ $bewertung['text'] }}</td>
                                     <td class="py-1">
                                         <div class="flex flex-wrap items-center gap-3">
                                             <label class="flex cursor-pointer items-center gap-1.5 text-xs">
