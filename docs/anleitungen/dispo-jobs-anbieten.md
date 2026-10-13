@@ -28,7 +28,7 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 ## Dispo · Jobs anbieten | Die Übersicht
 
 ![Übersicht der Anfragen mit Filter und Spalte „Besetzt“](uebersicht.png)
-<!-- shot: seite=/recruiting/dispo-jobs klicks="Alle" ausschnitt="css:div.p-6.space-y-6" -->
+<!-- shot: seite=/recruiting/dispo-jobs ausschnitt="css:div.p-6.space-y-6" markieren="css:thead th:nth-child(6)" -->
 
 1. Unter **Disposition → Jobs anbieten** siehst du alle Anfragen. Oben wählst du **„Offen“**, **„Abgeschlossen“** oder **„Alle“**.
 2. **„Besetzt“** zeigt, wie viele der gesuchten Plätze schon eine Zusage haben, zum Beispiel **„6 / 10“**. Grün heißt: Alle Plätze sind gedeckt. **„(+2)“** dahinter heißt: Zwei Leute haben zusätzlich zugesagt.
@@ -38,7 +38,7 @@ Dir fehlen Leute für eine Veranstaltung? Du schreibst gezielt Mitarbeiter an, d
 ## Dispo · Jobs anbieten | Wellen
 
 ![Anfrage mit der Liste der Wellen](wellen.png)
-<!-- shot: manuell -->
+<!-- shot: seite=/recruiting/dispo-jobs klicks="css:tbody a" ausschnitt="Wellen" markieren="Neue Welle" -->
 
 Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So fängst du mit denen an, die am besten passen, und nimmst später die nächsten dazu.
 
@@ -51,7 +51,7 @@ Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So
 ## Dispo · Jobs anbieten | Was der Mitarbeiter sieht
 
 ![WhatsApp-Nachricht mit Link und die Seite mit den offenen Schichten](mitarbeiter-sicht.png)
-<!-- shot: manuell -->
+<!-- shot: seite=/recruiting/jobs/dump-00001824 handy -->
 
 1. Der Mitarbeiter bekommt eine WhatsApp mit einem Link.
 2. Die Seite zeigt nur Schichten an Tagen, an denen er frei ist, mit Beginn und Ende, zum Beispiel **„16:00–23:00 · Servicekraft“**.
@@ -64,7 +64,7 @@ Eine Welle ist eine Gruppe von Mitarbeitern, die du gleichzeitig anschreibst. So
 ## Dispo · Jobs anbieten | Zusagen auswählen
 
 ![Zusagen einer Schicht mit Einsätzen, Tätigkeit und Bewertung](zusagen-auswahl.png)
-<!-- shot: manuell -->
+<!-- shot: seite=/recruiting/dispo-jobs klicks="css:tbody a" ausschnitt="css:[wire\:key^=schicht-]" markieren="Bewertung" -->
 
 Oben in der Anfrage steht, wie weit du bist, zum Beispiel **„6 von 10 Plätzen besetzt“**. Darunter kommen zuerst die Schichten, in denen noch Plätze frei sind. Volle Schichten sind grün und stehen unten.
 
@@ -78,7 +78,7 @@ Oben in der Anfrage steht, wie weit du bist, zum Beispiel **„6 von 10 Plätzen
 ## Dispo · Jobs anbieten | Zusagen in ZAS eintragen
 
 ![Schicht mit den Knöpfen „Liste kopieren“ und „Alle als in ZAS eingetragen markieren“](zusagen.png)
-<!-- shot: manuell -->
+<!-- shot: seite=/recruiting/dispo-jobs klicks="css:tbody a" ausschnitt="css:[wire\:key^=schicht-]" markieren="Liste kopieren" -->
 
 1. Mit **„Liste kopieren“** kopierst du Name, Personalnummer und Handynummer aller Zusagen einer Schicht. So hast du sie beim Eintragen in ZAS griffbereit.
 2. Trag die Leute, die du nehmen willst, in ZAS ein.
