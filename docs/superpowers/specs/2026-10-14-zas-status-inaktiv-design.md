@@ -21,6 +21,8 @@ Status-MA ist NICHT die Firma MA (Personalnummer-Präfix). Mehr Werte gibt es ni
 - Status `INAKTIV`, Mitarbeiter aktiv → deaktivieren (`is_active = false`), `export_status = INAKTIV`.
 - Status `GO`/`MA`, Mitarbeiter inaktiv **und** gespeicherter `export_status = INAKTIV` → reaktivieren (`is_active = true`).
 - Status `GO`/`MA`, Mitarbeiter inaktiv, gespeicherter Status `GO`/`MA` → **nicht** reaktivieren. Das ist eine Deaktivierung von Hand durch HR (heute 36 Fälle); ZAS darf sie nicht überstimmen. Nur ein von ZAS verursachtes Inaktiv kehrt durch ZAS zurück.
+- Status `INAKTIV`, Mitarbeiter bereits inaktiv, gespeicherter Status **nicht** `INAKTIV` (= HR-Deaktivierung) → `export_status` und „MA seit“ bleiben stehen (`skipped/exists`, sofern sonst nichts abweicht). Sonst sähe die HR-Deaktivierung danach wie eine von ZAS aus, und ein späteres GO/MA würde sie aufheben.
+- „StatusMASeit“ bei `INAKTIV`: wird wie bei GO geleert, aber ohne Warnung im Lieferbericht (ZAS liefert das alte Datum bei Inaktiven oft mit).
 - Gilt für ALLE Mitarbeiter, auch die aus dem Recruiting (nicht nur ZAS-Bestand): der Status gehört ZAS.
 - Schreibweg wie heute ohne Echo nach ZAS: `is_active` per direktem DB-Update im selben Block wie die Marker-Wiederherstellung (`syncMatchedFields`), danach `EmployeeContactListSyncService::syncEmployee()` für den frischen Datensatz (nimmt Deaktivierte aus der WhatsApp-Kontaktliste, Reaktivierte wieder auf), in try/catch wie der Observer.
 - Ein reiner Status-Wechsel zählt als Änderung (keine `skipped/exists`-Zeile).
@@ -39,6 +41,11 @@ Feld „Status (aus ZAS)“: Optionen `GO`, `MA`, `INAKTIV` (heute nur GO/MA —
 ## 3. Überall „nur aktive“
 
 Alle Stellen, die heute `is_active = true` abfragen, schließen Inaktive automatisch aus: Jobs anbieten (Kandidaten, Mitarbeiterfiliale), Dispo-Bestätigung, Sammelversände, Exporte an ZAS, Mitarbeiterliste (Standardfilter), Statistik (zählt Inaktive seit 5c1b81b2 als „geklärt“). Keine Änderung nötig; ein Test hält Jobs anbieten fest.
+
+Zusätzlich angepasst (Abschluss-Review):
+- **Dispo-Zuordnung (`ZasDispoMatcher`):** Passt eine Dispo-Nummer auf mehrere Datensätze (exakt gegen gekürzte Form, z. B. aktiver `MA1000000878`, von der Dispo als `MA878` geliefert, neben inaktivem Alt-Datensatz `MA878`; oder Kollision im Rückfall), gewinnt der einzige aktive (`active_preferred`). Beide aktiv oder beide inaktiv → weiter `ambiguous`. Die aktiven IDs liefert `DispoEmployeeDirectory::activeIds()`.
+- **Mitarbeiterliste:** Filter „Inaktiv“ und „Alle“ zeigen höchstens 500 Einträge (nach Suche und Filtern); ist mehr da, steht über der Liste grau „Es werden die ersten 500 angezeigt — für weitere bitte die Suche nutzen.“ Filter „Aktiv“ ungekappt.
+- **Jobangebote-Seite `/jobs/{token}`:** Ist der Datensatz hinter dem Link inaktiv, gilt die Seite als gesperrt (wie gesperrtes Portal) — beim Laden und frisch beim Zusagen (`JobOffersZugang::gesperrt`). Ein inaktiver Alt-Datensatz derselben Person sperrt nicht.
 
 ## 4. Jobs anbieten — Inaktive sichtbar, aber getrennt
 
