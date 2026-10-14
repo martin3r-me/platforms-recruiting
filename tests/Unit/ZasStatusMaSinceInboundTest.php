@@ -59,6 +59,19 @@ class ZasStatusMaSinceInboundTest extends TestCase
         $this->assertStringContainsString('Status=GO', implode(' | ', $res['warnings']));
     }
 
+    public function test_status_inaktiv_mit_datum_loescht_still(): void
+    {
+        // ZAS liefert bei Inaktiven das alte MA-seit-Datum oft mit. Bei
+        // tausenden Altfaellen waere die Warnung nur Rauschen.
+        foreach (['inaktiv', 'Inaktive', 'INAKTIV'] as $status) {
+            $res = $this->map(['Status' => $status, 'StatusMASeit' => '19.08.2026']);
+
+            $this->assertArrayHasKey('status_ma_since', $res['hr'], $status);
+            $this->assertNull($res['hr']['status_ma_since'], $status);
+            $this->assertSame([], $res['warnings'], $status);
+        }
+    }
+
     public function test_status_ma_ohne_datum_laesst_wert_stehen_und_warnt(): void
     {
         $res = $this->map(['Status' => 'MA', 'StatusMASeit' => '']);

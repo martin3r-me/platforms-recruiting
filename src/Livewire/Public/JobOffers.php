@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZugang;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
 /**
@@ -63,9 +64,10 @@ class JobOffers extends Component
         }
     }
 
+    /** Portal gesperrt ODER Link-Datensatz inaktiv — beides: keine Zusage. */
     private function gesperrt(): bool
     {
-        return RecEmployee::query()->whereIn('id', $this->employeeIds)->whereNotNull('portal_locked_at')->exists();
+        return JobOffersZugang::gesperrt($this->employeeIds, (int) $this->employeeId);
     }
 
     /**
@@ -175,7 +177,7 @@ class JobOffers extends Component
             return;
         }
 
-        // Frisch pruefen — die Sperre kann nach mount() gesetzt worden sein.
+        // Frisch pruefen — Sperre oder Deaktivierung koennen nach mount() kommen.
         if ($this->gesperrt()) {
             $this->portalLocked = true;
             return;

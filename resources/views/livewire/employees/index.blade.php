@@ -106,6 +106,12 @@
                     Keine Mitarbeiter gefunden.
                 </div>
             @else
+                {{-- Oben, nicht unter 500 Zeilen versteckt. --}}
+                @if($this->employeesCapped)
+                    <div class="mb-2 text-xs text-gray-500">
+                        Es werden die ersten 500 angezeigt — für weitere bitte die Suche nutzen.
+                    </div>
+                @endif
                 <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)] overflow-hidden">
                     @foreach($this->employees as $emp)
                         @php

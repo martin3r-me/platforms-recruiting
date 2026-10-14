@@ -22,4 +22,21 @@ class DispoEmployeeDirectory
             ->map(fn ($id) => (int) $id)
             ->all();
     }
+
+    /**
+     * Aktive Mitarbeiter mit Nummer — fuer den Vorrang im Matcher, wenn eine
+     * Dispo-Nummer auf einen aktiven und einen inaktiven Datensatz passt.
+     *
+     * @return list<int>
+     */
+    public function activeIds(): array
+    {
+        return RecEmployee::query()
+            ->whereNotNull('personnel_number')
+            ->where('personnel_number', '!=', '')
+            ->where('is_active', true)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
 }

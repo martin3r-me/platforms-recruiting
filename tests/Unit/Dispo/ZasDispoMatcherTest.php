@@ -159,4 +159,78 @@ class ZasDispoMatcherTest extends TestCase
             $this->matcher(['RG14' => 7])->match('RG')
         );
     }
+    // --- Aktiver Datensatz gewinnt (ZAS-Status inaktiv) ---------------------
+    // Mit dem Import der inaktiven Altbestaende liegen neben aktiven Leuten mit
+    // langer Nummer (MA1000000878, von der Dispo als MA878 geliefert) jetzt
+    // inaktive Alt-Datensaetze mit der echten kurzen Nummer MA878. Ohne
+    // Vorrang wuerde jede Lieferung die Einsaetze der Aktiven abhaengen.
+
+    public function test_exakt_und_alias_uneinig_aktiver_gewinnt(): void
+    {
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA878' => 2], 'RG', [1]);
+
+        $this->assertSame(
+            ['employee_id' => 1, 'reason' => 'active_preferred'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_exakt_und_alias_uneinig_exakter_aktiv_gewinnt(): void
+    {
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA878' => 2], 'RG', [2]);
+
+        $this->assertSame(
+            ['employee_id' => 2, 'reason' => 'active_preferred'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_exakt_und_alias_beide_aktiv_bleibt_mehrdeutig(): void
+    {
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA878' => 2], 'RG', [1, 2]);
+
+        $this->assertSame(
+            ['employee_id' => null, 'reason' => 'ambiguous'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_exakt_und_alias_beide_inaktiv_bleibt_mehrdeutig(): void
+    {
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA878' => 2], 'RG', []);
+
+        $this->assertSame(
+            ['employee_id' => null, 'reason' => 'ambiguous'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_kollision_im_kurzalias_aktiver_gewinnt(): void
+    {
+        // Zwei Bestandsnummern mit derselben Kurzform (MA878), nur eine aktiv.
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA01000000878' => 2], 'RG', [2]);
+
+        $this->assertSame(
+            ['employee_id' => 2, 'reason' => 'active_preferred'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_kollision_im_kurzalias_beide_inaktiv_bleibt_mehrdeutig(): void
+    {
+        $matcher = new ZasDispoMatcher(['MA1000000878' => 1, 'MA01000000878' => 2], 'RG', []);
+
+        $this->assertSame(
+            ['employee_id' => null, 'reason' => 'ambiguous'],
+            $matcher->match('MA878')
+        );
+    }
+
+    public function test_ohne_aktiv_liste_verhalten_wie_bisher(): void
+    {
+        $this->assertSame(
+            ['employee_id' => null, 'reason' => 'ambiguous'],
+            $this->matcher(['MA878' => 9, 'MA1000000878' => 5])->match('MA878')
+        );
+    }
 }

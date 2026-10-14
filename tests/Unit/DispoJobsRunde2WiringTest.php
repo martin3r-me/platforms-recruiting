@@ -128,4 +128,19 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringNotContainsString("{{ \$z['zugesagt'] }} / {{ \$z['gesucht'] }}", $view);
         $this->assertStringContainsString("\$set('filter', '{{ \$wert }}')", $view);
     }
+
+    public function test_inaktive_und_status_ma_sind_in_den_views_verdrahtet(): void
+    {
+        $create = self::datei('resources/views/livewire/dispo/jobs/create.blade.php');
+        $show = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+        foreach ([$create, $show] as $view) {
+            $this->assertStringContainsString("\$b['inaktiv'] > 0", $view);
+            $this->assertStringContainsString('inaktiv (werden nicht angeschrieben)', $view);
+            $this->assertStringContainsString('mit Status MA (brauchen neuen Vertrag)', $view);
+        }
+        $this->assertStringContainsString("\$zahlen['ohne_vertrag'] > 0", $create);
+        $this->assertStringContainsString("\$wz['ohne_vertrag'] > 0", $show);
+        $this->assertStringContainsString("\$info['ohne_vertrag']", $show);
+        $this->assertStringContainsString('Status MA – braucht neuen Vertrag', $show);
+    }
 }

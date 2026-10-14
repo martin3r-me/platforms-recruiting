@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecEmployeeHrData;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Support\RatingCriteria;
@@ -19,7 +20,7 @@ final class DispoJobZusagenInfo
 
     /**
      * @param list<int> $employeeIds rec_employee_id der Angebots-Zeilen
-     * @return array<int, array{name:string, personnel_number:string, phone:string, einsaetze:int, taetigkeiten:list<string>, ratings:array<string,int>}>
+     * @return array<int, array{name:string, personnel_number:string, phone:string, einsaetze:int, taetigkeiten:list<string>, ratings:array<string,int>, ohne_vertrag:bool}>
      */
     public static function laden(array $employeeIds, string $monat): array
     {
@@ -40,6 +41,11 @@ final class DispoJobZusagenInfo
         $gateway = app(DispoEmployeeGateway::class);
         $contacts = $gateway->contacts($ids);
         $cards = $gateway->profileCards($alle);
+
+        $stati = [];
+        foreach (RecEmployeeHrData::query()->whereIn('rec_employee_id', $alle)->get(['rec_employee_id', 'export_status']) as $hr) {
+            $stati[(int) $hr->rec_employee_id] = $hr->export_status;
+        }
 
         $ende = \Carbon\Carbon::parse($monat . '-01')->endOfMonth()->toDateString();
         $assignments = RecDispoAssignment::query()
@@ -91,6 +97,7 @@ final class DispoJobZusagenInfo
                 'einsaetze'        => (int) ($einsaetze[$anchorByEmployee[$id] ?? $id] ?? 0),
                 'taetigkeiten'     => $taetigkeiten,
                 'ratings'          => $ratings,
+                'ohne_vertrag'     => DispoJobKandidaten::ohneVertrag(array_map(fn ($m) => $stati[(int) $m] ?? null, array_unique(array_merge([$id], $group)))),
             ];
         }
 

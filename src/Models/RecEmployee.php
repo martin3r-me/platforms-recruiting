@@ -214,6 +214,24 @@ class RecEmployee extends Model
                 $model->portal_token = (string) UuidV7::generate();
             }
         });
+
+        // Wer bei uns von Hand wieder aktiviert wird (Schalter „Aktiv“ in der
+        // Akte), steht danach nicht mehr auf dem ZAS-Status INAKTIV, sondern
+        // auf GO (Kunde 14.10.2026). Sonst zeigte die Akte „aktiv“ + „INAKTIV“
+        // zugleich, und der Update-Export (is_active stempelt den Marker)
+        // schickte INAKTIV an ZAS. Der ZAS-Import reaktiviert per DB-Update
+        // und setzt den Status selbst — er kommt hier nicht vorbei.
+        // Liefert ZAS die Person weiter als inaktiv, deaktiviert die naechste
+        // Lieferung sie wieder: ZAS bleibt fuehrend.
+        static::updated(function (self $model) {
+            if (!$model->wasChanged('is_active') || !(bool) $model->is_active) {
+                return;
+            }
+            $model->getConnection()->table('rec_employee_hr_data')
+                ->where('rec_employee_id', $model->id)
+                ->where('export_status', 'INAKTIV')
+                ->update(['export_status' => 'GO', 'updated_at' => now()]);
+        });
     }
 
     public function applicant(): BelongsTo

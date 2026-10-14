@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Employees;
 
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecEmployee;
@@ -18,6 +19,13 @@ use Platform\Recruiting\Models\RecPosition;
  */
 class Index extends Component
 {
+    /**
+     * Obergrenze fuer die Filter "Inaktiv" und "Alle": seit ZAS die inaktiven
+     * Altbestaende liefert (~10.000), wuerde die Liste sonst alles laden.
+     * Greift nach Suche und Filtern — wer jemanden sucht, findet ihn.
+     */
+    public const LIST_LIMIT = 500;
+
     public string $search = '';
     public ?int $positionFilter = null;
     public string $activeFilter = 'active'; // 'active' | 'inactive' | 'all'
@@ -56,8 +64,13 @@ class Index extends Component
             ->get(['id', 'title']);
     }
 
+    /**
+     * Zeilen der Liste plus Hinweis, ob die Obergrenze gegriffen hat.
+     *
+     * @return array{rows: Collection, capped: bool}
+     */
     #[Computed]
-    public function employees()
+    public function employeeList(): array
     {
         $teamId = auth()->user()->currentTeam->id;
 
@@ -90,7 +103,49 @@ class Index extends Component
             });
         }
 
-        return $query->orderBy('last_name')->orderBy('first_name')->get();
+        $query->orderBy('last_name')->orderBy('first_name');
+
+        // Eine Zeile mehr holen, um "mehr als die Grenze" zu erkennen.
+        $limit = self::listLimit($this->activeFilter);
+        if ($limit !== null) {
+            $query->limit($limit + 1);
+        }
+
+        [$rows, $capped] = self::capRows($query->get(), $limit);
+
+        return ['rows' => $rows, 'capped' => $capped];
+    }
+
+    #[Computed]
+    public function employees(): Collection
+    {
+        return $this->employeeList['rows'];
+    }
+
+    #[Computed]
+    public function employeesCapped(): bool
+    {
+        return $this->employeeList['capped'];
+    }
+
+    /** Obergrenze je Aktiv-Filter; null = ungekappt ("Aktiv"). */
+    public static function listLimit(string $activeFilter): ?int
+    {
+        return $activeFilter === 'active' ? null : self::LIST_LIMIT;
+    }
+
+    /**
+     * Schneidet auf die Grenze und meldet, ob mehr da war.
+     *
+     * @return array{0: Collection, 1: bool}
+     */
+    public static function capRows(Collection $rows, ?int $limit): array
+    {
+        if ($limit === null || $rows->count() <= $limit) {
+            return [$rows, false];
+        }
+
+        return [$rows->take($limit)->values(), true];
     }
 
     public function render()

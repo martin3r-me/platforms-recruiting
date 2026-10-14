@@ -262,7 +262,7 @@
         @php
             $bloecke = $this->blockOptionen;
             $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
-            $zahlen = $this->zahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0];
+            $zahlen = $this->zahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
@@ -301,6 +301,9 @@
                             <span>
                                 <span class="font-medium text-gray-800">{{ $b['label'] }}</span>
                                 <span class="text-gray-500">· {{ $b['count'] }} Mitarbeiter</span>
+                                @if ($b['inaktiv'] > 0)
+                                    <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
+                                @endif
                                 @if ($b['nummern'] !== [])
                                     <span class="block text-xs text-gray-400">Kostenstellen {{ implode(', ', $b['nummern']) }}</span>
                                 @endif
@@ -382,6 +385,9 @@
                 {{-- Zahlen vor dem Senden: jeder Ausschluss mit Namen aufklappbar. --}}
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
                     <div class="text-base">Sendet an <strong>{{ $zahlen['empfaenger'] }}</strong> {{ $personen }}</div>
+                    @if ($zahlen['ohne_vertrag'] > 0)
+                        <div class="text-xs text-gray-500">davon {{ $zahlen['ohne_vertrag'] }} mit Status MA (brauchen neuen Vertrag)</div>
+                    @endif
                     @if ($zahlen['namen'] !== [])
                         <details class="text-xs text-gray-600">
                             <summary class="cursor-pointer">Namen zeigen</summary>

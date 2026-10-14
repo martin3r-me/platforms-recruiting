@@ -6,6 +6,7 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
+use Platform\Recruiting\Services\Zas\ZasStatus;
 use Platform\Recruiting\Support\Filialen;
 
 /**
@@ -24,7 +25,7 @@ final class DispoJobKandidaten
     public static function laden(int $teamId, array $tage, string $monat): array
     {
         $employees = RecEmployee::query()
-            ->with(['position:id,cost_center', 'hrData:id,rec_employee_id,dispo_taetigkeiten'])
+            ->with(['position:id,cost_center', 'hrData:id,rec_employee_id,dispo_taetigkeiten,export_status'])
             ->where('team_id', $teamId)->where('is_active', true)
             ->orderBy('id')
             ->get(['id', 'rec_position_id', 'first_name', 'last_name', 'phone', 'portal_token', 'portal_locked_at', 'cost_center']);
@@ -50,7 +51,7 @@ final class DispoJobKandidaten
             $row = &$byAnchor[$anchor];
             $row ??= ['anchor' => $anchor, 'employee_id' => $id, 'phone' => null, 'first_name' => (string) $e->first_name,
                 'name' => trim($e->first_name . ' ' . $e->last_name), 'portal_token' => (string) $e->portal_token,
-                'block' => KostenstellenBloecke::block($e->cost_center, $e->position?->cost_center), 'portal_locked' => false, 'taetigkeiten' => []];
+                'block' => KostenstellenBloecke::block($e->cost_center, $e->position?->cost_center), 'portal_locked' => false, 'taetigkeiten' => [], 'stati' => []];
             if ($row['phone'] === null && $phone !== null && trim($phone) !== '') {
                 // Der Datensatz MIT Nummer bekommt die Nachricht (und seinen Token).
                 $row['employee_id'] = $id;
@@ -61,8 +62,16 @@ final class DispoJobKandidaten
             $row['portal_locked'] = $row['portal_locked'] || $e->portal_locked_at !== null;
             $row['block'] ??= KostenstellenBloecke::block($e->cost_center, $e->position?->cost_center);
             $row['taetigkeiten'] = array_values(array_unique(array_merge($row['taetigkeiten'], $taet)));
+            if ($e->hrData !== null) {
+                $row['stati'][] = $e->hrData->export_status;
+            }
             unset($row);
         }
+        foreach ($byAnchor as &$row) {
+            $row['ohne_vertrag'] = self::ohneVertrag($row['stati']);
+            unset($row['stati']);
+        }
+        unset($row);
         ksort($byAnchor);
 
         $assignments = RecDispoAssignment::query()
@@ -89,7 +98,27 @@ final class DispoJobKandidaten
         ];
     }
 
-    /** @return list<array{block:?int, label:string, nummern:list<string>, count:int}> */
+    /**
+     * „Ohne Vertrag“ = ZAS kennt die Person nur noch als MA: kein Datensatz der Person mit GO,
+     * mindestens einer mit MA. Datensaetze ohne hrData (null) zaehlen nicht mit.
+     *
+     * @param iterable<?string> $stati export_status je Datensatz der Person
+     */
+    public static function ohneVertrag(iterable $stati): bool
+    {
+        $ma = false;
+        foreach ($stati as $status) {
+            $status = strtoupper(trim((string) $status));
+            if ($status === ZasStatus::GO) {
+                return false;
+            }
+            $ma = $ma || $status === ZasStatus::MA;
+        }
+
+        return $ma;
+    }
+
+    /** @return list<array{block:?int, label:string, nummern:list<string>, count:int, inaktiv:int}> */
     public static function blockOptionen(int $teamId): array
     {
         $rows = RecEmployee::query()->with('position:id,cost_center')
@@ -98,7 +127,22 @@ final class DispoJobKandidaten
             ->map(fn ($e) => ['cost_center' => $e->cost_center, 'position_cost_center' => $e->position?->cost_center !== null ? (string) $e->position->cost_center : null])
             ->all();
 
-        return array_map(fn ($o) => $o + ['label' => self::blockLabel($o['block'])], KostenstellenBloecke::optionen($rows));
+        // Inaktive: eine gruppierte Zaehlung, nur zur Anzeige — sie sind nie Empfaenger.
+        $inaktiv = [];
+        $gruppiert = RecEmployee::query()
+            ->leftJoin('rec_positions', 'rec_positions.id', '=', 'rec_employees.rec_position_id')
+            ->where('rec_employees.team_id', $teamId)->where('rec_employees.is_active', false)
+            ->groupBy('rec_employees.cost_center', 'rec_positions.cost_center')
+            ->selectRaw('rec_employees.cost_center as ma_kst, rec_positions.cost_center as stelle_kst, count(*) as anzahl')
+            ->get();
+        foreach ($gruppiert as $g) {
+            $block = KostenstellenBloecke::block($g->ma_kst, $g->stelle_kst !== null ? (string) $g->stelle_kst : null);
+            $key = $block ?? 'ohne';
+            $inaktiv[$key] = ($inaktiv[$key] ?? 0) + (int) $g->anzahl;
+        }
+
+        return array_map(fn ($o) => $o + ['label' => self::blockLabel($o['block']), 'inaktiv' => $inaktiv[$o['block'] ?? 'ohne'] ?? 0],
+            KostenstellenBloecke::optionen($rows));
     }
 
     public static function blockLabel(?int $block): string
