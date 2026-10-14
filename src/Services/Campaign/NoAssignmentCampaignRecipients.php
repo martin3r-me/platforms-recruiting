@@ -62,7 +62,7 @@ class NoAssignmentCampaignRecipients
             ->whereIn('id', $ids)
             ->with([
                 'crmContactLinks.contact.phoneNumbers',
-                'employees:id,rec_applicant_id,personnel_number,person_key',
+                EinsatzLookup::EMPLOYEE_COLUMNS,
             ])
             ->get()
             ->keyBy('id');
@@ -133,6 +133,13 @@ class NoAssignmentCampaignRecipients
             // gestartet, und die Nachfrage ist genau fuer diese Menschen.
             if ($einsatz->flag($id) === EinsatzLookup::FLAG_DEPLOYED) {
                 $badges[] = 'inzwischen im Einsatz';
+                $selectable = false;
+            }
+
+            // Kunde 14.10.2026: wer in allen Anstellungen inaktiv ist, gilt als
+            // geklaert und bekommt die Nachfrage nicht.
+            if ($einsatz->inaktiv($id)) {
+                $badges[] = 'Mitarbeiter inaktiv';
                 $selectable = false;
             }
 
