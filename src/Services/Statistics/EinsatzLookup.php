@@ -37,6 +37,9 @@ final class EinsatzLookup
     public const FLAG_DEPLOYED = 'deployed';
     public const FLAG_NONE = 'none';
 
+    /** Spalten, die Aufrufer an der employees-Relation mitladen muessen. */
+    public const EMPLOYEE_COLUMNS = 'employees:id,rec_applicant_id,personnel_number,person_key,is_active,employment_ended_at';
+
     /** @param array<int, array{count:int, first:?string, grund:?string}> $info */
     private function __construct(private readonly array $info)
     {
@@ -44,7 +47,7 @@ final class EinsatzLookup
 
     /**
      * @param iterable<object> $applicants Bewerbungen mit geladener
-     *        employees-Relation (id, rec_applicant_id, personnel_number, person_key)
+     *        employees-Relation (self::EMPLOYEE_COLUMNS)
      */
     public static function for(int $teamId, iterable $applicants): self
     {
@@ -76,7 +79,7 @@ final class EinsatzLookup
                 ->where('team_id', $teamId)
                 ->whereIn('person_key', array_keys($keyZuApplicants))
                 ->whereNotIn('id', $bekannteEmployeeIds)
-                ->get(['id', 'rec_applicant_id', 'personnel_number', 'person_key']);
+                ->get(['id', 'rec_applicant_id', 'personnel_number', 'person_key', 'is_active', 'employment_ended_at']);
             foreach ($geschwister as $employee) {
                 foreach (array_unique($keyZuApplicants[$employee->person_key] ?? []) as $applicantId) {
                     $employeesByApplicant[$applicantId][] = $employee;
@@ -103,12 +106,13 @@ final class EinsatzLookup
         $info = [];
         foreach ($employeesByApplicant as $applicantId => $employees) {
             if ($employees === []) {
-                $info[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'kein_ma'];
+                $info[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'kein_ma', 'inaktiv' => false, 'beendet_am' => null];
                 continue;
             }
+            [$inaktiv, $beendetAm] = self::inaktivStatus($employees);
             $mitNummer = array_filter($employees, fn ($e) => trim((string) $e->personnel_number) !== '');
             if ($mitNummer === []) {
-                $info[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'keine_pnr'];
+                $info[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'keine_pnr', 'inaktiv' => $inaktiv, 'beendet_am' => $beendetAm];
                 continue;
             }
 
@@ -126,7 +130,7 @@ final class EinsatzLookup
                     $first = $erster;
                 }
             }
-            $info[$applicantId] = ['count' => $count, 'first' => $first, 'grund' => null];
+            $info[$applicantId] = ['count' => $count, 'first' => $first, 'grund' => null, 'inaktiv' => $inaktiv, 'beendet_am' => $beendetAm];
         }
 
         return new self($info);
@@ -147,10 +151,46 @@ final class EinsatzLookup
         return $info['count'] > 0 ? self::FLAG_DEPLOYED : self::FLAG_NONE;
     }
 
-    /** @return array{count:int, first:?string, grund:?string} */
+    /** @return array{count:int, first:?string, grund:?string, inaktiv:bool, beendet_am:?string} */
     public function infoFor(int $applicantId): array
     {
-        return $this->info[$applicantId] ?? ['count' => 0, 'first' => null, 'grund' => 'kein_ma'];
+        return $this->info[$applicantId] ?? ['count' => 0, 'first' => null, 'grund' => 'kein_ma', 'inaktiv' => false, 'beendet_am' => null];
+    }
+
+    /**
+     * Sind ALLE Anstellungen der Person inaktiv (Kunde 14.10.2026)? Dann gilt
+     * sie im Dispo-Abgleich als geklaert statt als „ohne Einsatz“ — ohne
+     * Anstellung gibt es nichts zu deaktivieren.
+     */
+    public function inaktiv(int $applicantId): bool
+    {
+        return (bool) ($this->info[$applicantId]['inaktiv'] ?? false);
+    }
+
+    /**
+     * Inaktiv nur, wenn JEDE Anstellung ausdruecklich is_active === false traegt
+     * (RG + MA: eine aktive Anstellung reicht, um die Person aktiv zu halten).
+     * Strikt auf false, nicht auf „falsy“: fehlt die Spalte im Select, bleibt
+     * der Wert null — und niemand darf deshalb still aus der Arbeitsliste fallen.
+     *
+     * @param  list<object>  $employees
+     * @return array{0: bool, 1: ?string} [inaktiv, spaetestes „Beschaeftigung beendet am“ als Y-m-d]
+     */
+    private static function inaktivStatus(array $employees): array
+    {
+        $beendet = null;
+        foreach ($employees as $employee) {
+            if ($employee->is_active !== false) {
+                return [false, null];
+            }
+            $ende = $employee->employment_ended_at;
+            $ymd = $ende instanceof \DateTimeInterface ? $ende->format('Y-m-d') : (is_string($ende) && $ende !== '' ? substr($ende, 0, 10) : null);
+            if ($ymd !== null && ($beendet === null || $ymd > $beendet)) {
+                $beendet = $ymd;
+            }
+        }
+
+        return [true, $beendet];
     }
 
     /** @return array<int, array{count:int, first:?string, grund:?string}> */

@@ -47,7 +47,8 @@ final class EinsatzLookupTest extends TestCase
         $s->create('rec_employees', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id')->nullable();
             $t->integer('rec_applicant_id')->nullable(); $t->string('personnel_number')->nullable();
-            $t->string('person_key')->nullable(); $t->timestamps();
+            $t->string('person_key')->nullable(); $t->boolean('is_active')->default(true);
+            $t->dateTime('employment_ended_at')->nullable(); $t->timestamps();
         });
         $s->create('rec_dispo_assignments', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('rec_employee_id')->nullable();
@@ -69,11 +70,12 @@ final class EinsatzLookupTest extends TestCase
         return RecApplicant::forceCreate(['id' => $id, 'team_id' => 3]);
     }
 
-    private function employee(int $id, ?int $applicantId, ?string $pnr, ?string $personKey = null): void
+    private function employee(int $id, ?int $applicantId, ?string $pnr, ?string $personKey = null, bool $aktiv = true, ?string $beendet = null): void
     {
         Capsule::table('rec_employees')->insert([
             'id' => $id, 'team_id' => 3, 'rec_applicant_id' => $applicantId,
             'personnel_number' => $pnr, 'person_key' => $personKey,
+            'is_active' => $aktiv, 'employment_ended_at' => $beendet,
         ]);
     }
 
@@ -88,7 +90,7 @@ final class EinsatzLookupTest extends TestCase
     private function lookup(array $ids): EinsatzLookup
     {
         $applicants = RecApplicant::whereIn('id', $ids)
-            ->with('employees:id,rec_applicant_id,personnel_number,person_key')
+            ->with(EinsatzLookup::EMPLOYEE_COLUMNS)
             ->get();
 
         return EinsatzLookup::for(3, $applicants);
@@ -101,7 +103,7 @@ final class EinsatzLookupTest extends TestCase
         $lookup = $this->lookup([1]);
 
         $this->assertSame(EinsatzLookup::FLAG_UNVERIFIABLE, $lookup->flag(1));
-        $this->assertSame(['count' => 0, 'first' => null, 'grund' => 'kein_ma'], $lookup->infoFor(1));
+        $this->assertSame(['count' => 0, 'first' => null, 'grund' => 'kein_ma', 'inaktiv' => false, 'beendet_am' => null], $lookup->infoFor(1));
     }
 
     public function testMitarbeiterOhnePersonalnummerIstNichtPruefbar(): void
@@ -123,7 +125,7 @@ final class EinsatzLookupTest extends TestCase
         $lookup = $this->lookup([3]);
 
         $this->assertSame(EinsatzLookup::FLAG_NONE, $lookup->flag(3));
-        $this->assertSame(['count' => 0, 'first' => null, 'grund' => null], $lookup->infoFor(3));
+        $this->assertSame(['count' => 0, 'first' => null, 'grund' => null, 'inaktiv' => false, 'beendet_am' => null], $lookup->infoFor(3));
     }
 
     public function testEinsaetzeBeiderFirmenZaehlenUeberDenPersonKey(): void
@@ -170,5 +172,57 @@ final class EinsatzLookupTest extends TestCase
         $this->assertSame([6, 7], array_keys($info));
         $this->assertSame(1, $info[6]['count']);
         $this->assertSame('kein_ma', $info[7]['grund']);
+    }
+
+    public function testAlleAnstellungenInaktivHeisstInaktivMitSpaetestemEnde(): void
+    {
+        $this->applicant(70);
+        $this->employee(700, 70, 'RG700', 'p70', false, '2026-09-30 00:00:00');
+        $this->employee(701, null, 'MA700', 'p70', false, '2026-10-05 00:00:00');
+
+        $lookup = $this->lookup([70]);
+
+        $this->assertTrue($lookup->inaktiv(70));
+        $this->assertSame('2026-10-05', $lookup->infoFor(70)['beendet_am'], 'das spaetere Ende beider Anstellungen');
+        $this->assertSame(EinsatzLookup::FLAG_NONE, $lookup->flag(70), 'der Einsatz-Befund selbst bleibt ehrlich');
+    }
+
+    public function testEineAktiveAnstellungHaeltDiePersonAktiv(): void
+    {
+        $this->applicant(71);
+        $this->employee(710, 71, 'RG710', 'p71', false);
+        $this->employee(711, null, 'MA710', 'p71', true); // Geschwister ueber den person_key, nicht verlinkt
+
+        $lookup = $this->lookup([71]);
+
+        $this->assertFalse($lookup->inaktiv(71));
+        $this->assertNull($lookup->infoFor(71)['beendet_am']);
+    }
+
+    public function testInaktivOhneDatumUndOhneMitarbeiter(): void
+    {
+        $this->applicant(72);
+        $this->employee(720, 72, 'RG720', null, false);
+        $this->applicant(73);
+
+        $lookup = $this->lookup([72, 73]);
+
+        $this->assertTrue($lookup->inaktiv(72));
+        $this->assertNull($lookup->infoFor(72)['beendet_am']);
+        $this->assertFalse($lookup->inaktiv(73), 'ohne Anstellung gibt es nichts zu deaktivieren');
+        $this->assertFalse($lookup->inaktiv(999), 'unbekannte Bewerbung: nie inaktiv');
+    }
+
+    public function testOhneMitgeladeneAktivSpalteFaelltNiemandStillHeraus(): void
+    {
+        $this->applicant(74);
+        $this->employee(740, 74, 'RG740', null, false);
+
+        $applicants = RecApplicant::whereIn('id', [74])
+            ->with('employees:id,rec_applicant_id,personnel_number,person_key')
+            ->get();
+
+        $this->assertFalse(EinsatzLookup::for(3, $applicants)->inaktiv(74),
+            'fehlt is_active im Select, ist der Wert null — das darf nicht als inaktiv gelten');
     }
 }

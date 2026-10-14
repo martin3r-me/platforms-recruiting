@@ -463,7 +463,7 @@ class Index extends Component
                 // Schulung → Einsatz: die ZAS-PersNrn entscheiden, ob der
                 // Dispo-Abgleich moeglich ist — ALLE Anstellungen (RG + MA
                 // sind zwei Datensaetze mit zwei Nummern, siehe unten).
-                'employees:id,rec_applicant_id,personnel_number,person_key',
+                EinsatzLookup::EMPLOYEE_COLUMNS,
                 // P4 verifiziert: rec_contracts.status ist string(30) NOT NULL
                 // default 'pending' (Migration 2026_04_15_100000) → '!=' ist
                 // NULL-safe. Dashboard zaehlt heute ungefiltert (bumpStatRow:421);
@@ -577,11 +577,15 @@ class Index extends Component
                 // der Arbeitsliste „ohne Einsatz", ohne ihn zum Einsatz zu
                 // machen. Ob er HEUTE noch gilt, entscheidet die Regel — der
                 // Assigner bekommt nur das fertige Flag.
+                // Kunde 14.10.2026: sind alle Anstellungen der Person inaktiv,
+                // ist der Fall ebenfalls beantwortet — automatisch, ohne Haken,
+                // und er kehrt von selbst zurueck, wenn sie wieder aktiv wird.
+                // Ein Einsatz geht weiterhin vor (EinsatzClarification::topf).
                 'geklaert' => EinsatzClarification::isActive(
                     $b->einsatz_geklaert_at?->toDateTimeString(),
                     $b->einsatz_wiedervorlage_am?->format('Y-m-d'),
                     $heuteYmd,
-                ),
+                ) || $einsatzLookup->inaktiv((int) $a->id),
                 'starts_at' => $b->interview?->starts_at?->toDateTimeString(),
                 // heute identisch mit false (kein withTrashed) — aber
                 // selbstkorrigierend, falls die Relation je geaendert wird
@@ -1674,6 +1678,28 @@ class Index extends Component
     }
 
     /**
+     * Wie viele der Geklaerten sind es nur, weil alle ihre Anstellungen
+     * inaktiv sind (Kunde 14.10.2026)? Fuer den Hinweis an der Quote.
+     *
+     * @param  list<array>  $rows
+     */
+    public function inaktivUnterGeklaert(array $rows): int
+    {
+        $info = $this->cohortResult()['einsatz_info'] ?? [];
+        $vm = $this->viewModel();
+        $ids = [];
+        foreach ($rows as $row) {
+            foreach ($vm->idsOf($row, 'geklaert') as $id) {
+                if ($info[$id]['inaktiv'] ?? false) {
+                    $ids[$id] = true;
+                }
+            }
+        }
+
+        return count($ids);
+    }
+
+    /**
      * Conversion einer Zeilenmenge in Prozent (unterschrieben/Bewerbungen).
      * null = keine Bewerbungen, also keine Quote (nicht 0 %).
      *
@@ -1944,6 +1970,10 @@ class Index extends Component
                 'einsaetze' => (int) ($info[$id]['count'] ?? 0),
                 'erster_einsatz' => $info[$id]['first'] ?? null,
                 'grund' => $info[$id]['grund'] ?? null,
+                // Inaktiv (alle Anstellungen): automatisch geklaert, Datum aus
+                // „Beschaeftigung beendet am“, falls HR es gepflegt hat.
+                'inaktiv' => (bool) ($info[$id]['inaktiv'] ?? false),
+                'beendet_am' => $info[$id]['beendet_am'] ?? null,
                 // Klaerung: die Buchung traegt den Haken. Ein abgelaufener
                 // Haken wird NICHT versteckt — die Notiz bleibt lesbar, der
                 // Mensch steht nur wieder in der Arbeitsliste.

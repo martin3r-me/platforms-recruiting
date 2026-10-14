@@ -58,7 +58,8 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
         $s->create('rec_employees', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id')->nullable();
             $t->integer('rec_applicant_id')->nullable(); $t->string('personnel_number')->nullable();
-            $t->string('person_key')->nullable(); $t->timestamps();
+            $t->string('person_key')->nullable(); $t->boolean('is_active')->default(true);
+            $t->dateTime('employment_ended_at')->nullable(); $t->timestamps();
         });
         $s->create('rec_dispo_assignments', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('rec_employee_id')->nullable();
@@ -140,6 +141,21 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
         $this->assertFalse($rows[2]['selectable']);
         $this->assertFalse($rows[2]['checked']);
         $this->assertSame(['keine Telefonnummer'], $rows[2]['badges']);
+    }
+
+    /** Kunde 14.10.2026: alle Anstellungen inaktiv = geklaert, keine Nachfrage. */
+    public function testInaktiverMitarbeiterIstNichtWaehlbar(): void
+    {
+        $this->person(4, 'Ida', 'Klein');
+        Capsule::table('rec_employees')->insert(['id' => 40, 'team_id' => 3, 'rec_applicant_id' => 4, 'personnel_number' => 'RG18400', 'is_active' => false]);
+        $this->person(6, 'Jan', 'Groß');
+        Capsule::table('rec_employees')->insert(['id' => 60, 'team_id' => 3, 'rec_applicant_id' => 6, 'personnel_number' => 'RG18600', 'is_active' => true]);
+
+        $rows = $this->load([4, 6]);
+
+        $this->assertFalse($rows[4]['selectable']);
+        $this->assertSame(['Mitarbeiter inaktiv'], $rows[4]['badges']);
+        $this->assertTrue($rows[6]['selectable'], 'aktiv bleibt waehlbar');
     }
 
     public function testInzwischenImEinsatzIstNichtMehrWaehlbar(): void

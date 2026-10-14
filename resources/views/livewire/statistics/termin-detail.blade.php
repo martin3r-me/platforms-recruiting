@@ -167,6 +167,9 @@
                                     <span class="text-[color:var(--ui-muted)]">keine ZAS-Personalnummer</span>
                                 @elseif ($person['topf'] === 'geklaert')
                                     <span class="text-[color:var(--ui-muted)]">keine Einsätze</span>
+                                    @if ($person['inaktiv'])
+                                        <span class="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">inaktiv</span>
+                                    @endif
                                 @else
                                     <span class="text-[color:var(--ui-muted)]"
                                           title="Nicht teilgenommen — der Dispo-Abgleich zählt nur Bestandene.">–</span>
@@ -196,6 +199,18 @@
                             <td class="px-3 py-2 text-xs">
                                 @if ($person['booking_id'] === null || (!$klaerbar && !$hatKlaerung))
                                     <span class="text-[color:var(--ui-muted)]">–</span>
+                                @elseif ($person['inaktiv'] && $person['topf'] === 'geklaert' && !$person['geklaert'])
+                                    {{-- Automatisch geklaert (14.10.2026): alle Anstellungen
+                                         inaktiv. Kein Haken, nichts zu bearbeiten — wird die
+                                         Person wieder aktiv, steht sie von selbst wieder auf
+                                         der Arbeitsliste. --}}
+                                    <div class="space-y-0.5">
+                                        <div class="font-medium text-teal-800">✓ geklärt</div>
+                                        <div class="text-[11px] text-[color:var(--ui-secondary)]">Mitarbeiter inaktiv</div>
+                                        @if ($person['beendet_am'] !== null)
+                                            <div class="text-[11px] text-[color:var(--ui-muted)]">Beschäftigung beendet am {{ \Illuminate\Support\Carbon::parse($person['beendet_am'])->format('d.m.Y') }}</div>
+                                        @endif
+                                    </div>
                                 @elseif ($person['geklaert'])
                                     <div class="space-y-0.5">
                                         @if ($klaerbar)

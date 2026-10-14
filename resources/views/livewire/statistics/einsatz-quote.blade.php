@@ -25,6 +25,8 @@
     $teilgenommen = $this->countIn($rows, 'teilgenommen');
     $imEinsatz = $this->countIn($rows, 'im_einsatz');
     $geklaert = $this->countIn($rows, 'geklaert');
+    // Davon automatisch geklaert, weil alle Anstellungen inaktiv sind (14.10.2026).
+    $inaktiv = $geklaert > 0 ? $this->inaktivUnterGeklaert($rows) : 0;
     $ohneEinsatz = $this->countIn($rows, 'ohne_einsatz');
     $unpruefbar = $this->countIn($rows, 'einsatz_unpruefbar');
 
@@ -45,7 +47,8 @@
     $quoteTitle = $teilgenommen === 0
         ? 'Noch niemand hat teilgenommen — der Dispo-Abgleich beginnt mit der Schulung.'
         : 'Im Einsatz / geklärt / teilgenommen: ' . $imEinsatz . ' von ' . $teilgenommen
-            . ' Teilgenommenen im Einsatz, ' . $geklaert . ' von Hand geklärt (kommt später, mit der Dispo besprochen)'
+            . ' Teilgenommenen im Einsatz, ' . $geklaert . ' geklärt (von Hand abgehakt oder Mitarbeiter inaktiv'
+            . ($inaktiv > 0 ? ', davon ' . $inaktiv . ' inaktiv' : '') . ')'
             . ' — offen bleiben ' . $ohneEinsatz . ', nicht prüfbar sind ' . $unpruefbar
             . ' (ohne Mitarbeiter oder ZAS-Personalnummer keine Aussage).'
             . ($interviewId !== null ? ' Klick: Detailansicht mit Schulungsleiter und Personenliste.' : '');
