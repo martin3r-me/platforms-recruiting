@@ -1008,6 +1008,11 @@ class PortalShell extends Component
             // Livewire-Schnappschuss gehoert (Befund Aufgabe 9 des
             // Konto-Zweigs), verlangen den Weg ueber ansichtsDaten() statt
             // ueber eine weitere Eigenschaft.
+            // Kundenentscheidung Markus 14.10.2026 (Folie 7): das Portal zeigt
+            // den Einsatz-Bezug NICHT mehr an ("Noch zu erledigen" ohne Datum/
+            // Veranstaltung). 'einsatz' bleibt trotzdem im Schluessel, weil
+            // OffenePunkte::fuer() ihn fuer HR und den Einsatz-Trigger liefert;
+            // das Blade liest ihn nur nicht mehr.
             'offenePunkte'    => $this->offenePunkteMitSaetzen($employee, $aufgabenDekoriert),
             'mitarbeiterDokumente' => $mitarbeiterDokumente,
             'dokumentBlatt'        => $employee ? $this->dokumentBlatt($employee) : null,
@@ -1464,7 +1469,8 @@ class PortalShell extends Component
     }
 
     /**
-     * Die offenen Punkte des Einsatz-Kastens (OffenePunkte::fuer()) um Farbe
+     * Die offenen Punkte des Kastens (OffenePunkte::fuer(); seit Markus
+     * 14.10.2026 "Noch zu erledigen", ohne Einsatz-Bezug) um Farbe
      * und Satz erweitern -- aus der dekorierten Nachweisliste, NICHT aus
      * einer zweiten Zuordnung: dekoriert() bleibt die einzige Stelle, die
      * Status in Farbe und Satz uebersetzt. Verbunden wird ueber den Code.

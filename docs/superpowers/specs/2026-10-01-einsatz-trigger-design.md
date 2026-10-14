@@ -184,6 +184,9 @@ Schnittstelle zu ändern.
 Liest den aktuellen Stand und nennt zu jedem Punkt den **Bezug**: nicht „Ausweis fehlt",
 sondern „Ausweis fehlt — gebraucht für deinen Einsatz am 12.10. in Düsseldorf".
 
+> **Überholt (Markus 14.10.2026, Folie 7):** Das Portal nennt den Einsatz nicht mehr — siehe
+> Nachtrag 14.10.2026 am Ende.
+
 **Wird bei jedem Aufruf berechnet, nicht gespeichert.** Eine gespeicherte Liste driftet
 gegen die Wirklichkeit, und die Wirklichkeit ändert sich hier täglich (Nachweise laufen
 ab, Einsätze kommen dazu).
@@ -317,3 +320,23 @@ Liste (1 von 3 erledigt → nach der Pause „du hast 2 offene Punkte").
   dem Deploy. Die Codes kommen mit der nächsten erfolgreichen Meldung dazu.
 - HR „Erneut erinnern" schreibt die Codes bei Erfolg ebenfalls mit; ET-23 (nachträglich
   gescheitert) und ET-16 räumen sie zusammen mit der Signatur.
+
+---
+
+## Nachtrag 14.10.2026 — „Noch zu erledigen" ohne Einsatz-Bezug
+
+Kundenentscheidung Markus (Go-live-Folie 7), wörtlich: „Es darf nicht an den Einsatz
+gekoppelt sein … Dispo ist frei von HR, sonst folgern sie nachher, meine Unterlagen fehlen,
+ich bekomme kein Geld, dann komme ich nicht zum Einsatz. Es sollte eine Kachel to do's oder
+noch zu erledigen sein."
+
+- Der Kasten der offenen Punkte im Portal heißt **„Noch zu erledigen"** und nennt weder
+  Einsatzdatum noch Veranstaltung. Die Bezug-Zeile aus 3.2 ist ersatzlos entfallen.
+- Der Sperr-Hinweis bei fehlender Arbeitserlaubnis bleibt, ohne Einsatz: „Mit diesem Stand
+  darfst du aktuell nicht arbeiten." / „Mit diesem Stand dürfen Sie aktuell nicht arbeiten."
+- `OffenePunkte::fuer()` liefert `einsatz` unverändert weiter — der Auslöser (3.3),
+  die Einsatz-Prüfung und die HR-Fälle brauchen ihn. Nur die Anzeige im Portal nutzt ihn
+  nicht mehr. Die Einsätze-Seite (`/einsaetze`) ist nicht betroffen.
+- Meta-Vorlage #6 (Deploy-Checkliste): statt „Für deinen nächsten Einsatz …" der
+  Universaltext „Hallo {{name}}, in deinem Mitarbeiterportal ist etwas für dich offen. Schau
+  bitte über den Knopf unten rein." — ohne Einsatz, ohne `{{datum}}`.

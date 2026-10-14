@@ -348,7 +348,16 @@ final class PortalAufgabenBladeTest extends TestCase
     // Klassen-Docblock ET-12)
     // -----------------------------------------------------------------
 
-    public function test_der_huelle_nennt_den_einsatz_zum_offenen_punkt(): void
+    /**
+     * Kundenentscheidung Markus 14.10.2026 (Folie 7) -- umgedreht: frueher
+     * pruefte dieser Test, DASS Datum (ET-25: '12.10.2026') und
+     * Veranstaltungsname (M18) im Kasten stehen. Jetzt das Gegenteil: auch
+     * MIT kommendem Einsatz (OffenePunkte::fuer() liefert 'einsatz' weiter)
+     * nennt das Portal weder Datum noch Veranstaltung, sondern nur
+     * "Noch zu erledigen" und die Punkte. Wortlaut Markus: "Es darf nicht an
+     * den Einsatz gekoppelt sein ... Dispo ist frei von HR."
+     */
+    public function test_der_kasten_nennt_keinen_einsatz_auch_wenn_einer_kommt(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
         $this->einbuchung($ma, [
@@ -356,37 +365,40 @@ final class PortalAufgabenBladeTest extends TestCase
             'event_name' => 'Messe Duesseldorf',
         ]);
 
-        $markup = $this->rendereHuelle($ma, '2026-10-01');
+        // Vorflug: die Datenseite traegt den Einsatz wirklich -- sonst waere
+        // die Abwesenheit im Markup kein Beleg fuer die Anzeige-Regel.
+        Carbon::setTestNow('2026-10-01');
+        $daten = (new \Platform\Recruiting\Services\OffenePunkte())->fuer($ma);
+        $this->assertNotNull($daten['einsatz'], 'Vorflug: OffenePunkte::fuer() muss den Einsatz liefern.');
+        $this->assertSame('Messe Duesseldorf', $daten['einsatz']['event']);
 
-        $this->assertStringContainsString('Ausweis', $markup);
-        // Der Bezug macht aus einer Liste eine Aufforderung.
-        // ET-25: volles Jahr, nicht nur 'd.m.' -- ueber den Jahreswechsel
-        // waere '12.10.' sonst mehrdeutig, und der Mensch bekommt denselben
-        // Tag vorher schon als 'TT.MM.JJJJ' per WhatsApp.
-        $this->assertStringContainsString('12.10.2026', $markup);
-        // M18 (Nachbesserung): der Projektname ist die halbe Aussage des
-        // Features -- "fuer deinen Einsatz am 12.10.2026" allein waere nur
-        // die Haelfte von dem, was OffenePunkte::fuer()['einsatz']['event']
-        // zusaetzlich zum Datum liefert.
-        $this->assertStringContainsString('Messe Duesseldorf', $markup);
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+        $kasten = $this->kasten($markup);
+
+        $this->assertStringContainsString('Noch zu erledigen', $kasten);
+        $this->assertStringContainsString('Personalausweis oder Reisepass', $kasten);
+        // Nirgends auf der Seite -- nicht nur im Kasten.
+        $this->assertStringNotContainsString('12.10.2026', $markup);
+        $this->assertStringNotContainsString('12.10.', $markup);
+        $this->assertStringNotContainsString('Messe Duesseldorf', $markup);
+        $this->assertStringNotContainsString('Einsatz am', $markup);
+        $this->assertStringNotContainsString('aufgaben-bezug', $markup);
     }
 
     /**
-     * M17 (Nachbesserung): "Die Seite duzt" ist eine bindende Vorgabe --
-     * geprueft war bisher nur, dass sie beim Normalfall ($duzen=true)
-     * stimmt, nie die Gegenprobe. Ein vertauschter Ternary-Zweig
-     * ($duzen ? 'Sie' : 'du') waere unentdeckt geblieben, solange nie mit
-     * $duzen=false gerendert wurde.
+     * M17 (Nachbesserung) prueft die Sie-Form -- seit Markus 14.10.2026 ohne
+     * Einsatz-Bezug: die Ueberschrift steht, kein "Ihren Einsatz am".
      */
-    public function test_die_seite_siezt_auf_wunsch_beim_einsatz_bezug(): void
+    public function test_die_seite_siezt_auf_wunsch_ohne_einsatz_bezug(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
         $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
 
         $markup = $this->rendereHuelle($ma, '2026-10-01', duzen: false);
 
-        $this->assertStringContainsString('Für Ihren Einsatz am', $markup);
-        $this->assertStringNotContainsString('Für deinen Einsatz am', $markup);
+        $this->assertStringContainsString('Noch zu erledigen', $this->kasten($markup));
+        $this->assertStringNotContainsString('Einsatz am', $markup);
+        $this->assertStringNotContainsString('12.10.2026', $markup);
     }
 
     public function test_ein_ko_punkt_ist_als_solcher_erkennbar(): void
@@ -444,6 +456,7 @@ final class PortalAufgabenBladeTest extends TestCase
         $markup = $this->rendereHuelle($ma, '2026-10-01');
 
         $this->assertStringContainsString('aufgaben-kasten', $markup);
+        $this->assertStringContainsString('Noch zu erledigen', $markup);
         $this->assertStringNotContainsString('aufgaben-bezug', $markup);
     }
 
@@ -473,7 +486,20 @@ final class PortalAufgabenBladeTest extends TestCase
         // M19 (Nachbesserung): bei einem Arbeitsverbot ist der SATZ die ganze
         // Information -- ein roter Balken mit Punkt, aber ohne Text, waere
         // bisher unbemerkt gruen geblieben (die Klasse allein reicht nicht).
-        $this->assertStringContainsString('nicht zum Einsatz.', $markup);
+        // Markus 14.10.2026: der Sperrsatz nennt keinen Einsatz mehr.
+        $this->assertStringContainsString('Mit diesem Stand darfst du aktuell nicht arbeiten.', $markup);
+        $this->assertStringNotContainsString('Einsatz', $this->kasten($markup));
+    }
+
+    /** Sperrsatz in Sie-Form, ebenfalls ohne Einsatz (Markus 14.10.2026). */
+    public function test_der_sperrsatz_siezt_ohne_einsatz(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01', duzen: false);
+
+        $this->assertStringContainsString('Mit diesem Stand dürfen Sie aktuell nicht arbeiten.', $markup);
+        $this->assertStringNotContainsString('Einsatz', $this->kasten($markup));
     }
 
     /**
@@ -506,7 +532,7 @@ final class PortalAufgabenBladeTest extends TestCase
             dirname(__DIR__, 2) . '/resources/views/layouts/portal-styles.blade.php'
         );
 
-        foreach (['.aufgaben-kasten', '.aufgabe', '.aufgabe-ko', '.aufgaben-bezug', '.aufgaben-sperre'] as $klasse) {
+        foreach (['.aufgaben-kasten', '.aufgaben-titel', '.aufgabe', '.aufgabe-ko', '.aufgaben-sperre'] as $klasse) {
             $this->assertStringContainsString(
                 $klasse . '{',
                 $stile,
@@ -540,7 +566,8 @@ final class PortalAufgabenBladeTest extends TestCase
 
         foreach ([
             'aufgaben-kasten' => 'class="aufgaben-kasten"',
-            'aufgaben-bezug'  => 'class="aufgaben-bezug"',
+            // aufgaben-bezug ist seit Markus 14.10.2026 raus, aufgaben-titel neu.
+            'aufgaben-titel'  => 'class="aufgaben-titel"',
             'aufgaben-sperre' => 'class="aufgaben-sperre"',
             // Keine literale class="aufgabe" im Markup (sie kommt ueber
             // $offenerPunktKlasse) -- bewacht wird deshalb die Stelle, an

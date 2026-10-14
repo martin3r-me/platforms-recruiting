@@ -185,7 +185,7 @@ p{margin:0}
 .aufgaben-kasten{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden}
 .aufgaben-sperre{display:flex; gap:10px; align-items:flex-start; padding:12px 13px; background:var(--crit-bg); border-bottom:1px solid var(--line)}
 .aufgaben-sperre .txt{font-size:13px; line-height:1.4; color:var(--crit); font-weight:700}
-.aufgaben-bezug{font-size:12.5px; color:var(--ink-2); padding:12px 13px 0}
+.aufgaben-titel{font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); padding:12px 13px; border-bottom:1px solid var(--line)}
 .aufgabe{display:flex; gap:11px; align-items:flex-start; cursor:pointer; padding:12px 13px; border-bottom:1px solid var(--line)}
 .aufgabe .t{font-size:14px; font-weight:600; line-height:1.3}
 .aufgabe .s{font-size:12px; color:var(--ink-2); margin-top:2px}

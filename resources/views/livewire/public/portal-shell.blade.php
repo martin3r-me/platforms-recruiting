@@ -206,54 +206,57 @@
                 </div>
 
                 {{--
-                    Aufgabe 11: dieselben offenen Punkte wie unten, aber MIT
-                    dem naechsten Einsatz als Bezug -- "Ausweis fehlt" wird
-                    "Ausweis fehlt -- gebraucht fuer deinen Einsatz am 12.10.2026"
-                    (ET-25: volles Jahr, nicht nur 'd.m.' -- Begruendung weiter unten).
-                    OffenePunkte::fuer() (Aufgabe 8) liefert 'einsatz' REGELMAESSIG
-                    als null (stornierter/aus der ZAS-Lieferung verschwundener
-                    Einsatz) -- der Kasten traegt dann trotzdem, nur ohne den
-                    Bezug-Satz (kein Randfall, siehe Aufgabentext). Wer gar
-                    keinen offenen Punkt hat, soll keinen leeren Kasten sehen,
-                    deshalb das aeussere @if.
+                    Aufgabe 11 (erste Fassung): dieselben offenen Punkte wie
+                    unten, damals MIT dem naechsten Einsatz als Bezug -- "Ausweis
+                    fehlt -- gebraucht fuer deinen Einsatz am 12.10.2026" (ET-25:
+                    volles Jahr). OffenePunkte::fuer() (Aufgabe 8) liefert
+                    'einsatz' REGELMAESSIG als null (stornierter/aus der
+                    ZAS-Lieferung verschwundener Einsatz); der Kasten trug
+                    deshalb schon immer auch ohne Bezug-Satz.
 
-                    Blockform + vorberechnete Werte (Hausregel) statt @if im
+                    Kundenentscheidung Markus 14.10.2026 (Folie 7): der Kasten
+                    heisst jetzt "Noch zu erledigen" und nennt KEINEN Einsatz,
+                    kein Datum, keine Veranstaltung mehr. Wortlaut: "Es darf
+                    nicht an den Einsatz gekoppelt sein ... Dispo ist frei von
+                    HR, sonst folgern sie nachher, meine Unterlagen fehlen, ich
+                    bekomme kein Geld, dann komme ich nicht zum Einsatz." Die
+                    Bezug-Zeile (aufgaben-bezug) ist deshalb ersatzlos raus.
+                    OffenePunkte::fuer() liefert 'einsatz' weiter -- HR-Faelle
+                    und der Einsatz-Trigger brauchen es --, nur diese Anzeige
+                    nutzt es nicht mehr.
+
+                    Wer gar keinen offenen Punkt hat, soll keinen leeren Kasten
+                    sehen, deshalb das aeussere Block-If. Blockform +
+                    vorberechnete Werte (Hausregel) statt eines Ifs im
                     Attribut oder einer an ein Wortzeichen geklebten Direktive.
                 --}}
                 @if ($offenePunkte['punkte'] !== [])
                     <div class="aufgaben-kasten">
+                        {{--
+                            Ueberschrift (Markus 14.10.2026: "Es sollte eine
+                            Kachel to do's oder noch zu erledigen sein").
+                            Der Satz ist in Du- und Sie-Form gleich, deshalb
+                            kein Ternary.
+                        --}}
+                        <div class="aufgaben-titel">Noch zu erledigen</div>
+
                         {{--
                             Nachbesserung (Koordinator): das Arbeitsverbot
                             braucht ein eigenes Signal auf KASTEN-Ebene, nicht
                             nur die Farbnuance an der einzelnen Zeile
                             (aufgabe-ko) weiter unten. "Dir fehlt noch was"
                             ist etwas anderes als "du darfst mit diesem Stand
-                            nicht zum Einsatz" -- deshalb zuerst im Kasten,
-                            vor dem Einsatz-Bezug.
+                            nicht arbeiten" -- deshalb zuerst im Kasten.
+                            Markus 14.10.2026: der Satz nennt keinen Einsatz
+                            mehr (frueher: "... darfst du nicht zum Einsatz.").
                         --}}
                         @if ($offenePunkte['gesperrt'])
                             <div class="aufgaben-sperre">
                                 <span class="dot crit"></span>
                                 <div class="txt">{{ $duzen
-                                    ? 'Mit diesem Stand darfst du nicht zum Einsatz.'
-                                    : 'Mit diesem Stand dürfen Sie nicht zum Einsatz.' }}</div>
+                                    ? 'Mit diesem Stand darfst du aktuell nicht arbeiten.'
+                                    : 'Mit diesem Stand dürfen Sie aktuell nicht arbeiten.' }}</div>
                             </div>
-                        @endif
-
-                        @if ($offenePunkte['einsatz'] !== null)
-                            @php
-                                // ET-25 (Entscheidung des Koordinators): volles Jahr, nicht
-                                // nur 'd.m.' -- der Brief-Code sagte 'd.m.', die bindende
-                                // Vorgabe darueber 'd.m.Y'. Zwei Gruende: 'd.m.' ist ueber den
-                                // Jahreswechsel mehrdeutig (05.01. -- dieses oder naechstes
-                                // Jahr?), und der Mensch bekommt dasselbe Datum vorher schon
-                                // ausgeschrieben per WhatsApp ('20.10.2026') -- zwei
-                                // Schreibweisen fuer denselben Tag waeren unnoetige Reibung.
-                                $offenePunkteBezug = ($duzen ? 'Für deinen Einsatz am ' : 'Für Ihren Einsatz am ')
-                                    . \Illuminate\Support\Carbon::parse($offenePunkte['einsatz']['datum'])->format('d.m.Y')
-                                    . ($offenePunkte['einsatz']['event'] ? ' — ' . $offenePunkte['einsatz']['event'] : '');
-                            @endphp
-                            <p class="aufgaben-bezug">{{ $offenePunkteBezug }}</p>
                         @endif
 
                         @foreach ($offenePunkte['punkte'] as $offenerPunkt)
