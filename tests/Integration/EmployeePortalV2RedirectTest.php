@@ -74,6 +74,9 @@ final class EmployeePortalV2RedirectTest extends TestCase
         require __DIR__ . '/../../routes/public.php';
         $router->getRoutes()->refreshNameLookups();
         $container->instance('url', new UrlGenerator($router->getRoutes(), Request::create('http://portal.test/')));
+        // Die Weiche reicht die Query der laufenden Anfrage weiter — ohne
+        // gebundene Anfrage gaebe es keine.
+        $container->instance('request', Request::create('http://portal.test/mitarbeiter/x'));
 
         // Livewires $this->redirect() legt das Ziel in den DataStore. Der
         // MUSS dieselbe Instanz bleiben, sonst liest der Test ins Leere.
@@ -161,6 +164,24 @@ final class EmployeePortalV2RedirectTest extends TestCase
         $this->assertNotNull($ziel, 'Wer umgestellt ist, darf das alte Portal nicht mehr sehen.');
         $this->assertStringEndsWith('/mitarbeiter/neu/' . $ma->portal_token, $ziel,
             'Umgeleitet wird auf die neue Route — mit demselben Token.');
+    }
+
+    /**
+     * Ein Link zum offenen Punkt traegt eine Query. Die Weiche darf sie nicht
+     * verlieren — sonst kommt sie auch ueber die Konto-Anmeldung nicht an
+     * (PortalShell::ruecksprungZiel nimmt die Query der NEUEN Adresse).
+     */
+    public function test_die_weiche_behaelt_die_query(): void
+    {
+        $ma = $this->ma(['portal_v2_since' => '2026-09-24 08:00:00']);
+        Container::getInstance()->instance(
+            'request',
+            Request::create('http://portal.test/mitarbeiter/' . $ma->portal_token . '?bereich=profil&feld=iban'),
+        );
+
+        $ziel = (string) $this->ziel($this->mount($ma));
+
+        $this->assertStringEndsWith('/mitarbeiter/neu/' . $ma->portal_token . '?bereich=profil&feld=iban', $ziel);
     }
 
     public function test_nicht_umgestellter_mitarbeiter_bekommt_das_alte_portal_wie_gehabt(): void

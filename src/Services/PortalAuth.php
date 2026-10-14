@@ -136,6 +136,66 @@ final class PortalAuth
     }
 
     /**
+     * Kaeme der Mensch hinter dieser Anstellung ueber die Konto-Anmeldung
+     * (Nummer + Passwort) wieder in genau diese Anstellung hinein?
+     *
+     * Gefragt von PortalShell::mount(): wer ein eingerichtetes Konto hat,
+     * soll vom Token-Link auf die Konto-Anmeldung geschickt werden statt vor
+     * die alte Abfrage (Geburtsdatum + Ausweis-Endziffern).
+     *
+     * DIESELBE MENGE WIE DER ANMELDEWEG, nur ohne Passwort — sonst endet der
+     * Mensch auf einer Anmeldeseite, durch die er nie hindurchkommt, und die
+     * alte Abfrage, die ihn heute hereinlaesst, ist fuer ihn verschwunden:
+     *  - "Eingerichtet" heisst password_hash gesetzt. NICHT registered_at:
+     *    das bleibt nach einem Zuruecksetzen durch HR als Beleg stehen
+     *    (KontoWriter::setzeKontoZurueckDurchHr), das Konto ist dann aber
+     *    wieder offen. Ein zurueckgesetztes Konto zaehlt als nicht
+     *    eingerichtet — der Mensch bekommt die alte Abfrage wie bisher.
+     *  - Gesperrt, stillgelegt, ohne aktive Anstellung, mehrdeutige Nummer:
+     *    entscheidet KontoWriter::anmeldefaehigePersonFuerNummer() — dieselbe
+     *    Fassung, die pruefeAnmeldung() benutzt. Hier wird sie NICHT
+     *    nachgebaut.
+     *  - Die Dispo-Sperre der Person (istDispoGesperrt) liesse
+     *    anmeldenMitNummer() mit GESPERRT scheitern — auch das waere eine
+     *    Anmeldung ohne Durchkommen.
+     *
+     * Gelesen wird die Personenzeile mit ->first() OHNE Spaltenliste:
+     * SQLite liefert fuer eine fehlende Spalte in Anfuehrungszeichen ein
+     * String-Literal statt eines Fehlers, und ein "password_hash" als Wert
+     * hiesse hier "eingerichtet" (Pruefmuster Nr. 11).
+     *
+     * NACH DER MUTATION: die Frage nach merged_into_person_id faengt keinen
+     * Fall allein — anmeldefaehigePersonFuerNummer() sucht nur lebende
+     * Zeilen und liefert fuer eine stillgelegte Person nie deren Kennung.
+     * Sie bleibt als frueher Ausstieg stehen; ein Test kann sie nicht
+     * gruen halten.
+     */
+    public function kontoOeffnetAnstellung(RecEmployee $employee): bool
+    {
+        $personId = (int) ($employee->rec_person_id ?? 0);
+        if ($personId <= 0) {
+            return false;
+        }
+
+        $person = DB::table('rec_persons')->where('id', $personId)->first();
+        if ($person === null || ($person->merged_into_person_id ?? null) !== null) {
+            return false;
+        }
+
+        $hash  = (string) ($person->password_hash ?? '');
+        $phone = (string) ($person->phone ?? '');
+        if ($hash === '' || $phone === '') {
+            return false;
+        }
+
+        if (KontoWriter::anmeldefaehigePersonFuerNummer(null, $phone) !== $personId) {
+            return false;
+        }
+
+        return !$this->istDispoGesperrt($personId);
+    }
+
+    /**
      * Ein Anmeldeversuch mit Handynummer und Passwort — der Konto-Einstieg.
      *
      * Die Entscheidung "wer ist das?" trifft KontoWriter::pruefeAnmeldung();

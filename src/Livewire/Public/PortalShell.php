@@ -173,6 +173,43 @@ class PortalShell extends Component
         }
 
         $this->state = $auth->isRateLimited($token) ? 'rateLimited' : 'unverified';
+
+        // KONTO-INHABER GEHOEREN AUF DIE KONTO-ANMELDUNG (Canvas 68, Spec 2.2:
+        // "WhatsApp-Knoepfe fuehren zur Login-Seite und nach dem Passwort
+        // direkt zum Ziel"). Saemtliche Portal-WhatsApps tragen den Token-
+        // Link; wer ein Konto eingerichtet hat, soll dort nicht die alte
+        // Abfrage sehen, sondern Nummer + Passwort — und danach genau hier
+        // wieder landen, mitsamt Query (Sprung zum offenen Punkt).
+        //
+        // NUR aus 'unverified': gesperrt und rate-limitiert bleiben, wie sie
+        // sind, und eine gueltige Sitzung ist oben schon abgebogen. Genau
+        // das schliesst den Kreis aus: KontoAnmelden oeffnet die Sitzung fuer
+        // alle aktiven Anstellungen der Person, beim Ruecksprung greift
+        // sitzungGueltig() oben, und dieser Zweig wird nicht mehr erreicht.
+        //
+        // WAS DER REDIRECT VERRAET: dass es zu diesem Token ein Konto gibt.
+        // Der Token selbst ist das Geheimnis — wer ihn hat, sieht ohnehin
+        // die Anmeldung dieses Menschen. Das ist hingenommen. Ins Log kommt
+        // hier nichts: die Adressen tragen den Token.
+        if ($this->state === 'unverified' && $auth->kontoOeffnetAnstellung($employee)) {
+            $this->redirect(route('recruiting.public.konto', ['weiter' => $this->ruecksprungZiel($token)]));
+        }
+    }
+
+    /**
+     * Wohin die Konto-Anmeldung nach dem Passwort zurueckspringt: diese
+     * Seite, als Pfad OHNE Schema und Host — KontoAnmelden::erlaubtesZiel()
+     * verwirft jede Adresse mit Host, eine volle URL kaeme dort also nie an.
+     * Der Pfad kommt aus der Route und nicht aus der Anfrage, damit der Token
+     * genau so drinsteht, wie zieltAufEigenenToken() ihn sucht. Die Query
+     * faehrt unveraendert mit.
+     */
+    private function ruecksprungZiel(string $token): string
+    {
+        $ziel = route('recruiting.public.portal-shell', ['token' => $token], false);
+        $query = (string) request()->getQueryString();
+
+        return $query !== '' ? $ziel . '?' . $query : $ziel;
     }
 
     public function verify(PortalAuth $auth): void

@@ -130,8 +130,15 @@ class EmployeePortal extends Component
         // Sperrpruefung aus dem Auth-Fix vom September — bleibt wie es war
         // und gilt unveraendert fuer alle, die noch nicht umgestellt sind.
         // Kein navigate: die beiden Portale bringen verschiedene Layouts mit.
+        //
+        // Die QUERY FAEHRT MIT: ein Link, der zu einem offenen Punkt springen
+        // soll, verloere sie hier sonst — und danach auch auf dem Weg ueber
+        // die Konto-Anmeldung, die genau diese Adresse als Ruecksprung
+        // mitnimmt (PortalShell::ruecksprungZiel).
         if ($employee->portal_v2_since !== null) {
-            $this->redirect(route('recruiting.public.portal-shell', ['token' => $token]));
+            $ziel = route('recruiting.public.portal-shell', ['token' => $token]);
+            $query = (string) request()->getQueryString();
+            $this->redirect($query !== '' ? $ziel . '?' . $query : $ziel);
 
             return;
         }
