@@ -127,18 +127,88 @@ final class PortalVorlagen
             return true;
         }
 
+        // OTP-Knopf in beiden Schreibweisen (siehe otpKnopfPositionen()).
+        return self::otpKnopfPositionen($components) !== [];
+    }
+
+    /** Metas Kategorie fuer Einmalcode-Vorlagen ("Authentifizierung", Knopf "Code kopieren"). */
+    public const KATEGORIE_AUTH = 'AUTHENTICATION';
+
+    /**
+     * Ist das eine Vorlage der Kategorie AUTHENTICATION?
+     *
+     * WARUM ES DAS GIBT (14.10.2026): Meta lehnt die Code-Vorlage in der
+     * Kategorie UTILITY ab. Eine Einmalcode-Vorlage MUSS AUTHENTICATION sein,
+     * und dort gibt Meta Text und Knopf fest vor: Body "*{{1}}* ist dein
+     * Bestaetigungscode." (positionell, ein Name ist nicht moeglich) plus ein
+     * Knopf "Code kopieren" (OTP/COPY_CODE), der den Code beim Senden ein
+     * zweites Mal als Parameter braucht.
+     *
+     * ERKANNT AN DER KATEGORIE, die der Meta-Abgleich woertlich in
+     * integrations_whatsapp_templates.category ablegt. Nur wenn sie FEHLT
+     * (alte Zeile, Abgleich ohne Feld), entscheidet der Knopf: ein OTP-Knopf
+     * kommt bei Meta nur in Authentifizierungsvorlagen vor. Steht dagegen
+     * ausdruecklich eine andere Kategorie da, gilt sie — eine UTILITY-Vorlage
+     * mit OTP-Knopf ist ein Widerspruch und bleibt, was sie vorher war:
+     * ungeeignet (Knopf mit Variable).
+     *
+     * @param  array<int, mixed>  $components
+     */
+    public static function istAuthVorlage(?string $kategorie, array $components): bool
+    {
+        $kategorie = strtoupper(trim((string) $kategorie));
+        if ($kategorie !== '') {
+            return $kategorie === self::KATEGORIE_AUTH;
+        }
+
+        return self::otpKnopfPositionen($components) !== [];
+    }
+
+    /**
+     * Positionen der Knoepfe "Code kopieren" (OTP), gezaehlt ueber ALLE
+     * Knoepfe, so wie Meta den `index` der Button-Komponente zaehlt.
+     *
+     * ZWEI SCHREIBWEISEN, weil Meta beim Anlegen und beim Abrufen nicht
+     * dieselbe benutzt: angelegt wird `{type: OTP, otp_type: COPY_CODE}`,
+     * die Graph-API liefert denselben Knopf beim Abruf aber (je nach
+     * Version) als `{type: URL, url: "https://www.whatsapp.com/otp/code/
+     * ?otp_type=COPY_CODE&...&code=otp{{1}}"}` zurueck. Beide sind derselbe
+     * Knopf; wer nur eine kennt, haelt die andere fuer einen gewoehnlichen
+     * URL-Knopf mit Variable. 'COPY_CODE' als Typ zaehlt mit, weil
+     * hatKnopfMitParameter() ihn schon immer so gefuehrt hat.
+     *
+     * @param  array<int, mixed>  $components
+     * @return list<int>
+     */
+    public static function otpKnopfPositionen(array $components): array
+    {
+        $positionen = [];
+        $position = 0;
+
         foreach ($components as $teil) {
-            if (!is_array($teil) || ($teil['type'] ?? '') !== 'BUTTONS' || !is_array($teil['buttons'] ?? null)) {
+            if (!is_array($teil) || strtoupper((string) ($teil['type'] ?? '')) !== 'BUTTONS' || !is_array($teil['buttons'] ?? null)) {
                 continue;
             }
             foreach ($teil['buttons'] as $knopf) {
-                if (is_array($knopf) && in_array(strtoupper((string) ($knopf['type'] ?? '')), ['OTP', 'COPY_CODE'], true)) {
-                    return true;
+                if (is_array($knopf) && self::istOtpKnopf($knopf)) {
+                    $positionen[] = $position;
                 }
+                $position++;
             }
         }
 
-        return false;
+        return $positionen;
+    }
+
+    /** @param  array<string, mixed>  $knopf */
+    private static function istOtpKnopf(array $knopf): bool
+    {
+        $typ = strtoupper((string) ($knopf['type'] ?? ''));
+        if (in_array($typ, ['OTP', 'COPY_CODE'], true)) {
+            return true;
+        }
+
+        return $typ === 'URL' && stripos((string) ($knopf['url'] ?? ''), 'otp_type=') !== false;
     }
 
     /** Team-Schalter Einsatz-Pruefung, strikt bool ('false'/'0' duerfen nicht per (bool)-Cast zu true werden). */

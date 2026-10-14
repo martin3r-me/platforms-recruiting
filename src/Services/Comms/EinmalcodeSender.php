@@ -13,6 +13,7 @@ use Platform\Recruiting\Support\CodeDrossel;
 use Platform\Recruiting\Support\Einmalcode;
 use Platform\Recruiting\Support\PhoneE164;
 use Platform\Recruiting\Support\PortalVorlagen;
+use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 
 /**
  * Verschickt GENAU EINEN Einmalcode per WhatsApp — die Nachricht, mit der
@@ -153,6 +154,25 @@ use Platform\Recruiting\Support\PortalVorlagen;
  *    "neue Nummer bestaetigen", Notfall-Weg). Gibt es nur EINE genehmigte
  *    Vorlage, waehlt man ueberall dieselbe. 'anmeldung' hat bewusst kein
  *    Feld: dieser Zweck wird nirgends verschickt.
+ *
+ * NEUER STAND 14.10.2026 — ZWEI ARTEN VON CODE-VORLAGE. Meta hat die
+ * UTILITY-Vorlage `ma_portal_code` abgelehnt: Einmalcodes gehoeren in die
+ * Kategorie AUTHENTICATION, Option "Code kopieren". Die Anforderungen oben
+ * gelten seitdem nur noch fuer den UTILITY-Weg, der unveraendert bleibt (er
+ * funktioniert, Meta genehmigt ihn bloss nicht mehr). Fuer AUTHENTICATION
+ * (erkannt in PortalVorlagen::istAuthVorlage(): Kategorie, ersatzweise der
+ * OTP-Knopf) gilt dagegen, was Meta vorgibt:
+ *  - Body "*{{1}}* ist dein Bestaetigungscode." — GENAU EIN Platzhalter, und
+ *    der ist POSITIONELL {{1}} (ein Name ist dort nicht moeglich). Der
+ *    Parameter geht deshalb OHNE parameter_name raus.
+ *  - GENAU EIN Knopf "Code kopieren" (OTP). Er braucht den Code beim Senden
+ *    ein zweites Mal: {type: button, sub_type: url, index: "<Position>",
+ *    parameters: [{type: text, text: <code>}]}. Die Position wird aus der
+ *    Vorlage gelesen, nicht als 0 angenommen.
+ *  - Kein Vorname, keine {{minuten}} — die Ablaufzeit steht in Metas
+ *    fester Fusszeile ("Dieser Code laeuft in 10 Minuten ab.").
+ * Eine Vorlage, die dem nicht entspricht, geht NICHT raus — wie bisher
+ * VOR erzeugeCode(), damit der laufende Code nicht verbrannt ist.
  */
 final class EinmalcodeSender
 {
@@ -301,11 +321,9 @@ final class EinmalcodeSender
             $this->merkeAnforderung($einzeln, $jetzt);
         }
 
-        $parameter = [];
-        foreach ($vorlage['platzhalter'] as $name) {
-            $parameter[] = $this->parameter($name, $klartext, $personId);
-        }
-        $components = [['type' => 'body', 'parameters' => $parameter]];
+        $components = $vorlage['otp_knopf'] !== null
+            ? $this->authKomponenten($klartext, $vorlage['otp_knopf'])
+            : $this->utilityKomponenten($vorlage['platzhalter'], $klartext, $personId);
 
         try {
             $nachricht = app(WhatsAppMetaService::class)->sendTemplate(
@@ -349,11 +367,16 @@ final class EinmalcodeSender
      * eine gepflegte Liste: unbefuellbare Platzhalter, {{code}}-Pflicht, Knopf
      * mit Variable. Alle stehen VOR erzeugeCode() (siehe sende()).
      *
-     * @return array{fehler: ?string, name: string, sprache: string, platzhalter: list<string>, kanal: ?CommsChannel}
+     * ZWEI WEGE (14.10.2026): eine AUTHENTICATION-Vorlage wird in
+     * authVorlage() geprueft und liefert die Position ihres OTP-Knopfs
+     * ('otp_knopf'); fuer alle anderen bleibt 'otp_knopf' null, und es gilt
+     * die bisherige Pruefung unveraendert.
+     *
+     * @return array{fehler: ?string, name: string, sprache: string, platzhalter: list<string>, otp_knopf: ?int, kanal: ?CommsChannel}
      */
     private function vorlage(string $zweck, int $teamId): array
     {
-        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => [], 'kanal' => null];
+        $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => [], 'otp_knopf' => null, 'kanal' => null];
 
         $schluessel = PortalVorlagen::CODE_SCHLUESSEL[$zweck] ?? null;
         if ($schluessel === null) {
@@ -376,6 +399,29 @@ final class EinmalcodeSender
         $teile = (array) ($template->components ?? []);
         $name = (string) $template->name;
         $platzhalter = PortalVorlagen::rumpfPlatzhalter($teile);
+
+        // Kopfzeile mit Variable oder Medium: fuer BEIDE Arten VOR erzeugeCode().
+        // (Eine AUTHENTICATION-Vorlage hat bei Meta keine Kopfzeile; steht doch
+        // eine da, ist die Zeile nicht die, die Meta genehmigt hat.)
+        if (PortalVorlagen::brauchtKopfParameter($teile)) {
+            return $fehler(PortalVorlagen::KOPFZEILE_MELDUNG);
+        }
+
+        if (PortalVorlagen::istAuthVorlage(isset($template->category) ? (string) $template->category : null, $teile)) {
+            $auth = $this->authVorlage($name, $teile, $platzhalter);
+            if ($auth['fehler'] !== null) {
+                return $fehler($auth['fehler']);
+            }
+
+            return [
+                'fehler'      => null,
+                'name'        => $name,
+                'sprache'     => (string) ($template->language ?: 'de'),
+                'platzhalter' => $platzhalter,
+                'otp_knopf'   => $auth['otp_knopf'],
+                'kanal'       => $ziel['channel'],
+            ];
+        }
 
         $unbefuellbar = $this->unbefuellbarePlatzhalter($platzhalter);
         if ($unbefuellbar !== []) {
@@ -411,18 +457,107 @@ final class EinmalcodeSender
             return $fehler('Die Vorlage hat einen Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.');
         }
 
-        // Kopfzeile mit Variable oder Medium: ebenfalls VOR erzeugeCode().
-        if (PortalVorlagen::brauchtKopfParameter($teile)) {
-            return $fehler(PortalVorlagen::KOPFZEILE_MELDUNG);
-        }
-
         return [
             'fehler'      => null,
             'name'        => $name,
             'sprache'     => (string) ($template->language ?: 'de'),
             'platzhalter' => $platzhalter,
+            'otp_knopf'   => null,
             'kanal'       => $ziel['channel'],
         ];
+    }
+
+    /**
+     * Die Pruefung einer AUTHENTICATION-Vorlage — gegen das, was Meta fuer
+     * diese Kategorie FEST vorgibt, nicht gegen unsere Wunschliste.
+     *
+     *  - GENAU EIN OTP-Knopf. Keiner: die Kategorie stimmt, aber ohne den
+     *    Knopf ist es keine "Code kopieren"-Vorlage, und unser Knopf-Parameter
+     *    zeigte ins Leere — Meta lehnte ab. Zwei: Meta erlaubt das nicht; eine
+     *    solche Zeile ist kaputt, und welcher Index der richtige waere, raten
+     *    wir nicht.
+     *  - Kein WEITERER Knopf mit Variable neben dem OTP-Knopf: den befuellen
+     *    wir nicht (dieselbe Regel wie im UTILITY-Weg).
+     *  - GENAU EIN Platzhalter im Body, und zwar {{1}}. Wir schicken genau
+     *    einen positionellen Parameter; jeder andere Rumpf bekaeme die
+     *    falsche Zahl Werte, und Meta lehnte ab — nachdem der Code erzeugt
+     *    waere.
+     *
+     * @param  array<int, mixed>  $teile
+     * @param  list<string>       $platzhalter
+     * @return array{fehler: ?string, otp_knopf: ?int}
+     */
+    private function authVorlage(string $name, array $teile, array $platzhalter): array
+    {
+        $otp = PortalVorlagen::otpKnopfPositionen($teile);
+        if (count($otp) !== 1) {
+            return ['fehler' => sprintf(
+                'Die Authentifizierungsvorlage "%s" braucht genau einen Knopf „Code kopieren" (OTP) — gefunden: %d. '
+                .'Ohne ihn (oder mit zweien) wuerde Meta ablehnen.',
+                $name,
+                count($otp),
+            ), 'otp_knopf' => null];
+        }
+
+        $andereMitVariable = array_diff(WhatsAppTemplateUrlButtons::dynamicIndexes($teile), $otp);
+        if ($andereMitVariable !== []) {
+            return ['fehler' => sprintf(
+                'Die Authentifizierungsvorlage "%s" hat neben „Code kopieren" einen weiteren Knopf mit Variable — den befuellen wir nicht, Meta wuerde ablehnen.',
+                $name,
+            ), 'otp_knopf' => null];
+        }
+
+        if ($platzhalter !== ['1']) {
+            return ['fehler' => sprintf(
+                'Die Authentifizierungsvorlage "%s" muss im Text genau einen Platzhalter {{1}} haben (den Code) — gefunden: %s.',
+                $name,
+                $platzhalter === [] ? 'keinen' : '{{' . implode('}}, {{', $platzhalter) . '}}',
+            ), 'otp_knopf' => null];
+        }
+
+        return ['fehler' => null, 'otp_knopf' => $otp[0]];
+    }
+
+    /**
+     * Die Komponenten einer AUTHENTICATION-Vorlage, im Format der Cloud API:
+     * der Code positionell im Body (OHNE parameter_name — {{1}} hat keinen
+     * Namen) und ein zweites Mal im Knopf "Code kopieren". Den Knopf
+     * schickt die Cloud API als sub_type url, auch wenn er in der Vorlage
+     * OTP heisst; der Index ist ein String und die Position aus der Vorlage.
+     *
+     * Fehlt die Button-Komponente, lehnt Meta die Nachricht ab — der Code
+     * waere erzeugt und nie angekommen (Mutationsprobe im Test).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function authKomponenten(string $klartext, int $knopfIndex): array
+    {
+        return [
+            ['type' => 'body', 'parameters' => [['type' => 'text', 'text' => $klartext]]],
+            [
+                'type'       => 'button',
+                'sub_type'   => 'url',
+                'index'      => (string) $knopfIndex,
+                'parameters' => [['type' => 'text', 'text' => $klartext]],
+            ],
+        ];
+    }
+
+    /**
+     * Die Komponenten einer UTILITY-Vorlage mit benannten Platzhaltern —
+     * der bisherige Weg, unveraendert: ein Body, je Platzhalter ein Parameter.
+     *
+     * @param  list<string>  $platzhalter
+     * @return list<array<string, mixed>>
+     */
+    private function utilityKomponenten(array $platzhalter, string $klartext, int $personId): array
+    {
+        $parameter = [];
+        foreach ($platzhalter as $name) {
+            $parameter[] = $this->parameter($name, $klartext, $personId);
+        }
+
+        return [['type' => 'body', 'parameters' => $parameter]];
     }
 
     /**

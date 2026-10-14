@@ -44,6 +44,19 @@ use Platform\Recruiting\Models\RecApplicantSettings;
  *     Quelle, aus der der EinmalcodeSender liest.
  *  3. ALT-LISTE: der Name steht in KONFIG_ALT (abgelegte Namen, nie
  *     gekuerzt).
+ *
+ * NEUER STAND 14.10.2026 — AUTHENTICATION-VORLAGEN. Seit Meta die Code-
+ * Vorlage nur noch als AUTHENTICATION ("Code kopieren") genehmigt, steht
+ * der Code als POSITIONELLES {{1}} im Body und ein zweites Mal als
+ * Parameter des Knopfs. Weg 1 traefe sie nicht ({{code}} gibt es dort
+ * nicht). Deshalb zaehlt zur STRUKTUR jetzt auch der OTP-Knopf
+ * (PortalVorlagen::otpKnopfPositionen, beide Schreibweisen): einen solchen
+ * Knopf hat bei Meta nur eine Einmalcode-Vorlage. Die Definition, die der
+ * Chat hier hereinreicht, sind nur die components — die Kategorie steht
+ * dort nicht, der Knopf schon. Weg 2 (Name in einem Code-Feld) faengt sie
+ * ohnehin, solange sie eingestellt ist. geschwaerzt() schwaerzt bereits
+ * ALLE Werte aller Komponenten, also auch den Knopf-Parameter und den
+ * positionellen Body-Wert.
  */
 final class EinmalcodeVorlagen
 {
@@ -137,7 +150,10 @@ final class EinmalcodeVorlagen
         self::$eingestellt = null;
     }
 
-    /** Weg 1: steht {{code}} (Gross/Klein egal) in einem BODY-Teil? */
+    /**
+     * Weg 1: steht {{code}} (Gross/Klein egal) in einem BODY-Teil — oder hat
+     * die Vorlage einen Knopf "Code kopieren" (AUTHENTICATION, 14.10.2026)?
+     */
     private static function rumpfTraegtCode(mixed $definition): bool
     {
         if (is_string($definition)) {
@@ -145,6 +161,10 @@ final class EinmalcodeVorlagen
         }
         if (!is_array($definition)) {
             return false;
+        }
+
+        if (PortalVorlagen::otpKnopfPositionen($definition) !== []) {
+            return true;
         }
 
         foreach ($definition as $teil) {

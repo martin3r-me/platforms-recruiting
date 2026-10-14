@@ -337,7 +337,12 @@ class ApplicantSettingsModal extends Component
      */
     public function portalVorlagenFelder(): array
     {
-        $code = 'Vorlage mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname. Kein Knopf mit Variable. Kategorie UTILITY.';
+        // Seit 14.10.2026 zwei Arten (EinmalcodeSender): Meta genehmigt Codes
+        // nur noch als AUTHENTICATION "Code kopieren"; die alte UTILITY-Form
+        // mit {{code}} funktioniert weiter, wird aber nicht mehr genehmigt.
+        // Eine Vorlage fuer alle drei Code-Felder genuegt.
+        $code = 'Vorlage der Kategorie AUTHENTICATION mit Knopf „Code kopieren" (z. B. ma_portal_code, 10 Minuten Ablauf) — eine Vorlage für alle drei Code-Felder. '
+            . 'Ältere UTILITY-Vorlagen mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname, ohne Knopf mit Variable funktionieren weiter.';
 
         $hinweise = [
             PortalVorlagen::CODE_PASSWORT       => $code,

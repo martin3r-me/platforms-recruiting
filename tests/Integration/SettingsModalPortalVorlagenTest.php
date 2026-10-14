@@ -234,7 +234,9 @@ class SettingsModalPortalVorlagenTest extends TestCase
         $sektion = substr($html, (int) strpos($html, '>Mitarbeiterportal<'));
         $this->assertSame(1, substr_count($sektion, 'nullLabel="– wie Dokumente –"'));
         $this->assertSame(7, substr_count($sektion, 'nullLabel="– Template wählen –"'), 'Sieben Felder mit „– Template wählen –"');
-        $this->assertStringContainsString('Vorlage mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname. Kein Knopf mit Variable. Kategorie UTILITY.', $html);
+        // Seit 14.10.2026: AUTHENTICATION „Code kopieren" zuerst, UTILITY mit {{code}} als Altform.
+        $this->assertStringContainsString('Vorlage der Kategorie AUTHENTICATION mit Knopf „Code kopieren"', $html);
+        $this->assertStringContainsString('UTILITY-Vorlagen mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname, ohne Knopf mit Variable funktionieren weiter.', $html);
         $this->assertStringContainsString('Geht nur raus, wenn der Notfall-Weg freigeschaltet ist.', $html);
         $this->assertStringContainsString('Ohne Platzhalter oder nur mit Vorname. Nennt die neue Nummer bewusst nicht.', $html);
         $this->assertStringContainsString('&#123;&#123;anzahl&#125;&#125;, optional Vorname, und ein URL-Knopf, dessen Variable am Ende steht.', $html);

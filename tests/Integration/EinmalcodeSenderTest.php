@@ -1001,7 +1001,179 @@ final class EinmalcodeSenderTest extends TestCase
         $this->assertStringContainsString('Kanal', $this->logText());
     }
 
+    // ------------------- AUTHENTICATION-Vorlagen („Code kopieren", 14.10.2026)
+
+    /**
+     * Eine AUTHENTICATION-Vorlage geht im Format der Cloud API raus: der Code
+     * positionell im Body (OHNE parameter_name) UND ein zweites Mal im Knopf
+     * "Code kopieren" (sub_type url, index als String).
+     *
+     * EXAKTER VERGLEICH der Komponenten, nicht "enthaelt": fehlt der Knopf,
+     * lehnt Meta ab — nachdem der Code erzeugt waere. Die Attrappe lehnt in
+     * dem Fall ebenfalls ab (sie erwartet zwei Parameter), der Vergleich
+     * nagelt zusaetzlich die Form fest. Mutationsprobe: Button-Komponente in
+     * EinmalcodeSender::authKomponenten() weglassen → dieser Test ist rot.
+     */
+    public function testAuthVorlageSchicktCodeImBodyUndImKnopf(): void
+    {
+        $this->authVorlageEinstellen('ma_portal_code', [['type' => 'OTP', 'otp_type' => 'COPY_CODE', 'text' => 'Code kopieren']]);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
+        $this->assertCount(1, $this->meta->calls);
+        $call = $this->meta->calls[0];
+        $this->assertSame('ma_portal_code', $call['templateName']);
+
+        $code = (string) ($call['components'][0]['parameters'][0]['text'] ?? '');
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $code);
+        $this->assertSame([
+            ['type' => 'body', 'parameters' => [['type' => 'text', 'text' => $code]]],
+            ['type' => 'button', 'sub_type' => 'url', 'index' => '0', 'parameters' => [['type' => 'text', 'text' => $code]]],
+        ], $call['components']);
+
+        $zeile = $this->laufenderCode();
+        $this->assertTrue(
+            Einmalcode::istGueltig($zeile['hash'], $zeile['expires'], 0, $code, self::JETZT, self::PFEFFER),
+            'Der verschickte Wert muss der Code sein, den KontoWriter abgelegt hat.'
+        );
+        $this->assertStringNotContainsString($code, $this->logText(), 'Der Code gehoert in kein Log.');
+    }
+
+    /**
+     * Der Knopf-Index kommt aus der Vorlage, nicht als 0 angenommen. Dazu die
+     * Schreibweise, in der die Graph-API den OTP-Knopf beim ABRUF liefert
+     * (URL mit otp_type=COPY_CODE) — und eine Zeile OHNE Kategorie, die nur
+     * am Knopf erkannt wird.
+     */
+    public function testKnopfIndexUndAbrufSchreibweiseUndFehlendeKategorie(): void
+    {
+        $this->authVorlageEinstellen('ma_portal_code', [
+            ['type' => 'QUICK_REPLY', 'text' => 'Nicht ich'],
+            ['type' => 'URL', 'text' => 'Code kopieren', 'url' => 'https://www.whatsapp.com/otp/code/?otp_type=COPY_CODE&code_expiration_minutes=10&code=otp{{1}}'],
+        ], null);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status, $this->logText());
+        $knopf = $this->meta->calls[0]['components'][1] ?? [];
+        $this->assertSame('button', $knopf['type'] ?? null);
+        $this->assertSame('1', $knopf['index'] ?? null, 'Index = Position des OTP-Knopfs in der Vorlage.');
+    }
+
+    /** AUTHENTICATION ohne OTP-Knopf: kein Versand, kein neuer Code, sprechender Grund. */
+    public function testAuthVorlageOhneOtpKnopfVerschicktNichts(): void
+    {
+        $vorher = $this->laufenderCode();
+        $this->authVorlageEinstellen('ma_portal_code', []);
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('genau einen Knopf', $this->logText());
+    }
+
+    /** AUTHENTICATION mit zwei Platzhaltern im Body: kein Versand, kein neuer Code, Grund nennt sie. */
+    public function testAuthVorlageMitZweiPlatzhalternVerschicktNichts(): void
+    {
+        $vorher = $this->laufenderCode();
+        $this->authVorlageEinstellen(
+            'ma_portal_code',
+            [['type' => 'OTP', 'otp_type' => 'COPY_CODE']],
+            'AUTHENTICATION',
+            '*{{1}}* ist dein Bestätigungscode, {{2}}.',
+        );
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('genau einen Platzhalter {{1}}', $this->logText());
+        $this->assertStringContainsString('{{1}}, {{2}}', $this->logText());
+    }
+
+    /**
+     * MASKIERUNG: im Chat-Verlauf steht kein Klartext-Code — weder im Body
+     * ({{1}}) noch im Knopf-Parameter. Erkannt allein an der STRUKTUR (OTP-
+     * Knopf): die Team-Einstellung ist dafuer geleert, Weg 2 faellt also aus.
+     * Durchgespielt wie DispoThreadDirectory::messages(): erkennen,
+     * schwaerzen, mit dem Renderer in den Vorlagentext zurueck.
+     */
+    public function testAuthCodeStehtNichtImChatVerlauf(): void
+    {
+        $vorlageId = $this->authVorlageEinstellen('ma_portal_code', [['type' => 'OTP', 'otp_type' => 'COPY_CODE', 'text' => 'Code kopieren']]);
+        (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        $gesendet = $this->meta->calls[0]['components'];
+        $code = (string) $gesendet[0]['parameters'][0]['text'];
+
+        $this->einstellungen([]);
+        EinmalcodeVorlagen::vergiss();
+        $definition = json_decode((string) DB::table('integrations_whatsapp_templates')->where('id', $vorlageId)->value('components'), true);
+
+        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage('ma_portal_code', $definition));
+        $geschwaerzt = EinmalcodeVorlagen::geschwaerzt(json_encode($gesendet));
+        $text = \Platform\Recruiting\Support\WhatsAppTemplateRenderer::render($definition, $geschwaerzt);
+
+        $this->assertStringNotContainsString($code, (string) json_encode($geschwaerzt), 'Auch der Knopf-Parameter ist geschwaerzt.');
+        $this->assertStringNotContainsString($code, (string) $text);
+        $this->assertStringContainsString('*' . EinmalcodeVorlagen::MASKE . '* ist dein Bestätigungscode.', (string) $text);
+    }
+
+    /** Die UTILITY-Vorlage mit OTP-Knopf bleibt, was sie war: ungeeignet (Kategorie gilt vor Knopf). */
+    public function testOtpKnopfInUtilityVorlageBleibtUngeeignet(): void
+    {
+        $this->authVorlageEinstellen('ma_portal_code', [['type' => 'OTP', 'otp_type' => 'COPY_CODE']], 'UTILITY', 'Dein Code: {{code}}');
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertStringContainsString('Knopf mit Variable', $this->logText());
+    }
+
     // ------------------------------------------------------------- Hilfen
+
+    /**
+     * Eine AUTHENTICATION-Vorlage, wie Meta sie fuer "Code kopieren" vorgibt
+     * (Body mit {{1}}, feste Fusszeile, Knoepfe wie uebergeben), in alle
+     * drei Code-Felder eingestellt und in der Meta-Attrappe als genehmigt
+     * gefuehrt — mit ZWEI namenlosen Parametern (Body + Knopf).
+     *
+     * @param  list<array<string, mixed>>  $knoepfe
+     */
+    private function authVorlageEinstellen(string $name, array $knoepfe, ?string $kategorie = 'AUTHENTICATION', string $rumpf = '*{{1}}* ist dein Bestätigungscode.'): int
+    {
+        $teile = [
+            ['type' => 'BODY', 'text' => $rumpf, 'add_security_recommendation' => false],
+            ['type' => 'FOOTER', 'text' => 'Dieser Code läuft in 10 Minuten ab.', 'code_expiration_minutes' => 10],
+        ];
+        if ($knoepfe !== []) {
+            $teile[] = ['type' => 'BUTTONS', 'buttons' => $knoepfe];
+        }
+
+        $id = (int) DB::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid'                => 'tpl-' . $name . '-' . uniqid(),
+            'external_id'         => 'ext-' . uniqid(),
+            'name'                => $name,
+            'language'            => 'de',
+            'status'              => 'APPROVED',
+            'category'            => $kategorie,
+            'components'          => json_encode($teile),
+            'whatsapp_account_id' => $this->kontoId,
+            'user_id'             => 1,
+            'created_at'          => self::ANGEFASST,
+            'updated_at'          => self::ANGEFASST,
+        ]);
+
+        $this->einstellungen(['auto_pilot_wa_account_id' => $this->kontoId] + $this->alleCodeFelder($id));
+        $this->meta->genehmigt[$name] = ['', ''];
+
+        return $id;
+    }
+
 
     /**
      * Eine von mehreren verschiedenen, je einmal benutzten Zielnummern.
