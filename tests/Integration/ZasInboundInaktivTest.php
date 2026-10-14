@@ -302,6 +302,73 @@ class ZasInboundInaktivTest extends TestCase
         $this->assertSame([], $report['deactivated']);
     }
 
+    public function test_inaktiv_ueberschreibt_hr_deaktivierung_nicht_und_go_reaktiviert_danach_nicht(): void
+    {
+        // HR hat von Hand deaktiviert, der gespeicherte Status ist GO. Eine
+        // INAKTIV-Zeile darf das nicht in eine ZAS-Inaktivitaet umschreiben —
+        // sonst wuerde ein spaeteres GO/MA den Mitarbeiter wieder aktivieren.
+        $employee = $this->makeEmployee('GO', false);
+
+        $report = $this->importer()->import([$this->row(['Status' => 'inaktiv'])], (object) ['id' => 99], false);
+
+        $this->assertSame('GO', $this->hrStatus($employee->id), 'HR-Herkunft der Deaktivierung bleibt erhalten');
+        $this->assertFalse($this->isActive($employee->id));
+        $this->assertSame([], $report['updated']);
+        $this->assertSame([], $report['deactivated']);
+        $this->assertSame('exists', $report['skipped'][0]['reason']);
+
+        $report = $this->importer()->import([$this->row(['Status' => 'GO'])], (object) ['id' => 99], false);
+
+        $this->assertFalse($this->isActive($employee->id), 'GO nach INAKTIV darf die HR-Deaktivierung nicht aufheben');
+        $this->assertSame([], $report['reactivated']);
+    }
+
+    public function test_inaktiv_laesst_ma_seit_einer_hr_deaktivierten_ma_stehen(): void
+    {
+        $employee = $this->makeEmployee('MA', false);
+        Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $employee->id)->update(['status_ma_since' => '2026-01-01']);
+
+        $report = $this->importer()->import([$this->row(['Status' => 'inaktiv', 'StatusMASeit' => ''])], (object) ['id' => 99], false);
+
+        $this->assertSame('MA', $this->hrStatus($employee->id));
+        $this->assertSame(
+            '2026-01-01',
+            substr((string) Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $employee->id)->value('status_ma_since'), 0, 10)
+        );
+        $this->assertSame([], $report['updated']);
+    }
+
+    public function test_bereits_von_zas_inaktiver_bleibt_bei_erneutem_inaktiv_unberuehrt(): void
+    {
+        $employee = $this->makeEmployee('INAKTIV', false);
+
+        $report = $this->importer()->import([$this->row(['Status' => 'inaktiv'])], (object) ['id' => 99], false);
+
+        $this->assertSame('exists', $report['skipped'][0]['reason']);
+        $this->assertSame([], $report['deactivated']);
+        $this->assertSame([], $report['updated']);
+        $this->assertFalse($this->isActive($employee->id));
+    }
+
+    public function test_unbekannter_inaktiver_zweimal_geliefert_ergibt_genau_einen_datensatz(): void
+    {
+        $row = $this->row([
+            'ZasPersonalNr' => '9101',
+            'Name'          => 'Doppelt',
+            'Vorname'       => 'Inaktiv',
+            'Status'        => 'inaktiv',
+        ]);
+
+        $first  = $this->importer()->import([$row], (object) ['id' => 99], false);
+        $second = $this->importer()->import([$row], (object) ['id' => 100], false);
+
+        $this->assertCount(1, $first['created']);
+        $this->assertSame(1, Capsule::table('rec_employees')->where('personnel_number', '9101')->count());
+        $this->assertSame([], $second['created']);
+        $this->assertSame('exists', $second['skipped'][0]['reason']);
+        $this->assertNull(Capsule::table('rec_employees')->where('personnel_number', '9101')->value('zas_changed_at'));
+    }
+
     public function test_dispo_zuordnung_bevorzugt_den_aktiven_vor_dem_inaktiven_altbestand(): void
     {
         // Aktiver mit langer Nummer, von der Dispo gekuerzt als MA878 geliefert,

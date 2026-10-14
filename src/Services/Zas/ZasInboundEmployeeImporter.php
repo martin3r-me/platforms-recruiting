@@ -111,6 +111,17 @@ class ZasInboundEmployeeImporter
                     }
 
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
+                    // Von HR deaktiviert (inaktiv, gespeicherter Status nicht
+                    // INAKTIV): ein INAKTIV aus ZAS darf den Status nicht
+                    // umschreiben — sonst saehe die Deaktivierung danach wie
+                    // eine von ZAS aus, und ein spaeteres GO/MA wuerde sie
+                    // aufheben (Spec 2026-10-14 §2.2). Das mitgelieferte
+                    // Leeren von MA-seit gehoert zu derselben Statusmeldung.
+                    if (($mapped['hr']['export_status'] ?? null) === ZasStatus::INAKTIV
+                        && !$existing->is_active
+                        && $existing->hrData?->export_status !== ZasStatus::INAKTIV) {
+                        unset($changes['export_status'], $changes['status_ma_since']);
+                    }
                     $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
                     // Firma ebenfalls nur nachtragen, nie ueberschreiben.
                     $companyFill = ($company !== null && trim((string) $existing->company) === '')
