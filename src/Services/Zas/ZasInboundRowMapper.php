@@ -296,7 +296,11 @@ class ZasInboundRowMapper
         }
         $status = $get('Status');
         if ($status !== '') {
-            $hr['export_status'] = mb_strtoupper($status); // "go" → "GO"
+            // "go" → "GO", "Inaktive" → "INAKTIV"
+            $hr['export_status'] = ZasStatus::normalize($status);
+            if ($hr['export_status'] !== null && !ZasStatus::istBekannt($hr['export_status'])) {
+                $warnings[] = "Status '{$status}' unbekannt — unveraendert uebernommen";
+            }
         }
 
         // StatusMASeit — Tag der Umstellung GO→MA. Bewusst NICHT in HR_DATES:

@@ -804,7 +804,7 @@ class Show extends Component
     {
         return [
             'Vertrags-Status (HR-only, ZAS-Export)' => [
-                'export_status'        => ['type' => 'inline_select', 'label' => 'Status (aus ZAS)', 'options' => ['GO', 'MA'], 'empty' => 'GO', 'readonly' => true],
+                'export_status'        => ['type' => 'inline_select', 'label' => 'Status (aus ZAS)', 'options' => ['GO', 'MA', 'INAKTIV'], 'empty' => 'GO', 'readonly' => true],
                 // Kommt ausschliesslich aus dem ZAS-Inbound (Spalte StatusMASeit).
                 // Readonly wie der Status selbst: umgestellt wird in ZAS, ein
                 // Editieren hier wuerde beide Seiten auseinanderlaufen lassen.

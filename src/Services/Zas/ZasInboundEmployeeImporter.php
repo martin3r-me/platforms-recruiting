@@ -57,6 +57,9 @@ class ZasInboundEmployeeImporter
         $failed = [];
         $warnings = [];
         $suspected = [];
+        $deactivated = [];
+        $reactivated = [];
+        $created_inactive = 0;
 
         foreach ($rows as $index => $row) {
             try {
@@ -121,7 +124,22 @@ class ZasInboundEmployeeImporter
                         $changes   = array_merge($changes, $overwrite['hr']);
                     }
 
-                    if ($changes === [] && $overwrite['employee'] === [] && $pnrFill === null && $companyFill === null) {
+                    // Aktiv-Wechsel durch den ZAS-Status (Spec 2026-10-14 §2.2).
+                    // Reaktiviert wird NUR, wenn die Inaktivitaet von ZAS kam
+                    // (gespeicherter Status INAKTIV) — eine Deaktivierung von
+                    // Hand durch HR darf ZAS nicht ueberstimmen.
+                    $neuerStatus = $mapped['hr']['export_status'] ?? null;
+                    $alterStatus = $existing->hrData?->export_status;
+                    $aktivWechsel = null;
+                    if ($neuerStatus === ZasStatus::INAKTIV && $existing->is_active) {
+                        $aktivWechsel = false;
+                    } elseif (in_array($neuerStatus, [ZasStatus::GO, ZasStatus::MA], true)
+                        && !$existing->is_active
+                        && $alterStatus === ZasStatus::INAKTIV) {
+                        $aktivWechsel = true;
+                    }
+
+                    if ($changes === [] && $overwrite['employee'] === [] && $pnrFill === null && $companyFill === null && $aktivWechsel === null) {
                         $skipped[] = [
                             'personnel_number' => $mapped['personnel_number'],
                             'employee_id'      => $existing->id,
@@ -138,8 +156,23 @@ class ZasInboundEmployeeImporter
                     if ($companyFill !== null) {
                         $changedFields[] = 'company';
                     }
+                    if ($aktivWechsel !== null) {
+                        $changedFields[] = 'is_active';
+                    }
 
                     if ($dryRun) {
+                        if ($aktivWechsel !== null) {
+                            $eintrag = [
+                                $aktivWechsel ? 'would_reactivate' : 'would_deactivate' => true,
+                                'employee_id'      => $existing->id,
+                                'personnel_number' => $mapped['personnel_number'],
+                            ];
+                            if ($aktivWechsel) {
+                                $reactivated[] = $eintrag;
+                            } else {
+                                $deactivated[] = $eintrag;
+                            }
+                        }
                         $updated[] = [
                             'would_update'     => true,
                             'employee_id'      => $existing->id,
@@ -149,7 +182,15 @@ class ZasInboundEmployeeImporter
                         ];
                         continue;
                     }
-                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee']);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee'], $aktivWechsel);
+                    if ($aktivWechsel !== null) {
+                        $eintrag = ['employee_id' => $existing->id, 'personnel_number' => $mapped['personnel_number']];
+                        if ($aktivWechsel) {
+                            $reactivated[] = $eintrag;
+                        } else {
+                            $deactivated[] = $eintrag;
+                        }
+                    }
                     $updated[] = [
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
@@ -168,7 +209,11 @@ class ZasInboundEmployeeImporter
                 // ableiten, gegen die belastbaren Merkmale nachsehen. Ergebnis
                 // ist eine MELDUNG, kein Zusammenfuehren: zwei Menschen koennen
                 // sich Telefon oder Konto legitim teilen.
-                $suspicions = $this->duplicates->suspicions($mapped['employee'], $teamId);
+                //
+                // Ausnahme INAKTIV (Spec 2026-10-14 §2.3): wird inaktiv angelegt
+                // und OHNE Pruefung — bei tausenden Altfaellen nur Laerm.
+                $inaktiv = ($mapped['hr']['export_status'] ?? null) === ZasStatus::INAKTIV;
+                $suspicions = $inaktiv ? [] : $this->duplicates->suspicions($mapped['employee'], $teamId);
                 if ($suspicions !== []) {
                     $suspected[] = [
                         'personnel_number' => $mapped['personnel_number'],
@@ -182,11 +227,15 @@ class ZasInboundEmployeeImporter
                         'would_create'     => true,
                         'personnel_number' => $mapped['personnel_number'],
                         'name'             => trim(($mapped['employee']['last_name'] ?? '') . ', ' . ($mapped['employee']['first_name'] ?? '')),
+                        'inactive'         => $inaktiv,
                     ];
+                    if ($inaktiv) {
+                        $created_inactive++;
+                    }
                     continue;
                 }
 
-                $employee = $this->createEmployee($mapped, $teamId, $inbound->id);
+                $employee = $this->createEmployee($mapped, $teamId, $inbound->id, aktiv: !$inaktiv);
 
                 // Personen-Paarung (Chaieb-Befund): existiert zum frisch
                 // angelegten Datensatz ein doppelt-exakter Geschwister (voller
@@ -199,7 +248,11 @@ class ZasInboundEmployeeImporter
                     'employee_id' => $employee->id,
                     'personnel_number' => $employee->personnel_number,
                     'person_pairing' => $paarung['status'],
+                    'inactive' => $inaktiv,
                 ];
+                if ($inaktiv) {
+                    $created_inactive++;
+                }
                 if ($paarung['status'] === 'paired') {
                     Log::info('[zas-inbound] Personen-Paar automatisch gestempelt', [
                         'employee_id' => (int) $employee->id,
@@ -214,9 +267,9 @@ class ZasInboundEmployeeImporter
 
         // Ein Verdacht aendert den Status NICHT: die Zeile ist ordnungsgemaess
         // verarbeitet worden, sie braucht nur menschlichen Blick.
-        $status = $failed !== [] ? ($created !== [] || $updated !== [] || $skipped !== [] ? 'partial' : 'failed') : 'processed';
+        $status = $failed !== [] ? ($created !== [] || $updated !== [] || $skipped !== [] || $deactivated !== [] || $reactivated !== [] ? 'partial' : 'failed') : 'processed';
 
-        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings', 'suspected');
+        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings', 'suspected', 'deactivated', 'reactivated', 'created_inactive');
     }
 
     /**
@@ -338,10 +391,11 @@ class ZasInboundEmployeeImporter
      * @param array<string,mixed> $changes  Statusfelder fuer rec_employee_hr_data
      * @param string|null         $pnrFill     nachzutragende Personalnummer, oder null
      * @param string|null         $companyFill nachzutragende Firma, oder null
+     * @param bool|null           $aktiv       neuer is_active-Wert aus dem ZAS-Status, oder null
      */
-    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = []): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = [], ?bool $aktiv = null): void
     {
-        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields): void {
+        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields, $aktiv): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
 
             if ($changes !== []) {
@@ -361,11 +415,36 @@ class ZasInboundEmployeeImporter
             if ($companyFill !== null) {
                 $employeeUpdate['company'] = $companyFill;
             }
+            // Aktiv-Wechsel ebenfalls direkt: kein Echo nach ZAS. Dadurch
+            // feuert aber auch der Kontaktlisten-Observer nicht — siehe unten.
+            if ($aktiv !== null) {
+                $employeeUpdate['is_active'] = $aktiv;
+                $employeeUpdate['updated_at'] = now();
+            }
 
             DB::table('rec_employees')
                 ->where('id', $existing->id)
                 ->update($employeeUpdate);
         });
+
+        if ($aktiv === null) {
+            return;
+        }
+
+        // WhatsApp-Kontaktliste nachziehen (Deaktivierte raus, Reaktivierte
+        // rein). Ausserhalb der Transaktion und abgefangen wie im Observer:
+        // ein CRM-Fehler darf den Import nie kippen.
+        try {
+            $fresh = $existing->fresh();
+            if ($fresh !== null) {
+                app(\Platform\Recruiting\Services\EmployeeContactListSyncService::class)->syncEmployee($fresh);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[zas-inbound] Kontaktlisten-Sync nach Aktiv-Wechsel fehlgeschlagen', [
+                'employee_id' => (int) $existing->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -477,15 +556,16 @@ class ZasInboundEmployeeImporter
         return $this->matcher->match($uuid, $personnelNumber, $teamId, $ownPrefix);
     }
 
-    protected function createEmployee(array $mapped, int $teamId, int $inboundId): RecEmployee
+    protected function createEmployee(array $mapped, int $teamId, int $inboundId, bool $aktiv = true): RecEmployee
     {
-        return DB::transaction(function () use ($mapped, $teamId, $inboundId) {
+        return DB::transaction(function () use ($mapped, $teamId, $inboundId, $aktiv) {
             $employee = RecEmployee::create(array_merge($mapped['employee'], [
                 'team_id'                 => $teamId,
                 'rec_applicant_id'        => null,
                 'personnel_number'        => $mapped['personnel_number'],
                 'rec_zas_inbound_file_id' => $inboundId,
-                'is_active'               => true,
+                // ZAS-Status INAKTIV: angelegt, aber sofort inaktiv.
+                'is_active'               => $aktiv,
                 // Export-Schleifen-Schutz: nicht erneut an ZAS exportieren.
                 'zas_initial_exported_at' => now(),
             ]));
