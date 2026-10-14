@@ -126,6 +126,74 @@ class DispoJobKandidatenTest extends TestCase
         }
     }
 
+    private function hr(int $id, ?string $status): void
+    {
+        Capsule::table('rec_employee_hr_data')->insert(['uuid' => (string) \Illuminate\Support\Str::uuid(), 'team_id' => 3, 'rec_employee_id' => $id,
+            'export_status' => $status ?? 'GO', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function verknuepfen(int ...$ids): void
+    {
+        foreach ($ids as $id) {
+            Capsule::table('crm_contact_links')->insert([
+                'uuid' => (string) \Illuminate\Support\Str::uuid(), 'contact_id' => 88, 'team_id' => 3, 'created_by_user_id' => 1,
+                'linkable_id' => $id, 'linkable_type' => (new RecEmployee())->getMorphClass(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+    }
+
+    public function test_inaktive_werden_je_block_getrennt_gezaehlt_und_nie_kandidaten(): void
+    {
+        $this->employee(['cost_center' => '201']);
+        $this->employee(['cost_center' => '202', 'is_active' => false]);
+        $this->employee(['cost_center' => null]);
+        $this->employee(['cost_center' => null, 'is_active' => false]);
+        $this->employee(['cost_center' => '401', 'is_active' => false]);
+        $this->employee(['cost_center' => '203', 'is_active' => false, 'team_id' => 99]);
+
+        $o = DispoJobKandidaten::blockOptionen(3);
+        $byBlock = array_column($o, null, 'block');
+        $this->assertSame(1, $byBlock[200]['count']);
+        $this->assertSame(1, $byBlock[200]['inaktiv']);
+        $this->assertArrayNotHasKey(400, $byBlock, 'Block nur mit Inaktiven wird keine Auswahl');
+        $this->assertSame(1, $byBlock[null]['count']);
+        $this->assertSame(1, $byBlock[null]['inaktiv']);
+        $this->assertCount(2, DispoJobKandidaten::laden(3, ['2026-10-24'], '2026-10')['kandidaten']);
+    }
+
+    public function test_ohne_vertrag_nur_wenn_kein_go_und_mindestens_ein_ma(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            $rg = $this->employee(['first_name' => 'RG', 'phone' => null]);
+            $ma = $this->employee(['first_name' => 'MA']);
+            $this->verknuepfen($rg, $ma);
+            $this->hr($rg, 'MA');
+            $this->hr($ma, 'GO');
+            $nurMa = $this->employee(['first_name' => 'NurMA']);
+            $this->hr($nurMa, 'MA');
+            $keinHr = $this->employee(['first_name' => 'KeinHr']);
+
+            $k = array_column(DispoJobKandidaten::laden(3, ['2026-10-24'], '2026-10')['kandidaten'], null, 'anchor');
+            $this->assertFalse($k[$rg]['ohne_vertrag'], 'Gruppe mit GO-Datensatz');
+            $this->assertTrue($k[$nurMa]['ohne_vertrag']);
+            $this->assertFalse($k[$keinHr]['ohne_vertrag'], 'ohne hrData zaehlt nicht');
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
+    }
+
+    public function test_zahlen_zaehlt_empfaenger_ohne_vertrag(): void
+    {
+        $k = fn (int $a, bool $ov) => ['anchor' => $a, 'employee_id' => $a, 'phone' => '+4917612345' . $a . '0', 'first_name' => 'P' . $a, 'name' => 'P' . $a,
+            'portal_token' => 't', 'block' => 200, 'portal_locked' => false, 'taetigkeiten' => [], 'ohne_vertrag' => $ov];
+        $daten = ['kandidaten' => [$k(1, true), $k(2, false), $k(3, true)], 'einsaetze' => [], 'gebucht' => []];
+        $schichten = [['id' => 1, 'datum' => '2026-10-24', 'taetigkeit' => 'Zapfer']];
+        $z = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen::ausDaten($daten, $schichten, [], ['gruppen' => array_keys(\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER), 'bloecke' => [200], 'nur_passend' => false]);
+        $this->assertSame(3, $z['empfaenger']);
+        $this->assertSame(2, $z['ohne_vertrag']);
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
@@ -142,6 +210,7 @@ class DispoJobKandidatenTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php'],
+            [$own, 'database/migrations/2026_05_21_000003_add_full_hr_field_set_to_rec_employees_and_hr_data.php'],
             [$own, 'database/migrations/2026_05_21_000004_add_linen_package_to_hr_data.php'],
             [$own, 'database/migrations/2026_09_15_000001_add_dispo_taetigkeiten_to_hr_data.php'],
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],

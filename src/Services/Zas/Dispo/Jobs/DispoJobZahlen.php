@@ -16,12 +16,12 @@ final class DispoJobZahlen
      * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
      * @param array<int,true> $schonAngeschrieben
      * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
-     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int}
+     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int, ohne_vertrag:int}
      */
     public static function berechnen(int $teamId, array $schichten, array $schonAngeschrieben, array $auswahl): array
     {
         if ($schichten === []) {
-            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0];
+            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
         }
         $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
         $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
@@ -46,6 +46,7 @@ final class DispoJobZahlen
         foreach ($daten['kandidaten'] as $k) {
             $namen[(int) $k['anchor']] = (string) ($k['name'] ?? $k['first_name'] ?? ('#' . $k['anchor']));
         }
+        $ohneVertrag = array_column($daten['kandidaten'], 'ohne_vertrag', 'anchor');
         $toepfe = [];
         foreach (DispoJobRecipientPlanner::TOEPFE as $key => $label) {
             $anzahl = (int) ($plan['skipped'][$key] ?? 0);
@@ -61,6 +62,7 @@ final class DispoJobZahlen
             'namen'       => self::sortiert(array_map(fn ($r) => $namen[(int) $r['anchor']] ?? $r['first_name'], $plan['recipients'])),
             'toepfe'      => $toepfe,
             'mit_passend' => $mitPassend,
+            'ohne_vertrag' => count(array_filter($plan['recipients'], fn ($r) => !empty($ohneVertrag[(int) $r['anchor']]))),
         ];
     }
 

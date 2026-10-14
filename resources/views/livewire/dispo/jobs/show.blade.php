@@ -148,7 +148,7 @@
             @php
                 $bloecke = $this->blockOptionen;
                 $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
-                $wz = $wZahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0];
+                $wz = $wZahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
                 $wPersonen = $wz['empfaenger'] === 1 ? 'Person' : 'Personen';
                 $wStartText = $wStartModus === 'spaeter' ? 'in ' . (ctype_digit(trim($wMinuten)) ? (int) trim($wMinuten) : '?') . ' Minuten' : 'jetzt';
                 $wBestaetigung = 'Neue Welle ' . $wStartText . ' starten? Laut Vorschau werden ' . $wz['empfaenger'] . ' ' . $wPersonen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
@@ -161,7 +161,11 @@
                             @php $blockWert = $b['block'] === null ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen::OHNE : (string) $b['block']; @endphp
                             <label wire:key="wblock-{{ $blockWert }}" class="flex cursor-pointer items-center gap-2">
                                 <input type="checkbox" value="{{ $blockWert }}" wire:model.live="wBloecke" class="rounded border-gray-300">
-                                <span>{{ $b['label'] }} <span class="text-gray-500">· {{ $b['count'] }}</span></span>
+                                <span>{{ $b['label'] }} <span class="text-gray-500">· {{ $b['count'] }}</span>
+                                    @if ($b['inaktiv'] > 0)
+                                        <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
+                                    @endif
+                                </span>
                             </label>
                         @endforeach
                     </div>
@@ -180,6 +184,9 @@
                     </div>
                     <div class="space-y-2">
                         <div>Sendet an <strong>{{ $wz['empfaenger'] }}</strong> {{ $wPersonen }}</div>
+                        @if ($wz['ohne_vertrag'] > 0)
+                            <div class="text-xs text-gray-500">davon {{ $wz['ohne_vertrag'] }} mit Status MA (brauchen neuen Vertrag)</div>
+                        @endif
                         @if ($wz['namen'] !== [])
                             <details class="text-xs text-gray-600">
                                 <summary class="cursor-pointer">Namen zeigen</summary>
@@ -312,6 +319,9 @@
                                             <a href="{{ route('recruiting.employees.show', ['employee' => $maId]) }}" class="text-blue-700 hover:underline">{{ $maName }}</a>
                                         @else
                                             {{ $maName }}
+                                        @endif
+                                        @if ($info !== null && $info['ohne_vertrag'])
+                                            <span class="ml-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">Status MA – braucht neuen Vertrag</span>
                                         @endif
                                     </td>
                                     <td class="py-1 pr-3 tabular-nums text-gray-600">{{ $z->accepted_at->format('d.m. H:i') }}</td>

@@ -119,6 +119,47 @@ class DispoJobZusagenInfoTest extends TestCase
         $this->assertSame(['Sternebewertung (Altbestand)' => 4], $info[$ma]['ratings'], 'Luecke aus dem RG-Datensatz gefuellt');
     }
 
+    public function test_ohne_vertrag_je_person_ueber_die_gruppe(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            $mk = function (string $name, array $stati, bool $link = true) {
+                $ids = [];
+                foreach ($stati as $st) {
+                    $id = $this->employee(['first_name' => $name]);
+                    if ($st !== null) {
+                        Capsule::table('rec_employee_hr_data')->insert(['uuid' => (string) \Illuminate\Support\Str::uuid(), 'team_id' => 3, 'rec_employee_id' => $id,
+                            'export_status' => $st, 'created_at' => now(), 'updated_at' => now()]);
+                    }
+                    $ids[] = $id;
+                }
+                static $contact = 500;
+                $contact++;
+                if ($link) {
+                    foreach ($ids as $id) {
+                        Capsule::table('crm_contact_links')->insert([
+                            'uuid' => (string) \Illuminate\Support\Str::uuid(), 'contact_id' => $contact, 'team_id' => 3, 'created_by_user_id' => 1,
+                            'linkable_id' => $id, 'linkable_type' => (new RecEmployee())->getMorphClass(), 'created_at' => now(), 'updated_at' => now(),
+                        ]);
+                    }
+                }
+
+                return $ids;
+            };
+            [$a1, $a2] = $mk('Beide', ['MA', 'GO']);
+            [$b] = $mk('NurMa', ['MA']);
+            [$c] = $mk('OhneHr', [null]);
+
+            $info = DispoJobZusagenInfo::laden([$a2, $b, $c], '2026-10');
+
+            $this->assertFalse($info[$a2]['ohne_vertrag']);
+            $this->assertTrue($info[$b]['ohne_vertrag']);
+            $this->assertFalse($info[$c]['ohne_vertrag']);
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
+    }
+
     public function test_bewertungen_werden_je_kriterium_aus_der_gruppe_gefuellt(): void
     {
         config(['recruiting.zas.inbound_team_id' => 3]);
@@ -181,6 +222,7 @@ class DispoJobZusagenInfoTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php'],
+            [$own, 'database/migrations/2026_05_21_000003_add_full_hr_field_set_to_rec_employees_and_hr_data.php'],
             [$own, 'database/migrations/2026_05_21_000004_add_linen_package_to_hr_data.php'],
             [$own, 'database/migrations/2026_08_05_000002_add_ratings_to_rec_employee_hr_data.php'],
             [$own, 'database/migrations/2026_09_15_000001_add_dispo_taetigkeiten_to_hr_data.php'],
