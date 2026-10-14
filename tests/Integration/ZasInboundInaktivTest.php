@@ -11,6 +11,8 @@ use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeHrData;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeDirectory;
+use Platform\Recruiting\Services\Zas\Dispo\ZasDispoMatcher;
 use Platform\Recruiting\Services\Zas\ZasInboundDuplicateFinder;
 use Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter;
 use Platform\Recruiting\Services\Zas\ZasInboundRowMapper;
@@ -298,5 +300,31 @@ class ZasInboundInaktivTest extends TestCase
         $this->assertSame('XY', $this->hrStatus($employee->id));
         $this->assertTrue($this->isActive($employee->id));
         $this->assertSame([], $report['deactivated']);
+    }
+
+    public function test_dispo_zuordnung_bevorzugt_den_aktiven_vor_dem_inaktiven_altbestand(): void
+    {
+        // Aktiver mit langer Nummer, von der Dispo gekuerzt als MA878 geliefert,
+        // daneben der inaktive Alt-Datensatz mit der echten Nummer MA878.
+        $aktiv = $this->makeEmployee('GO', true, ['personnel_number' => 'MA1000000878']);
+        $alt   = $this->makeEmployee('INAKTIV', false, ['personnel_number' => 'MA878']);
+
+        $directory = new DispoEmployeeDirectory();
+        $this->assertSame([$aktiv->id], $directory->activeIds());
+
+        $matcher = new ZasDispoMatcher($directory->map(), 'RG', $directory->activeIds());
+        $this->assertSame(['employee_id' => $aktiv->id, 'reason' => 'active_preferred'], $matcher->match('MA878'));
+        $this->assertSame(['employee_id' => $aktiv->id, 'reason' => 'exact'], $matcher->match('MA1000000878'));
+        $this->assertNotSame($alt->id, $matcher->match('MA878')['employee_id']);
+    }
+
+    public function test_dispo_import_reicht_die_aktiven_an_den_matcher(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../src/Services/Zas/Dispo/ZasDispoWebexportImporter.php');
+
+        $this->assertMatchesRegularExpression(
+            '/new ZasDispoMatcher\(\s*\$this->directory->map\(\),\s*[^;]*\$this->directory->activeIds\(\)\s*\)/s',
+            $source
+        );
     }
 }

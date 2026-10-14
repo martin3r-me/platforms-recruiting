@@ -97,7 +97,8 @@ class ZasDispoWebexportImporter
             // RG-Mitarbeiter mit der Nummer 353 gezogen.
             $matcher = new ZasDispoMatcher(
                 $this->directory->map(),
-                (string) config('recruiting.zas.company_prefix', '')
+                (string) config('recruiting.zas.company_prefix', ''),
+                $this->directory->activeIds()
             );
 
             // Eine aeltere Datei (Reprocess, Nachzuegler) darf keine Person
