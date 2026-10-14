@@ -333,7 +333,9 @@ class ZasInboundRowMapper
             }
         } else {
             $hr['status_ma_since'] = null;
-            if ($maSince !== '') {
+            // Bei Inaktiven liefert ZAS das alte Datum oft mit — still leeren,
+            // sonst waeren tausende Altfaelle tausende Warnungen.
+            if ($maSince !== '' && ($hr['export_status'] ?? null) !== ZasStatus::INAKTIV) {
                 $warnings[] = "status_ma_since: Status={$statusUpper}, aber Datum '{$maSince}' geliefert — Wert geleert";
             }
         }
