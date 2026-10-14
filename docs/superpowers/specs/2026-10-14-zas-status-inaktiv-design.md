@@ -38,6 +38,9 @@ Neue Zähler in den Notizen: `deactivated` (Liste {employee_id, personnel_number
 ### 2.5 Anzeige Mitarbeiterakte
 Feld „Status (aus ZAS)“: Optionen `GO`, `MA`, `INAKTIV` (heute nur GO/MA — INAKTIV würde sonst als leer gezeigt).
 
+### 2.6 HR aktiviert von Hand
+Schaltet HR in der Akte „Aktiv“ wieder ein und steht der Status auf `INAKTIV`, springt er auf `GO` (Kunde 14.10.). MA bleibt MA. Grund: sonst zeigte die Akte „aktiv“ und „INAKTIV“ zugleich, und der Update-Export (is_active setzt den Marker) schickte INAKTIV an ZAS. Führt ZAS die Person weiter als inaktiv, deaktiviert die nächste Lieferung sie wieder: ZAS bleibt führend. Umsetzung: `RecEmployee::updated`; der Import reaktiviert per DB-Update und läuft nicht durch diesen Hook.
+
 ## 3. Überall „nur aktive“
 
 Alle Stellen, die heute `is_active = true` abfragen, schließen Inaktive automatisch aus: Jobs anbieten (Kandidaten, Mitarbeiterfiliale), Dispo-Bestätigung, Sammelversände, Exporte an ZAS, Mitarbeiterliste (Standardfilter), Statistik (zählt Inaktive seit 5c1b81b2 als „geklärt“). Keine Änderung nötig; ein Test hält Jobs anbieten fest.

@@ -52,6 +52,9 @@ class ZasInboundInaktivTest extends TestCase
         });
         Facade::setFacadeApplication($container);
         Facade::clearResolvedInstance('log');
+        if (!class_exists('Log', false)) {
+            class_alias(\Illuminate\Support\Facades\Log::class, 'Log');
+        }
 
         $capsule = new Capsule();
         $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -393,5 +396,29 @@ class ZasInboundInaktivTest extends TestCase
             '/new ZasDispoMatcher\(\s*\$this->directory->map\(\),\s*[^;]*\$this->directory->activeIds\(\)\s*\)/s',
             $source
         );
+    }
+
+    public function test_hr_aktiviert_von_zas_inaktiven_springt_status_auf_go(): void
+    {
+        $employee = $this->makeEmployee('INAKTIV', false);
+
+        $employee->update(['is_active' => true]);
+
+        $this->assertSame('GO', $this->hrStatus($employee->id), 'aktiv bei uns heisst auch Status aktiv');
+        $this->assertTrue($this->isActive($employee->id));
+    }
+
+    public function test_aktivieren_laesst_ma_status_stehen_und_ohne_wechsel_kein_sprung(): void
+    {
+        $ma = $this->makeEmployee('MA', false);
+        $ma->update(['is_active' => true]);
+        $this->assertSame('MA', $this->hrStatus($ma->id), 'MA bleibt MA, nur INAKTIV springt');
+
+        $inaktiv = $this->makeEmployee('INAKTIV', true, ['personnel_number' => '4712']);
+        $inaktiv->update(['first_name' => 'Anders']);
+        $this->assertSame('INAKTIV', $this->hrStatus($inaktiv->id), 'ohne Wechsel von is_active kein Sprung');
+
+        $inaktiv->update(['is_active' => false]);
+        $this->assertSame('INAKTIV', $this->hrStatus($inaktiv->id), 'Deaktivieren setzt nichts');
     }
 }
