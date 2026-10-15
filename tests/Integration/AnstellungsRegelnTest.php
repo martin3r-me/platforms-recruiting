@@ -129,6 +129,24 @@ class AnstellungsRegelnTest extends TestCase
         $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
     }
 
+    /**
+     * Review K1: die Gegenrichtung — eine BEENDETE Anstellung als Quelle
+     * loest nichts aus. HR korrigiert an der beendeten RG-Akte historisch
+     * Haupt / Klasse 1; die laufende MA-Anstellung bleibt, ohne Marker.
+     */
+    public function test_inaktive_quelle_loest_nichts_aus(): void
+    {
+        [$rg, $ma] = $this->paar(['is_active' => 0], ['is_main_employer' => 1, 'tax_class' => '1']);
+        $emp = RecEmployee::find($rg);
+        $emp->update(['is_main_employer' => true, 'tax_class' => '1']);
+
+        $this->assertSame(1, (int) $this->zeile($rg)->is_main_employer, 'Vorflug: die Quelle selbst ist gespeichert');
+        $this->assertSame(1, (int) $this->zeile($ma)->is_main_employer);
+        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+        $this->assertNull($this->zeile($ma)->zas_changed_at, 'keine Folge, kein Marker');
+        $this->assertSame([], $emp->anstellungsFolgen);
+    }
+
     // ---- E7 Steuerklasse ----------------------------------------------------
 
     public function test_klasse_1_an_rg_gibt_ma_klasse_6(): void

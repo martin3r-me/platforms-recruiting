@@ -32,6 +32,8 @@ use Platform\Recruiting\Support\PersonenFelder;
  * Bewusst NICHT angefasst (konservativ, keine stillen Aenderungen):
  *  - inaktive Schwestern (beendete Anstellung): ihre Werte sind Historie,
  *    ein Umschreiben erzeugte nur einen Export ohne Nutzen;
+ *  - und umgekehrt: eine inaktive QUELLE loest nichts aus (Review K1) —
+ *    eine Korrektur an der Historie schreibt nicht in die laufende Anstellung;
  *  - other_employer der Schwester, wenn sie auf „Neben" gesetzt wird — ihr
  *    Hauptarbeitgeber ist dann die Quelle, das traegt der Mensch selbst ein
  *    (das Portal fragt „Wer ist es dann?" als Pflichtangabe nach);
@@ -104,6 +106,18 @@ class AnstellungsRegeln
     {
         $geaendert = array_values(array_intersect($geaendert, self::AUSLOESER));
         if ($geaendert === [] || $quelle->id === null) {
+            return [];
+        }
+
+        // Review K1 (15.10.): eine BEENDETE Anstellung als Quelle loest
+        // nichts aus. Ihre Werte sind Historie (Klassen-Docblock) — korrigiert
+        // HR an einer beendeten RG-Akte nachtraeglich "Haupt = ja" oder
+        // Klasse 1, darf die laufende MA-Anstellung nicht still auf Neben /
+        // Klasse 6 springen (mit ZAS-Marker und Lohn-Eintrag). Bewusst nur
+        // ausdruecklich false: null heisst "nicht geladen" (frisch angelegtes
+        // Modell), und die Spalte hat die Vorgabe true.
+        $aktiv = $quelle->getAttribute('is_active');
+        if ($aktiv !== null && !(bool) $aktiv) {
             return [];
         }
 
