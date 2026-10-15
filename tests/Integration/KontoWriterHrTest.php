@@ -226,9 +226,11 @@ final class KontoWriterHrTest extends TestCase
     {
         $grenze = fn (int $id) => $this->personZeile($id)->sitzungen_ungueltig_ab;
 
+        // Review W1 (15.10.): die Freigabe ist ein Nummernwechsel — seither
+        // beendet sie die Sitzungen ebenfalls (vorher: nein).
         $frei = $this->mitAntrag();
         KontoWriter::gibNummernwechselFrei($frei, '2026-10-12 09:00:00');
-        $this->assertNull($grenze($frei), 'Freigabe: nein');
+        $this->assertSame(strtotime('2026-10-12 10:00:00'), strtotime((string) $grenze($frei)), 'Freigabe: ja (Nummernwechsel)');
 
         $gesperrt = $this->mitAntrag(['phone' => '+4915199999999', 'wechsel_neue_nummer' => '+4917099999999', 'locked_at' => now()]);
         $this->assertTrue(KontoWriter::entsperreKontoDurchHr($gesperrt));

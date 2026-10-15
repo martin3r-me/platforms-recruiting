@@ -167,6 +167,69 @@ final class LangeSitzung
     }
 
     /**
+     * ALLE Eintragungen einer Person loeschen (Review W1, 15.10.).
+     *
+     * Wer rec_persons.sitzungen_ungueltig_ab setzt, beendet die Sitzungen
+     * der Person — PortalAuth::sitzungGueltig() verwirft ihre Schluessel
+     * beim naechsten Zugriff. Die EINTRAGUNG hier wuesste davon nichts und
+     * hielte die dann leere Sitzung weiter 180 Tage am Leben (giltFuer()
+     * fragt nur nach der Eintragung). Deshalb gehen sie mit. Benutzt von
+     * KontoWriter an jeder Stelle, die sitzungen_ungueltig_ab setzt.
+     */
+    public static function vergissPerson(int $personId): void
+    {
+        if (!self::tabelleDa()) {
+            return;
+        }
+
+        DB::table(self::TABELLE)->where('rec_person_id', $personId)->delete();
+    }
+
+    /**
+     * Ist DIESE Sitzung als lange Sitzung dieser Person eingetragen?
+     * Fuer PortalAuth::behalteDieseSitzung(): nur was vorher lang war, wird
+     * nach einem Nummernwechsel wieder eingetragen.
+     */
+    public static function istEingetragenFuer(int $personId): bool
+    {
+        if (!self::tabelleDa()) {
+            return false;
+        }
+
+        $sitzungsId = (string) app('session')->getId();
+        if ($sitzungsId === '') {
+            return false;
+        }
+
+        return DB::table(self::TABELLE)
+            ->where('session_id', $sitzungsId)
+            ->where('rec_person_id', $personId)
+            ->exists();
+    }
+
+    /**
+     * Diese Sitzung (wieder) eintragen — OHNE Merker-Cookie und ohne die
+     * Lebensdauer dieser Anfrage anzufassen: der Aufrufer hatte die
+     * Eintragung schon, Cookie und Lebensdauer stehen also bereits.
+     */
+    public static function trageWiederEin(int $personId): void
+    {
+        if (!self::tabelleDa()) {
+            return;
+        }
+
+        $sitzungsId = (string) app('session')->getId();
+        if ($sitzungsId === '') {
+            return;
+        }
+
+        DB::table(self::TABELLE)->updateOrInsert(
+            ['session_id' => $sitzungsId],
+            ['rec_person_id' => $personId, 'created_at' => now()],
+        );
+    }
+
+    /**
      * Gilt fuer DIESE Anfrage die lange Lebensdauer?
      *
      * Ja nur, wenn ALLES stimmt: Merker gesetzt, Sitzungs-Cookie vorhanden,

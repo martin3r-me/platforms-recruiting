@@ -44,6 +44,7 @@ use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
 use Platform\Recruiting\RecruitingServiceProvider;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
+use Platform\Recruiting\Support\LangeSitzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
 use Platform\Recruiting\Support\PortalVorlagen;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -353,6 +354,9 @@ final class KontoZuruecksetzenTest extends TestCase
             // Deckungsgleich mit 2026_09_29_000004_add_notfall_sperre_zu_rec_persons.php.
             $t->timestamp('notfall_gesperrt_bis')->nullable();
 
+            // Review W1: neues Passwort und Nummernwechsel setzen die Grenze.
+            $t->timestamp('sitzungen_ungueltig_ab')->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
@@ -406,6 +410,8 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $dateien = [
             [$eigen, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
+            // Review W1: "angemeldet bleiben" — die Eintragungen muessen mit enden.
+            [$eigen, 'database/migrations/2026_10_13_000002_create_rec_portal_lange_sitzungen_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
@@ -1032,6 +1038,146 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame('passwort', $seite->fertigGrund);
         $this->assertSame($this->personId, KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::NEUES_PASSWORT));
         $this->assertNull(KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT));
+    }
+
+    // ------------------------------------------- Review W1: Sitzungen enden
+
+    /**
+     * Eine Portal-Sitzung dieser Anstellung auf einem ANDEREN Geraet, eine
+     * Stunde vor jetzt angemeldet und als lange Sitzung eingetragen —
+     * der Fall "auf dem Handy eines Kollegen mit Haken angemeldet".
+     */
+    private function sitzungAufAnderemGeraet(): Store
+    {
+        $anderes = new Store('test', new ArraySessionHandler(60));
+        $anderes->put(
+            PortalAuth::sessionKey($this->anstellungId),
+            Carbon::parse(self::JETZT)->subHour()->toIso8601String(),
+        );
+        DB::table(LangeSitzung::TABELLE)->insert([
+            'session_id'    => $anderes->getId(),
+            'rec_person_id' => $this->personId,
+            'created_at'    => self::JETZT,
+        ]);
+
+        $this->assertTrue(PortalAuth::sitzungGueltig($this->anstellungId, $anderes), 'Vorflug: die fremde Sitzung gilt');
+
+        return $anderes;
+    }
+
+    /** Dieselbe Lage in DIESEM Browser (der Sitzung der Seite). */
+    private function eigeneSitzung(): void
+    {
+        $this->session->put(
+            PortalAuth::sessionKey($this->anstellungId),
+            Carbon::parse(self::JETZT)->subHour()->toIso8601String(),
+        );
+        DB::table(LangeSitzung::TABELLE)->insert([
+            'session_id'    => $this->session->getId(),
+            'rec_person_id' => $this->personId,
+            'created_at'    => self::JETZT,
+        ]);
+
+        $this->assertTrue(PortalAuth::sitzungGueltig($this->anstellungId), 'Vorflug: die eigene Sitzung gilt');
+    }
+
+    /**
+     * Review W1: wer ueber "Passwort vergessen" ein neues Passwort setzt,
+     * wirft das fremde Geraet hinaus — vorher blieb es bis zu 180 Tage
+     * angemeldet. Die Eintragung als lange Sitzung geht mit.
+     */
+    public function test_passwort_vergessen_beendet_die_sitzung_auf_einem_anderen_geraet(): void
+    {
+        $anderes = $this->sitzungAufAnderemGeraet();
+
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwortCodeAnfordern($this->sender());
+        $seite->code = $this->codeAusDerNachricht();
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->neuesPasswort = self::NEUES_PASSWORT;
+        $seite->neuesPasswortWiederholung = self::NEUES_PASSWORT;
+        $seite->passwortSetzen();
+
+        $this->assertSame('fertig', $seite->state, $seite->fehler);
+        $this->assertFalse(PortalAuth::sitzungGueltig($this->anstellungId, $anderes));
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->where('session_id', $anderes->getId())->count());
+    }
+
+    /**
+     * Review W1: der Nummernwechsel beendet die Sitzung auf dem anderen
+     * Geraet — die eigene Sitzung in diesem Browser laeuft weiter, samt
+     * "angemeldet bleiben".
+     */
+    public function test_nummernwechsel_beendet_fremde_sitzungen_und_behaelt_die_eigene(): void
+    {
+        $anderes = $this->sitzungAufAnderemGeraet();
+        $this->eigeneSitzung();
+
+        $seite = $this->seite();
+        $seite->zumNummernwechsel();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwort = self::PASSWORT;
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->nummerAnfordern($this->auth(), $this->sender());
+        $seite->code = $this->codeAusDerNachricht();
+        $seite->nummerBestaetigen($this->hinweisSender());
+
+        $this->assertSame('fertig', $seite->state, $seite->fehler);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone, 'Vorflug: der Wechsel ist vollzogen');
+
+        $this->assertFalse(PortalAuth::sitzungGueltig($this->anstellungId, $anderes), 'fremdes Geraet: raus');
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->where('session_id', $anderes->getId())->count());
+
+        $this->assertTrue(PortalAuth::sitzungGueltig($this->anstellungId), 'eigene Sitzung: bleibt');
+        $this->assertSame(1, DB::table(LangeSitzung::TABELLE)->where('session_id', $this->session->getId())->count());
+    }
+
+    /**
+     * Die eigene Sitzung wird nur WEITERGEFUEHRT, nicht geoeffnet: ein
+     * Browser ohne gueltige Sitzung ist nach dem Wechsel nicht angemeldet.
+     */
+    public function test_nummernwechsel_oeffnet_keine_sitzung(): void
+    {
+        $seite = $this->seite();
+        $seite->zumNummernwechsel();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwort = self::PASSWORT;
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->nummerAnfordern($this->auth(), $this->sender());
+        $seite->code = $this->codeAusDerNachricht();
+        $seite->nummerBestaetigen($this->hinweisSender());
+
+        $this->assertSame('fertig', $seite->state, $seite->fehler);
+        $this->assertFalse(PortalAuth::sitzungGueltig($this->anstellungId));
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+    }
+
+    /** Weg 5 (HR traegt die Nummer ein): auch hier endet das alte Geraet. */
+    public function test_weg5_beendet_die_sitzung_auf_einem_anderen_geraet(): void
+    {
+        $anderes = $this->sitzungAufAnderemGeraet();
+
+        KontoWriter::setzeNummerDurchHr($this->personId, self::NEUE_NUMMER);
+
+        $this->assertFalse(PortalAuth::sitzungGueltig($this->anstellungId, $anderes));
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
+    }
+
+    /**
+     * HR-Zuruecksetzen setzte die Grenze schon vorher; seit Review W1 geht
+     * auch die Eintragung als lange Sitzung mit — sonst lebte die leere
+     * Sitzung weiter 180 Tage.
+     */
+    public function test_hr_zuruecksetzen_raeumt_die_lange_sitzung_ab(): void
+    {
+        $anderes = $this->sitzungAufAnderemGeraet();
+
+        KontoWriter::setzeKontoZurueckDurchHr($this->personId);
+
+        $this->assertFalse(PortalAuth::sitzungGueltig($this->anstellungId, $anderes));
+        $this->assertSame(0, DB::table(LangeSitzung::TABELLE)->count());
     }
 
     /**

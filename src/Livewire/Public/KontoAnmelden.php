@@ -729,7 +729,13 @@ class KontoAnmelden extends Component
         $alteNummer = KontoWriter::aktuelleNummer($personId);
 
         try {
-            KontoWriter::loeseCodeEin($personId, KontoWriter::ZWECK_NUMMERNWECHSEL, trim($this->code));
+            // Review W1: der Wechsel beendet alle Sitzungen der Person —
+            // ausser einer gueltigen Portal-Sitzung in DIESEM Browser.
+            $code = trim($this->code);
+            PortalAuth::behalteDieseSitzung(
+                $personId,
+                fn () => KontoWriter::loeseCodeEin($personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $code),
+            );
         } catch (InvalidArgumentException) {
             // Die Ausnahme wird NICHT angezeigt und NICHT protokolliert: sie
             // benennt, woran es lag.

@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Platform\Recruiting\Support\EinladungsToken;
 use Platform\Recruiting\Support\Einmalcode;
+use Platform\Recruiting\Support\LangeSitzung;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\PasswortRegeln;
 use Platform\Recruiting\Support\PhoneE164;
@@ -559,6 +560,14 @@ final class KontoWriter
             PersonLinker::setzeNummer($personId, $neueNummer);
             self::zieheCrmKontakteNach($personId);
 
+            // Review W1: der Wechsel beendet alle Sitzungen der Person. Die
+            // Nummer ist der Benutzername — wer bisher irgendwo damit
+            // angemeldet war (geteiltes Geraet, "angemeldet bleiben"), soll
+            // es danach nicht mehr sein. Die Sitzung, aus der der Wechsel
+            // kommt, haelt der Aufrufer selbst offen
+            // (PortalAuth::behalteDieseSitzung).
+            self::beendeSitzungen($personId);
+
             // Ein offener Notfall-Antrag ist damit ueberholt (Begruendung an
             // loescheWechselAntrag): dieser Weg hat das Passwort gesehen,
             // jener nicht.
@@ -796,6 +805,9 @@ final class KontoWriter
         $alt = $person->phone === null ? null : (string) $person->phone;
 
         PersonLinker::setzeNummer($personId, $neu);
+        // Review W1: HR traegt die Nummer ein, wenn "gar nichts geht" — oft
+        // ist das alte Geraet weg. Was dort noch angemeldet ist, endet.
+        self::beendeSitzungen($personId);
         self::zieheCrmKontakteNach($personId);
         self::loescheWechselAntrag($personId);
         self::protokolliereWechsel($personId, $alt, $neu, 'hr');
@@ -980,6 +992,10 @@ final class KontoWriter
             $neu = (string) $person->wechsel_neue_nummer;
 
             PersonLinker::setzeNummer($personId, $neu);
+            // Review W1: der Notfall-Wechsel ist der Fall "SIM/Handy weg" —
+            // die Sitzungen auf dem alten Geraet enden mit. In derselben
+            // Transaktion wie der Wechsel: scheitert er, endet auch nichts.
+            self::beendeSitzungen($personId);
             self::loescheWechselAntrag($personId);
 
             return ['alt' => $alt, 'neu' => $neu];
@@ -1045,6 +1061,10 @@ final class KontoWriter
             $neu = (string) $person->wechsel_neue_nummer;
 
             PersonLinker::setzeNummer($personId, $neu);
+            // Review W1: der Notfall-Wechsel ist der Fall "SIM/Handy weg" —
+            // die Sitzungen auf dem alten Geraet enden mit. In derselben
+            // Transaktion wie der Wechsel: scheitert er, endet auch nichts.
+            self::beendeSitzungen($personId);
             self::loescheWechselAntrag($personId);
 
             return ['alt' => $alt, 'neu' => $neu];
@@ -1110,6 +1130,11 @@ final class KontoWriter
                 'updated_at'             => now(),
             ]);
 
+            // Review W1: die Eintragungen als lange Sitzung gehen mit, sonst
+            // hielte "angemeldet bleiben" die (jetzt leere) Sitzung weiter
+            // 180 Tage am Leben.
+            LangeSitzung::vergissPerson($personId);
+
             return ['token' => self::ladeEin($personId), 'antrag_entfernt' => $antragEntfernt];
         });
 
@@ -1143,11 +1168,19 @@ final class KontoWriter
      */
     public static function hebeNotfallSperreAuf(int $personId): bool
     {
-        return DB::table('rec_persons')
+        $aufgehoben = DB::table('rec_persons')
             ->where('id', $personId)
             ->whereNotNull('notfall_gesperrt_bis')
             ->where('notfall_gesperrt_bis', '>', self::jetzt())
             ->update(['notfall_gesperrt_bis' => null, 'sitzungen_ungueltig_ab' => now(), 'updated_at' => now()]) > 0;
+
+        // Review W1: wie beim Zuruecksetzen — die Eintragungen als lange
+        // Sitzung gehen mit.
+        if ($aufgehoben) {
+            LangeSitzung::vergissPerson($personId);
+        }
+
+        return $aufgehoben;
     }
 
     /**
@@ -1236,13 +1269,41 @@ final class KontoWriter
         self::offeneZeile($personId);
         self::pruefePasswort($passwort);
 
+        // Review W1 (15.10.): im SELBEN Update enden alle Sitzungen der
+        // Person. Vorher schrieb diese Stelle nur das Passwort — wer sich auf
+        // einem fremden Geraet mit "angemeldet bleiben" (180 Tage)
+        // angemeldet hatte und deshalb ueber "Passwort vergessen" ein neues
+        // setzte, liess das fremde Geraet trotzdem im Portal. Kein Sonderfall
+        // fuer die eigene Sitzung: wer hier steht, meldet sich ohnehin mit dem
+        // neuen Passwort neu an.
         DB::table('rec_persons')->where('id', $personId)->update([
-            'password_hash' => Hash::make($passwort),
-            'updated_at'    => now(),
+            'password_hash'          => Hash::make($passwort),
+            'sitzungen_ungueltig_ab' => now(),
+            'updated_at'             => now(),
         ]);
+
+        LangeSitzung::vergissPerson($personId);
     }
 
     // ------------------------------------------------------------------ intern
+
+    /**
+     * Beendet ALLE Portal-Sitzungen der Person (Review W1): Grenze in
+     * rec_persons.sitzungen_ungueltig_ab — PortalAuth::sitzungGueltig()
+     * verwirft danach jeden aelteren Anmeldezeitpunkt — und die
+     * Eintragungen als lange Sitzung weg. Fuer die Nummernwechsel-Wege; wo
+     * ohnehin ein Update auf rec_persons laeuft (Passwort, HR-Zuruecksetzen,
+     * Notfallsperre), steht die Grenze direkt in jenem Update.
+     */
+    private static function beendeSitzungen(int $personId): void
+    {
+        DB::table('rec_persons')->where('id', $personId)->update([
+            'sitzungen_ungueltig_ab' => now(),
+            'updated_at'             => now(),
+        ]);
+
+        LangeSitzung::vergissPerson($personId);
+    }
 
     /**
      * Ruling GD-5: der Pfeffer wird an EINER Stelle gelesen und von dort an

@@ -660,7 +660,8 @@ final class PortalAuth
      *
      * Gueltig ist sie, wenn ein Sitzungswert existiert UND der
      * Anmeldezeitpunkt NACH rec_persons.sitzungen_ungueltig_ab der Person
-     * liegt (gesetzt von KontoWriter: HR-Zuruecksetzen, Aufheben der Notfallsperre). Ein Altwert
+     * liegt (gesetzt von KontoWriter: HR-Zuruecksetzen, Aufheben der Notfallsperre;
+     * seit Review W1 auch neues Passwort und jeder Nummernwechsel). Ein Altwert
      * true (Sitzungen von vor §9.6) gilt als Zeitpunkt 0 — er lebt bis zum
      * ersten Zuruecksetzen und stirbt dann. Ohne Personen-Zeile: gueltig wie
      * bisher. Ungueltige Schluessel werden verworfen.
@@ -702,6 +703,63 @@ final class PortalAuth
         }
 
         return true;
+    }
+
+    /**
+     * Ein Vorgang, der ALLE Sitzungen der Person beendet (Nummernwechsel,
+     * Review W1), soll die Sitzung DIESES Browsers stehen lassen: wer sich
+     * hier gerade selbst mit Passwort und Code ausgewiesen hat, wird nicht
+     * aus seinem eigenen Portal geworfen — nur die anderen Geraete.
+     *
+     * Ablauf: VOR dem Vorgang merken, welche Anstellungen der Person hier
+     * gueltig offen sind und ob die Sitzung als lange eingetragen ist; den
+     * Vorgang laufen lassen; danach genau diese Schluessel NEU stempeln und
+     * die Eintragung wiederherstellen. Was vorher schon ungueltig war (z.B.
+     * nach einem HR-Zuruecksetzen), bleibt ungueltig — hier wird nichts
+     * geoeffnet, nur Bestehendes ueber die neue Grenze gehoben.
+     *
+     * DER STEMPEL LIEGT EINE SEKUNDE NACH JETZT: sitzungGueltig() vergleicht
+     * sekundengenau mit "<=", und die Grenze ist jetzt. Ein Stempel "jetzt"
+     * waere gleich der Grenze und damit ungueltig. Die Grenze selbst eine
+     * Sekunde zurueckzunehmen hiesse dagegen, eine fremde Anmeldung in
+     * derselben Sekunde ueberleben zu lassen.
+     *
+     * Wirft der Vorgang, wird nichts neu gestempelt (die Grenze steht dann
+     * auch nicht).
+     *
+     * @template T
+     * @param  callable(): T  $vorgang
+     * @return T
+     */
+    public static function behalteDieseSitzung(int $personId, callable $vorgang): mixed
+    {
+        $sitzung = app('session');
+
+        $kennungen = DB::table('rec_employees')
+            ->where('rec_person_id', $personId)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $offen = array_values(array_filter(
+            $kennungen,
+            fn (int $kennung) => self::sitzungGueltig($kennung, $sitzung),
+        ));
+        $warLang = $offen !== [] && LangeSitzung::istEingetragenFuer($personId);
+
+        $ergebnis = $vorgang();
+
+        if ($offen !== []) {
+            $stempel = now()->addSecond()->toIso8601String();
+            foreach ($offen as $kennung) {
+                $sitzung->put(self::sessionKey($kennung), $stempel);
+            }
+            if ($warLang) {
+                LangeSitzung::trageWiederEin($personId);
+            }
+        }
+
+        return $ergebnis;
     }
 
     /** Altwert true und Unlesbares = 0 (die strenge Richtung). */

@@ -195,6 +195,9 @@ final class KontoWriterTest extends TestCase
             // Deckungsgleich mit 2026_09_29_000004_add_notfall_sperre_zu_rec_persons.php.
             $t->timestamp('notfall_gesperrt_bis')->nullable();
 
+            // Review W1: neues Passwort und Nummernwechsel setzen die Grenze.
+            $t->timestamp('sitzungen_ungueltig_ab')->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
