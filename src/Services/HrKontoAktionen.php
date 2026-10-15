@@ -526,17 +526,28 @@ final class HrKontoAktionen
             $status = (string) $sender->sende($bote, $stand, 'neu');
 
             // F1 der Einsatz-Pruefung: ohne brauchbare Vorlage kein Stempel.
-            if (!in_array($status, [AufgabenSender::STATUS_NICHT_KONFIGURIERT, AufgabenSender::STATUS_VORLAGE_UNTAUGLICH], true)) {
-                $stempel = ['aufgaben_gemeldet_at' => now(), 'aufgaben_nachricht_id' => $sender->letzteNachrichtId()];
-                if ($status === AufgabenSender::STATUS_SENT) {
-                    $stempel['aufgaben_signatur'] = TriggerRegeln::signatur($stand['punkte']);
+            //
+            // Review K3 (15.10.): gestempelt wird NUR bei STATUS_SENT — alle
+            // vier Spalten. Vorher schrieb ein Fehlschlag Stempel und
+            // Nachricht-ID (Signatur/Codes nicht): die Einsatz-Pruefung las
+            // dann "letzte Nachricht gescheitert" (ET-23), raeumte Signatur
+            // UND Codes der frueheren, zugestellten Meldung ab und schickte
+            // nach der Pause dieselbe Punktliste noch einmal — gegen die
+            // Zusage "nur bei neuem Punkt". Bei Fehlschlag bleibt jetzt der
+            // vorige (erfolgreiche) Stand stehen; HR sieht die Meldung des
+            // Fehlschlags wie bisher (versandErgebnis + Vermerk). ET-23 in
+            // der Einsatz-Pruefung selbst bleibt unveraendert.
+            if ($status === AufgabenSender::STATUS_SENT) {
+                DB::table('rec_persons')->where('id', $personId)->update([
+                    'aufgaben_gemeldet_at'  => now(),
+                    'aufgaben_nachricht_id' => $sender->letzteNachrichtId(),
+                    'aufgaben_signatur'     => TriggerRegeln::signatur($stand['punkte']),
                     // Nachtrag 13.10.2026: auch die gemeldeten CODES — sonst
                     // stuenden an der Person noch die Codes der vorigen
                     // Meldung, und die Einsatz-Pruefung hielte einen hier
                     // gerade gemeldeten Punkt fuer neu und meldete doppelt.
-                    $stempel['aufgaben_codes'] = TriggerRegeln::codesFuerSpalte($stand['punkte']);
-                }
-                DB::table('rec_persons')->where('id', $personId)->update($stempel);
+                    'aufgaben_codes'        => TriggerRegeln::codesFuerSpalte($stand['punkte']),
+                ]);
             }
             $this->vermerk($teamId, $personId, null, 'erneut_erinnert', $notiz, self::BEZUG_AUFGABEN, $status);
 

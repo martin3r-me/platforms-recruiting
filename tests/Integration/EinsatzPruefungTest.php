@@ -1061,6 +1061,87 @@ final class EinsatzPruefungTest extends TestCase
         $this->assertCount(2, $this->sender->versandt, 'aber einer nach der Pause');
     }
 
+    /**
+     * Review K3: ein GESCHEITERTES HR-„Erneut erinnern" darf die zugestellte
+     * Meldung der Einsatz-Pruefung nicht ueberschreiben. Vorher schrieb der
+     * HR-Knopf bei Fehlschlag Stempel und Nachricht-ID; ET-23 sah dann die
+     * gescheiterte Nachricht, raeumte Signatur und Codes ab, und nach der
+     * Pause ging dieselbe Punktliste ein zweites Mal raus.
+     *
+     * Die HR-Attrappe meldet `failed` UND nennt eine gescheiterte Nachricht —
+     * genau das, was der echte Sender tut, wenn Meta ablehnt. Ohne die ID
+     * waere der alte Fehler hier gar nicht herstellbar.
+     */
+    public function test_ein_gescheitertes_hr_erinnern_loest_keine_zweite_meldung_aus(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->nachrichtId = $this->nachrichtAnlegen('sent');
+        $this->laufe('2026-10-01');
+        $this->assertCount(1, $this->sender->versandt, 'Vorflug: die Pruefung meldet einmal');
+        $vorher = $this->person($ma);
+        $this->assertNotNull($vorher->aufgaben_signatur, 'Vorflug: erfolgreich gemeldet');
+
+        // HR klickt nach der Pause, Meta lehnt ab.
+        $gescheitert = $this->nachrichtAnlegen('failed');
+        $hrSender = new class($gescheitert) {
+            public int $aufrufe = 0;
+            public function __construct(private int $id) {}
+            public function sende(RecEmployee $employee, array $stand, string $anlass): string
+            {
+                $this->aufrufe++;
+
+                return AufgabenSender::STATUS_FAILED;
+            }
+            public function letzteNachrichtId(): ?int
+            {
+                return $this->id;
+            }
+        };
+        (require dirname(__DIR__, 2) . '/database/migrations/2026_10_12_000002_create_rec_hr_vermerke_table.php')->up();
+
+        $container = Container::getInstance();
+        $container->instance(AufgabenSender::class, $hrSender);
+        $container->instance('auth', new class(self::TEAM) {
+            public function __construct(private int $teamId) {}
+            public function guard($name = null) { return $this; }
+            public function user(): object { return (object) ['id' => 1, 'currentTeam' => (object) ['id' => $this->teamId]]; }
+            public function check() { return true; }
+            public function id() { return 1; }
+            public function shouldUse($name) {}
+        });
+        Facade::clearResolvedInstance('auth');
+
+        try {
+            Carbon::setTestNow('2026-10-09 09:00:00');
+            $ergebnis = (new \Platform\Recruiting\Services\HrKontoAktionen())
+                ->erinnereErneut((int) $ma->rec_person_id, null, 'aufgaben');
+        } finally {
+            $container->instance(AufgabenSender::class, $this->sender);
+            $container->forgetInstance('auth');
+            Facade::clearResolvedInstance('auth');
+        }
+
+        $this->assertSame(1, $hrSender->aufrufe, 'Vorflug: der HR-Knopf hat versucht');
+        $this->assertFalse($ergebnis->istOk(), 'HR sieht den Fehlschlag');
+
+        $nachher = $this->person($ma);
+        $this->assertSame(
+            [$vorher->aufgaben_signatur, $vorher->aufgaben_codes, (string) $vorher->aufgaben_gemeldet_at, (int) $vorher->aufgaben_nachricht_id],
+            [$nachher->aufgaben_signatur, $nachher->aufgaben_codes, (string) $nachher->aufgaben_gemeldet_at, (int) $nachher->aufgaben_nachricht_id],
+            'der vorige, erfolgreiche Stand bleibt stehen',
+        );
+
+        // Die naechsten Laeufe, auch nach jeder Pause: nichts Neues offen,
+        // also keine Nachricht.
+        $this->laufe('2026-10-10');
+        $this->laufe('2026-10-17');
+        $this->laufe('2026-10-24');
+
+        $this->assertCount(1, $this->sender->versandt, 'keine zweite Meldung derselben Punkte');
+    }
+
     // =================================================================
     // Die harte Sperre — der HR-Fall
     // =================================================================
@@ -2301,6 +2382,8 @@ final class EinsatzPruefungTest extends TestCase
             $t->text('aufgaben_codes')->nullable();
             $t->timestamp('aufgaben_gemeldet_at')->nullable();
             $t->unsignedBigInteger('aufgaben_nachricht_id')->nullable();
+            // Review K3: der HR-Knopf (HrKontoAktionen) liest die Spalte.
+            $t->integer('merged_into_person_id')->nullable();
             $t->timestamps();
         });
 

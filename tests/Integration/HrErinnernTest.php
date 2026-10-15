@@ -163,7 +163,11 @@ final class HrErinnernTest extends TestCase
         $this->aufgaben->status = AufgabenSender::STATUS_FAILED;
         $e = $this->aktionen()->erinnereErneut($fehl, null, 'aufgaben');
         $this->assertSame(HrAktionErgebnis::HINWEIS, $e->stufe);
-        $this->assertSame('2026-10-12 10:00:00', (string) $this->personZeile($fehl)->aufgaben_gemeldet_at, 'ET-23: auch nach Fehlschlag');
+        // Review K3 (15.10.): der HR-Knopf stempelt NUR bei Erfolg — bei
+        // Fehlschlag bleibt der vorige Stand (vorher: Stempel auch nach
+        // Fehlschlag, was die Einsatz-Pruefung zur Doppelmeldung brachte).
+        $this->assertSame('2026-10-04 10:00:00', (string) $this->personZeile($fehl)->aufgaben_gemeldet_at, 'K3: kein Stempel nach Fehlschlag');
+        $this->assertNull($this->personZeile($fehl)->aufgaben_nachricht_id, 'K3: keine Nachricht-ID nach Fehlschlag');
 
         $ohneVorlage = $this->erinnertePerson();
         $this->aufgaben->status = AufgabenSender::STATUS_NICHT_KONFIGURIERT;
