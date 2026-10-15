@@ -288,6 +288,70 @@ class AnstellungsRegelnTest extends TestCase
         $this->assertNull($this->zeile($ma)->zas_changed_at);
     }
 
+    // ---- Umfang: nur die Anstellungen DIESES Menschen (Review W2) ----------------
+
+    /**
+     * Ein FREMDER Mensch im selben Team mit aktiver Anstellung, Haupt und
+     * Klasse 1 — genau die Werte, die die Regel umschriebe, wenn sie ueber
+     * die eigene Person hinausgriffe.
+     */
+    private function fremder(): int
+    {
+        return $this->akte([
+            'rec_person_id'    => $this->person(),
+            'company'          => 'MA',
+            'is_main_employer' => 1,
+            'tax_class'        => '1',
+        ]);
+    }
+
+    private function assertFremderUnberuehrt(int $fremder): void
+    {
+        $z = $this->zeile($fremder);
+        $this->assertSame(1, (int) $z->is_main_employer, 'fremder Mensch: Haupt bleibt');
+        $this->assertSame('1', (string) $z->tax_class, 'fremder Mensch: Klasse bleibt');
+        $this->assertNull($z->zas_changed_at, 'fremder Mensch: kein ZAS-Marker');
+        $this->assertSame([], $this->lohn($fremder), 'fremder Mensch: kein Lohn-Eintrag');
+    }
+
+    /**
+     * Review W2 (Mutation M24): die Regel beim Speichern trifft die
+     * Schwester — und NUR sie. Vorher legte kein Test einen zweiten Menschen
+     * an; "trifft alle aktiven Anstellungen" blieb gruen.
+     */
+    public function test_speichern_laesst_einen_fremden_menschen_unberuehrt(): void
+    {
+        $this->setzeEinstellung(['employee_payroll_tracked_fields' => ['tax_class', 'is_main_employer']]);
+        $fremder = $this->fremder();
+        [$rg, $ma] = $this->paar(['tax_class' => '6', 'is_main_employer' => 0], ['tax_class' => '1', 'is_main_employer' => 1]);
+
+        $emp = RecEmployee::find($rg);
+        $emp->update(['tax_class' => '1', 'is_main_employer' => true]);
+
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'Vorflug: die Schwester bekommt die Folge');
+        $this->assertSame([$ma], array_column($emp->anstellungsFolgen, 'id'), 'Folgen nur an der Schwester');
+        $this->assertFremderUnberuehrt($fremder);
+    }
+
+    /**
+     * Review W2, dieselbe Probe fuer die Neuanlage: die Vorgabe kommt nur
+     * aus den Anstellungen DIESES Menschen. Seine RG-Akte ist Neben/6 und
+     * gibt nichts vor; Haupt/1 hat nur der Fremde — die neue Anstellung
+     * bleibt deshalb, wie sie ist.
+     */
+    public function test_neue_anstellung_laesst_einen_fremden_menschen_unberuehrt(): void
+    {
+        $fremder = $this->fremder();
+        [, $ma] = $this->paar(['tax_class' => '6', 'is_main_employer' => 0], ['tax_class' => '1', 'is_main_employer' => 1]);
+
+        $this->assertSame([], (new AnstellungsRegeln())->beiNeuerAnstellung($ma));
+
+        $this->assertSame(1, (int) $this->zeile($ma)->is_main_employer, 'keine Vorgabe vom Fremden');
+        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+        $this->assertNull($this->zeile($ma)->zas_changed_at);
+        $this->assertFremderUnberuehrt($fremder);
+    }
+
     public function test_verstoesse_zaehlen_nur_aktive_anstellungen(): void
     {
         $this->assertSame(['haupt', 'steuerklasse'], AnstellungsRegeln::verstoesse([
