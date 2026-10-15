@@ -136,6 +136,7 @@ Selects im Einstellungs-Fenster: nach dem Speichern per SQL nachsehen, ob der We
 - [ ] **Personen-Paare-Konflikte** aus dem Vorflug (29.09.): 1 Gruppe verschiedene Menschen **MA 160 + 223**; 5 Abweichungen Akte↔CRM-Kontakt **MA 869, 1511, 1538, 1594, 1614**; ~7 Paare ohne Marker. Zahlen neu ziehen mit `docs/meingedeck/vorflug-konto-abfragen.sql` und `php artisan recruiting:mitarbeiter-grenzfaelle` (Fälle `nummer_mehrfach_andere_person`, `ohne_telefon_akte`, `crm_ohne_nummer`). [M:project_personen_klammer_stufe1, S-Konto §9]
 - [ ] **`is_main_employer` in `employee_payroll_tracked_fields`** des Teams (Auflage 2 vor `portal-umstellen`) und **wie viele MA `is_main_employer IS NULL`** haben (jede Erstantwort = volle Zeile in `updates.csv`). [`SwitchPortalVersion.php` Docblock, M:project_konto_anmeldeschicht_gate_d]
 - [ ] **ZAS ankündigen (Olaf Michel)**: „Stammdaten-Änderungen einer Person kommen ab jetzt für RG- und MA-Datensatz gemeinsam in der Aktualisierungsdatei. Keine neue Spalte." [S-Spiegel §9] — Sonst bleibt der Export byteweise gleich, keine Spaltenankündigung nötig. [M:project_ma_konto_merge_risiken, M:feedback_zas_export_spalten_ankuendigen]
+  - Zusätzlich: „MA-Zeilen liefern Grundlohn/Zuschlag leer, bis EG-Logik steht; Frage: leere Zelle = nicht anfassen?" (Markus 14.10., E14/E15; `ZasEmployeeFieldResolver::getGrundlohn/getZuschlag`, Spalten bleiben an ihrem Platz)
 - [ ] **HR vorwarnen**: neue Fall-Art „Arbeitserlaubnis fehlt", Karte „Mitarbeiter #…", „Ablehnen" fehlt bei Fällen ohne Bewerber; Nachweis-Block nur bei Umgestellten (dort rot, bis hochgeladen); wer schaut täglich in „Konto-Anträge". [M:project_einsatz_trigger_und_zas_sperrfeld, M:project_ma_konto_merge_risiken Nr. 4, S-HR §11.6]
 - [x] **Entscheidung Nachweis-Block** in der Akte — **entschieden: nur bei Umgestellten** (Sebastian 15.10.2026, hinter `portal_v2_since`, Code im Zweig). [M:project_ma_konto_merge_risiken Nr. 2]
 - [ ] **Schalter Einsatz-Prüfung bleibt aus (Vorgabe).** Der Zeitplan-Eintrag bleibt unverändert und ist bei ausgeschaltetem Schalter ein No-op — kein Zeitfenster-Rennen mehr nötig. Reihenfolge: `nachweise-umziehen` → `personen-anlegen` → `einsatz-pruefung --dry-run` → Zahlen melden → Schalter an (Schritt in 4.4). [Spec §5, M:project_ma_konto_merge_risiken „Deploy-Reihenfolge"]
@@ -380,6 +381,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - Auto-Antwort „bitte über das Portal hochladen", ZAS-Sperrspalte. [M:project_markus_info_dokument_offene_punkte]
 - `RecEmployee::sendPortalNotification` stempelt Meta-`failed` als Erfolg. [M:project_ma_portal_locked_fix]
 - `herkunft` in FillContractFieldsTool/saveContractFields sperren (optional). [M:project_vertrag_aus_akte_ma_check]
+- EG-Lohnlogik MA (E14/E15) + Zuschlag-Export für MA-Verträge — bis dahin liefern MA-Zeilen Grundlohn/Zuschlag leer (Markus 14.10.2026).
 
 ---
 

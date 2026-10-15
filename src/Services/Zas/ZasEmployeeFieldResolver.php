@@ -518,9 +518,23 @@ class ZasEmployeeFieldResolver
 
     /**
      * Grundlohn (minimum_wage_hourly) aus den Team-Settings.
+     *
+     * MA-Anstellungen liefern LEER (15.10.2026): der Mindestlohn ist nur fuer
+     * RG richtig. Markus 14.10.2026 (E14/E15): MA-Grundlohn = Entgeltgruppe 1
+     * aus dem Tarif (Wert fehlt noch), Zuschlag nach eigener Regel — "bitte
+     * den Export sichern vor dem Start, sonst sind die Daten in ZAS fuer den
+     * Lohn fehlerhaft". Mit dem Personen-Spiegel gehen MA-Zeilen ab dem Start
+     * regelmaessig in updates.csv. Leer bleibt es, bis die EG-Logik steht.
+     * OFFEN: dass ZAS eine leere Zelle als "nicht anfassen" liest (und nicht
+     * als "Wert loeschen"), ist noch NICHT bestaetigt — Frage an Olaf Michel.
+     * Spalte bleibt an ihrem Platz, nur der Wert ist leer.
      */
     protected function getGrundlohn(RecEmployee $employee): ?string
     {
+        if ($this->isMaAnstellung($employee)) {
+            return null;
+        }
+
         $settings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id);
         $wage = $settings->getSetting('minimum_wage_hourly');
 
@@ -530,9 +544,17 @@ class ZasEmployeeFieldResolver
     /**
      * Zuschlag aus dem AV-Template-Code des verknuepften Bewerbers.
      * AV-060 → "0,60", AV-110 → "1,10", usw.
+     *
+     * MA-Anstellungen liefern LEER (15.10.2026) — Grund und offene ZAS-Frage
+     * siehe getGrundlohn(): der Zuschlag aus der (RG-)Bewerbung gilt fuer den
+     * MA-Vertrag nicht, die MA-Regel (E14/E15) ist noch nicht gebaut.
      */
     protected function getZuschlag(RecEmployee $employee): ?string
     {
+        if ($this->isMaAnstellung($employee)) {
+            return null;
+        }
+
         if (!$employee->rec_applicant_id) {
             return null;
         }
@@ -556,6 +578,17 @@ class ZasEmployeeFieldResolver
         }
         $cents = (int) $m[1];
         return number_format($cents / 100, 2, ',', '.');
+    }
+
+    /**
+     * Anstellung bei der MA-Gesellschaft? Massgeblich ist rec_employees.company
+     * ('RG'/'MA', Schluessel von recruiting.zas.company_labels) — dieselbe
+     * Normalisierung wie VertragsPruefung::firmaVon(). Ohne Firma: nicht MA
+     * (Bestand ist RG, Verhalten wie bisher).
+     */
+    protected function isMaAnstellung(RecEmployee $employee): bool
+    {
+        return strtoupper(trim((string) $employee->company)) === 'MA';
     }
 
     /**
