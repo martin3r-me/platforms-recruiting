@@ -260,13 +260,20 @@ class Show extends Component
      * Rueckgabe: die Anzeige "bestaetigt von X am Y" in der Akte zeigt
      * weiterhin echten Altbestand, falls je etwas bestaetigt wurde.
      *
+     * Nur bei Umgestellten (15.10.2026, Sebastian): ohne portal_v2_since an
+     * dieser Akte liefert die Uebersicht NICHTS — der Block in der Akte
+     * entfaellt dann ganz. Grund: rund 1300 von 1800 Bestandsakten haetten
+     * nach dem Deploy sofort rot "Ausweis fehlt", ohne dass jemand etwas tun
+     * kann; zum Hochladen aufgefordert werden erst Umgestellte. Der HR-Upload
+     * (Nachweise-Inbox, Akte) ist davon unberuehrt.
+     *
      * @return list<array{code:string, label:string, status:string, valid_until:?string, offen:bool, needs_confirmation:bool, confirmed_at:?string, confirmed_by:?string}>
      */
     #[Computed]
     public function nachweisUebersicht(): array
     {
         $emp = $this->employee();
-        if ($emp === null) {
+        if ($emp === null || $emp->portal_v2_since === null) {
             return [];
         }
 

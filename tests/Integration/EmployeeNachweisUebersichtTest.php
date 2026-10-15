@@ -84,6 +84,8 @@ final class EmployeeNachweisUebersichtTest extends TestCase
             $t->boolean('is_eu_citizen')->nullable();
             $t->string('employment_type')->nullable();
             $t->boolean('is_first_aider')->nullable();
+            // Nur Umgestellte zeigen den Block (15.10.2026).
+            $t->timestamp('portal_v2_since')->nullable();
             $t->timestamps();
         });
 
@@ -124,7 +126,9 @@ final class EmployeeNachweisUebersichtTest extends TestCase
 
         Capsule::table('rec_employees')->insert([
             // Nicht-EU, damit Aufenthaltstitel/Arbeitsgenehmigung Pflicht sind.
-            ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti', 'is_active' => true, 'is_eu_citizen' => false],
+            ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti', 'is_active' => true, 'is_eu_citizen' => false, 'portal_v2_since' => '2026-10-01 08:00:00'],
+            // Bestandsakte, noch NICHT aufs neue Portal umgestellt.
+            ['id' => 901, 'uuid' => 'remp-901', 'team_id' => self::TEAM, 'first_name' => 'Bernd', 'last_name' => 'Bestand', 'is_active' => true, 'is_eu_citizen' => false, 'portal_v2_since' => null],
         ]);
 
         Capsule::table('users')->insert([
@@ -136,6 +140,7 @@ final class EmployeeNachweisUebersichtTest extends TestCase
     {
         Facade::clearResolvedInstances();
         Container::getInstance()->forgetInstance(AuthFactory::class);
+        Container::getInstance()->forgetInstance('url');
         $this->capsule->schema()->dropAllTables();
         parent::tearDown();
     }
@@ -195,5 +200,82 @@ final class EmployeeNachweisUebersichtTest extends TestCase
     public function test_unbekannter_mitarbeiter_liefert_leere_liste(): void
     {
         $this->assertSame([], $this->component(999999)->nachweisUebersicht());
+    }
+
+    /**
+     * Nur bei Umgestellten (15.10.2026, Sebastian): ohne portal_v2_since
+     * liefert die Uebersicht nichts — sonst stuenden rund 1300 Bestandsakten
+     * nach dem Deploy sofort rot auf "Ausweis fehlt".
+     */
+    public function test_nicht_umgestellte_akte_liefert_leere_liste(): void
+    {
+        $this->assertSame([], $this->component(901)->nachweisUebersicht());
+    }
+
+    public function test_umgestellte_akte_liefert_zeilen_auch_fuer_fehlende_nachweise(): void
+    {
+        $zeilen = $this->component(900)->nachweisUebersicht();
+
+        $this->assertNotEmpty($zeilen);
+        $this->assertSame('fehlt', collect($zeilen)->firstWhere('code', 'ausweis')['status'] ?? null);
+    }
+
+    public function test_block_in_der_akte_nur_bei_umgestellten(): void
+    {
+        $umgestellt = $this->renderNachweisBlock(900);
+        $this->assertStringContainsString('Nachweise-Inbox', $umgestellt);
+        $this->assertStringContainsString('Fehlt', $umgestellt);
+
+        $bestand = $this->renderNachweisBlock(901);
+        $this->assertStringNotContainsString('Nachweise-Inbox', $bestand);
+        $this->assertStringNotContainsString('Fehlt', $bestand);
+        $this->assertSame('', trim($bestand));
+    }
+
+    /**
+     * Rendert genau den Nachweis-Block aus show.blade.php (Quelle zwischen
+     * der Zuweisung von $nachweise und dem Block "Offene Vertraege") gegen
+     * ein Stellvertreter-$this mit dem echten Ergebnis von nachweisUebersicht().
+     * Ohne Livewire-Laufzeit — die ganze Akte braucht zu viel Welt.
+     */
+    private function renderNachweisBlock(int $employeeId): string
+    {
+        $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/show.blade.php');
+        $start = strpos($quelle, '@php $nachweise = $this->nachweisUebersicht; @endphp');
+        $ende = strpos($quelle, '{{-- Offene Vertraege', (int) $start);
+        $this->assertNotFalse($start, 'Nachweis-Block nicht gefunden');
+        $this->assertNotFalse($ende);
+        $block = substr($quelle, $start, $ende - $start);
+
+        Container::getInstance()->instance('url', new class
+        {
+            public function route($name, $parameters = [], $absolute = true): string
+            {
+                return '/' . $name;
+            }
+        });
+
+        $files = new \Illuminate\Filesystem\Filesystem();
+        $compiler = new \Illuminate\View\Compilers\BladeCompiler($files, sys_get_temp_dir());
+        $php = $compiler->compileString($block);
+        $env = new \Illuminate\View\Factory(
+            new \Illuminate\View\Engines\EngineResolver(),
+            new \Illuminate\View\FileViewFinder($files, []),
+            new \Illuminate\Events\Dispatcher(new Container()),
+        );
+        $stellvertreter = new class
+        {
+            public array $nachweisUebersicht = [];
+        };
+        $stellvertreter->nachweisUebersicht = $this->component($employeeId)->nachweisUebersicht();
+
+        $render = function (string $__php, $__env): string {
+            ob_start();
+            eval('?>' . $__php);
+
+            return (string) ob_get_clean();
+        };
+
+        return \Closure::bind($render, $stellvertreter, null)($php, $env);
     }
 }

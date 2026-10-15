@@ -514,7 +514,10 @@
                  Upload gilt sofort als erledigt, es gibt KEINE Bestaetigung mit
                  Wirkung (mehr), weder hier noch in der HR-Inbox (Korrektur K3,
                  24.09.2026). confirmed_at/confirmed_by zeigen nur, falls fuer
-                 diesen Nachweis je etwas bestaetigt wurde (Altbestand). --}}
+                 diesen Nachweis je etwas bestaetigt wurde (Altbestand).
+                 Nur bei Umgestellten (15.10.2026): ohne portal_v2_since liefert
+                 nachweisUebersicht() eine leere Liste, der Block entfaellt ganz —
+                 sonst stuenden rund 1300 Bestandsakten sofort rot auf "fehlt". --}}
             @php $nachweise = $this->nachweisUebersicht; @endphp
             @if(!empty($nachweise))
                 <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
