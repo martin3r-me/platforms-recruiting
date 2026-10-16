@@ -186,6 +186,8 @@ Automatisch zugestellte Zeilen tragen `notify_error = nicht_noetig` und werden n
 Nachtrag 16.10.2026: Haken „WhatsApp-Hinweis senden" auch für Infos (vorausgewählt an).
 Aus = `notify_mode = none`: gewählte Empfänger bekommen keine Nachricht, die Info steht
 beim nächsten Öffnen im Portal; nachträglich über „WhatsApp jetzt senden" (Spec Dokumente §4).
+Jede Bereitstellung, jede automatische Zustellung (`auto_zugestellt`, ohne Benutzer) und
+„Automatik beenden" stehen im Verlauf des Dokuments (Spec Dokumente §8, Nachtrag Verlauf).
 
 ## 8. Deploy
 

@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecDocument;
 use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Support\DokumentVerlauf;
 
 /**
  * Hintergrundversand der Dokument-Hinweise (Spec §3.1 Schritt 5, Nachtrag
@@ -49,5 +50,7 @@ class DokumentHinweiseVersenden implements ShouldQueue
         }
         $e = app(DokumentService::class)->hinweiseVersenden($dokument);
         Log::info('recruiting.dokumente.hinweise_versendet', ['document_id' => $dokument->id] + $e);
+        // Verlauf: der Job laeuft ohne Anmeldung — user null ("System").
+        DokumentVerlauf::schreibe((int) $dokument->team_id, (int) $dokument->id, null, DokumentVerlauf::VERSAND_GESTARTET, null, $e);
     }
 }

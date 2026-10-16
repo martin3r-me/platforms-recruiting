@@ -79,6 +79,8 @@ final class DokumentServiceTest extends TestCase
             'database/migrations/2026_10_16_000001_add_info_fields_to_rec_documents.php',
             // Haken "WhatsApp-Hinweis senden" (16.10.2026): der Service schreibt notify_mode immer mit.
             'database/migrations/2026_10_16_000002_add_notify_mode_to_rec_documents.php',
+            // Verlauf je Dokument: jede Handlung schreibt eine Zeile (ohne Tabelle nur eine Warnung).
+            'database/migrations/2026_10_16_000003_create_rec_document_events_table.php',
         ] as $relativ) {
             $pfad = $eigen . '/' . $relativ;
             if (!file_exists($pfad)) {

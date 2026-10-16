@@ -54,6 +54,15 @@ trait DokumenteHarness
             }
         }
 
+        // Core-Tabelle users (nur, was der Verlauf braucht): DokumentVerlauf::fuer()
+        // joint die Benutzernamen wie HrMitarbeiterListen::gestoppte().
+        if (!$capsule->getConnection()->getSchemaBuilder()->hasTable('users')) {
+            $capsule->getConnection()->getSchemaBuilder()->create('users', function ($t) {
+                $t->id();
+                $t->string('name')->nullable();
+            });
+        }
+
         $this->root = sys_get_temp_dir() . '/rec-dok-' . bin2hex(random_bytes(4));
         mkdir($this->root, 0777, true);
         $adapter = new LocalFilesystemAdapter($this->root);

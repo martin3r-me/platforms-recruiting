@@ -405,6 +405,17 @@
                                         @endif
                                     </div>
                                 @endforeach
+                                {{-- Verlauf: wer hat was wann getan (rec_document_events), neueste oben. --}}
+                                @if (count($dok['verlauf']) > 0)
+                                    <div class="mt-3 pt-2 border-t border-[var(--ui-border)]/60">
+                                        <div class="text-xs font-semibold text-[var(--ui-secondary)] mb-1">Verlauf</div>
+                                        <ul class="space-y-0.5">
+                                            @foreach ($dok['verlauf'] as $ve)
+                                                <li class="text-xs text-[var(--ui-muted)]">{{ $ve['zeit'] }} · {{ $ve['user'] }} · {{ $ve['text'] }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                @endif
                             </div>
                         @endif
                     </div>

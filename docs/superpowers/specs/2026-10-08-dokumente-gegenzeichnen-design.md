@@ -333,6 +333,20 @@ Nachtrag Haken „WhatsApp-Hinweis senden" (16.10.2026, §4):
   „x benachrichtigt" und „Versand erneut anstoßen" entfallen. Stattdessen Knopf
   „WhatsApp jetzt senden" (nur wenn die Kategorie eine Nachricht kennt, nicht zurückgezogen).
 
+Nachtrag Verlauf (16.10.2026, Sebastian: „sicherstellen, dass alles geloggt wird — wer was wie
+gesendet hat, von welchem User"):
+- Tabelle `rec_document_events` (nur anfügen, kein FK), geschrieben ausschließlich über
+  `Support/DokumentVerlauf::schreibe()` (Query Builder; ein Schreibfehler wird als
+  `recruiting.dokumente.verlauf_fehlgeschlagen` gewarnt und kippt die Handlung nie).
+- Aktionen: `bereitgestellt` (Empfängerzahl, notify_mode, Automatik, pdf|info, Einstieg
+  dokumente|akte|veranstaltung), `versand_gestartet` (Job, user null: versucht/benachrichtigt/
+  fehler), `whatsapp_jetzt`, `erneut_gesendet` (je Empfänger, mit Status — auch abgewiesene
+  Klicks), `zurueckgezogen` (einzeln mit Empfänger, ganz mit anzahl/geloescht),
+  `automatik_beendet`, `auto_zugestellt` (user null, je Empfänger). Portal-Ereignisse
+  (gesehen/bestätigt/unterschrieben) stehen in den Zeitstempeln der Zustellung, nicht hier.
+- Aufgeklapptes Dokument: Abschnitt „Verlauf" unter den Empfängern, neueste oben,
+  „<Zeit> · <Benutzer> · <Satz>"; ohne Benutzer „System".
+
 ---
 
 ## 9. Was sich NICHT ändert

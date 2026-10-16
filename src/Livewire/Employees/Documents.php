@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\DokumentZaehler;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentFortschritt;
 use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\DokumentVerlauf;
 use Platform\Recruiting\Support\InfoText;
 
 /**
@@ -524,7 +525,7 @@ class Documents extends Component
      * EINER gruppierten Abfrage (DokumentZaehler). Volle Zeilen — ohne
      * signature_data — nur fuer das aufgeklappte Dokument.
      *
-     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, braucht_hinweis:bool, ohne_whatsapp:bool, kann_whatsapp_jetzt:bool, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, zurueckziehbar:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
+     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, braucht_hinweis:bool, ohne_whatsapp:bool, kann_whatsapp_jetzt:bool, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, zurueckziehbar:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>, verlauf:list<array>}>
      */
     #[Computed]
     public function dokumente(): array
@@ -560,7 +561,10 @@ class Documents extends Component
                 continue;
             }
             $empfaenger = [];
+            $verlauf = [];
             if ($this->aufgeklappt === (int) $d->id) {
+                // Nachweis "wer hat was wann getan" — nur fuer das aufgeklappte Dokument geladen.
+                $verlauf = DokumentVerlauf::fuer((int) $d->id);
                 $zeilen = RecDocumentRecipient::query()
                     ->ohneUnterschriftsbild()
                     ->where('rec_document_id', $d->id)
@@ -604,6 +608,7 @@ class Documents extends Component
                 'ausstehend'     => $ausstehend,
                 'versand_laeuft' => $versandLaeuft,
                 'empfaenger'     => $empfaenger,
+                'verlauf'        => $verlauf,
             ];
         }
 

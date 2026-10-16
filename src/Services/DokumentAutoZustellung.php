@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\DokumentVerlauf;
 
 /**
  * Infos mit "automatisch an neue Mitarbeiter" (Spec 2026-10-16 §4): beim
@@ -80,13 +81,17 @@ class DokumentAutoZustellung
                 continue;
             }
             // uuid setzt das Modell selbst (creating-Hook).
-            RecDocumentRecipient::create([
+            $zeile = RecDocumentRecipient::create([
                 'team_id'         => (int) $employee->team_id,
                 'rec_document_id' => (int) $dokumentId,
                 'rec_employee_id' => (int) $employee->id,
                 'person_key'      => $employee->person_key,
                 // Nie anschreiben: der Mensch ist gerade im Portal (Spec §7).
                 'notify_error'    => DokumentHinweisSender::STATUS_NICHT_NOETIG,
+            ]);
+            // Verlauf: Automatik, kein HR-User.
+            DokumentVerlauf::schreibe((int) $employee->team_id, (int) $dokumentId, (int) $zeile->id, DokumentVerlauf::AUTO_ZUGESTELLT, null, [
+                'employee_id' => (int) $employee->id,
             ]);
             $neu++;
         }

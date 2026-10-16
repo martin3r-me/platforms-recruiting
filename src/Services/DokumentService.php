@@ -10,6 +10,7 @@ use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\DokumentStatus;
 use Platform\Recruiting\Support\DokumentUploadRegeln;
+use Platform\Recruiting\Support\DokumentVerlauf;
 use Platform\Recruiting\Support\EmpfaengerEntdoppler;
 use Symfony\Component\Uid\UuidV7;
 
@@ -76,6 +77,29 @@ class DokumentService
         }
 
         return $mode;
+    }
+
+    /** Von wo bereitgestellt wurde (Verlauf): dokumente | akte | veranstaltung, Default dokumente. */
+    private static function einstieg(array $daten): string
+    {
+        $e = (string) ($daten['einstieg'] ?? 'dokumente');
+
+        return in_array($e, ['dokumente', 'akte', 'veranstaltung'], true) ? $e : 'dokumente';
+    }
+
+    /**
+     * Angemeldeter HR-User fuer den Verlauf; im Job, in der Konsole und in
+     * Tests ohne Anmeldung null ("System").
+     */
+    private static function benutzer(): ?int
+    {
+        try {
+            $id = auth()->id();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $id === null ? null : (int) $id;
     }
 
     /**
@@ -146,6 +170,15 @@ class DokumentService
             return $dokument;
         });
 
+        // Nach der Transaktion: ein Verlaufsfehler darf das Dokument nicht zurueckrollen.
+        DokumentVerlauf::schreibe($teamId, (int) $dokument->id, null, DokumentVerlauf::BEREITGESTELLT, $userId, [
+            'empfaenger'            => count($empfaengerIds),
+            'notify_mode'           => $notifyMode,
+            'auto_neue_mitarbeiter' => false,
+            'art'                   => 'pdf',
+            'einstieg'              => self::einstieg($daten),
+        ]);
+
         return [
             'dokument'      => $dokument->fresh(),
             'empfaenger'    => count($empfaengerIds),
@@ -209,6 +242,14 @@ class DokumentService
 
             return $dokument;
         });
+
+        DokumentVerlauf::schreibe($teamId, (int) $dokument->id, null, DokumentVerlauf::BEREITGESTELLT, $userId, [
+            'empfaenger'            => count($aufgeloest['ids']),
+            'notify_mode'           => $notifyMode,
+            'auto_neue_mitarbeiter' => $auto,
+            'art'                   => 'info',
+            'einstieg'              => self::einstieg($daten),
+        ]);
 
         // Mit Empfaengern geht die Portal-WhatsApp raus wie bei einer PDF (Spec §1.3, §7);
         // ohne (nur Automatik) gibt es niemanden anzuschreiben, ohne Haken soll niemand.
@@ -289,6 +330,16 @@ class DokumentService
      */
     public function erneutSenden(RecDocumentRecipient $empfaenger): string
     {
+        $status = $this->erneutSendenOhneVerlauf($empfaenger);
+        // Jeder Klick, auch ein abgewiesener: der Verlauf soll zeigen, dass HR es versucht hat.
+        DokumentVerlauf::schreibe((int) $empfaenger->team_id, (int) $empfaenger->rec_document_id, (int) $empfaenger->id,
+            DokumentVerlauf::ERNEUT_GESENDET, self::benutzer(), ['status' => $status]);
+
+        return $status;
+    }
+
+    private function erneutSendenOhneVerlauf(RecDocumentRecipient $empfaenger): string
+    {
         if ($empfaenger->withdrawn_at !== null) {
             return 'zurueckgezogen';
         }
@@ -325,11 +376,16 @@ class DokumentService
         if ($empfaenger->signed_at !== null) {
             return 'Unterschrieben, kann nicht zurückgezogen werden.';
         }
-        DB::table('rec_document_recipients')
+        $getan = DB::table('rec_document_recipients')
             ->where('id', $empfaenger->id)
             ->whereNull('signed_at')
             ->whereNull('withdrawn_at')
             ->update(['withdrawn_at' => now(), 'updated_at' => now()]);
+        // Nur wenn wirklich etwas zurueckgezogen wurde (Doppelklick = eine Zeile).
+        if ($getan > 0) {
+            DokumentVerlauf::schreibe((int) $empfaenger->team_id, (int) $empfaenger->rec_document_id, (int) $empfaenger->id,
+                DokumentVerlauf::ZURUECKGEZOGEN, self::benutzer());
+        }
 
         return null;
     }
@@ -351,6 +407,9 @@ class DokumentService
             ->where('notify_mode', self::NOTIFY_NONE)
             ->whereNull('deleted_at')
             ->update(['notify_mode' => self::NOTIFY_WHATSAPP, 'updated_at' => now()]) > 0;
+        if ($gedreht) {
+            DokumentVerlauf::schreibe((int) $dokument->team_id, (int) $dokument->id, null, DokumentVerlauf::WHATSAPP_JETZT, $userId);
+        }
 
         return $gedreht;
     }
@@ -367,7 +426,8 @@ class DokumentService
      */
     public function dokumentZurueckziehen(RecDocument $dokument): array
     {
-        $this->automatikBeenden($dokument);
+        // Der Haken faellt still mit — der Verlauf haelt "ganz zurueckgezogen" fest, das schliesst ihn ein.
+        $this->automatikHakenNehmen($dokument);
 
         $zurueck = DB::table('rec_document_recipients')
             ->where('rec_document_id', $dokument->id)
@@ -383,6 +443,10 @@ class DokumentService
         if (!$unterschrieben) {
             $dokument->delete();
         }
+        DokumentVerlauf::schreibe((int) $dokument->team_id, (int) $dokument->id, null, DokumentVerlauf::ZURUECKGEZOGEN, self::benutzer(), [
+            'anzahl'    => (int) $zurueck,
+            'geloescht' => !$unterschrieben,
+        ]);
 
         return ['zurueckgezogen' => (int) $zurueck, 'geloescht' => !$unterschrieben];
     }
@@ -393,6 +457,16 @@ class DokumentService
      * Query Builder, damit kein Modell-Hook mitlaeuft. true = Haken war gesetzt.
      */
     public function automatikBeenden(RecDocument $dokument): bool
+    {
+        $beendet = $this->automatikHakenNehmen($dokument);
+        if ($beendet) {
+            DokumentVerlauf::schreibe((int) $dokument->team_id, (int) $dokument->id, null, DokumentVerlauf::AUTOMATIK_BEENDET, self::benutzer());
+        }
+
+        return $beendet;
+    }
+
+    private function automatikHakenNehmen(RecDocument $dokument): bool
     {
         return DB::table('rec_documents')
             ->where('id', $dokument->id)
