@@ -16,6 +16,9 @@ class RecConversationHandled extends Model
     /** Letzter Eingang war ein Button-Klick (QuickReply) — keine Arbeit fuer HR. */
     public const REASON_QUICK_REPLY = 'quick_reply';
 
+    /** Themen-Auswahl: Mitarbeiter wurde per Link an die Dispo weitergeleitet — keine Arbeit fuer HR. */
+    public const REASON_ROUTED_DISPO = 'routed_dispo';
+
     protected $table = 'rec_conversation_handled';
 
     protected $fillable = [

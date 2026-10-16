@@ -170,6 +170,13 @@ class RecApplicantSettings extends Model
         // null = Fallback Europe/Berlin (aufgeloest NUR in TeamClock, nie an
         // Call-Sites). Bewusst noch nicht im Einstellungen-Modal editierbar.
         'comms_timezone' => null,
+        // Themen-Auswahl fuer Mitarbeiter (S-Themen §2.1/§2.4).
+        'comms_topic_enabled' => false,          // Default aus, Rollout bewusst
+        'comms_topic_quiet_hours' => 8,          // Ruhezeit in Stunden, in beide Richtungen
+        'comms_topic_lohn_url' => null,          // Login-Anleitung fuer den Lohn-Zweig; leer = Text ohne Knopf
+        'comms_topic_text_ask' => null,          // Team-Texte (null = Vorgabe aus ThemenTexte)
+        'comms_topic_text_lohn_offen' => null,
+        'comms_topic_text_lohn_ok' => null,
         // Steuerklasse + Haupt-/Nebenarbeitgeber gelten je Gesellschaft (RG/MA) statt je Person: dann spiegelt PersonenSpiegel sie nicht
         // wirkungslos seit 12.10.2026 (Kundenentscheidung Markus, E7/E8): die Felder gelten immer je
         // Anstellung (PersonenFelder::JE_GESELLSCHAFT), der Schalter ist aus dem Einstellungsfenster
