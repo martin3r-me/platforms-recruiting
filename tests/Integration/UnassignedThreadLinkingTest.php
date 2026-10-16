@@ -429,6 +429,11 @@ class UnassignedThreadLinkingTest extends TestCase
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
             [$own, 'database/migrations/2026_02_09_000005_create_rec_applicants_table.php'],
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_02_09_000001_create_rec_positions_table.php'],
+            [$own, 'database/migrations/2026_05_21_000006_add_cost_center_to_rec_positions.php'],
+            // Filial-Filter (16.10.2026): Kostenstelle am MA / an der Stelle, Stelle an der Bewerbung.
+            [$own, 'database/migrations/2026_07_07_000001_add_cost_center_to_rec_employees.php'],
+            [$own, 'database/migrations/2026_08_18_000001_add_rec_position_id_to_rec_applicants.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_01_14_000004_create_comms_email_threads_table.php'],
             [$crm, 'database/migrations/2026_02_05_000001_add_context_to_comms_email_threads_table.php'],

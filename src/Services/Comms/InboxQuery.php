@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecConversationHandled;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\KostenstellenBloecke;
 
 /**
  * Lesepfad der neuen Kommunikation.
@@ -126,7 +127,7 @@ final class InboxQuery
      * saubere Fehlkonfiguration und wuerde still den Verlustpfad
      * wiederherstellen, den dieses Feature beseitigt.
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool}
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
      */
     public function snapshot(
         int $teamId,
@@ -138,7 +139,15 @@ final class InboxQuery
         $now ??= time();
 
         $scored = $this->scored($teamId, $now);
-        $counts = $this->countsFromScored($scored['rows']);
+        $filialen = self::filialeCounts($scored['rows']);
+
+        // Filiale schneidet VOR dem Zaehlen (Kunde 16.10.2026): bei "MGL" zeigen
+        // Pillen und Alle/Bewerber/Mitarbeiter nur MGL. Owner/Suche bleiben
+        // bewusst ausserhalb der Zaehler (siehe oben).
+        $basis = $filter->filiale === 'all'
+            ? $scored['rows']
+            : array_values(array_filter($scored['rows'], fn (array $row) => self::matchesFiliale($row, $filter->filiale)));
+        $counts = $this->countsFromScored($basis);
 
         // Owner und Namenssuche brauchen Bewerber-Daten, die die duenne Stufe
         // nicht hat — deshalb EINMAL vorab die erlaubten Bewerber-IDs holen
@@ -146,7 +155,7 @@ final class InboxQuery
         $allowed = $this->allowedSubjectIds($teamId, $filter);
 
         $rows = array_values(array_filter(
-            $scored['rows'],
+            $basis,
             fn (array $row) => $this->matches($row, $filter, $allowed),
         ));
 
@@ -183,7 +192,35 @@ final class InboxQuery
             'rows' => $this->hydrate($slice),
             'total' => $total,
             'fallback' => $scored['fallback'],
+            'filialen' => $filialen,
         ];
+    }
+
+    /** Ein Chat gehoert zum Filter-Wert ('ohne' = keine Kostenstelle ableitbar). */
+    private static function matchesFiliale(array $row, string $filiale): bool
+    {
+        return $filiale === 'ohne'
+            ? $row['filiale'] === null
+            : $row['filiale'] === (int) $filiale;
+    }
+
+    /**
+     * Anzahl Chats je Filial-Block fuer die Auswahl — ueber ALLE Chats, damit
+     * jede Option ihre eigene Zahl zeigt, egal was gerade gewaehlt ist.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array<string, int> Block als String ('100', …) bzw. 'ohne' => Anzahl
+     */
+    private static function filialeCounts(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $row) {
+            $key = $row['filiale'] === null ? 'ohne' : (string) $row['filiale'];
+            $out[$key] = ($out[$key] ?? 0) + 1;
+        }
+        uksort($out, static fn ($a, $b) => [$a === 'ohne', (int) $a] <=> [$b === 'ohne', (int) $b]);
+
+        return $out;
     }
 
     /**
@@ -261,16 +298,18 @@ final class InboxQuery
         // Bewerbungen, aus denen ein aktiver Mitarbeiter wurde: deren Chats
         // haengen weiter an der Bewerbung, gehoeren im Filter aber zu
         // "Mitarbeiter". Eine Query fuer die ganze Grundmenge.
+        $aktiveAnstellungen = RecEmployee::query()
+            ->where('team_id', $teamId)
+            ->where('is_active', true)
+            ->whereNotNull('rec_applicant_id')
+            ->orderBy('id')
+            ->get(['id', 'rec_applicant_id', 'cost_center', 'rec_position_id']);
         $employeeApplicantIds = array_fill_keys(
-            RecEmployee::query()
-                ->where('team_id', $teamId)
-                ->where('is_active', true)
-                ->whereNotNull('rec_applicant_id')
-                ->pluck('rec_applicant_id')
-                ->map(fn ($id) => (int) $id)
-                ->all(),
+            $aktiveAnstellungen->map(fn ($e) => (int) $e->rec_applicant_id)->all(),
             true,
         );
+
+        $filialeOf = $this->filialeResolver($teamId, $threads, $aktiveAnstellungen);
 
         // Geschwister je Nummer (letzte 10 Ziffern) zaehlen — nur fuer den Hinweis-Chip.
         $byDigits = [];
@@ -306,6 +345,10 @@ final class InboxQuery
                     (string) ($thread->context_model ?? ''),
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                     $employeeApplicantIds,
+                ),
+                'filiale' => $filialeOf(
+                    (string) ($thread->context_model ?? ''),
+                    $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
             ];
         }
@@ -384,6 +427,83 @@ final class InboxQuery
         }
 
         return true;
+    }
+
+    /**
+     * Filiale je Chat = Hunderterblock der Kostenstelle (KostenstellenBloecke,
+     * wie Dispo „Jobs anbieten“ und die Vorbelegung der Weiterleitung):
+     *  - Mitarbeiter-Thread: Kostenstelle am MA, sonst an seiner Stelle;
+     *  - Bewerber-Thread mit aktiver Anstellung: die der Anstellung
+     *    (dieselbe Zuordnung wie kindOf() → "Mitarbeiter");
+     *  - sonst: Kostenstelle der Stelle an der Bewerbung;
+     *  - nicht zugeordnet / nichts ableitbar: null ("ohne Filiale").
+     * Drei gebuendelte Abfragen fuer die ganze Grundmenge, nicht je Chat.
+     *
+     * @param iterable<CommsWhatsAppThread> $threads
+     * @return \Closure(string, ?int): ?int
+     */
+    private function filialeResolver(int $teamId, iterable $threads, \Illuminate\Support\Collection $aktiveAnstellungen): \Closure
+    {
+        $applicantIds = [];
+        $employeeIds = [];
+        foreach ($threads as $thread) {
+            $id = $thread->context_model_id ? (int) $thread->context_model_id : null;
+            if ($id === null) {
+                continue;
+            }
+            if ($this->isEmployeeContext((string) $thread->context_model)) {
+                $employeeIds[] = $id;
+            } elseif ($this->isApplicantContext((string) $thread->context_model)) {
+                $applicantIds[] = $id;
+            }
+        }
+
+        $mitarbeiter = $employeeIds === [] ? collect() : RecEmployee::query()
+            ->where('team_id', $teamId)
+            ->whereIn('id', array_values(array_unique($employeeIds)))
+            ->get(['id', 'cost_center', 'rec_position_id'])
+            ->keyBy('id');
+        // Neueste aktive Anstellung je Bewerbung (orderBy id oben -> letzte gewinnt).
+        $anstellungJeBewerbung = $aktiveAnstellungen->keyBy(fn ($e) => (int) $e->rec_applicant_id);
+        $bewerbungStelle = $applicantIds === [] ? [] : RecApplicant::query()
+            ->where('team_id', $teamId)
+            ->whereIn('id', array_values(array_unique($applicantIds)))
+            ->pluck('rec_position_id', 'id')
+            ->all();
+
+        $stellenIds = array_filter(array_merge(
+            $mitarbeiter->pluck('rec_position_id')->all(),
+            $aktiveAnstellungen->pluck('rec_position_id')->all(),
+            array_values($bewerbungStelle),
+        ));
+        $stelleKst = $stellenIds === [] ? [] : \Platform\Recruiting\Models\RecPosition::query()
+            ->whereIn('id', array_values(array_unique(array_map('intval', $stellenIds))))
+            ->pluck('cost_center', 'id')
+            ->all();
+
+        $block = static fn (?object $ma) => $ma === null ? null : KostenstellenBloecke::block(
+            $ma->cost_center !== null ? (string) $ma->cost_center : null,
+            isset($stelleKst[(int) $ma->rec_position_id]) ? (string) $stelleKst[(int) $ma->rec_position_id] : null,
+        );
+
+        return function (string $contextModel, ?int $contextId) use ($mitarbeiter, $anstellungJeBewerbung, $bewerbungStelle, $stelleKst, $block): ?int {
+            if ($contextId === null) {
+                return null;
+            }
+            if ($this->isEmployeeContext($contextModel)) {
+                return $block($mitarbeiter->get($contextId));
+            }
+            if ($this->isApplicantContext($contextModel)) {
+                if ($anstellungJeBewerbung->has($contextId)) {
+                    return $block($anstellungJeBewerbung->get($contextId));
+                }
+                $stelle = $bewerbungStelle[$contextId] ?? null;
+
+                return KostenstellenBloecke::block(null, isset($stelleKst[(int) $stelle]) ? (string) $stelleKst[(int) $stelle] : null);
+            }
+
+            return null;
+        };
     }
 
     /**

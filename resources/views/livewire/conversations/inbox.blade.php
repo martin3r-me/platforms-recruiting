@@ -63,7 +63,12 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h1 class="text-lg font-semibold tracking-tight">Kommunikation</h1>
-                <p class="text-xs text-gray-500">Vorschau · {{ $this->total }} Konversationen</p>
+                <p class="text-xs text-gray-500">
+                    Vorschau · {{ $this->total }} Konversationen
+                    @if ($this->filialeLabel !== null)
+                        · <span class="font-semibold text-gray-700">nur {{ $this->filialeLabel }}</span>
+                    @endif
+                </p>
             </div>
             <div class="flex flex-wrap items-center gap-1.5">
                 @foreach ($pills as $pill)
@@ -222,6 +227,13 @@
                         <option value="mine">Mir zugewiesen</option>
                         @foreach ($this->teamUsers as $u)
                             <option value="{{ $u['id'] }}">{{ $u['name'] }}</option>
+                        @endforeach
+                    </select>
+                    {{-- Filiale (Markus 16.10.2026): schneidet auch die Pillen-Zahlen oben. --}}
+                    <select wire:model.live="filiale" class="min-w-0 flex-1 rounded-lg border-gray-300 text-xs">
+                        <option value="all">Filiale: alle</option>
+                        @foreach ($this->filialeOptions as $option)
+                            <option value="{{ $option['value'] }}">{{ $option['label'] }} ({{ $option['count'] }})</option>
                         @endforeach
                     </select>
                     <button type="button" wire:click="toggleSelectMode"

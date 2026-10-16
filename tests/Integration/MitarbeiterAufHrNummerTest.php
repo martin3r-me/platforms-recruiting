@@ -333,6 +333,11 @@ class MitarbeiterAufHrNummerTest extends TestCase
             [$own, 'database/migrations/2026_04_29_000001_create_rec_source_platforms_table.php'],
             [$own, 'database/migrations/2026_06_12_000003_add_matching_columns.php'],
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_02_09_000001_create_rec_positions_table.php'],
+            [$own, 'database/migrations/2026_05_21_000006_add_cost_center_to_rec_positions.php'],
+            // Filial-Filter (16.10.2026): Kostenstelle am MA / an der Stelle, Stelle an der Bewerbung.
+            [$own, 'database/migrations/2026_07_07_000001_add_cost_center_to_rec_employees.php'],
+            [$own, 'database/migrations/2026_08_18_000001_add_rec_position_id_to_rec_applicants.php'],
             [$own, 'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],

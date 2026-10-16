@@ -44,6 +44,8 @@ class Inbox extends Component
     /** all | applicants | employees — Umschalter ueber der Liste */
     public string $kind = 'all';
     public string $owner = 'all';
+    /** all | ohne | Filial-Block ('100', '200', …) — schneidet anders als owner auch die Pillen-Zahlen. */
+    public string $filiale = 'all';
     public string $search = '';
 
     /**
@@ -126,6 +128,7 @@ class Inbox extends Component
             search: $this->search,
             currentUserId: (int) Auth::id(),
             kind: $this->kind,
+            filiale: $this->filiale,
         );
     }
 
@@ -139,6 +142,52 @@ class Inbox extends Component
     public function total(): int
     {
         return $this->snapshot['total'];
+    }
+
+    /**
+     * Auswahl „Filiale“: jeder vorkommende Block mit Kuerzel und Anzahl Chats
+     * (ueber alle Chats), dazu „ohne Filiale“. Die gewaehlte bleibt sichtbar,
+     * auch wenn sie gerade leer ist.
+     *
+     * @return list<array{value: string, label: string, count: int}>
+     */
+    #[Computed]
+    public function filialeOptions(): array
+    {
+        $counts = (array) ($this->snapshot['filialen'] ?? []);
+        if ($this->filiale !== 'all' && !isset($counts[$this->filiale])) {
+            $counts[$this->filiale] = 0;
+        }
+
+        $out = [];
+        foreach ($counts as $value => $count) {
+            $value = (string) $value;
+            $out[] = [
+                'value' => $value,
+                'label' => $value === 'ohne'
+                    ? 'ohne Filiale'
+                    : (\Platform\Recruiting\Support\Filialen::code((int) $value) ?? ('#' . $value)),
+                'count' => (int) $count,
+            ];
+        }
+
+        return $out;
+    }
+
+    /** Kuerzel der gewaehlten Filiale fuer den Kopf („Kommunikation · nur MGL“), null bei „alle“. */
+    #[Computed]
+    public function filialeLabel(): ?string
+    {
+        if ($this->filiale === 'all') {
+            return null;
+        }
+        foreach ($this->filialeOptions as $option) {
+            if ($option['value'] === $this->filiale) {
+                return $option['label'];
+            }
+        }
+
+        return null;
     }
 
     #[Computed]
@@ -271,7 +320,7 @@ class Inbox extends Component
         if ($property === 'oooForm.until' && $this->oooForm['until'] !== '' && $this->oooForm['back_at'] === '') {
             $this->oooForm['back_at'] = \Carbon\Carbon::parse($this->oooForm['until'])->addDay()->format('Y-m-d');
         }
-        if ($property === 'search' || $property === 'owner') {
+        if ($property === 'search' || $property === 'owner' || $property === 'filiale') {
             $this->discardSelectionOnFilterChange();
             $this->resetPage();
         }
