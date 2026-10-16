@@ -29,6 +29,8 @@ final class PortalShellVerifyTest extends TestCase
     private Capsule $capsule;
     private Repository $cache;
     private Store $session;
+    /** @var list<array{0:string, 1:array}> */
+    private array $logWarnungen = [];
 
     protected function setUp(): void
     {
@@ -46,6 +48,16 @@ final class PortalShellVerifyTest extends TestCase
         // Die DB-Fassade wird im Erfolgsfall gebraucht (portal_verified_at).
         // Ohne clearResolvedInstances haelt die Fassade eine alte Wurzel fest.
         $container->instance('db', $this->capsule->getDatabaseManager());
+        // Log-Attrappe: identitaetLaden() stellt Infos zu und meldet einen
+        // Fehler dabei nur ins Log. Dieses Schema hat bewusst keine
+        // rec_documents — jeder Anmeldetest laeuft damit durch den Fehlerzweig.
+        $this->logWarnungen = [];
+        $warnungen = &$this->logWarnungen;
+        $container->instance('log', new class($warnungen) {
+            public function __construct(private array &$w) {}
+            public function warning(string $m, array $c = []): void { $this->w[] = [$m, $c]; }
+            public function __call($m, $a) {}
+        });
         Facade::setFacadeApplication($container);
         Facade::clearResolvedInstances();
 
@@ -86,6 +98,7 @@ final class PortalShellVerifyTest extends TestCase
 
     protected function tearDown(): void
     {
+        Container::getInstance()->forgetInstance('log');
         Facade::clearResolvedInstances();
         Model::unsetConnectionResolver();
         Model::clearBootedModels();
@@ -134,6 +147,27 @@ final class PortalShellVerifyTest extends TestCase
         $this->assertSame('verified', $shell->state);
         $this->assertSame('Kevin', $shell->displayName);
         $this->assertTrue($this->session->has(PortalAuth::sessionKey($ma->id)));
+    }
+
+    /**
+     * Spec 2026-10-16 §4: die Info-Zustellung beim ersten Oeffnen haengt an
+     * identitaetLaden(). Scheitert sie (hier: Tabelle fehlt), wird nur
+     * gewarnt — die Anmeldung selbst darf daran nicht haengen.
+     */
+    public function test_fehler_der_info_zustellung_kostet_die_anmeldung_nicht(): void
+    {
+        $ma = $this->ma();
+        $shell = $this->shell($ma);
+        $shell->birthDate = '1995-03-14';
+        $shell->idLast4 = '0T47';
+
+        $shell->verify($this->auth());
+
+        $this->assertSame('verified', $shell->state);
+        $this->assertCount(1, $this->logWarnungen);
+        $this->assertSame('recruiting.dokumente.auto_zustellung_fehlgeschlagen', $this->logWarnungen[0][0]);
+        $this->assertSame($ma->id, $this->logWarnungen[0][1]['employee_id']);
+        $this->assertInstanceOf(\Throwable::class, $this->logWarnungen[0][1]['exception']);
     }
 
     /**

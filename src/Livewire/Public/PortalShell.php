@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -12,6 +13,7 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Services\DokumentAutoZustellung;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\DokumentLeser;
 use Platform\Recruiting\Services\DokumentUnterschrift;
@@ -1438,6 +1440,17 @@ class PortalShell extends Component
      */
     private function identitaetLaden(RecEmployee $employee): void
     {
+        // Spec 2026-10-16 §4: beim ersten Oeffnen Infos "an neue Mitarbeiter"
+        // zustellen — hier, weil beide Wege (Token-Pruefung und Konto) hier
+        // durchlaufen. Ein Fehler darf die Anmeldung nicht kosten. Die
+        // Ausnahme geht als Kontext ins Log (Meldung + Stack), nie in die
+        // Oberflaeche — PortalGleichstandTest Punkt 3.
+        try {
+            app(DokumentAutoZustellung::class)->fuerErstesOeffnen($employee);
+        } catch (\Throwable $e) {
+            Log::warning('recruiting.dokumente.auto_zustellung_fehlgeschlagen', ['employee_id' => (int) $employee->id, 'exception' => $e]);
+        }
+
         $this->displayName = $this->vorname($employee);
         $this->initialen   = $this->initialen($employee);
     }
