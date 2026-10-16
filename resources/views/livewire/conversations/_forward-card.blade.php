@@ -1,10 +1,11 @@
 {{-- Partial: interne Karte einer Weiterleitung. Erwartet $card mit
      messages (list{message_id, body, media_type, received_at}), comment, by, forwarded_at,
-     optional attachments (message_id => list{url, thumbnail, title, media_type}).
+     optional attachments (message_id => list{url, thumbnail, title, media_type}),
+     optional from (Kopfzeile, Standard "Aus der Dispo"; HR -> Dispo: "Von HR").
      Der MA sieht diese Karte nie. --}}
 <div class="rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-sm">
     <div class="mb-1.5 text-[11px] font-semibold text-violet-700">
-        Aus der Dispo weitergeleitet · {{ $card['forwarded_at'] }}
+        {{ $card['from'] ?? 'Aus der Dispo' }} weitergeleitet · {{ $card['forwarded_at'] }}
         @if (($card['by'] ?? '') !== '')
             · {{ $card['by'] }}
         @endif

@@ -3,12 +3,15 @@
 namespace Platform\Recruiting\Livewire\Dispo\Conversations;
 
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
+use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
+use Platform\Recruiting\Services\Comms\Forward\ForwardCompletion;
 use Platform\Recruiting\Services\Comms\Forward\ForwardMessageSelection;
 use Platform\Recruiting\Services\Comms\Forward\ForwardStatus;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
@@ -56,6 +59,17 @@ class Index extends Component
     public array $forwardSelection = [];
     public string $forwardComment = '';
     public ?string $forwardError = null;
+
+    /**
+     * Weiterleitungen VON HR, die das Oeffnen des aktuellen Chats erledigt hat —
+     * „ungelesen schliessen“ holt genau diese zurueck (Spec 16.10.2026, gleiche
+     * Regel wie im HR-Postfach). Locked: sonst koennte der Browser IDs
+     * unterschieben (ForwardCompletion::reopen() prueft trotzdem Team/Chat/Nutzer).
+     *
+     * @var list<int>
+     */
+    #[Locked]
+    public array $openedForwardIds = [];
 
     /** @var array<int, int|null>|null In-Request-Cache: comms_channel_id -> filial_nr (oder null-Eintrag existiert nicht, nur vorhandene Zuordnungen). */
     private ?array $channelFilialeMapCache = null;
@@ -376,6 +390,16 @@ class Index extends Component
         $fwdRows = RecConversationForward::query()
             ->whereIn('source_thread_id', $rows->pluck('id')->all())
             ->get(['source_thread_id', 'forwarded_at', 'done_at', 'target']);
+        // Eingehend von HR (Spec 16.10.2026): solange offen, hat der Chip "von HR"
+        // Vorrang vor dem eigenen "bei HR"/"HR erledigt" — er ist die offene Aufgabe.
+        $vonHr = RecConversationForward::query()
+            ->where('target', ForwardTargets::DISPO)
+            ->whereNull('done_at')
+            ->whereIn('target_thread_id', $rows->pluck('id')->all())
+            ->pluck('target_thread_id')
+            ->map(fn ($id) => (int) $id)
+            ->flip()
+            ->all();
         foreach ($fwdRows->groupBy('source_thread_id') as $tid => $group) {
             $latest = ForwardStatus::latest($group->map(fn ($f) => [
                 'forwarded_at' => $f->forwarded_at->getTimestamp(), 'done' => $f->done_at !== null, 'target' => (string) $f->target,
@@ -390,7 +414,7 @@ class Index extends Component
             }
         }
 
-        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir, $forwardStates) {
+        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir, $forwardStates, $vonHr) {
             $employeeId = $this->resolveEmployee($t);
             // "alte Nummer"-Etikett: Person zugeordnet, aber Thread-Nummer passt
             // zu keiner aktuellen Akten-Nummer der Gruppe (Vorfall Vesa).
@@ -425,7 +449,9 @@ class Index extends Component
                 'filiale'     => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
                 'filial_nr'   => $filialNr,
                 'window'      => $window, // state: open | closed | none, left: "22 h" | "45 min" | null
-                'forward'     => $forwardStates[(int) $t->id] ?? null, // null | {state: open|done, label}
+                'forward'     => isset($vonHr[(int) $t->id])
+                    ? ['state' => ForwardStatus::OPEN, 'label' => 'von HR']
+                    : ($forwardStates[(int) $t->id] ?? null), // null | {state: open|done, label}
             ];
         })->values()->all();
     }
@@ -555,14 +581,25 @@ class Index extends Component
     #[Computed]
     public function selected(): ?CommsWhatsAppThread
     {
-        if ($this->selectedThreadId === null || $this->channelIds === []) {
+        return $this->dispoThread($this->selectedThreadId);
+    }
+
+    /**
+     * Sicherheit: nur Threads AUS DEM DISPO-KANAL-SET laden, nie fremde IDs.
+     * Direkt statt ueber die Computed-Property — select()/markUnreadAndClose()
+     * brauchen den frischen Thread im selben Aufruf, und so sind sie auch
+     * ausserhalb der Livewire-Laufzeit testbar.
+     */
+    private function dispoThread(?int $threadId): ?CommsWhatsAppThread
+    {
+        $channelIds = $this->channelIds();
+        if ($threadId === null || $channelIds === []) {
             return null;
         }
 
-        // Sicherheit: nur Threads AUS DEM DISPO-KANAL-SET laden, nie fremde IDs.
         return CommsWhatsAppThread::query()
-            ->whereKey($this->selectedThreadId)
-            ->whereIn('comms_channel_id', $this->channelIds)
+            ->whereKey($threadId)
+            ->whereIn('comms_channel_id', $channelIds)
             ->first();
     }
 
@@ -592,7 +629,32 @@ class Index extends Component
         }
         usort($rows, static fn (array $a, array $b) => [$a['ts'], $a['kind'] === 'note' ? 1 : 0] <=> [$b['ts'], $b['kind'] === 'note' ? 1 : 0]);
 
-        return $rows;
+        // Offene Weiterleitungen VON HR als Karte im Verlauf (Spec 16.10.2026) —
+        // gleiche Karte und Einsortierung wie im HR-Postfach.
+        $cards = RecConversationForward::query()
+            ->openForTeam((int) $thread->team_id, ForwardTargets::DISPO)
+            ->where('target_thread_id', $thread->id)
+            ->orderBy('forwarded_at')->orderBy('id')
+            ->get()
+            ->map(function (RecConversationForward $f) {
+                $at = \Illuminate\Support\Carbon::instance($f->forwarded_at);
+
+                return [
+                    'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'forward', 'direction' => 'note',
+                    'card' => [
+                        'from' => 'Von HR', 'messages' => (array) $f->messages, 'comment' => $f->comment,
+                        'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $at->format('d.m.Y H:i'),
+                        'attachments' => app(ForwardAttachments::class)
+                            ->forMessageIds(array_column((array) $f->messages, 'message_id')),
+                    ],
+                    'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
+                    'day_label' => DispoThreadDirectory::dayLabel($at),
+                    'status' => null, 'media_type' => null, 'attachments' => [], 'body' => '',
+                    'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
+                ];
+            })->all();
+
+        return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */
@@ -628,11 +690,22 @@ class Index extends Component
 
     public function select(int $threadId): void
     {
+        // Derselbe Chat erneut: gemerkte Weiterleitungen behalten (wie HR-Postfach).
+        $gemerkt = $this->selectedThreadId === $threadId ? $this->openedForwardIds : [];
         $this->selectedThreadId = $threadId;
         $this->replyText = '';
         $this->sendError = null;
         $this->closeForward();
-        $this->selected?->markAsRead();
+        $this->openedForwardIds = $gemerkt;
+        $thread = $this->dispoThread($threadId);
+        if ($thread !== null) {
+            // Oeffnen = gelesen = erledigt, auch fuer Weiterleitungen von HR.
+            $thread->markAsRead();
+            $neu = app(ForwardCompletion::class)->completeForThreadIds(
+                (int) $thread->team_id, (int) $thread->id, \Illuminate\Support\Facades\Auth::id() !== null ? (int) \Illuminate\Support\Facades\Auth::id() : null, ForwardTargets::DISPO,
+            );
+            $this->openedForwardIds = array_values(array_unique(array_merge($gemerkt, $neu)));
+        }
         unset($this->threads, $this->selected, $this->messages, $this->employeePanel, $this->filialeTabs, $this->selectedInfo);
         $this->dispatch('sidebar-refresh');
     }
@@ -643,7 +716,15 @@ class Index extends Component
      */
     public function markUnreadAndClose(): void
     {
-        $this->selected?->markAsUnread();
+        $thread = $this->dispoThread($this->selectedThreadId);
+        if ($thread !== null) {
+            $thread->markAsUnread();
+            app(ForwardCompletion::class)->reopen(
+                (int) $thread->team_id, (int) $thread->id, $this->openedForwardIds,
+                \Illuminate\Support\Facades\Auth::id() !== null ? (int) \Illuminate\Support\Facades\Auth::id() : null, ForwardTargets::DISPO,
+            );
+        }
+        $this->openedForwardIds = [];
         $this->back();
         unset($this->threads, $this->filialeTabs);
         $this->dispatch('sidebar-refresh');
