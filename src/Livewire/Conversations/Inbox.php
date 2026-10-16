@@ -233,7 +233,7 @@ class Inbox extends Component
         // Offene UND die, die das Oeffnen dieses Chats gerade erledigt hat —
         // sonst verschwaende die Karte genau beim Oeffnen (gelesen = erledigt,
         // Review 16.10.2026 K1). Erledigte aus frueheren Besuchen bleiben weg
-        // (Spec Runde 2), der Reiter "Weitergeleitet" fuehrt sie weiter.
+        // (Spec Runde 2) — auch der Reiter "Weitergeleitet" zeigt nur offene.
         $forwards = RecConversationForward::query()
             ->forTeam($this->teamId())
             ->where('target', ForwardTargets::HR)
