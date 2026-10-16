@@ -296,6 +296,15 @@ class ApplicantSettingsModal extends Component
         $pruefungVorher = PortalVorlagen::istAn($this->settingsModel->getSetting(PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV));
         $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] = PortalVorlagen::istAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] ?? false);
 
+        // Themen-Auswahl (WhatsApp): Schalter strikt bool, Ruhezeit 1-48 Stunden (Vorgabe 8),
+        // leere URL/Texte als null speichern (= Vorgabe bzw. Text ohne Knopf).
+        $this->settings['comms_topic_enabled'] = filter_var($this->settings['comms_topic_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $this->settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($this->settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8);
+        foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {
+            $wert = trim((string) ($this->settings[$schluessel] ?? ''));
+            $this->settings[$schluessel] = $wert === '' ? null : $wert;
+        }
+
         $this->settingsModel->settings = $this->settings;
         $this->settingsModel->save();
 

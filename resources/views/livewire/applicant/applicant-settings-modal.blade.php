@@ -1095,6 +1095,73 @@
                     </div>
                 @endif
 
+                {{-- Themen-Auswahl fuer Mitarbeiter (WhatsApp). Rohe Checkbox/Textareas und
+                     KEIN x-ui-input-select: der Select-Save-Bug (siehe oben) gilt auch hier.
+                     Der Schalter bleibt AUS, bis Markus die Texte abgenommen hat. --}}
+                <div class="space-y-4 border-t border-[var(--ui-border)]/40 pt-5">
+                    <div>
+                        <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Themen-Auswahl für Mitarbeiter (WhatsApp)</h3>
+                        <p class="text-sm text-[var(--ui-muted)] mt-1">
+                            Schreibt ein aktiver Mitarbeiter ohne Anlass, fragt das System per Knopfauswahl nach dem Thema
+                            (Einsatz/Dispo oder Lohn) und leitet es weiter. Die Filialen kommen aus den Dispo-Kanälen
+                            (Dispo-Einstellungen) — hier ist nichts einzutragen.
+                        </p>
+                    </div>
+
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model="settings.comms_topic_enabled"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Themen-Auswahl aktiv</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                    Bleibt AUS, bis Markus die Texte abgenommen hat.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <x-ui-input-text
+                            type="number"
+                            name="settings.comms_topic_quiet_hours"
+                            label="Ruhezeit (Stunden, 1–48)"
+                            wire:model="settings.comms_topic_quiet_hours"
+                        />
+                        <x-ui-input-text
+                            name="settings.comms_topic_lohn_url"
+                            label="Login-Anleitung Lohn (URL)"
+                            wire:model="settings.comms_topic_lohn_url"
+                        />
+                    </div>
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Ruhezeit: so lange nach der letzten Nachricht (in beide Richtungen) wird nicht erneut gefragt.
+                        Ohne URL geht der Lohn-Text ohne Knopf raus.
+                    </p>
+
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text der Themen-Frage</label>
+                        <textarea wire:model="settings.comms_topic_text_ask" rows="3"
+                                  class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Vorgabetext.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text Lohn — mit offenen Punkten</label>
+                        <textarea wire:model="settings.comms_topic_text_lohn_offen" rows="3"
+                                  class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">
+                            Leer = Vorgabetext. Platzhalter <span class="font-mono">{PUNKTE}</span> wird durch die offenen Punkte ersetzt.
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text Lohn — alles erledigt</label>
+                        <textarea wire:model="settings.comms_topic_text_lohn_ok" rows="3"
+                                  class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Vorgabetext.</p>
+                    </div>
+                </div>
+
                 {{-- Mitarbeiterportal (Spec Portal-Vorlagen §2/§7): acht Vorlagen plus der
                      Schalter Einsatz-Pruefung. Feldliste, Beschriftung und Hinweise kommen
                      fertig aus ApplicantSettingsModal::portalVorlagenFelder() (Beschriftung =

@@ -195,3 +195,17 @@ Klick-Verarbeitung je ID, Stamper-Ausnahme für `topic_*`/`dispo_*`, `routed_dis
 wa.me-Link mit URL-kodiertem Ursprungstext, Lohn-Zweig mit/ohne offene Punkte und mit/ohne `portal_v2_since`,
 Followup-Marker erledigt sich durch menschliche Antwort, nicht durch Auto-Antwort.
 `sendInteractive` in Tests über Unterklasse/Fake ersetzen (Muster `DokumentHinweisSender`).
+
+---
+
+## Nachtrag: Umgesetzt mit Plan 2026-10-16-whatsapp-themen-auswahl.md
+
+Abweichungen von der Spec (Rulings aus dem Ledger):
+
+- **§2.7 Chip-Regel:** Der Themen-Chip richtet sich nach der jüngsten Zeile je Thread (ohne Themen-Filter) und zeigt sich nur, wenn diese Zeile ein Thema trägt — **ohne** Ruhezeit-Ablauf. Ein offener Lohn-Chat verliert seinen Chip nicht nach 8 h; eine neue Frage (neue `asked`-Zeile) ersetzt ihn. Kosten bei Irrtum: ein alter Chip an einem längst erledigten Chat, bis eine neue Frage kommt.
+- **§2.4 Lohn-Text ohne Login-URL:** geht als Ein-Knopf-Nachricht „Alles klar" (`topic_ack`) raus, weil `sendText` im CRM kein Auto-Reply-Flag hat. Kosten: ein zusätzlicher Knopf.
+- **§2.3 Abgelehnter wa.me-Link:** die Weiterleitung an Dispo läuft trotzdem (das Anliegen soll ankommen); der Stempel `routed_dispo` nur bei gesendetem Link. Im Fehlerfall sehen HR und Dispo den Fall beide.
+- **Kontext-Gate:** der `RecEmployee`-Kontext wird vor dem `ThreadContextGate` herausgenommen, sonst würde jeder erkannte MA-Thread dauerhaft geblockt; andere Fremdkontexte blocken weiter.
+- **Datenmodell:** `last_click_message_id` liegt gleich in der ersten Migration (Schutz gegen doppelte Webhooks).
+- **Logging:** Telefonnummern im Sender-Log nur mit den letzten vier Ziffern (wie `EinmalcodeSender`).
+- **Kommunikationsansicht:** der Themen-Filter steht neben den Filial-Pillen (main 2c50dfb3), ersetzt sie nicht.

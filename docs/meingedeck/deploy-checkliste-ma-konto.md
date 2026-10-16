@@ -122,6 +122,10 @@ Nach jeder `.env`-Änderung dieser beiden: `php artisan config:cache` (S-HR §11
 | `contract_check_companies` | `[]` (aus) | Einstellungen → Checkboxen „Gesellschaft RG/MA" | **AUS lassen**, Einschalten s. 4.9 | SET, S-Vertrag §8 |
 | ~~`tax_class_per_company`~~ | — | **entfällt** (Schalter aus dem Fenster entfernt, Key wirkungslos) | nichts tun — Steuerklasse, Haupt-/Nebenarbeitgeber und Krankenkasse gelten seit Kundenentscheidung Markus 12.10.2026 (E7/E8) immer je Anstellung, Regel in `AnstellungsRegeln` | S-Spiegel §2.1 Nachtrag 12.10. |
 | `konto_notfall_weg_aktiv` | `false` | Einstellungen (Checkbox) | **AUS lassen** | SET, S-HR §11.4 |
+| `comms_topic_enabled` | `false` (aus) | Einstellungen → Kommunikation → Themen-Auswahl für Mitarbeiter (WhatsApp) | **AUS lassen**, Einschalten s. 4.13 (Texte von Markus abgenommen) | SET, S-Themen |
+| `comms_topic_quiet_hours` | `8` | … dieselbe Sektion (1–48) | Vorgabe ok | SET, S-Themen §2.1 |
+| `comms_topic_lohn_url` | `null` | … Login-Anleitung Lohn (URL) | vor dem Einschalten eintragen; leer = Lohn-Text ohne Knopf | SET, S-Themen §2.4 |
+| `comms_topic_text_ask`, `comms_topic_text_lohn_offen` (Platzhalter `{PUNKTE}`), `comms_topic_text_lohn_ok` | `null` (= Vorgabetext) | … drei Textfelder | leer lassen, außer Markus liefert Texte | SET, S-Themen §2.2/§2.4 |
 | `hr_erinnert_tage` | `5` | Einstellungen | Vorgabe ok | SET, S-HR |
 | `hr_kontaktiert_ruhe_tage` | `3` | Einstellungen | Vorgabe ok | SET, S-HR §12.3 |
 
@@ -177,7 +181,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
 5. [ ] **Pin auf den Zweig**: aktueller Kopf von `feat/ma-konto` (Stand 12.10.: `edb12d57`, main eingemergt; vorher prüfen mit `git rev-parse --short origin/feat/ma-konto`), wie Schritt 1 mit `--ref <kopf>`, Forge-Deploy Demo.
 5a. [ ] **Sichttest im Browser (harter Schritt, VOR dem Einschalten der Einsatz-Prüfung):** Einstellungen → Kommunikation → Mitarbeiterportal: eine Vorlage wählen, Speichern, Fenster neu öffnen — Wahl steht noch da; zusätzlich Wert in `rec_applicant_settings.settings` prüfen. Bekannter Fehler: Selects verlieren beim Speichern die Auswahl. [M:project_settings_modal_select_save_bug]
 6. [ ] **Abschnitt 4.4–4.9 exakt wie auf prod fahren** (alle `--dry-run` zuerst). Erwartungswerte zum Vergleichen:
-   - `migrate`: 21 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
+   - `migrate`: 23 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
    - `nachweise-umziehen`: Demo 29.09. erzeugte **1759 Nachweise bei 1603 Datensätzen**. [M:project_personen_klammer_stufe1]
    - `personen-anlegen --dry-run`: vier Zahlen (Personen angelegt, Anstellungen verbunden, Nummern uneinig, Nummer nicht gesetzt) + Kennungen der HR-Sorten; prod-Vorflug erwartete **~1213 Personen-Zeilen**. [P-Klammer Z. 1127, M:project_personen_klammer_stufe1]
    - `seed-rec-contract-extra-fields`: falls in Schritt 4 schon gelaufen, meldet er nur „existiert bereits".
@@ -222,7 +226,7 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 
 - [ ] Zeitpunkt frei wählbar: Der Stundenlauf `einsatz-pruefung` ist durch den ausgeschalteten Schalter (Vorgabe) wirkungslos. [Spec §5]
 - [ ] Forge-Deploy starten. Skript: git pull, composer, FPM-Reload, vite build, `migrate --force`, `optimize:clear`. **Reißt der Deploy im npm-Teil, ist der PHP-Code schon live, aber `migrate`/`view:clear` fehlen** — dann sofort von Hand `php artisan migrate --force` und `php artisan view:clear`. Ohne migrate knallen: HR-Desk-Liste, MA-Akte, ZAS-Dispo-Import (Lieferung bleibt unverarbeitet → Reprocess), beide Stunden-Jobs. [M:reference_forge_deploy_skript_npm, M:project_ma_konto_merge_risiken]
-- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12|2026_10_13_00000[23]|2026_10_16'` — alle 21 „Ran":
+- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12|2026_10_13_00000[23]|2026_10_16|2026_10_17'` — alle 23 „Ran":
 
 | Migration | Art | Hinweis |
 |---|---|---|
@@ -247,8 +251,10 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 | `2026_10_16_000001_add_info_fields_to_rec_documents` | 3 neue Spalten an `rec_documents` (`content_markdown`, `auto_neue_mitarbeiter`, `published_at` + Index) und **ändert bestehende Spalten**: 5 Datei-Spalten (`disk`, `stored_path`, `original_filename`, `file_sha256`, `file_size`) nullable per `change()` (nur wenn NOT NULL) — Paket Infos, vorher `--pretend` (2.4) | down vorhanden (Index, dann Spalten); Datei-Spalten bleiben nullable (NOT NULL zurück scheitert, sobald eine Info existiert) |
 | `2026_10_16_000002_add_notify_mode_to_rec_documents` | neue Spalte `rec_documents.notify_mode` (string 20, Default `whatsapp`) — Haken „WhatsApp-Hinweis senden“ (16.10.2026); Bestand bleibt `whatsapp`, kein `change()` | down = dropColumn |
 | `2026_10_16_000003_create_rec_document_events_table` | neue Tabelle `rec_document_events` — Verlauf je Dokument (wer hat was wann getan), nur anfügen, kein FK | down = drop (**Verlauf weg**) |
+| `2026_10_17_000001_create_rec_conversation_topics_table` | neue Tabelle `rec_conversation_topics` — Themen-Auswahl je Thread (Frage, Klick, Zweig, `routed_dispo`-Stempel) | down = drop |
+| `2026_10_17_000002_create_rec_conversation_followups_table` | neue Tabelle `rec_conversation_followups` — Nachfass-Marker „Offen lassen" | down = drop |
 
-Keine der 21 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen.
+Keine der 23 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen.
 
 ### 4.4 Einmal-Kommandos, in dieser Reihenfolge
 
@@ -302,6 +308,7 @@ Vorher Zähler notieren: `SELECT COUNT(*) FROM rec_employees WHERE zas_changed_a
 - [ ] `contract_check_companies` = leer
 - [ ] `konto_notfall_weg_aktiv` = aus, `RECRUITING_KONTO_WEG4_AKTIV` = false, Feld „Code: Notfall-Weg" = leer
 - [ ] `einsatz_pruefung_aktiv` = aus (bis 4.4 Schritt 8)
+- [ ] `comms_topic_enabled` = aus (bis 4.13)
 - ~~`tax_class_per_company`~~ entfällt (12.10.2026, s. 2.3)
 - [ ] Kein `--welle` im Zeitplan, kein Zeitplan-Eintrag für `nachweise-erinnern`
 - [ ] Kein `portal-umstellen --alle`
@@ -336,13 +343,24 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - [ ] `updates.csv`-Volumen nach dem ersten ZAS-Abruf (Spiegel → beide Gesellschaften). [S-Spiegel §9, M:project_zas_update_export_vorfall]
 
 ### 4.12 Paket Infos (fährt mit `feat/ma-konto`)
-- [ ] Kein eigener Merge/Deploy: das Paket liegt auf `feat/ma-konto` und geht mit 4.1–4.3 live. Die Migration `2026_10_16_000001_add_info_fields_to_rec_documents` ist in 4.3 enthalten (21 Migrationen, mit `2026_10_16_000002_add_notify_mode_to_rec_documents` für den Haken „WhatsApp-Hinweis senden“ und `2026_10_16_000003_create_rec_document_events_table` für den Verlauf je Dokument), ihr `--pretend` in 2.4. `view:clear` aus 4.5 reicht. Kein neuer Zeitplan, keine neue Einstellung.
+- [ ] Kein eigener Merge/Deploy: das Paket liegt auf `feat/ma-konto` und geht mit 4.1–4.3 live. Die Migration `2026_10_16_000001_add_info_fields_to_rec_documents` ist in 4.3 enthalten (zum Zeitpunkt des Pakets 21 Migrationen, mit der Themen-Auswahl 4.13 jetzt 23; dabei `2026_10_16_000002_add_notify_mode_to_rec_documents` für den Haken „WhatsApp-Hinweis senden“ und `2026_10_16_000003_create_rec_document_events_table` für den Verlauf je Dokument), ihr `--pretend` in 2.4. `view:clear` aus 4.5 reicht. Kein neuer Zeitplan, keine neue Einstellung.
 - [ ] Automatik „an neue Mitarbeiter" greift nur für Anstellungen aus einer Bewerbung, deren Person erst nach der Veröffentlichung angelegt wurde (ZAS-Lieferungen ohne Bewerbung nie). Wer vorher angelegt wurde, das Portal aber noch nie geöffnet hat (z. B. frisch Geschulte zum Go-live), bekommt die Willkommensinfo NICHT automatisch → HR wählt diese einmalig als Empfänger (dann mit WhatsApp).
 - [ ] Sichttest: Dokumente → Umschalter „Info" → Text im Editor (fällt der Editor aus: Textfeld) → Vorschau → Haken „automatisch an neue Mitarbeiter" → Bereitstellen ohne Empfänger → neue Test-Anstellung umstellen → Portal öffnen: Kasten „Neu für dich" oben, Text mit Knöpfen (kein Klick nötig, Anzeigen zählt als gesehen) → Schließen → neu anmelden: kein Kasten → Reiter „Dokumente & Infos": Info mit „Gesehen".
 - [ ] Sichttest HR: Überblick zeigt „gesehen 1 von 1" und Abzeichen „automatisch an Neue seit …" (Info bleibt unter „Nur offene", solange der Haken sitzt); „Automatik beenden" nimmt nur den Haken (Info bleibt bei allen), Zurückziehen nimmt den Haken und die Info allen weg.
 - [ ] Sichttest Haken: Dokumente → Haken „WhatsApp-Hinweis senden“ aus → Bereitstellen → Rückfrage und Meldung sagen „ohne WhatsApp“, keine Nachricht geht raus, Überblick zeigt Abzeichen „ohne WhatsApp“ statt „benachrichtigt“; „WhatsApp jetzt senden“ verschickt nachträglich. Akte und Veranstaltung haben denselben Haken.
 - [ ] Sichttest Verlauf: Dokument aufklappen → Abschnitt „Verlauf“ zeigt „bereitgestellt an n Empfänger (…, WhatsApp ja/nein, von: …)“ mit dem eigenen Namen; eine Person zurückziehen → neue Zeile „zurückgezogen für <Name>“ oben, ebenfalls mit Namen; nach dem Job „WhatsApp-Versand: x von y benachrichtigt“ von „System“.
 - [ ] Willkommenstext (Sheran, Mail 14.10.) von HR im Editor einpflegen; Satz zu Zugangsdaten bleibt (ZAS-Portal).
+
+### 4.13 Themen-Auswahl einschalten (nach Sichttest, Texte von Markus abgenommen)
+- [ ] Voraussetzung: Migrationen `2026_10_17_000001/2` „Ran" (4.3), Texte und Login-URL von Markus abgenommen und in den Einstellungen eingetragen (2.3).
+- [ ] Dispo-Kanäle prüfen: `DispoForwardChannels::options` liefert mindestens einen Eintrag (Filialen kommen von dort, nicht aus den Einstellungen).
+- [ ] Testnummer eines aktiven Mitarbeiters bereithalten (nicht die eines Bewerbers — Bewerber-Threads bekommen die Frage nie).
+- [ ] Schalter `comms_topic_enabled` einschalten; danach per SQL nachsehen, dass der Wert steht (Settings-Fenster-Falle, 2.3).
+- [ ] Testnachricht ohne Anlass von der Testnummer schicken: Knopfauswahl „Einsatz/Dispo" / „Lohn" kommt zurück.
+- [ ] Klick-Durchlauf: Einsatz/Dispo → Filiale wählen → Dispo-Postfach zeigt die Karte, der HR-Chat ist mit `routed_dispo` gestempelt; Lohn → Text mit offenen Punkten bzw. „alles erledigt" mit Login-Knopf.
+- [ ] Sichttest „Offen lassen": Frage unbeantwortet lassen bzw. im Chat bewusst „Offen lassen" wählen → Nachfass-Marker erscheint am Chat, erledigt sich durch eine menschliche Antwort (eine Auto-Antwort zählt nicht), keine zweite Frage innerhalb der Ruhezeit (8 h, beide Richtungen).
+- [ ] Kein `queue:restart` nötig: die Themen-Frage läuft im Eingangs-Listener `HandleWhatsAppInboundForRecruiting`, der nicht `ShouldQueue` implementiert (synchron im Webhook-Request); `view:clear` aus 4.5 genügt. Gilt nur, solange der Listener nicht in eine Queue gelegt wird.
+- [ ] Notaus: `comms_topic_enabled` wieder aus — wirkt sofort, laufende Auswahlen bleiben stehen.
 
 ---
 
@@ -355,7 +373,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 | Versand | Vorlagen-Felder in den Einstellungen leeren (Mitarbeiterportal) bzw. Schalter „Einsatz-Prüfung läuft" aus | Kein `config:cache` nötig; bereits verschickte Nachrichten bleiben |
 | Notfallweg | `RECRUITING_KONTO_WEG4_AKTIV=false` (Not-Aus für alle Teams) oder Team-Haken aus | laufende Anträge: `konto-zuruecksetzen --offen` / `--stopp=<id>` |
 | Vertragscheck | Haken aus | offene Fälle schließt HR |
-| Schema | `migrate:rollback` möglich (alle 21 haben `down()`; Infos-Migration lässt die Datei-Spalten nullable) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
+| Schema | `migrate:rollback` möglich (alle 23 haben `down()`; Infos-Migration lässt die Datei-Spalten nullable) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
 
 **Nicht rückholbar:** verschickte WhatsApps; vom Spiegel geschriebene Geschwister-Felder (kein Undo, nur `personendaten-abgleich --nach`); von ZAS bereits abgeholte `updates.csv`-Zeilen; angelegte HR-Fälle (HR schließt); verbrauchte `rec_persons`-Kennungen; Unterschriften im Portal.
 
