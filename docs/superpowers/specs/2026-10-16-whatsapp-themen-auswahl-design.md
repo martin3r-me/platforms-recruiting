@@ -1,6 +1,6 @@
 # WhatsApp-Themen-Auswahl für Mitarbeiter + „Offen lassen“
 
-Stand 16.10.2026 · Status: **Konzept abgestimmt, noch nicht gebaut** · Ziel-Branch: `feat/ma-konto`
+Stand 16.10.2026 (Nachtrag abends nach Gegenlesen Sebastian/Claude) · Status: **Konzept abgestimmt, Plan folgt** · Ziel-Branch: `feat/ma-konto`
 Auslöser: Mail Markus 16.10. („wie wir den Wahnsinn weiter reduzieren können“) + Telefonat Markus/Sebastian.
 
 Diese Spec ist für eine Session geschrieben, die den Vorlauf nicht kennt. Alles Nötige steht hier.
@@ -57,10 +57,14 @@ Eingang auf dem **HR-Kanal** (`RecruitingChannelResolver::channelIds`), und **al
    Kampagnen, Erinnerungen, Auto-Antworten zählen). Grund: Wer auf unsere Nachricht antwortet, hat kein neues
    Anliegen. Wert als Team-Setting (`comms_topic_quiet_hours`, Default 8).
 3. Der Eingang ist **kein** Button-Klick (`QuickReply::isQuickReply`) und **keine** Sprachnachricht
-   (dafür antwortet schon `VoiceNoteAutoReplyHandler`).
+   (dafür antwortet schon `VoiceNoteAutoReplyHandler`). **Bilder und Dokumente lösen aus** (Nachtrag 16.10.:
+   ein Foto der Krankmeldung soll genauso zur Dispo finden wie ein Text).
 4. Feature-Schalter im Team-Setting an (Default **aus**, damit der Rollout bewusst passiert).
 
-Offen: Verhalten bei aktivem Abwesenheitsmodus (`OooAutoReplyHandler`) — siehe §5.
+**Abwesenheitsmodus aktiv** (entschieden 16.10.): **eine** Nachricht — oben der Abwesenheitstext (Daten aus
+`comms_ooo_from/until/back_at`, als Freitext im Interactive-Body), darunter „Worum geht es?“ mit den drei Knöpfen.
+Die Themen-Auswahl läuft im Listener **vor** `OooAutoReplyHandler`; hat sie gesendet, wird der OOO-Handler für diese
+Nachricht übersprungen (keine zweite Nachricht). Für alle, die nicht auslösen, bleibt die OOO-Vorlage wie heute.
 
 ### 2.2 Nachricht 1: „Worum geht's?“
 
@@ -77,29 +81,22 @@ Kein „Pflicht“-Ton: wer die Buttons ignoriert und weiterschreibt, landet gan
 
 ### 2.3 Disposition
 
-1. Klick `topic_dispo` → zweite `button`-Nachricht mit den **Filialen**. IDs `dispo_<filial_nr>`.
-   **Keine eigene Konfiguration** — die Zuordnung existiert schon: `rec_dispo_filiale_settings`
-   (filial_nr → comms_channel_id), Namen aus `Support\Filialen` (`config('recruiting.filialen')`),
-   Kanal-Set aus `DispoChannelResolver::dispoChannelIds()`. Angeboten wird jede Filiale mit Kanal; neue Kanäle
-   erscheinen ohne Deploy. Stand Prod 16.10.2026:
-
-   | filial_nr | Name | Kanal | Nummer |
-   |---|---|---|---|
-   | 100 | Düsseldorf & Essen | 33 | +49 211 78177725 |
-   | 200 | Mönchengladbach | 31 | +49 211 78177723 |
-   | 300 | Wuppertal | — (nicht angeboten) | — |
-   | 400 | Köln | 32 | +49 211 78177729 |
-
-   Button-Grenze 3 ist damit genau ausgeschöpft — bei einer vierten Filiale mit Kanal auf `list` umschalten.
-   Region wird **gewählt**, nicht abgeleitet. Ableitung aus den Einsätzen ist eine spätere Verfeinerung.
-   **Anzeigename bei Meta** ist bei allen drei Nummern gleich („RheinGedeck Disposition“) — der MA sieht im
-   neuen Chat nicht, welche Filiale. Deshalb im vorausgefüllten Text die Filiale nennen
-   („An Dispo Köln: …“); getrennte Anzeigenamen bei Meta wären zusätzlich möglich.
-2. Klick `dispo_<key>` → `cta_url`-Nachricht mit **einem** Link-Button „Zur Dispo <Label>“ →
-   `https://wa.me/<Nummer ohne +>?text=<urlencode(ursprüngliche Nachricht)>`. Der MA tippt nur noch „Senden“ und
-   schreibt **selbst** die Dispo an (öffnet dort das 24h-Fenster; die Dispo darf ihn nicht von sich aus anschreiben).
+1. Klick `topic_dispo` → zweite Nachricht mit den **Filialen**. Quelle ist **keine neue Einstellung**, sondern
+   `DispoForwardChannels::options($teamId)` (main 16.10., „An Dispo weiterleiten“): jeder aktive Dispo-Kanal mit
+   Filialname („Dispo Köln“), Nummer = `comms_channels.sender_identifier`. IDs `dispo_<channel_id>`.
+   Bis 3 Kanäle als `button`, ab 4 als `list` (≤ 10). Region wird **gewählt**, nicht abgeleitet; Vorbelegung
+   per `preferredFor()` ist eine spätere Verfeinerung.
+2. Klick `dispo_<channel_id>` → **zwei Dinge**:
+   a) `cta_url`-Nachricht mit **einem** Link-Button „Zur Dispo <Label>“ →
+      `https://wa.me/<Nummer ohne +>?text=<urlencode(ursprüngliche Nachricht)>`. Der MA tippt nur noch „Senden“ und
+      schreibt **selbst** die Dispo an (öffnet dort das 24h-Fenster).
+   b) **Automatische Weiterleitung** der Ursprungsnachricht an diesen Dispo-Kanal über
+      `ConversationForwarder::forward(... target: DISPO, source: HR, targetChannelId)` mit Kommentar
+      „Automatisch: Mitarbeiter hat Thema Disposition gewählt“ und `forwarded_by_user_id = null`. Damit liegt das
+      Anliegen in der Dispo-Postfach-Karte, **auch wenn der MA den Link nicht drückt** (Gegenlesen 16.10.).
 3. Danach den HR-Chat als erledigt stempeln, Grund `routed_dispo` (neue Konstante an `RecConversationHandled`) —
-   er ist umgeleitet, Clara soll ihn nicht mehr sehen.
+   er ist umgeleitet, Clara soll ihn nicht mehr sehen. Der Chip „Dispo → Köln“ bleibt unter „Alle“ sichtbar;
+   ein neuer Eingang hebt den Stempel wie immer auf.
 
 ### 2.4 Lohn & Gehalt
 
@@ -147,12 +144,12 @@ Markus hat am Telefon den „doppelten Boden“ wieder geöffnet: Clara soll um 
 **noch zu erledigen** markieren können.
 
 - Knopf im Chat-Kopf „Offen lassen“ → Marker in neuer Tabelle `rec_conversation_followups`
-  (`team_id, comms_whatsapp_thread_id, marked_by_user_id, marked_at, cleared_at, cleared_reason`).
-- Pille **„Offen N“** zeigt markierte Chats — unabhängig von gelesen/ungelesen.
-- **Erledigt sich automatisch, sobald jemand antwortet** (menschlicher Ausgang `is_auto_reply = false`
-  nach `marked_at`) — abgeleitet im Lesepfad wie `ConversationHandledState`, kein Job.
-- Ausweg per Klick „erledigt“ (für Fälle, die am Telefon geklärt wurden), setzt `cleared_reason = manual`.
-- Chip „offen gelassen von Clara · 18:05“.
+  (`team_id, comms_whatsapp_thread_id, marked_by_user_id, marked_at, cleared_at, cleared_by_user_id`).
+  „Ungelesen schließen“ bleibt daneben bestehen (Sebastian 16.10.: zwei verschiedene Dinge).
+- Pille **„Offen N“** zeigt markierte Chats — unabhängig von gelesen/ungelesen und vom Stempel.
+- **Gelöst wird der Marker nur bewusst** (Sebastian 16.10.): Knopf „Erledigt“ im Chat-Kopf eines markierten Chats
+  setzt `cleared_at` + `cleared_by_user_id`. Eine Antwort von HR löst ihn **nicht** automatisch.
+- Chip „offen gelassen von Clara · 18:05“ in Liste und Kopf.
 
 ---
 
@@ -167,16 +164,17 @@ Rollout: Feature-Schalter erst nach Sichttest an; Texte von Markus abnehmen lass
 
 ---
 
-## 5. Offene Fragen (vor dem Plan klären)
+## 5. Offene Fragen — Stand 16.10. abends
 
-1. **Abwesenheitsmodus aktiv:** nur OOO-Antwort, nur Auswahl, oder beides in einer Nachricht?
-2. **Teil B vs. „ungelesen schließen“:** beide Knöpfe behalten oder „ungelesen schließen“ durch „Offen lassen“
-   ersetzen? (Empfehlung: ersetzen — ein Knopf, Marker erledigt sich durch Antwort.)
-3. ~~Filialen~~ — geklärt 16.10., siehe §2.3 (Zuordnung aus `rec_dispo_filiale_settings`).
-4. **Texte** der vier Nachrichten (Du/Sie) — Markus abnehmen lassen.
-5. **Login-Anleitung:** welches Portal (ZAS?) und welche Ziel-URL.
-6. **Ein MA mit mehreren Threads/Nummern:** Auslöser je Thread (Vorschlag) oder je Person?
-7. **Meta-Kosten** der Service-Antworten bestätigen.
+1. **Abwesenheitsmodus:** entschieden — eine kombinierte Nachricht (§2.1).
+2. **Teil B vs. „ungelesen schließen“:** entschieden — beide bleiben, Marker nur bewusst lösen (§3).
+3. **Filialen:** entschieden — aus `DispoForwardChannels`, keine neue Einstellung (§2.3). Offen bleibt nur, ob
+   die drei Dispo-Nummern aus Sherans Text (+49 1523…, +49 1577…, +49 176…) wirklich Meta-Kanäle sind. → Markus/Sheran.
+4. **Texte** der vier Nachrichten (Du/Sie): Vorgabetexte im Plan, als Team-Einstellungen überschreibbar, Markus nimmt ab.
+5. **Login-Anleitung:** Team-Einstellung `comms_topic_lohn_url` (leer → Nachricht ohne Knopf). Markus liefert die URL.
+6. **Mehrere Threads einer Person:** entschieden — Auslöser je Thread.
+7. **Meta-Kosten:** vom Kunden ausgelöste Service-Gespräche sind seit 1.11.2024 kostenlos, interaktive Antworten im
+   24h-Fenster auch. Vor dem Einschalten gegen das aktuelle Preisblatt prüfen.
 
 ## 6. Tests (Modul-Konvention: Unit pur + Integration mit Capsule/SQLite)
 
