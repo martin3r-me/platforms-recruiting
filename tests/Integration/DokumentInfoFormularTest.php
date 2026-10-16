@@ -312,7 +312,9 @@ final class DokumentInfoFormularTest extends TestCase
     public function test_pdf_weg_bietet_die_kategorie_info_nicht_an(): void
     {
         $blade = $this->blade();
-        $this->assertStringContainsString('DokumentKategorie::istText($code)', $blade);
+        // Filter liegt jetzt an EINER Stelle (Schlussreview M-2), belegt in DokumentKategorieTest.
+        $this->assertStringContainsString('$kategorien = \\Platform\\Recruiting\\Support\\DokumentKategorie::labelsFuerDatei();', $blade);
+        $this->assertArrayNotHasKey('info', \Platform\Recruiting\Support\DokumentKategorie::labelsFuerDatei());
     }
 
     public function test_vorschau_rendert_mit_demselben_renderer(): void

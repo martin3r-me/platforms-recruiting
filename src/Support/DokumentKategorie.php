@@ -50,6 +50,19 @@ final class DokumentKategorie
         return array_map(static fn (array $k) => $k['label'], self::KATALOG);
     }
 
+    /**
+     * Kategorien fuer ein Datei-Formular (PDF hochladen): ohne Text-Kategorien
+     * (istText) — die gibt es nur ueber den Umschalter PDF | Info auf der Seite
+     * Dokumente. Akte, Veranstaltung und Dokumente-Seite fragen hier
+     * (Schlussreview M-2).
+     *
+     * @return array<string,string>
+     */
+    public static function labelsFuerDatei(): array
+    {
+        return array_filter(self::labels(), static fn (string $code) => !self::istText($code), ARRAY_FILTER_USE_KEY);
+    }
+
     public static function label(string $code): string
     {
         return self::KATALOG[$code]['label'] ?? $code;

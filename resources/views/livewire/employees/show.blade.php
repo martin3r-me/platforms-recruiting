@@ -648,7 +648,7 @@
             {{-- Dokumente bereitstellen und Stand (Spec Dokumente 2026-10-08, §3.2) --}}
             @php
                 $dokZeilen = $this->personDokumente;
-                $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
+                $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labelsFuerDatei();
                 $dokAktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
             @endphp
             <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">

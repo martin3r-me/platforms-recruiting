@@ -41,4 +41,22 @@ final class DokumentKategorieTest extends TestCase
         $this->assertTrue(DokumentKategorie::brauchtHandlung('acknowledge'));
         $this->assertTrue(DokumentKategorie::brauchtHandlung('sign'));
     }
+
+    public function test_datei_formulare_bieten_keine_text_kategorie_an(): void
+    {
+        $datei = DokumentKategorie::labelsFuerDatei();
+        $this->assertSame(['contract', 'instruction', 'form', 'payslip', 'certificate', 'other'], array_keys($datei));
+        $this->assertSame('Vertrag / Zusatzvereinbarung', $datei['contract']);
+        foreach (array_keys($datei) as $code) {
+            $this->assertFalse(DokumentKategorie::istText($code));
+        }
+
+        // Alle drei PDF-Formulare (Dokumente-Seite, Akte, Veranstaltung) nutzen die gefilterte Liste (Schlussreview M-2).
+        $views = dirname(__DIR__, 3) . '/resources/views/livewire/';
+        foreach (['employees/documents.blade.php', 'employees/show.blade.php', 'dispo/events/show.blade.php'] as $datei) {
+            $blade = (string) file_get_contents($views . $datei);
+            $this->assertStringContainsString('DokumentKategorie::labelsFuerDatei()', $blade, $datei);
+            $this->assertStringNotContainsString('DokumentKategorie::labels()', $blade, $datei);
+        }
+    }
 }

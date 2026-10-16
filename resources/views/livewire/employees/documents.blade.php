@@ -1,10 +1,6 @@
 @php
     // PDF-Weg: Text-Kategorien (info) gibt es nur ueber den Umschalter PDF | Info.
-    $kategorien = array_filter(
-        \Platform\Recruiting\Support\DokumentKategorie::labels(),
-        fn ($label, $code) => !\Platform\Recruiting\Support\DokumentKategorie::istText($code),
-        ARRAY_FILTER_USE_BOTH,
-    );
+    $kategorien = \Platform\Recruiting\Support\DokumentKategorie::labelsFuerDatei();
     $istInfo = $art === 'info';
     $artAn = 'bg-blue-50 text-blue-800 font-medium';
     $artAus = 'text-[var(--ui-muted)] hover:bg-[var(--ui-muted-5)]';

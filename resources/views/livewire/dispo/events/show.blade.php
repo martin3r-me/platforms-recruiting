@@ -982,7 +982,7 @@
     @endif
     @if ($showDokumentModal)
         @php
-            $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
+            $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labelsFuerDatei();
             $dokAktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
             $dokAnzahl = count($this->eingebuchteIds);
         @endphp
