@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services\Comms;
 
+use Illuminate\Database\QueryException;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
@@ -161,10 +162,16 @@ final class OooAutoReplyHandler
      */
     private function abwesenheitInThemenFrage(CommsWhatsAppThread $thread): bool
     {
-        return RecConversationTopic::query()
-            ->where('comms_whatsapp_thread_id', (int) $thread->id)
-            ->where('asked_at', '>=', \Carbon\Carbon::now()->subDay())
-            ->exists();
+        // Fehlt die Tabelle (Deploy ohne migrate), gab es auch keine Frage —
+        // die Abwesenheitsvorlage geht wie bisher raus (Schlussreview m1).
+        try {
+            return RecConversationTopic::query()
+                ->where('comms_whatsapp_thread_id', (int) $thread->id)
+                ->where('asked_at', '>=', \Carbon\Carbon::now()->subDay())
+                ->exists();
+        } catch (QueryException) {
+            return false;
+        }
     }
 
     /** Bewerber-, Mitarbeiter- oder kontextloser Thread — sonst kein OOO. */

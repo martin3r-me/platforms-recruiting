@@ -443,6 +443,23 @@ final class ThemenAuswahlHandlerTest extends TestCase
         $this->assertSame('hr_abwesend', $this->gesendet[0]['vorlage']);
     }
 
+    public function test_ooo_vorlage_geht_raus_auch_wenn_die_themen_tabelle_fehlt(): void
+    {
+        // Schlussreview m1: Deploy ohne migrate (npm-Falle im Forge-Skript) —
+        // die Abwesenheitsvorlage darf nicht an der fehlenden Tabelle sterben.
+        $this->abwesenheitAn();
+        [$thread, $msg] = $this->eingang();
+        Capsule::schema()->rename('rec_conversation_topics', 'rec_conversation_topics_weg');
+        try {
+            $this->ooo()->handle($this->kanal, $thread->fresh(), $msg);
+        } finally {
+            Capsule::schema()->rename('rec_conversation_topics_weg', 'rec_conversation_topics');
+        }
+
+        $this->assertCount(1, $this->gesendet);
+        $this->assertSame('hr_abwesend', $this->gesendet[0]['vorlage']);
+    }
+
     public function test_geblacklisteter_kontakt_bekommt_keine_themen_frage(): void
     {
         [$thread, $msg] = $this->eingang();
