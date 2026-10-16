@@ -369,7 +369,7 @@
                             @if ($dok['auto'])
                                 <button type="button" wire:click="automatikBeenden({{ $dok['id'] }})" wire:confirm="Automatik für „{{ $dok['title'] }}“ beenden? Neue bekommen die Info dann nicht mehr, wer sie schon hat, behält sie." class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Automatik beenden</button>
                             @endif
-                            @if (!$dok['geloescht'] && !$dok['erledigt'])
+                            @if ($dok['zurueckziehbar'])
                                 <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="{{ $dokZurueckFrage }}" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
                             @endif
                         </div>

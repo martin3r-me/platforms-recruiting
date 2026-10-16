@@ -211,6 +211,42 @@ final class DokumentInfoUeberblickTest extends TestCase
         $this->assertSame([], $this->seite('offen')->dokumente(), 'ohne Haken und alle gesehen: erledigt');
     }
 
+    public function test_erledigte_info_laesst_sich_weiter_zurueckziehen(): void
+    {
+        // Schlussreview I-1: falsche Telefonnummer verschickt, alle haben gesehen → muss trotzdem weg koennen.
+        $d = $this->info(false);
+        $this->zustellen($d, $this->anstellung(), ['first_viewed_at' => '2026-10-16 11:00:00']);
+        $dok = $this->seite('alle')->dokumente()[0];
+        $this->assertTrue($dok['erledigt']);
+        $this->assertTrue($dok['zurueckziehbar']);
+
+        // Automatik beendet + alle gesehen: ebenso.
+        $a = $this->info(true);
+        $this->zustellen($a, $this->anstellung(['first_name' => 'Ben']), ['first_viewed_at' => '2026-10-16 11:00:00']);
+        $this->seite()->automatikBeenden((int) $a->id);
+        $zeile = collect($this->seite('alle')->dokumente())->firstWhere('id', (int) $a->id);
+        $this->assertTrue($zeile['erledigt']);
+        $this->assertTrue($zeile['zurueckziehbar']);
+
+        $this->assertStringContainsString("@if (\$dok['zurueckziehbar'])\n                                <button type=\"button\" wire:click=\"dokumentZurueckziehen(", $this->blade('documents.blade.php'));
+    }
+
+    public function test_pdf_erledigt_oder_zurueckgezogene_info_ohne_zurueckziehen(): void
+    {
+        RecDocument::create(['team_id' => 3, 'title' => 'Hausordnung', 'category' => 'other', 'action' => 'none',
+            'stored_path' => 'x.pdf', 'file_sha256' => hash('sha256', 'p'), 'auto_neue_mitarbeiter' => false]);
+        $pdf = $this->seite('alle')->dokumente()[0];
+        $this->assertTrue($pdf['erledigt'], 'PDF ohne Empfaenger gilt als erledigt');
+        $this->assertFalse($pdf['zurueckziehbar']);
+
+        $d = $this->info(false);
+        $this->zustellen($d, $this->anstellung());
+        $d->delete();
+        $zeile = collect($this->seite('alle')->dokumente())->firstWhere('id', (int) $d->id);
+        $this->assertTrue($zeile['geloescht']);
+        $this->assertFalse($zeile['zurueckziehbar']);
+    }
+
     public function test_automatik_beenden_fremdes_team_tut_nichts(): void
     {
         $fremd = RecDocument::create(['team_id' => 4, 'title' => 'Fremd', 'category' => 'info', 'action' => 'none',

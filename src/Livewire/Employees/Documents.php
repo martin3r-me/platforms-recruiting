@@ -484,7 +484,7 @@ class Documents extends Component
      * EINER gruppierten Abfrage (DokumentZaehler). Volle Zeilen — ohne
      * signature_data — nur fuer das aufgeklappte Dokument.
      *
-     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
+     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, zurueckziehbar:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
      */
     #[Computed]
     public function dokumente(): array
@@ -550,6 +550,10 @@ class Documents extends Component
                 'geloescht'      => $d->deleted_at !== null,
                 'fortschritt'    => $f,
                 'erledigt'       => $erledigt,
+                // Infos sind unveraenderlich ("geaenderte Info = neue Info"): eine
+                // falsche muss auch dann weg koennen, wenn alle sie gesehen haben
+                // (Schlussreview I-1). PDFs: wie bisher nur solange offen.
+                'zurueckziehbar' => $d->deleted_at === null && (!$erledigt || $istInfo),
                 'benachrichtigt' => $n['benachrichtigt'],
                 'ausstehend'     => $ausstehend,
                 'versand_laeuft' => $versandLaeuft,
