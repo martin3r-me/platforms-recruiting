@@ -140,7 +140,7 @@
                 <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg> Einsätze
             </button>
             <button type="button" class="rnav" @click="tab = 'docs'" :class="tab === 'docs' && 'on'">
-                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg> Dokumente
+                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg> Dokumente &amp; Infos
             </button>
             <button type="button" class="rnav" @click="tab = 'me'" :class="tab === 'me' && 'on'">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg> Profil
@@ -204,6 +204,29 @@
                         @endif
                     @endif
                 </div>
+
+                {{--
+                    Infos (Spec 2026-10-16 §5.1): ungesehene Infos stehen VOR
+                    "Noch zu erledigen", aelteste zuerst. Das Anzeigen selbst
+                    gilt als gesehen (PortalShell::neueInfosAnzeigen) -- kein
+                    Klick noetig. "Schliessen" klappt den Kasten nur fuer
+                    diese Sitzung zu.
+                --}}
+                @if ($neueInfos !== [])
+                    <div class="info-kasten">
+                        <div class="info-kopf">
+                            <div class="aufgaben-titel">{{ $duzen ? 'Neu für dich' : 'Neu für Sie' }} <span class="count">{{ count($neueInfos) }}</span></div>
+                            <button type="button" class="mini" wire:click="infosSchliessen">Schließen</button>
+                        </div>
+                        @foreach ($neueInfos as $neueInfo)
+                            <article class="info-text" data-info="{{ $neueInfo['recipient_id'] }}">
+                                <h2 class="info-titel">{{ $neueInfo['title'] }}</h2>
+                                {{-- Ungeescaped nur, weil InfoText::html() die Element-Weissliste erzwingt. --}}
+                                {!! $neueInfo['content_html'] !!}
+                            </article>
+                        @endforeach
+                    </div>
+                @endif
 
                 {{--
                     Aufgabe 11 (erste Fassung): dieselben offenen Punkte wie
@@ -371,7 +394,7 @@
             {{-- ---------------- DOKUMENTE ---------------- --}}
             <div class="pane" :class="tab === 'docs' && 'on'">
                 <div class="greet">
-                    <h2>Dokumente</h2>
+                    <h2>Dokumente &amp; Infos</h2>
                     <p>Was von {{ $duzen ? 'dir' : 'Ihnen' }} gebraucht wird — und was {{ $duzen ? 'dir' : 'Ihnen' }} gehört.</p>
                 </div>
 
@@ -403,6 +426,48 @@
                     <div class="alert {{ $dokMeldungArt }}">
                         <span class="dot {{ $dokMeldungArt }}" style="margin-top:6px"></span>
                         <div class="txt">{{ $dokumentMeldung }}</div>
+                    </div>
+                @endif
+
+                {{--
+                    Infos (Spec 2026-10-16 §5.2): eigener Block ueber den
+                    Dokumenten, neueste zuerst, Abzeichen "Neu" solange
+                    first_viewed_at leer ist. Der Klick klappt den Text inline
+                    auf (infoAufklappen) und setzt "gesehen" -- kein Download,
+                    keine neue Seite.
+                --}}
+                @if ($infos !== [])
+                    <div>
+                        <div class="sec-label">Infos <span class="count">{{ count($infos) }}</span></div>
+                        <div class="card" style="margin-top:11px">
+                            @foreach ($infos as $info)
+                                @php
+                                    // Vorberechnet statt Bedingung im Attribut -- Hausregel.
+                                    $infoChip = $info['gesehen'] ? 'chip info' : 'chip crit';
+                                    $infoChipText = $info['gesehen'] ? 'Gesehen' : 'Neu';
+                                    $infoIstOffen = $infoOffen === $info['recipient_id'];
+                                    $infoKnopf = $infoIstOffen ? 'Zuklappen' : 'Lesen';
+                                    $infoDatum = $info['provided_at'] !== '' ? \Carbon\Carbon::parse($info['provided_at'])->format('d.m.Y') : '';
+                                @endphp
+                                <div class="doc" data-info="{{ $info['recipient_id'] }}">
+                                    <div class="docicon"><span>INFO</span></div>
+                                    <div class="body">
+                                        <div class="title">{{ $info['title'] }}</div>
+                                        <div class="sub">{{ $infoDatum }}</div>
+                                        <div class="row">
+                                            <span class="{{ $infoChip }}">{{ $infoChipText }}</span>
+                                            <button type="button" class="mini" wire:click="infoAufklappen({{ $info['recipient_id'] }})">{{ $infoKnopf }}</button>
+                                        </div>
+                                        @if ($infoIstOffen)
+                                            <div class="info-text">
+                                                {{-- Ungeescaped nur, weil InfoText::html() die Element-Weissliste erzwingt. --}}
+                                                {!! $info['content_html'] !!}
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
                 @endif
 
@@ -751,7 +816,7 @@
                         :aria-selected="tab === 'docs'" :class="tab === 'docs' && 'on'">
                     <span class="ico">
                         <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
-                    </span>Dokumente
+                    </span>Dokumente &amp; Infos
                 </button>
                 <button class="tab" role="tab" type="button" @click="tab = 'me'"
                         :aria-selected="tab === 'me'" :class="tab === 'me' && 'on'">

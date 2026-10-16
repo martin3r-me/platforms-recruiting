@@ -1528,6 +1528,9 @@ final class PortalGleichstandTest extends TestCase
             'dokumentUnterschrift'  => 'die Unterschrift des Menschen',
             'dokumentFehler'        => 'nur eine Anzeige',
             'dokumentMeldung'       => 'nur eine Anzeige',
+            'infoKastenZu'          => 'der Mensch klappt den Info-Kasten selbst zu; nichts in der DB',
+            'infoKastenIds'         => 'im Kasten schon gezeigte Empfaenger-IDs; nur Filter auf DokumentLeser::sichtbare(), jeder Render setzt sie auf das Eigene zurueck',
+            'infoOffen'             => 'aufgeklappte Info; infoAufklappen() prueft die ID gegen den Scope, die Ansicht vergleicht nur mit eigenen Zeilen',
         ];
 
         foreach ($offen as $name => $warum) {

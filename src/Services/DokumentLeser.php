@@ -6,6 +6,7 @@ use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\DokumentStatus;
+use Platform\Recruiting\Support\InfoText;
 
 /**
  * Die Dokumente EINES Menschen (Spec §5.1): alle Zustellungen, deren
@@ -20,7 +21,7 @@ class DokumentLeser
     }
 
     /**
-     * @return list<array{recipient_id:int, uuid:string, title:string, category:string, category_label:string, action:string, status:string, status_label:string, offen:bool, first_viewed_at:?string, acknowledged_at:?string, signed_at:?string, provided_at:string}>
+     * @return list<array{recipient_id:int, uuid:string, title:string, category:string, category_label:string, action:string, status:string, status_label:string, offen:bool, first_viewed_at:?string, acknowledged_at:?string, signed_at:?string, provided_at:string, is_info:bool, content_html:string, gesehen:bool}>
      */
     public function fuerMitarbeiter(RecEmployee $employee): array
     {
@@ -32,6 +33,40 @@ class DokumentLeser
     public function empfaenger(RecEmployee $employee, int $recipientId): ?RecDocumentRecipient
     {
         return $this->sichtbare($employee)->firstWhere('id', $recipientId);
+    }
+
+    /**
+     * Ungesehene Infos fuer den Kasten "Neu fuer dich" (Spec 2026-10-16
+     * §5.1), aelteste zuerst, als Zeilen wie fuerMitarbeiter().
+     *
+     * @return list<array>
+     */
+    public function ungeseheneInfos(RecEmployee $employee): array
+    {
+        return $this->kastenZustellungen($employee)
+            ->map(fn (RecDocumentRecipient $z) => $this->zeile($z))
+            ->all();
+    }
+
+    /**
+     * Die Zustellungen hinter dem Kasten: ungesehene Infos, dazu die schon in
+     * DIESER Sitzung gezeigten ($schonGezeigt) — die sind seit dem ersten
+     * Render gesehen, der Kasten soll aber stehen bleiben, bis der Mensch ihn
+     * schliesst. $schonGezeigt kommt aus dem Livewire-Zustand und ist nur ein
+     * Filter auf sichtbare(): eine fremde ID findet hier nichts.
+     *
+     * @param  list<int> $schonGezeigt
+     * @return \Illuminate\Support\Collection<int, RecDocumentRecipient> aelteste zuerst
+     */
+    public function kastenZustellungen(RecEmployee $employee, array $schonGezeigt = [])
+    {
+        $schonGezeigt = array_map('intval', $schonGezeigt);
+
+        return $this->sichtbare($employee)
+            ->filter(fn (RecDocumentRecipient $z) => DokumentKategorie::istText((string) $z->document->category)
+                && ($z->first_viewed_at === null || in_array((int) $z->id, $schonGezeigt, true)))
+            ->reverse()
+            ->values();
     }
 
     /**
@@ -88,8 +123,10 @@ class DokumentLeser
             ->values();
     }
 
-    private function zeile(RecDocumentRecipient $z): array
+    /** Eine Zustellung als Anzeige-Zeile. Oeffentlich, damit das Portal die Kasten-Zeilen aus denselben Modellen baut, die es stempelt. */
+    public function zeile(RecDocumentRecipient $z): array
     {
+        $istInfo = DokumentKategorie::istText((string) $z->document->category);
         $aktion = (string) $z->document->action;
         $status = DokumentStatus::fuer($z->zeitstempel(), $aktion);
 
@@ -107,6 +144,10 @@ class DokumentLeser
             'acknowledged_at' => $z->acknowledged_at?->format('Y-m-d H:i:s'),
             'signed_at'       => $z->signed_at?->format('Y-m-d H:i:s'),
             'provided_at'     => $z->created_at?->format('Y-m-d H:i:s') ?? '',
+            // Infos (Spec 2026-10-16 §5.3): Text statt PDF, schon sicher gerendert.
+            'is_info'         => $istInfo,
+            'content_html'    => $istInfo ? InfoText::html((string) $z->document->content_markdown) : '',
+            'gesehen'         => $z->first_viewed_at !== null,
         ];
     }
 }

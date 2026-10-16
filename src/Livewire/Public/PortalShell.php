@@ -141,6 +141,22 @@ class PortalShell extends Component
     public string $dokumentFehler = '';
     public string $dokumentMeldung = '';
 
+    /**
+     * Infos (Spec 2026-10-16 §5.1/§5.2). Alles drei reiner Anzeige-Zustand,
+     * nichts davon steht in der DB und nichts davon ist #[Locked]: jede ID
+     * hier ist nur ein Filter auf DokumentLeser::sichtbare() — eine fremde
+     * findet nichts und stempelt nichts (wie dokumentId).
+     *
+     * infoKastenZu: "Schliessen" klappt den Kasten fuer diese Sitzung zu.
+     * infoKastenIds: die im Kasten schon gezeigten Empfaenger-IDs. Das erste
+     * Anzeigen setzt first_viewed_at; ohne diese Liste waere der Kasten beim
+     * naechsten Klick irgendwo sonst einfach weg, mitten im Lesen.
+     * infoOffen: die im Reiter aufgeklappte Info.
+     */
+    public bool $infoKastenZu = false;
+    public array $infoKastenIds = [];
+    public ?int $infoOffen = null;
+
     /** Request-Cache fuer lookupOptionen() -- ein Lookup wird pro Aufruf hoechstens einmal gelesen. */
     private array $lookupCache = [];
 
@@ -583,6 +599,32 @@ class PortalShell extends Component
         $this->redirect($link);
     }
 
+    public function infosSchliessen(): void
+    {
+        $this->infoKastenZu = true;
+    }
+
+    /**
+     * Klick auf eine Info im Reiter: klappt sie inline auf (kein Download,
+     * keine neue Seite) und setzt first_viewed_at, falls leer (§5.2). Die ID
+     * geht wie bei oeffneDokument() ueber DokumentLeser::empfaenger() gegen
+     * den Scope; PDF-Zeilen werden hier nicht gesehen, die laufen ueber das
+     * Dokument-Blatt.
+     */
+    public function infoAufklappen(int $recipientId): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        $z = $employee ? app(DokumentLeser::class)->empfaenger($employee, $recipientId) : null;
+        if ($z === null || !DokumentKategorie::istText((string) $z->document->category)) {
+            $this->infoOffen = null;
+
+            return;
+        }
+
+        app(DokumentUnterschrift::class)->oeffnen($z);
+        $this->infoOffen = $this->infoOffen === (int) $z->id ? null : (int) $z->id;
+    }
+
     public function schliesseDokument(): void
     {
         $this->dokumentId = null;
@@ -954,6 +996,13 @@ class PortalShell extends Component
         $dokumente = $employee ? $this->dokumente($employee) : [];
         $mitarbeiterDokumente = $employee ? $this->mitarbeiterDokumente($employee) : [];
         $offeneDokumente = count(array_filter($mitarbeiterDokumente, static fn (array $d) => $d['offen']));
+        // Infos (Spec 2026-10-16 §5.2): eigener Block oben im Reiter, neueste
+        // zuerst (Reihenfolge von fuerMitarbeiter()); die Dokumentliste
+        // darunter traegt sie nicht mehr. Infos sind nie offen (action none),
+        // der Zaehler oben bleibt davon unberuehrt.
+        $infos = array_values(array_filter($mitarbeiterDokumente, static fn (array $d) => $d['is_info']));
+        $mitarbeiterDokumente = array_values(array_filter($mitarbeiterDokumente, static fn (array $d) => !$d['is_info']));
+        $neueInfos = $employee ? $this->neueInfosAnzeigen($employee) : [];
         $offeneVertraege = $employee ? count(app(VertragLeser::class)->offenePunkte($employee)) : 0;
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
@@ -1018,7 +1067,40 @@ class PortalShell extends Component
             'offenePunkte'    => $this->offenePunkteMitSaetzen($employee, $aufgabenDekoriert),
             'mitarbeiterDokumente' => $mitarbeiterDokumente,
             'dokumentBlatt'        => $employee ? $this->dokumentBlatt($employee) : null,
+            'infos'                => $infos,
+            'neueInfos'            => $neueInfos,
         ];
+    }
+
+    /**
+     * Der Kasten "Neu fuer dich" (Spec 2026-10-16 §5.1). Das Anzeigen selbst
+     * gilt als gesehen: erst die Zeilen bauen (sie zeigen sich in DIESEM
+     * Render noch als neu), dann genau diese Zustellungen stempeln —
+     * DokumentUnterschrift::oeffnen(), Query Builder, idempotent. Der Start
+     * steht in jedem angemeldeten Render im Markup (die Reiter schaltet
+     * Alpine), also ist "Start wird gerendert" hier gleich "angemeldet".
+     *
+     * @return list<array> Zeilen wie DokumentLeser::fuerMitarbeiter(), aelteste zuerst
+     */
+    private function neueInfosAnzeigen(RecEmployee $employee): array
+    {
+        if ($this->infoKastenZu) {
+            return [];
+        }
+
+        $leser = app(DokumentLeser::class);
+        $zustellungen = $leser->kastenZustellungen($employee, $this->infoKastenIds);
+        $zeilen = $zustellungen->map(fn ($z) => $leser->zeile($z))->all();
+
+        $unterschrift = app(DokumentUnterschrift::class);
+        foreach ($zustellungen as $z) {
+            $unterschrift->oeffnen($z);
+        }
+        // Nur IDs, die gerade durch den Scope gegangen sind — der alte Wert
+        // aus dem Browser faellt damit bei jedem Render auf das Eigene zurueck.
+        $this->infoKastenIds = $zustellungen->map(fn ($z) => (int) $z->id)->values()->all();
+
+        return $zeilen;
     }
 
     /** @return array{punkte:list<array>, einsatz:?array, gesperrt:bool} */

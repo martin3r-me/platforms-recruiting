@@ -192,6 +192,36 @@ p{margin:0}
 .aufgabe:last-child{border-bottom:none}
 .aufgabe-ko{background:var(--crit-bg); color:var(--crit)}
 
+/* ---------- Infos (Spec 2026-10-16 §5.1–5.3): Kasten "Neu fuer dich" + gerenderter Text ---------- */
+.info-kasten{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--brand); border-radius:var(--r-card); overflow:hidden}
+.info-kopf{display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--line); padding-right:13px}
+.info-kopf .aufgaben-titel{border-bottom:none}
+.info-kopf .count{background:var(--surface-3); color:var(--ink-2); border-radius:999px; padding:1px 7px; letter-spacing:0}
+.info-kasten > .info-text{padding:14px 13px; border-bottom:1px solid var(--line)}
+.info-kasten > .info-text:last-child{border-bottom:none}
+.info-titel{font-size:17px; font-family:var(--display); font-weight:400; line-height:1.3; margin:0 0 8px}
+.info-text{font-size:14px; line-height:1.55; color:var(--ink)}
+.doc .info-text{margin-top:11px; padding-top:11px; border-top:1px solid var(--line)}
+.info-text h2{font-size:16px; font-weight:700; line-height:1.3; margin:14px 0 6px}
+.info-text h3{font-size:14.5px; font-weight:700; line-height:1.3; margin:12px 0 5px}
+.info-text h2:first-child, .info-text h3:first-child{margin-top:0}
+.info-text p{margin:0 0 10px}
+.info-text ul, .info-text ol{margin:0 0 10px; padding-left:20px}
+.info-text li{margin:3px 0}
+.info-text hr{border:none; border-top:1px solid var(--line); margin:12px 0}
+.info-text > :last-child{margin-bottom:0}
+/* Links und Telefonnummern als Knoepfe im Portal-Stil (InfoText setzt die Klassen). */
+.info-link, .info-tel{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:9px 14px; margin:4px 0; border-radius:var(--r); font-size:14px; font-weight:600; text-decoration:none; font-family:var(--body)}
+.info-link{background:var(--brand); color:#fff; border:1px solid var(--brand)}
+.info-tel{background:var(--surface); color:var(--brand-mid); border:1px solid var(--line-2)}
+.info-tel::before{content:"\260E"}
+/* Reiter "Dokumente & Infos" darf in der schmalen Reiterleiste zweizeilig stehen. */
+.tab{text-align:center; line-height:1.2}
+@media (max-width:640px){
+  .info-text{font-size:16px; line-height:1.6}
+  .info-link, .info-tel{display:flex; width:100%}
+}
+
 .tabbar{display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--line); background:var(--surface); padding:7px 6px 13px}
 .tab{border:none; background:none; cursor:pointer; font-family:var(--body); display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px 2px; color:var(--ink-3); font-size:10px; font-weight:600; border-radius:var(--r)}
 .tab svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
