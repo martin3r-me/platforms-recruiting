@@ -102,6 +102,9 @@ final class ThemenKlickHandlerTest extends TestCase
         $kanal(8, self::TEAM, '+49 221 5550008', 'Disposition CGN');
         $kanal(9, self::TEAM, '+49 201 5550009', 'Disposition ES');
         $kanal(10, self::TEAM, '+49 228 5550010', 'Disposition BN');
+        // Nationale Schreibweise und eine ungueltige Nummer (Review Task 4, M4).
+        $kanal(11, self::TEAM, '0211 78177724', 'Disposition National');
+        $kanal(12, self::TEAM, '123', 'Disposition Kaputt');
         // Gleiche Kanal-Art, aber ein anderes Team.
         $kanal(999, self::FREMDES_TEAM, '+49 30 5550999', 'Fremde Dispo');
         Capsule::table('rec_dispo_filiale_settings')->insert([
@@ -319,11 +322,13 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertCount(1, $this->gesendet);
     }
 
-    public function test_meta_lehnt_link_ab_dann_kein_stempel_und_keine_weiterleitung(): void
+    public function test_meta_lehnt_link_ab_dann_kein_stempel_aber_weiterleitung(): void
     {
+        // Review Task 4, M3: die Weiterleitung ist das Sicherheitsnetz — sie geht
+        // auch ohne Link raus, nur der Stempel unterbleibt (Chat bleibt bei HR).
         [$thread, , $topic] = $this->gefragt();
         $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
-        $vorher = $topic->fresh()->only(['state', 'topic', 'dispo_channel_id', 'last_click_message_id', 'chosen_at']);
+        $vorher = $topic->fresh()->only(['state', 'topic', 'last_click_message_id', 'chosen_at']);
 
         foreach (['failed', 'error'] as $status) {
             $this->sendStatus = [$status];
@@ -331,14 +336,112 @@ final class ThemenKlickHandlerTest extends TestCase
 
             $this->assertSame('ignoriert:send_' . $status, $this->handler()->beiEingang($this->kanal, $thread, $klick), $status);
 
-            $this->assertSame(0, RecConversationForward::query()->count(), $status);
+            $this->assertSame(1, RecConversationForward::query()->count(), $status . ': genau EINE Karte, auch beim zweiten Versuch.');
             $this->assertSame(0, RecConversationHandled::query()->count(), $status);
-            $this->assertEquals($vorher, $topic->fresh()->only(['state', 'topic', 'dispo_channel_id', 'last_click_message_id', 'chosen_at']), $status);
+            $this->assertEquals($vorher, $topic->fresh()->only(['state', 'topic', 'last_click_message_id', 'chosen_at']), $status);
+            $this->assertSame(7, (int) $topic->fresh()->dispo_channel_id, $status);
         }
 
-        // Wiederholt Meta den Webhook, darf der Klick dann noch durchgehen.
+        // Wiederholt Meta den Webhook, darf der Link dann noch rausgehen — ohne zweite Karte.
         $this->sendStatus = [];
         $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $klick));
+        $this->assertSame(1, RecConversationForward::query()->count());
+        $this->assertSame(RecConversationHandled::REASON_ROUTED_DISPO, RecConversationHandled::query()->sole()->handled_reason);
+        $this->assertSame(RecConversationTopic::STATE_ROUTED, $topic->fresh()->state);
+    }
+
+    public function test_zwei_getippte_nachrichten_landen_beide_in_karte_und_link(): void
+    {
+        [$thread, $ursprung] = $this->gefragt('Komme morgen 30 min später');
+        // Zweite Nachricht in der Ruhezeit — loest keine neue Frage aus.
+        $zweite = $this->nachricht($thread, 'inbound', -200, body: 'und meine Abrechnung fehlt');
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7')));
+
+        $this->assertSame(
+            'https://wa.me/4921178177723?text=' . rawurlencode("Komme morgen 30 min später\nund meine Abrechnung fehlt"),
+            $this->gesendet[0]['interactive']['action']['parameters']['url'],
+        );
+        $f = RecConversationForward::query()->sole();
+        $this->assertSame([(int) $ursprung->id, (int) $zweite->id], array_map(fn ($m) => (int) $m['message_id'], $f->messages));
+    }
+
+    public function test_neue_frage_nach_frueherer_runde_nimmt_nur_nachrichten_seit_der_letzten_antwort(): void
+    {
+        $thread = $this->thread();
+        $this->nachricht($thread, 'inbound', -5000, body: 'Alte Frage');
+        $this->nachricht($thread, 'outbound', -4000, body: 'Antwort von HR');
+        [, $neu] = $this->gefragt('Neue Frage', thread: $thread);
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $this->gesendet->exchangeArray([]);
+
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7'));
+
+        $this->assertSame([(int) $neu->id], array_map(fn ($m) => (int) $m['message_id'], RecConversationForward::query()->sole()->messages));
+        $this->assertSame(
+            'https://wa.me/4921178177723?text=' . rawurlencode('Neue Frage'),
+            $this->gesendet[0]['interactive']['action']['parameters']['url'],
+        );
+    }
+
+    public function test_zweiter_filial_klick_nach_der_umleitung_wird_ignoriert(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -30));
+        $stempel = RecConversationHandled::query()->sole()->handled_at->format('Y-m-d H:i:s');
+
+        foreach (['dispo_7', 'dispo_8'] as $id) {
+            $this->assertSame('ignoriert:schon_weitergeleitet', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $id)), $id);
+        }
+
+        $this->assertCount(2, $this->gesendet, 'Filialen + EIN Link.');
+        $this->assertSame(1, RecConversationForward::query()->count());
+        $this->assertSame(7, (int) $topic->fresh()->dispo_channel_id);
+        $this->assertSame($stempel, RecConversationHandled::query()->sole()->handled_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_langer_text_wird_gekappt(): void
+    {
+        $lang = str_repeat('Äöü 😀 Einsatz ', 200);
+        [$thread] = $this->gefragt($lang);
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $this->gesendet->exchangeArray([]);
+
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7'));
+
+        $url = $this->gesendet[0]['interactive']['action']['parameters']['url'];
+        $this->assertLessThanOrEqual(2000, strlen($url));
+        $this->assertStringStartsWith('https://wa.me/4921178177723?text=' . rawurlencode('Äöü 😀 Einsatz'), $url);
+        $text = rawurldecode(substr($url, strlen('https://wa.me/4921178177723?text=')));
+        $this->assertTrue(mb_check_encoding($text, 'UTF-8'), 'Nie mitten im Zeichen abschneiden.');
+
+        // Reiner ASCII-Text: 1000 Zeichen Obergrenze greift vor der URL-Grenze.
+        $ascii = ThemenKlickHandler::waMeUrl('49211', str_repeat('a', 1500));
+        $this->assertSame(1000, strlen(substr($ascii, strlen('https://wa.me/49211?text='))));
+    }
+
+    public function test_dispo_nummer_wird_normalisiert_ungueltige_filiale_uebersprungen(): void
+    {
+        $this->dispoKanaele = [7, 11, 12];
+        [$thread] = $this->gefragt('Frage');
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+
+        $ids = array_map(fn ($k) => $k['reply']['id'], $this->gesendet[0]['interactive']['action']['buttons']);
+        $this->assertSame(['dispo_7', 'dispo_11'], $ids, 'Kanal mit ungueltiger Nummer wird nicht angeboten.');
+
+        // Manipulierter Klick auf die ungueltige Filiale → nichts.
+        $this->assertSame('ignoriert:kanal_ohne_nummer', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_12', -30)));
+        $this->assertSame(0, RecConversationForward::query()->count());
+
+        $this->gesendet->exchangeArray([]);
+        $this->assertSame('verarbeitet:dispo_11', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_11')));
+        $this->assertSame(
+            'https://wa.me/4921178177724?text=' . rawurlencode('Frage'),
+            $this->gesendet[0]['interactive']['action']['parameters']['url'],
+        );
     }
 
     public function test_weiterleitung_scheitert_stempel_kommt_trotzdem(): void
@@ -612,9 +715,9 @@ final class ThemenKlickHandlerTest extends TestCase
      *
      * @return array{0: CommsWhatsAppThread, 1: CommsWhatsAppMessage, 2: RecConversationTopic}
      */
-    private function gefragt(string $text = 'Hallo', string $typ = 'text'): array
+    private function gefragt(string $text = 'Hallo', string $typ = 'text', ?CommsWhatsAppThread $thread = null): array
     {
-        $thread = $this->thread();
+        $thread ??= $this->thread();
         $ursprung = $this->nachricht($thread, 'inbound', -300, body: $text, typ: $typ, payload: ['type' => $typ]);
         $frage = $this->nachricht($thread, 'outbound', -290, autoReply: true);
         $topic = RecConversationTopic::create([

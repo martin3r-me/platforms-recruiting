@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
+use Platform\Recruiting\Support\PhoneE164;
 use Platform\Recruiting\Support\PublicAddressStyle;
 
 /**
@@ -51,6 +52,8 @@ final class ThemenKlickHandler
     private const VORBELEGUNG_OHNE_TEXT = 'Hallo, ich habe eine Frage zu meinem Einsatz.';
     private const LISTEN_KNOPF = 'Dispo wählen';
     private const MAX_LISTE = 10;
+    private const MAX_TEXT = 1000;
+    private const MAX_URL = 2000;
 
     /** Eine Instanz je Handler: DispoForwardChannels merkt sich die Optionen je Team. */
     private ?DispoForwardChannels $kanaeleMemo = null;
@@ -161,7 +164,13 @@ final class ThemenKlickHandler
 
     private function dispoGewaehlt(CommsChannel $channel, RecConversationTopic $topic, int $teamId, bool $duzen, string $phone): string
     {
-        $optionen = $this->kanaele()->options($teamId);
+        // Nur Filialen mit gueltiger Nummer anbieten — ein falscher wa.me-Link
+        // fuehrte den MA ins Leere (Praezedenzfall duty_phone).
+        $nummern = $this->waNummern($teamId);
+        $optionen = array_values(array_filter(
+            $this->kanaele()->options($teamId),
+            fn (array $o) => isset($nummern[$o['channel_id']]),
+        ));
         if ($optionen === []) {
             Log::warning('recruiting.themen.keine_filialen', ['team_id' => $teamId, 'topic_id' => $topic->id]);
 
@@ -209,24 +218,41 @@ final class ThemenKlickHandler
         if ($topic->topic !== RecConversationTopic::TOPIC_DISPO) {
             return 'ignoriert:falsches_thema';
         }
+        // Doppel-Tipp oder alter Knopf nach der Umleitung: kein zweiter Link,
+        // keine zweite Karte bei der Dispo (Review Task 4, M1).
+        if ($topic->state === RecConversationTopic::STATE_ROUTED) {
+            return 'ignoriert:schon_weitergeleitet';
+        }
 
-        $ziel = CommsChannel::query()->whereKey($kanalId)->where('team_id', $teamId)->first();
-        $nummer = preg_replace('/\D+/', '', (string) ($ziel?->sender_identifier ?? '')) ?? '';
-        if ($nummer === '') {
+        $nummer = $this->waNummern($teamId)[$kanalId] ?? null;
+        if ($nummer === null) {
+            Log::warning('recruiting.themen.filiale_ohne_gueltige_nummer', ['team_id' => $teamId, 'kanal_id' => $kanalId]);
+
             return 'ignoriert:kanal_ohne_nummer';
         }
 
-        $url = 'https://wa.me/' . $nummer . '?text=' . rawurlencode($this->ursprungsText($thread, $topic));
+        // Alles Getippte seit der letzten Antwort/dem letzten Stempel — der
+        // Stempel unten legt es fuer HR ab, also muss es bei der Dispo ankommen
+        // (Review Task 4, I1).
+        $eingaenge = $this->getippteEingaenge($thread, $message, $topic);
+        $url = self::waMeUrl($nummer, $this->vorbelegung($eingaenge));
         $r = $this->sender()->linkKnopf($channel, $phone, ThemenTexte::dispoLink($duzen, $label), ThemenTexte::filialKnopf('Zur ' . $label), $url);
+
+        // Die Weiterleitung ist das Sicherheitsnetz: sie geht auch dann raus,
+        // wenn Meta den Link ablehnt — das Anliegen soll bei der Dispo ankommen
+        // (Review Task 4, M3). dispo_channel_id merkt sich „schon weitergeleitet“,
+        // damit ein Wiederholversuch keine zweite Karte anlegt.
+        if ((int) ($topic->dispo_channel_id ?? 0) !== $kanalId
+            && $this->weiterleiten($thread, $topic, $teamId, $kanalId, $phone, $eingaenge->pluck('id')->all())) {
+            $topic->forceFill(['dispo_channel_id' => $kanalId])->save();
+        }
+
         if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+            // Kein Stempel: ohne Link bleibt der Chat bei HR sichtbar.
             return $this->sendGescheitert('dispo_link', $topic, $r);
         }
 
-        // Ab hier ist der Link draussen: Weiterleitung und Stempel gehoeren
-        // dazu, scheitert die Weiterleitung, wird trotzdem gestempelt (geloggt).
-        $this->weiterleiten($thread, $topic, $teamId, $kanalId, $phone);
         $this->stempeln($thread, $message);
-
         $topic->forceFill([
             'state' => RecConversationTopic::STATE_ROUTED,
             'dispo_channel_id' => $kanalId,
@@ -235,19 +261,93 @@ final class ThemenKlickHandler
         return 'verarbeitet:' . $id;
     }
 
-    /** Text der Ursprungsnachricht (nur aus DIESEM Thread), sonst eine neutrale Vorbelegung. */
-    private function ursprungsText(CommsWhatsAppThread $thread, RecConversationTopic $topic): string
+    /**
+     * Getippte (Nicht-Klick-)Eingaenge vor dem Klick, die HR noch nicht
+     * beantwortet bzw. abgelegt hat — dieselbe Grenze wie im QuickReplyStamper.
+     * Nie leer, solange es den Ursprung gibt.
+     *
+     * @return \Illuminate\Support\Collection<int, CommsWhatsAppMessage>
+     */
+    private function getippteEingaenge(CommsWhatsAppThread $thread, CommsWhatsAppMessage $klick, RecConversationTopic $topic): \Illuminate\Support\Collection
     {
-        $body = $topic->origin_message_id === null ? null : CommsWhatsAppMessage::query()
-            ->whereKey((int) $topic->origin_message_id)
-            ->where('comms_whatsapp_thread_id', (int) $thread->id)
-            ->value('body');
-        $text = trim((string) $body);
+        $threadId = (int) $thread->id;
+        $letzteAntwortId = (int) CommsWhatsAppMessage::query()
+            ->where('comms_whatsapp_thread_id', $threadId)
+            ->where('direction', 'outbound')
+            ->where('is_auto_reply', false)
+            ->max('id');
+        $stempelAt = RecConversationHandled::query()
+            ->where('comms_whatsapp_thread_id', $threadId)
+            ->value('handled_at');
 
-        return $text === '' ? self::VORBELEGUNG_OHNE_TEXT : mb_substr($text, 0, 1000);
+        $eingaenge = CommsWhatsAppMessage::query()
+            ->where('comms_whatsapp_thread_id', $threadId)
+            ->where('direction', 'inbound')
+            ->where('id', '>', $letzteAntwortId)
+            ->where('id', '<', (int) $klick->id)
+            ->when($stempelAt !== null, fn ($q) => $q->where('sent_at', '>', $stempelAt))
+            ->orderBy('id')
+            ->get(['id', 'body', 'meta_payload'])
+            ->reject(fn (CommsWhatsAppMessage $m) => QuickReply::isQuickReply($m->meta_payload))
+            ->values();
+
+        if ($eingaenge->isEmpty() && $topic->origin_message_id !== null) {
+            $eingaenge = CommsWhatsAppMessage::query()
+                ->whereKey((int) $topic->origin_message_id)
+                ->where('comms_whatsapp_thread_id', $threadId)
+                ->get(['id', 'body', 'meta_payload']);
+        }
+
+        return $eingaenge;
     }
 
-    private function weiterleiten(CommsWhatsAppThread $thread, RecConversationTopic $topic, int $teamId, int $kanalId, string $phone): void
+    /** @param \Illuminate\Support\Collection<int, CommsWhatsAppMessage> $eingaenge */
+    private function vorbelegung(\Illuminate\Support\Collection $eingaenge): string
+    {
+        $text = $eingaenge->map(fn ($m) => trim((string) $m->body))->filter(fn ($t) => $t !== '')->implode("\n");
+
+        return $text === '' ? self::VORBELEGUNG_OHNE_TEXT : $text;
+    }
+
+    /** Text auf 1000 Zeichen, die ganze URL auf 2000 Zeichen gekappt (Review Task 4, M3). */
+    public static function waMeUrl(string $nummer, string $text): string
+    {
+        $basis = 'https://wa.me/' . $nummer . '?text=';
+        $text = mb_substr($text, 0, self::MAX_TEXT);
+        while ($text !== '' && strlen($basis . rawurlencode($text)) > self::MAX_URL) {
+            $text = mb_substr($text, 0, max(0, mb_strlen($text) - 20));
+        }
+
+        return $basis . rawurlencode($text);
+    }
+
+    /**
+     * wa.me-Nummern der Dispo-Kanaele dieses Teams: E.164 ohne „+“. Ungueltige
+     * Nummern fehlen (Review Task 4, M4) — nationale Schreibweise wird normalisiert.
+     *
+     * @return array<int, string> channel_id => Ziffern
+     */
+    private function waNummern(int $teamId): array
+    {
+        $ids = array_column($this->kanaele()->options($teamId), 'channel_id');
+        if ($ids === []) {
+            return [];
+        }
+        $nummern = [];
+        foreach (CommsChannel::query()->whereIn('id', $ids)->where('team_id', $teamId)->get(['id', 'sender_identifier']) as $c) {
+            $e164 = PhoneE164::normalize((string) $c->sender_identifier);
+            if ($e164 === null) {
+                Log::warning('recruiting.themen.dispo_nummer_ungueltig', ['team_id' => $teamId, 'kanal_id' => $c->id]);
+                continue;
+            }
+            $nummern[(int) $c->id] = ltrim($e164, '+');
+        }
+
+        return $nummern;
+    }
+
+    /** @param list<int> $messageIds */
+    private function weiterleiten(CommsWhatsAppThread $thread, RecConversationTopic $topic, int $teamId, int $kanalId, string $phone, array $messageIds): bool
     {
         try {
             $employee = $this->mitarbeiter($phone, $teamId);
@@ -255,7 +355,7 @@ final class ThemenKlickHandler
             $r = $this->forwarder()->forward(
                 $teamId,
                 $thread,
-                $topic->origin_message_id !== null ? [(int) $topic->origin_message_id] : [],
+                $messageIds,
                 self::KOMMENTAR,
                 $employee?->id !== null ? (int) $employee->id : null,
                 $name !== '' ? $name : $phone,
@@ -269,10 +369,14 @@ final class ThemenKlickHandler
                     'thread_id' => $thread->id, 'topic_id' => $topic->id, 'kanal_id' => $kanalId, 'error' => $r['error'],
                 ]);
             }
+
+            return (bool) $r['ok'];
         } catch (\Throwable $e) {
             Log::error('recruiting.themen.weiterleitung_fehlgeschlagen', [
                 'thread_id' => $thread->id, 'topic_id' => $topic->id, 'kanal_id' => $kanalId, 'error' => $e->getMessage(),
             ]);
+
+            return false;
         }
     }
 

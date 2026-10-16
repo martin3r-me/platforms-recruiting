@@ -110,6 +110,9 @@ Keine Unterpunkte. Nach dem Klick sofort automatisch:
 - **Akte vollständig:** Nachricht „Hast du deine Stundenübersicht und Abrechnung kontrolliert? Dann kannst du
   gezielt fragen. So loggst du dich ein: <URL>“ (`cta_url`). URL als Team-Setting; Vorschlag: Seite im
   Anleitungs-Bereich der App (`docs/anleitungen/<slug>.md`) statt Fremd-URL. Chat bleibt offen, Thema „Lohn“.
+- **Nachtrag (Umsetzung Task 4):** „ohne Knopf, nur der Text“ ist technisch ein einzelner Knopf „Alles klar“
+  (`topic_ack`), weil das CRM (`WhatsAppMetaService::sendText`) Freitext nicht als Auto-Antwort markieren kann — ein
+  reiner Text zählte als menschliche HR-Antwort. Der Klick auf „Alles klar“ bewirkt nichts und stempelt nicht.
 
 ### 2.5 HR allgemein
 
