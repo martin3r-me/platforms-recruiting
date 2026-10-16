@@ -58,4 +58,41 @@ class QuickReplyTest extends TestCase
         $this->assertFalse(QuickReply::isQuickReply(null));
         $this->assertFalse(QuickReply::isQuickReply([]));
     }
+    public function test_auswahl_id_aus_knopf_und_liste(): void
+    {
+        $this->assertSame('topic_lohn', QuickReply::auswahlId([
+            'type' => 'interactive',
+            'interactive' => ['type' => 'button_reply', 'button_reply' => ['id' => 'topic_lohn', 'title' => 'Lohn & Gehalt']],
+        ]));
+        $this->assertSame('dispo_7', QuickReply::auswahlId([
+            'type' => 'interactive',
+            'interactive' => ['type' => 'list_reply', 'list_reply' => ['id' => 'dispo_7', 'title' => 'Dispo Köln']],
+        ]));
+        // Vorlagen-Knopf traegt keine Auswahl-ID, getippter Text erst recht nicht.
+        $this->assertNull(QuickReply::auswahlId(['type' => 'button', 'button' => ['text' => 'Ja', 'payload' => 'topic_hr']]));
+        $this->assertNull(QuickReply::auswahlId(['type' => 'text', 'text' => ['body' => 'topic_hr']]));
+        $this->assertNull(QuickReply::auswahlId(null));
+    }
+
+    public function test_themen_klick_nur_fuer_unsere_ids(): void
+    {
+        foreach (['topic_dispo', 'topic_lohn', 'topic_hr', 'topic_ack', 'dispo_12'] as $id) {
+            $this->assertTrue(QuickReply::istThemenKlick([
+                'type' => 'interactive',
+                'interactive' => ['type' => 'button_reply', 'button_reply' => ['id' => $id, 'title' => 'x']],
+            ]), $id);
+        }
+        $this->assertTrue(QuickReply::istThemenKlick([
+            'type' => 'interactive',
+            'interactive' => ['type' => 'list_reply', 'list_reply' => ['id' => 'dispo_3', 'title' => 'x']],
+        ]));
+        foreach (['1', 'ja', 'xtopic_hr', ''] as $id) {
+            $this->assertFalse(QuickReply::istThemenKlick([
+                'type' => 'interactive',
+                'interactive' => ['type' => 'button_reply', 'button_reply' => ['id' => $id, 'title' => 'x']],
+            ]), $id);
+        }
+        $this->assertFalse(QuickReply::istThemenKlick(['type' => 'button', 'button' => ['text' => 'Ja']]));
+        $this->assertFalse(QuickReply::istThemenKlick(null));
+    }
 }

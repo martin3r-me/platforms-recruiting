@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\QuickReplyStamper;
 use Platform\Recruiting\Services\Comms\ThemenAuswahlHandler;
+use Platform\Recruiting\Services\Comms\ThemenKlickHandler;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
@@ -68,12 +69,27 @@ class HandleWhatsAppInboundForRecruiting
             ]);
         }
 
+        // Klick auf einen Themen-Knopf (S-Themen §2.3–2.6): VOR dem
+        // QuickReplyStamper — den Zustand nach topic_*/dispo_* setzt allein
+        // dieser Handler (Dispo → Stempel routed_dispo, Lohn/HR bleiben offen).
+        // Fehler stoppen nie den Inbound-Flow.
+        $klickStatus = 'ignoriert:fehler';
+        try {
+            $klickStatus = app(ThemenKlickHandler::class)->beiEingang($channel, $thread, $message);
+        } catch (\Throwable $e) {
+            Log::warning('[Recruiting] Themen-Klick fehlgeschlagen', [
+                'thread_id' => $thread->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
         // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
         // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
         // Hat die Themen-Auswahl gesendet (oder ist das ein wiederholter Webhook
         // fuer einen schon gefragten Eingang), steckt die Abwesenheit schon darin.
-        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus)) {
+        // Ebenso, wenn ein Themen-Klick schon beantwortet wurde (auch als Dublette).
+        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus) && !ThemenKlickHandler::beantwortet($klickStatus)) {
             try {
                 $this->oooAutoReply->handle($channel, $thread, $message);
             } catch (\Throwable $e) {

@@ -379,7 +379,8 @@ final class ThemenAuswahlHandlerTest extends TestCase
         $this->assertMatchesRegularExpression('/app\(ThemenAuswahlHandler::class\)->beiEingang\(\$channel, \$thread, \$message\)/', $quelle);
         $this->assertLessThan(strpos($quelle, '$this->oooAutoReply->handle('), strpos($quelle, 'ThemenAuswahlHandler::class)->beiEingang'));
         $this->assertMatchesRegularExpression(
-            '/if \(!ThemenAuswahlHandler::abwesenheitMitgeteilt\(\$themenStatus\)\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
+            // Task 4 haengt die Klick-Bedingung mit && an (ThemenKlickHandlerTest prueft die volle Form).
+            '/if \(!ThemenAuswahlHandler::abwesenheitMitgeteilt\(\$themenStatus\)(\s*&&[^{]*)?\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
             $quelle,
         );
         $this->assertTrue(ThemenAuswahlHandler::abwesenheitMitgeteilt('gesendet'));

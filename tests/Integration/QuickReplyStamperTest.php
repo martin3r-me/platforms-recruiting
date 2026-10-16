@@ -194,6 +194,32 @@ class QuickReplyStamperTest extends TestCase
         $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
     }
 
+    public function test_themen_klick_stempelt_nicht(): void
+    {
+        // S-Themen §2.6: den Zustand nach unseren Themen-Knoepfen setzt allein
+        // der ThemenKlickHandler — Lohn/HR muessen offen bleiben.
+        foreach (['topic_lohn', 'topic_hr', 'topic_dispo', 'dispo_7'] as $id) {
+            [$thread, $message] = $this->eingang([
+                'type' => 'interactive',
+                'interactive' => ['type' => 'button_reply', 'button_reply' => ['id' => $id, 'title' => 'x']],
+            ]);
+
+            $this->assertFalse((new QuickReplyStamper())->qualifies($thread, $message), $id);
+            $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $message), $id);
+            $this->assertFalse(RecConversationHandled::query()->where('comms_whatsapp_thread_id', $thread->id)->exists(), $id);
+        }
+    }
+
+    public function test_fremder_interaktiver_knopf_stempelt_weiter(): void
+    {
+        [$thread, $message] = $this->eingang([
+            'type' => 'interactive',
+            'interactive' => ['type' => 'button_reply', 'button_reply' => ['id' => 'ja', 'title' => 'Ja']],
+        ]);
+
+        $this->assertTrue((new QuickReplyStamper())->stampIfQuickReply($thread, $message));
+    }
+
     public function test_inbound_listener_ruft_den_stamper_auf(): void
     {
         // Der Listener braucht den vollen App-Boot (Matching, Intake …) und

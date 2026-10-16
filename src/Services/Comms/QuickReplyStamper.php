@@ -36,6 +36,13 @@ final class QuickReplyStamper
             return false;
         }
 
+        // S-Themen §2.6: Klicks auf unsere Themen-Knoepfe stempelt nur der
+        // ThemenKlickHandler (Dispo → routed_dispo). Lohn/HR muessen offen
+        // bleiben — nicht darauf verlassen, dass die Ursprungsnachricht davor liegt.
+        if (QuickReply::istThemenKlick($message->meta_payload)) {
+            return false;
+        }
+
         $threadId = (int) $thread->id;
 
         $neuererEingang = CommsWhatsAppMessage::query()
