@@ -222,20 +222,18 @@ class RecEmployee extends Model
     }
 
     /**
-     * Filiale des MA = Kostenstelle (100/200/300/400, Support\Filialen): das
-     * Feld am MA gewinnt, sonst die Kostenstelle der Stelle — dieselbe Regel
-     * wie die Spalte `Kostenstelle` im ZAS-Export (ZasEmployeeFieldResolver).
+     * Filiale des MA aus der Kostenstelle — Hunderterblock, weil Unternummern
+     * mitlaufen (101–103 = DUS & ES, 201–203 = MGL, …). Feld am MA vor Stelle.
+     * Gleiche Regel wie die Dispo-Seite (KostenstellenBloecke, „Jobs anbieten“).
      */
     public function dispoFilialNr(): ?int
     {
-        foreach ([$this->cost_center, $this->position?->cost_center] as $wert) {
-            $wert = trim((string) $wert);
-            if ($wert !== '' && ctype_digit($wert)) {
-                return (int) $wert;
-            }
-        }
+        $stelle = $this->position?->cost_center;
 
-        return null;
+        return \Platform\Recruiting\Services\Zas\Dispo\Jobs\KostenstellenBloecke::block(
+            $this->cost_center !== null ? (string) $this->cost_center : null,
+            $stelle !== null ? (string) $stelle : null,
+        );
     }
 
     public function position(): BelongsTo

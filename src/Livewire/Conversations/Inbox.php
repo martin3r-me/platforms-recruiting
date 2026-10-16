@@ -995,14 +995,14 @@ class Inbox extends Component
             return;
         }
 
-        $row = $this->selectedRow;
+        $employee = $this->forwardEmployee();
         $r = app(ConversationForwarder::class)->forward(
             $this->teamId(),
             $thread,
             $ids,
             $this->forwardComment,
-            $this->forwardEmployee()?->id !== null ? (int) $this->forwardEmployee()->id : null,
-            $row !== null ? $row->title : '',
+            $employee !== null ? (int) $employee->id : null,
+            $this->selectedRow !== null ? $this->selectedRow->title : '',
             Auth::user(),
             ForwardTargets::DISPO,
             ForwardTargets::SOURCE_HR,

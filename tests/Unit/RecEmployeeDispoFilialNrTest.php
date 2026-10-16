@@ -7,8 +7,8 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
 
 /**
- * Filiale des MA = Kostenstelle; Feld am MA vor Stelle — dieselbe Regel wie
- * die Spalte `Kostenstelle` im ZAS-Export (Vorbelegung HR -> Dispo, 16.10.2026).
+ * Filiale des MA = Hunderterblock der Kostenstelle; Feld am MA vor Stelle —
+ * gleiche Regel wie KostenstellenBloecke (Vorbelegung HR -> Dispo, 16.10.2026).
  */
 class RecEmployeeDispoFilialNrTest extends TestCase
 {
@@ -32,9 +32,17 @@ class RecEmployeeDispoFilialNrTest extends TestCase
         $this->assertSame(200, $this->ma('  ', 200)->dispoFilialNr());
     }
 
-    public function test_ohne_beides_null_und_unsinn_wird_ignoriert(): void
+    public function test_unternummern_landen_im_hunderterblock(): void
+    {
+        // Prod-Befund 12.10.2026: 101–103 = DUS & ES, 201–203 = MGL, 401–403 = CGN.
+        $this->assertSame(100, $this->ma('103', null)->dispoFilialNr());
+        $this->assertSame(200, $this->ma(null, 201)->dispoFilialNr());
+        $this->assertSame(400, $this->ma('0402', null)->dispoFilialNr());
+    }
+
+    public function test_ohne_beides_null_und_unbrauchbarer_wert_faellt_nicht_auf_die_stelle(): void
     {
         $this->assertNull($this->ma(null, null)->dispoFilialNr());
-        $this->assertSame(100, $this->ma('DUS', 100)->dispoFilialNr(), 'Kein Zahlwert am MA → Stelle.');
+        $this->assertNull($this->ma('DUS', 100)->dispoFilialNr(), 'Gesetzt, aber unbrauchbar — wie KostenstellenBloecke.');
     }
 }
