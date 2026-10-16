@@ -18,12 +18,26 @@ final class InfoText
 {
     public const ERLAUBT = ['h2', 'h3', 'p', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'br', 'hr'];
 
+    /**
+     * Telefonnummer im Fliesstext. Trenner nur Leerzeichen/Tab/Slash/Bindestrich,
+     * NIE ein Zeilenumbruch (sonst schluckt der Treffer die Ziffern der Folgezeile
+     * und normalize() verwirft ihn → kein Knopf). Links keine Ziffer/kein Plus davor.
+     */
+    public const TELEFON_MUSTER = '/(?<![\d+])(\+49[\d \t\/-]{7,}\d|0\d{2,4}[ \t\/-]?\d[\d \t\/-]{5,}\d)/';
+
     public static function html(string $markdown): string
     {
         if (trim($markdown) === '') {
             return '';
         }
-        $roh = (string) Str::markdown($markdown, ['html_input' => 'strip', 'allow_unsafe_links' => false]);
+        // Zeilenumbrueche bleiben: <br> aus dem Editor (Toast UI) wird zum Markdown-Hard-Break,
+        // bevor html_input=strip es ersatzlos entfernt; ein einfacher Umbruch wird <br>.
+        $markdown = (string) preg_replace('~<br\s*/?>~i', "  \n", $markdown);
+        $roh = (string) Str::markdown($markdown, [
+            'html_input' => 'strip',
+            'allow_unsafe_links' => false,
+            'renderer' => ['soft_break' => "<br>\n"],
+        ]);
 
         $dom = new \DOMDocument('1.0', 'UTF-8');
         libxml_use_internal_errors(true);
@@ -109,7 +123,7 @@ final class InfoText
         $xpath = new \DOMXPath($dom);
         foreach (iterator_to_array($xpath->query('.//text()[not(ancestor::a)]', $root)) as $text) {
             $wert = $text->nodeValue;
-            if (!preg_match_all('/(\+49[\d\s\/-]{7,}\d|0\d{2,4}[\s\/-]?\d[\d\s\/-]{5,}\d)/', $wert, $m, PREG_OFFSET_CAPTURE)) {
+            if (!preg_match_all(self::TELEFON_MUSTER, $wert, $m, PREG_OFFSET_CAPTURE)) {
                 continue;
             }
             $frag = $dom->createDocumentFragment();
