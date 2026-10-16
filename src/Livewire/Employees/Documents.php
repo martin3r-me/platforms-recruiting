@@ -50,6 +50,8 @@ class Documents extends Component
     /** Haken "automatisch an neue Mitarbeiter (beim ersten Oeffnen des Portals)" */
     public bool $autoNeue = false;
     public bool $vorschauOffen = false;
+    /** Haken "WhatsApp-Hinweis senden" (PDF und Info), vorausgewaehlt an — aus = notify_mode none. */
+    public bool $whatsappHinweis = true;
 
     public string $suche = '';
     public string $firma = '';
@@ -301,7 +303,7 @@ class Documents extends Component
         try {
             $e = app(DokumentService::class)->bereitstellen(
                 $this->teamId(),
-                ['title' => $this->titel, 'category' => $this->kategorie, 'action' => $this->aktion],
+                ['title' => $this->titel, 'category' => $this->kategorie, 'action' => $this->aktion, 'notify_mode' => $this->notifyMode(), 'einstieg' => 'dokumente'],
                 (string) file_get_contents($this->datei->getRealPath()),
                 (string) $this->datei->getClientOriginalName(),
                 $ids,
@@ -316,17 +318,26 @@ class Documents extends Component
 
         DokumentHinweiseVersenden::starten($e['dokument']);
 
+        $ohneWhatsApp = !$this->whatsappHinweis && DokumentKategorie::brauchtHandlung($this->aktion);
         $this->datei = null;
         $this->titel = '';
         $this->kategorie = 'other';
         $this->aktion = 'none';
+        $this->whatsappHinweis = true;
         $this->auswahlSetzen([]);
         $this->aufgeklappt = (int) $e['dokument']->id;
         unset($this->dokumente, $this->kandidaten, $this->abgeschnitten);
         $this->grenzeCache = null;
-        $this->flash = $e['versand_noetig']
-            ? "An {$e['empfaenger']} Personen bereitgestellt, Versand läuft im Hintergrund."
-            : "An {$e['empfaenger']} Personen abgelegt.";
+        $this->flash = match (true) {
+            $e['versand_noetig'] => "An {$e['empfaenger']} Personen bereitgestellt, Versand läuft im Hintergrund.",
+            $ohneWhatsApp        => "An {$e['empfaenger']} Personen bereitgestellt, ohne WhatsApp.",
+            default              => "An {$e['empfaenger']} Personen abgelegt.",
+        };
+    }
+
+    private function notifyMode(): string
+    {
+        return $this->whatsappHinweis ? DokumentService::NOTIFY_WHATSAPP : DokumentService::NOTIFY_NONE;
     }
 
     /** Pflichtpruefung der Info vor der Rueckfrage; null = alles da. Die Datei des PDF-Wegs zaehlt hier nicht. */
@@ -364,7 +375,7 @@ class Documents extends Component
         try {
             $e = app(DokumentService::class)->bereitstellenText(
                 $this->teamId(),
-                ['title' => $titel, 'auto_neue_mitarbeiter' => $this->autoNeue],
+                ['title' => $titel, 'auto_neue_mitarbeiter' => $this->autoNeue, 'notify_mode' => $this->notifyMode(), 'einstieg' => 'dokumente'],
                 $this->infoMarkdown,
                 $this->gewaehlteIds(),
                 auth()->id(),
@@ -380,9 +391,11 @@ class Documents extends Component
         }
 
         $auto = $this->autoNeue;
+        $ohneWhatsApp = !$this->whatsappHinweis;
         $this->titel = '';
         $this->infoMarkdown = '';
         $this->autoNeue = false;
+        $this->whatsappHinweis = true;
         $this->vorschauOffen = false;
         $this->auswahlSetzen([]);
         $this->aufgeklappt = (int) $e['dokument']->id;
@@ -393,6 +406,9 @@ class Documents extends Component
         $n = $e['empfaenger'];
         if ($n === 0) {
             $this->flash = "Info „{$titel}“ wird automatisch an neue Mitarbeiter zugestellt (beim ersten Öffnen des Portals).";
+        } elseif ($ohneWhatsApp) {
+            $this->flash = "Info „{$titel}“ an {$n} Empfänger bereitgestellt, ohne WhatsApp"
+                . ($auto ? '; zusätzlich automatisch an neue Mitarbeiter.' : '.');
         } elseif ($ohnePortal === 0) {
             $this->flash = "Info „{$titel}“ bereitgestellt: WhatsApp geht an {$n} Empfänger"
                 . ($auto ? '; zusätzlich automatisch an neue Mitarbeiter.' : '.');
@@ -436,6 +452,30 @@ class Documents extends Component
         }
         DokumentHinweiseVersenden::starten($d);
         $this->flash = 'Versand neu angestoßen, läuft im Hintergrund.';
+        $this->flashError = null;
+        unset($this->dokumente);
+    }
+
+    /**
+     * "WhatsApp jetzt senden" an einem Dokument "ohne WhatsApp": bewusste
+     * HR-Handlung, dreht notify_mode auf whatsapp und startet denselben Job
+     * wie das Bereitstellen (er schreibt nur unversuchte Zeilen an).
+     */
+    public function whatsappJetztSenden(int $documentId): void
+    {
+        $d = RecDocument::query()->where('team_id', $this->teamId())->find($documentId);
+        if ($d === null) {
+            return;
+        }
+        if (!app(DokumentService::class)->whatsappJetzt($d, auth()->id())) {
+            $this->flash = null;
+            $this->flashError = "„{$d->title}“: keine WhatsApp nötig oder schon unterwegs.";
+            unset($this->dokumente);
+
+            return;
+        }
+        DokumentHinweiseVersenden::starten($d->fresh());
+        $this->flash = "WhatsApp für „{$d->title}“ wird jetzt verschickt, läuft im Hintergrund.";
         $this->flashError = null;
         unset($this->dokumente);
     }
@@ -484,7 +524,7 @@ class Documents extends Component
      * EINER gruppierten Abfrage (DokumentZaehler). Volle Zeilen — ohne
      * signature_data — nur fuer das aufgeklappte Dokument.
      *
-     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, zurueckziehbar:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
+     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, braucht_hinweis:bool, ohne_whatsapp:bool, kann_whatsapp_jetzt:bool, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, zurueckziehbar:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
      */
     #[Computed]
     public function dokumente(): array
@@ -502,7 +542,10 @@ class Documents extends Component
         foreach ($docs as $d) {
             $n = $zahlen[(int) $d->id] ?? DokumentZaehler::leer();
             $f = DokumentFortschritt::ausZaehlern($n, (string) $d->action);
-            $brauchtVersand = DokumentKategorie::brauchtHinweis((string) $d->category, (string) $d->action);
+            // "ohne WhatsApp": kein Fortschritt "benachrichtigt", kein "Versand erneut anstossen",
+            // stattdessen Abzeichen + Knopf "WhatsApp jetzt senden".
+            $brauchtVersand = DokumentService::hinweisFaellig((string) $d->category, (string) $d->action, $d->notify_mode);
+            $ohneWhatsApp = $d->notify_mode === DokumentService::NOTIFY_NONE;
             $ausstehend = $brauchtVersand ? $n['ausstehend'] : 0;
             // "laeuft" nur fuer unversuchte Zeilen innerhalb der Versandfrist;
             // aeltere sind liegengeblieben und stoppen das Pollen.
@@ -544,6 +587,9 @@ class Documents extends Component
                 'published'      => $d->published_at?->format('d.m.Y'),
                 'automatisch'    => $n['automatisch'],
                 'braucht_hinweis' => $brauchtVersand,
+                'ohne_whatsapp'  => $ohneWhatsApp,
+                'kann_whatsapp_jetzt' => $ohneWhatsApp && $d->deleted_at === null
+                    && DokumentKategorie::brauchtHinweis((string) $d->category, (string) $d->action),
                 'action_label'   => DokumentKategorie::aktionLabel((string) $d->action),
                 'event'          => $d->event?->name ?: $d->event?->einsatz_ref,
                 'erstellt'       => $d->created_at?->format('d.m.Y H:i') ?? '',

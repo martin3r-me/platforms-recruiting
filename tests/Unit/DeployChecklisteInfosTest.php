@@ -28,7 +28,7 @@ final class DeployChecklisteInfosTest extends TestCase
             $this->assertFileExists(dirname(__DIR__, 2) . "/database/migrations/{$name}.php");
         }
         $zahl = count($m[1]);
-        $this->assertSame(19, $zahl);
+        $this->assertSame(20, $zahl);
         $this->assertStringContainsString("alle {$zahl} „Ran\"", $abschnitt[0]);
         $this->assertStringContainsString("Keine der {$zahl} ist", $abschnitt[0]);
         $this->assertStringContainsString("`migrate`: {$zahl} Migrationen des Zweigs", $liste);

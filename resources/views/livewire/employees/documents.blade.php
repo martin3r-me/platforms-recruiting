@@ -290,7 +290,12 @@
                 </div>
             </div>
 
-            <div class="mt-4 flex justify-end">
+            <div class="mt-4 flex flex-col items-end gap-2">
+                {{-- Haken "WhatsApp-Hinweis senden" (PDF und Info), vorausgewaehlt; aus = notify_mode none. --}}
+                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" wire:model.live="whatsappHinweis">
+                    WhatsApp-Hinweis senden
+                </label>
                 <button type="button" wire:click="bereitstellenPruefen" wire:loading.attr="disabled" wire:target="bereitstellenPruefen,bereitstellen,datei" @disabled($sendenGesperrt)
                         class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
                     @if ($istInfo)
@@ -342,6 +347,11 @@
                                 @elseif ($dok['automatisch'] > 0)
                                     <div class="mt-1 text-[10px] text-[var(--ui-muted)]">{{ $dok['automatisch'] }} automatisch zugestellt · Automatik beendet</div>
                                 @endif
+                                @if ($dok['ohne_whatsapp'])
+                                    <div class="mt-1">
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-700 border border-gray-200">ohne WhatsApp</span>
+                                    </div>
+                                @endif
                             </button>
                             <div class="w-44">
                                 <div class="text-xs text-right mb-1">{{ $dokFortschrittText }}</div>
@@ -354,6 +364,10 @@
                             </div>
                             @if ($dokZeigtAnstossen)
                                 <button type="button" wire:click="versandAnstossen({{ $dok['id'] }})" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Versand erneut anstoßen</button>
+                            @endif
+                            {{-- Bewusste HR-Handlung: dreht "ohne WhatsApp" um und startet den Versand. --}}
+                            @if ($dok['kann_whatsapp_jetzt'])
+                                <button type="button" wire:click="whatsappJetztSenden({{ $dok['id'] }})" wire:confirm="Für „{{ $dok['title'] }}“ jetzt die WhatsApp an alle Offenen senden?" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">WhatsApp jetzt senden</button>
                             @endif
                             @if ($dok['is_info'])
                                 <span class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)]">INFO</span>
@@ -405,7 +419,13 @@
         <x-slot name="header">Bereitstellen bestätigen</x-slot>
         <div class="space-y-2 text-sm">
             @if ($istInfo)
-                @if ($gewaehlt > 0)
+                @if ($gewaehlt > 0 && !$whatsappHinweis)
+                    <p>Info „{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Empfänger bereitstellen, ohne WhatsApp?</p>
+                    <p>Keine Nachricht — die Info steht beim nächsten Öffnen im Portal.</p>
+                    @if ($autoNeue)
+                        <p>Außerdem automatisch an alle Neuen ab heute (beim ersten Öffnen des Portals).</p>
+                    @endif
+                @elseif ($gewaehlt > 0)
                     <p>Info „{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Empfänger bereitstellen?</p>
                     <p>WhatsApp geht an {{ $mitWhatsApp }} Empfänger.</p>
                     @if ($ohnePortal > 0)
@@ -420,7 +440,9 @@
                 @endif
             @else
                 <p>„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?</p>
-                @if ($ohnePortal > 0)
+                @if (!$whatsappHinweis)
+                    <p>Ohne WhatsApp — das Dokument steht beim nächsten Öffnen im Portal.</p>
+                @elseif ($ohnePortal > 0)
                     <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).</p>
                 @endif
                 <p>Der Mitarbeiter soll: {{ $aktionLabel }}.</p>

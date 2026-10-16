@@ -183,6 +183,10 @@ Keine neue Vorlage. Infos mit gewählten Empfängern nutzen den bestehenden
 Universalvorlage „im Portal ist etwas für dich offen", Feld „Dokument liegt im Portal").
 Automatisch zugestellte Zeilen tragen `notify_error = nicht_noetig` und werden nie angeschrieben.
 
+Nachtrag 16.10.2026: Haken „WhatsApp-Hinweis senden" auch für Infos (vorausgewählt an).
+Aus = `notify_mode = none`: gewählte Empfänger bekommen keine Nachricht, die Info steht
+beim nächsten Öffnen im Portal; nachträglich über „WhatsApp jetzt senden" (Spec Dokumente §4).
+
 ## 8. Deploy
 
 - Eine Migration (`add_info_fields_to_rec_documents`): drei neue Spalten, fünf Spalten

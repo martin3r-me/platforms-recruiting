@@ -26,6 +26,17 @@ use Symfony\Component\Uid\UuidV7;
 class DokumentService
 {
     /**
+     * Haken "WhatsApp-Hinweis senden" (Sebastian 16.10.2026) je Dokument:
+     * whatsapp = wie bisher, none = HR wollte bewusst keine Nachricht. Gilt
+     * zusaetzlich zur Kategorie-Regel (DokumentKategorie::brauchtHinweis).
+     */
+    public const NOTIFY_WHATSAPP = 'whatsapp';
+    public const NOTIFY_NONE     = 'none';
+
+    /** Status von erneutSenden() bei notify_mode none — ein Zustand, kein Fehler. */
+    public const STATUS_OHNE_WHATSAPP = 'ohne_whatsapp';
+
+    /**
      * Nullable mit faulen Defaults: app(DokumentService::class) baut ihn ohne
      * Argumente, Tests uebergeben Speicher und Sender ausdruecklich.
      */
@@ -46,7 +57,29 @@ class DokumentService
     }
 
     /**
-     * @param  array{title:string, category:string, action:string} $daten
+     * Die EINE Pruefung "bekommt dieses Dokument die Portal-WhatsApp?":
+     * Kategorie-Regel UND Haken. Service, Job, Akte-Zeilen und Ueberblick
+     * fragen hier — sonst schriebe einer der Wege trotz "ohne WhatsApp" an.
+     * Ein fehlender Wert (Bestand vor der Spalte) zaehlt als whatsapp.
+     */
+    public static function hinweisFaellig(string $category, string $action, ?string $notifyMode): bool
+    {
+        return DokumentKategorie::brauchtHinweis($category, $action) && $notifyMode !== self::NOTIFY_NONE;
+    }
+
+    /** Nur die zwei bekannten Werte; fehlt der Schluessel, gilt whatsapp (Bestandsverhalten). */
+    private static function notifyMode(array $daten): string
+    {
+        $mode = (string) ($daten['notify_mode'] ?? self::NOTIFY_WHATSAPP);
+        if (!in_array($mode, [self::NOTIFY_WHATSAPP, self::NOTIFY_NONE], true)) {
+            throw new \InvalidArgumentException('Unbekannte Benachrichtigungsart.');
+        }
+
+        return $mode;
+    }
+
+    /**
+     * @param  array{title:string, category:string, action:string, notify_mode?:string, einstieg?:string} $daten
      * @param  list<int> $employeeIds
      * @return array{dokument: RecDocument, empfaenger: int, versand_noetig: bool}
      * @throws \InvalidArgumentException mit dem Fehlertext fuer HR
@@ -56,6 +89,7 @@ class DokumentService
         $titel = trim((string) ($daten['title'] ?? ''));
         $kategorie = (string) ($daten['category'] ?? '');
         $aktion = (string) ($daten['action'] ?? '');
+        $notifyMode = self::notifyMode($daten);
 
         if ($titel === '') {
             throw new \InvalidArgumentException('Bitte einen Titel angeben.');
@@ -84,13 +118,14 @@ class DokumentService
         $uuid = (string) UuidV7::generate();
         $ablage = $this->speicher()->ablegen($teamId, $uuid, $pdfInhalt);
 
-        $dokument = DB::transaction(function () use ($teamId, $uuid, $titel, $kategorie, $aktion, $ablage, $originalName, $eventId, $userId, $empfaengerIds, $anstellungen) {
+        $dokument = DB::transaction(function () use ($teamId, $uuid, $titel, $kategorie, $aktion, $notifyMode, $ablage, $originalName, $eventId, $userId, $empfaengerIds, $anstellungen) {
             $dokument = RecDocument::create([
                 'team_id'            => $teamId,
                 'uuid'               => $uuid,
                 'title'              => mb_substr($titel, 0, 255),
                 'category'           => $kategorie,
                 'action'             => $aktion,
+                'notify_mode'        => $notifyMode,
                 'disk'               => $ablage['disk'],
                 'stored_path'        => $ablage['stored_path'],
                 'original_filename'  => mb_substr($originalName, 0, 255),
@@ -114,7 +149,7 @@ class DokumentService
         return [
             'dokument'      => $dokument->fresh(),
             'empfaenger'    => count($empfaengerIds),
-            'versand_noetig' => DokumentKategorie::brauchtHandlung($aktion),
+            'versand_noetig' => DokumentKategorie::brauchtHandlung($aktion) && $notifyMode === self::NOTIFY_WHATSAPP,
         ];
     }
 
@@ -126,7 +161,7 @@ class DokumentService
      * nur mit auto_neue_mitarbeiter — sonst laege eine Info, die nie jemand
      * sieht. Keine Datei, kein Speicher.
      *
-     * @param  array{title:string, auto_neue_mitarbeiter?:bool} $daten
+     * @param  array{title:string, auto_neue_mitarbeiter?:bool, notify_mode?:string, einstieg?:string} $daten
      * @param  list<int> $employeeIds
      * @return array{dokument: RecDocument, empfaenger: int, versand_noetig: bool}
      */
@@ -134,6 +169,7 @@ class DokumentService
     {
         $titel = trim((string) ($daten['title'] ?? ''));
         $auto = (bool) ($daten['auto_neue_mitarbeiter'] ?? false);
+        $notifyMode = self::notifyMode($daten);
         if ($titel === '') {
             throw new \InvalidArgumentException('Bitte einen Titel angeben.');
         }
@@ -148,13 +184,14 @@ class DokumentService
             throw new \InvalidArgumentException('Bitte mindestens einen Empfänger wählen oder „automatisch an neue Mitarbeiter“ anhaken.');
         }
 
-        $dokument = DB::transaction(function () use ($teamId, $titel, $markdown, $auto, $userId, $aufgeloest) {
+        $dokument = DB::transaction(function () use ($teamId, $titel, $markdown, $auto, $notifyMode, $userId, $aufgeloest) {
             $dokument = RecDocument::create([
                 'team_id'               => $teamId,
                 'uuid'                  => (string) UuidV7::generate(),
                 'title'                 => mb_substr($titel, 0, 255),
                 'category'              => DokumentKategorie::INFO,
                 'action'                => DokumentKategorie::AKTION_NONE,
+                'notify_mode'           => $notifyMode,
                 'content_markdown'      => $markdown,
                 'file_sha256'           => hash('sha256', $markdown),
                 'auto_neue_mitarbeiter' => $auto,
@@ -174,8 +211,12 @@ class DokumentService
         });
 
         // Mit Empfaengern geht die Portal-WhatsApp raus wie bei einer PDF (Spec §1.3, §7);
-        // ohne (nur Automatik) gibt es niemanden anzuschreiben.
-        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => $aufgeloest['ids'] !== []];
+        // ohne (nur Automatik) gibt es niemanden anzuschreiben, ohne Haken soll niemand.
+        return [
+            'dokument'       => $dokument->fresh(),
+            'empfaenger'     => count($aufgeloest['ids']),
+            'versand_noetig' => $aufgeloest['ids'] !== [] && $notifyMode === self::NOTIFY_WHATSAPP,
+        ];
     }
 
     /**
@@ -211,14 +252,14 @@ class DokumentService
      * die Haelfte stumm. Versucht wird NUR, was noch nie versucht wurde
      * (notified_at UND notify_error leer); ein Fehlschlag wird nicht von
      * selbst wiederholt, dafuer gibt es "Erneut senden". Zurueckgezogene und
-     * "nur ablegen" bekommen nichts.
+     * "nur ablegen" bekommen nichts, ein Dokument "ohne WhatsApp" auch nicht.
      *
      * @return array{versucht:int, benachrichtigt:int, fehler:array<string,int>}
      */
     public function hinweiseVersenden(RecDocument $dokument): array
     {
         $e = ['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => []];
-        if (!DokumentKategorie::brauchtHinweis((string) $dokument->category, (string) $dokument->action)) {
+        if (!self::hinweisFaellig((string) $dokument->category, (string) $dokument->action, $this->frischerNotifyMode((int) $dokument->id))) {
             return $e;
         }
         $offene = RecDocumentRecipient::query()
@@ -251,11 +292,15 @@ class DokumentService
         if ($empfaenger->withdrawn_at !== null) {
             return 'zurueckgezogen';
         }
-        $dok = DB::table('rec_documents')->where('id', $empfaenger->rec_document_id)->first(['category', 'action']);
+        $dok = DB::table('rec_documents')->where('id', $empfaenger->rec_document_id)->first(['category', 'action', 'notify_mode']);
         $kategorie = (string) ($dok->category ?? '');
         $aktion = (string) ($dok->action ?? '');
         if (!DokumentKategorie::brauchtHinweis($kategorie, $aktion)) {
             return 'nur_ablegen';
+        }
+        // HR hat "ohne WhatsApp" gewaehlt: Umdrehen geht nur bewusst ueber "WhatsApp jetzt senden".
+        if (!self::hinweisFaellig($kategorie, $aktion, $dok->notify_mode ?? null)) {
+            return self::STATUS_OHNE_WHATSAPP;
         }
         // Automatisch zugestellte Info: wird nie angeschrieben (Spec §7).
         if ($empfaenger->notify_error === DokumentHinweisSender::STATUS_NICHT_NOETIG) {
@@ -287,6 +332,27 @@ class DokumentService
             ->update(['withdrawn_at' => now(), 'updated_at' => now()]);
 
         return null;
+    }
+
+    /**
+     * Knopf "WhatsApp jetzt senden": HR dreht ein Dokument "ohne WhatsApp"
+     * bewusst um. Nur bei none, nicht zurueckgezogen und nur, wenn die
+     * Kategorie ueberhaupt eine Nachricht kennt ("nur ablegen" hat keine).
+     * Den Versand startet der Aufrufer ueber DokumentHinweiseVersenden —
+     * dieselbe Regel wie beim Bereitstellen. true = umgedreht.
+     */
+    public function whatsappJetzt(RecDocument $dokument, ?int $userId): bool
+    {
+        if (!DokumentKategorie::brauchtHinweis((string) $dokument->category, (string) $dokument->action)) {
+            return false;
+        }
+        $gedreht = DB::table('rec_documents')
+            ->where('id', $dokument->id)
+            ->where('notify_mode', self::NOTIFY_NONE)
+            ->whereNull('deleted_at')
+            ->update(['notify_mode' => self::NOTIFY_WHATSAPP, 'updated_at' => now()]) > 0;
+
+        return $gedreht;
     }
 
     /**
@@ -332,6 +398,18 @@ class DokumentService
             ->where('id', $dokument->id)
             ->where('auto_neue_mitarbeiter', true)
             ->update(['auto_neue_mitarbeiter' => false, 'updated_at' => now()]) > 0;
+    }
+
+    /**
+     * notify_mode frisch aus der Tabelle: der Job haelt das Dokument eine
+     * Weile in der Hand, und das Modell eines Aufrufers kann vor dem
+     * Umdrehen geladen worden sein.
+     */
+    private function frischerNotifyMode(int $documentId): ?string
+    {
+        $mode = DB::table('rec_documents')->where('id', $documentId)->value('notify_mode');
+
+        return $mode === null ? null : (string) $mode;
     }
 
     /**

@@ -179,6 +179,18 @@ Kein Haken, kein Empfänger → kein Bereitstellen (Fehlertext).
   (Ruling C2 des Fristenlaufs). Das Dokument liegt trotzdem bereit, sichtbar nach
   der Umstellung.
 
+Nachtrag Haken „WhatsApp-Hinweis senden" (16.10.2026, Sebastian: „beim Bereitstellen
+unterscheiden können, ob es dazu eine WhatsApp gibt oder nicht"):
+- `rec_documents.notify_mode` (`whatsapp` | `none`, Default `whatsapp`, Bestand bleibt
+  `whatsapp`). Haken in allen drei Einstiegen (Seite Dokumente für PDF und Info, Akte,
+  Veranstaltung), vorausgewählt an; Rückfrage und Meldung sagen „ohne WhatsApp".
+- Eine Prüfung `DokumentService::hinweisFaellig(category, action, notify_mode)` =
+  `DokumentKategorie::brauchtHinweis` UND nicht `none`. Bei `none`: `hinweiseVersenden()`
+  versucht nichts, `DokumentHinweiseVersenden::starten()` stellt sich nicht ein,
+  `erneutSenden()` liefert `ohne_whatsapp`, Akte-Zeile „ohne WhatsApp" ohne „Erneut senden".
+- Umdrehen nur bewusst: Knopf „WhatsApp jetzt senden" (Seite Dokumente) setzt
+  `notify_mode = whatsapp` und startet den Job.
+
 ---
 
 ## 5. Portal (`PortalShell`)
@@ -315,6 +327,11 @@ Nachtrag Infos (16.10.2026, Spec `2026-10-16-portal-infos-design.md`, „S-Info"
   mit 0 Empfängern); Knopf „Automatik beenden" nimmt nur den Haken.
 - Infos mit gewählten Empfängern bekommen die Portal-WhatsApp wie ein PDF
   (`DokumentKategorie::brauchtHinweis`); automatisch zugestellte nie.
+
+Nachtrag Haken „WhatsApp-Hinweis senden" (16.10.2026, §4):
+- Dokumente mit `notify_mode = none` tragen das Abzeichen „ohne WhatsApp"; der Fortschritt
+  „x benachrichtigt" und „Versand erneut anstoßen" entfallen. Stattdessen Knopf
+  „WhatsApp jetzt senden" (nur wenn die Kategorie eine Nachricht kennt, nicht zurückgezogen).
 
 ---
 

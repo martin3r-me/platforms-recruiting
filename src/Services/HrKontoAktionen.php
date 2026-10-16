@@ -86,6 +86,7 @@ final class HrKontoAktionen
         'erledigt'                     => 'schon erledigt',
         'zurueckgezogen'               => 'zurückgezogen',
         'nur_ablegen'                  => 'nur zur Ablage, keine Handlung nötig',
+        'ohne_whatsapp'                => 'ohne WhatsApp bereitgestellt',
     ];
 
     private const RIEGEL_TEXT = [

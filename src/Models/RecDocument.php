@@ -25,6 +25,7 @@ class RecDocument extends Model
         'disk', 'stored_path', 'original_filename', 'file_sha256', 'file_size',
         'rec_dispo_event_id', 'created_by_user_id',
         'content_markdown', 'auto_neue_mitarbeiter', 'published_at',
+        'notify_mode',
     ];
 
     protected $casts = [

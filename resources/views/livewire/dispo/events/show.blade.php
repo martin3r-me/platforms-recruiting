@@ -1021,6 +1021,11 @@
                             </select>
                         </label>
                     </div>
+                    {{-- Haken "WhatsApp-Hinweis senden", vorausgewaehlt; aus = notify_mode none. --}}
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" wire:model="dokWhatsApp">
+                        WhatsApp-Hinweis senden
+                    </label>
                 </div>
                 <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                     <div class="flex justify-end gap-3">

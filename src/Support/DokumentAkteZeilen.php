@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Support;
 
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
+use Platform\Recruiting\Services\DokumentService;
 
 /**
  * Die Zeilen der HR-Sicht (Akte und Seite Dokumente, Spec §3.2, §8): Status,
@@ -40,7 +41,10 @@ final class DokumentAkteZeilen
             }
             $aktion = (string) $d->action;
             // Infos bekommen die WhatsApp auch ohne Handlung (brauchtHinweis); automatisch zugestellte nie.
-            $hinweis = DokumentKategorie::brauchtHinweis((string) $d->category, $aktion);
+            // Haken "ohne WhatsApp" (notify_mode none): keine Nachricht, kein "Erneut senden".
+            $ohneWhatsApp = DokumentKategorie::brauchtHinweis((string) $d->category, $aktion)
+                && !DokumentService::hinweisFaellig((string) $d->category, $aktion, $d->notify_mode);
+            $hinweis = !$ohneWhatsApp && DokumentKategorie::brauchtHinweis((string) $d->category, $aktion);
             $nichtNoetig = $z->notify_error === DokumentHinweisSender::STATUS_NICHT_NOETIG;
             $status = DokumentStatus::fuer($z->zeitstempel(), $aktion);
             // Versandstand in Worten — eine Stelle fuer Akte und Seite Dokumente.
@@ -50,6 +54,7 @@ final class DokumentAkteZeilen
                 && $z->withdrawn_at === null && $z->notified_at === null && $z->notify_error === null;
             $versandLaeuft = $unversucht && $z->created_at !== null && $z->created_at->greaterThanOrEqualTo($grenze);
             $versandText = match (true) {
+                $ohneWhatsApp                                => 'ohne WhatsApp',
                 !$hinweis                                    => 'ohne Nachricht',
                 $nichtNoetig                                 => 'ohne Nachricht (im Portal gesehen)',
                 $z->notified_at !== null                     => 'WhatsApp ' . $z->notified_at->format('d.m. H:i'),

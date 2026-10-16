@@ -666,7 +666,7 @@
                             <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
                         @enderror
                     </div>
-                    <div class="md:col-span-3">
+                    <div class="md:col-span-4">
                         <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Titel</label>
                         <input type="text" wire:model="dokumentTitel" placeholder="z. B. Verschwiegenheitserklärung" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm">
                     </div>
@@ -686,9 +686,14 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="md:col-span-1">
+                    {{-- Haken "WhatsApp-Hinweis senden" direkt vor dem Knopf, vorausgewaehlt; aus = notify_mode none. --}}
+                    <div class="md:col-span-12 flex items-center justify-end gap-3">
+                        <label class="flex items-center gap-2 text-sm cursor-pointer">
+                            <input type="checkbox" wire:model="dokumentWhatsApp">
+                            WhatsApp-Hinweis senden
+                        </label>
                         <button type="submit" wire:loading.attr="disabled" wire:target="dokumentBereitstellen,dokumentDatei"
-                                class="w-full inline-flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
+                                class="inline-flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
                             Bereitstellen
                         </button>
                     </div>

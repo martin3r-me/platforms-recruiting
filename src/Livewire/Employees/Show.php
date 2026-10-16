@@ -59,6 +59,8 @@ class Show extends Component
     public string $dokumentTitel = '';
     public string $dokumentKategorie = 'other';
     public string $dokumentAktion = 'none';
+    /** Haken "WhatsApp-Hinweis senden", vorausgewaehlt an — aus = notify_mode none. */
+    public bool $dokumentWhatsApp = true;
 
     // Vertrag neu ausstellen (siehe reissueContract())
     public bool $reissueModalShow = false;
@@ -932,7 +934,13 @@ class Show extends Component
         try {
             $ergebnis = app(DokumentService::class)->bereitstellen(
                 (int) $emp->team_id,
-                ['title' => $this->dokumentTitel, 'category' => $this->dokumentKategorie, 'action' => $this->dokumentAktion],
+                [
+                    'title'       => $this->dokumentTitel,
+                    'category'    => $this->dokumentKategorie,
+                    'action'      => $this->dokumentAktion,
+                    'notify_mode' => $this->dokumentWhatsApp ? DokumentService::NOTIFY_WHATSAPP : DokumentService::NOTIFY_NONE,
+                    'einstieg'    => 'akte',
+                ],
                 (string) file_get_contents($this->dokumentDatei->getRealPath()),
                 (string) $this->dokumentDatei->getClientOriginalName(),
                 [(int) $emp->id],
@@ -947,14 +955,18 @@ class Show extends Component
 
         DokumentHinweiseVersenden::starten($ergebnis['dokument']);
 
+        $ohneWhatsApp = !$this->dokumentWhatsApp && DokumentKategorie::brauchtHandlung($this->dokumentAktion);
+        $this->dokumentWhatsApp = true;
         $this->dokumentDatei = null;
         $this->dokumentTitel = '';
         $this->dokumentKategorie = 'other';
         $this->dokumentAktion = 'none';
         unset($this->personDokumente);
-        $this->flash = $ergebnis['versand_noetig']
-            ? 'Dokument bereitgestellt, WhatsApp wird verschickt.'
-            : 'Dokument bereitgestellt.';
+        $this->flash = match (true) {
+            $ergebnis['versand_noetig'] => 'Dokument bereitgestellt, WhatsApp wird verschickt.',
+            $ohneWhatsApp               => 'Dokument bereitgestellt, ohne WhatsApp.',
+            default                     => 'Dokument bereitgestellt.',
+        };
     }
 
     public function dokumentErneutSenden(int $recipientId): void

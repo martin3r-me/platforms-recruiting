@@ -9,7 +9,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecDocument;
 use Platform\Recruiting\Services\DokumentService;
-use Platform\Recruiting\Support\DokumentKategorie;
 
 /**
  * Hintergrundversand der Dokument-Hinweise (Spec §3.1 Schritt 5, Nachtrag
@@ -29,10 +28,15 @@ class DokumentHinweiseVersenden implements ShouldQueue
     {
     }
 
-    /** Einziger Einstieg fuer die drei Oberflaechen — stellt nur ein, wenn es etwas zu schicken gibt. */
+    /**
+     * Einziger Einstieg fuer die drei Oberflaechen — stellt nur ein, wenn es
+     * etwas zu schicken gibt. "Ohne WhatsApp" (notify_mode none) stellt sich
+     * gar nicht erst ein: hinweiseVersenden() prueft es zwar auch, aber ein
+     * Job, der nichts tut, waere im Queue-Log ein falsches Signal.
+     */
     public static function starten(RecDocument $dokument): void
     {
-        if (DokumentKategorie::brauchtHinweis((string) $dokument->category, (string) $dokument->action)) {
+        if (DokumentService::hinweisFaellig((string) $dokument->category, (string) $dokument->action, $dokument->notify_mode)) {
             self::dispatch((int) $dokument->id);
         }
     }

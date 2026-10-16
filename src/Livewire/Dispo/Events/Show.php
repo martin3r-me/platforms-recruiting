@@ -168,6 +168,8 @@ class Show extends Component
     public string $dokTitel = '';
     public string $dokKategorie = 'instruction';
     public string $dokAktion = 'acknowledge';
+    /** Haken "WhatsApp-Hinweis senden", vorausgewaehlt an — aus = notify_mode none. */
+    public bool $dokWhatsApp = true;
     /** Bestaetigung nach dem Bereitstellen (Property statt Session-Flash: die Komponente rendert ohne Redirect neu). */
     public string $dokumentFlash = '';
 
@@ -502,6 +504,7 @@ class Show extends Component
         $this->dokTitel = '';
         $this->dokKategorie = 'instruction';
         $this->dokAktion = 'acknowledge';
+        $this->dokWhatsApp = true;
         $this->dokumentFlash = '';
         $this->resetErrorBag('dokDatei');
         $this->showDokumentModal = true;
@@ -544,7 +547,13 @@ class Show extends Component
         try {
             $e = app(DokumentService::class)->bereitstellen(
                 (int) auth()->user()->currentTeam->id,
-                ['title' => $this->dokTitel, 'category' => $this->dokKategorie, 'action' => $this->dokAktion],
+                [
+                    'title'       => $this->dokTitel,
+                    'category'    => $this->dokKategorie,
+                    'action'      => $this->dokAktion,
+                    'notify_mode' => $this->dokWhatsApp ? DokumentService::NOTIFY_WHATSAPP : DokumentService::NOTIFY_NONE,
+                    'einstieg'    => 'veranstaltung',
+                ],
                 (string) file_get_contents($this->dokDatei->getRealPath()),
                 (string) $this->dokDatei->getClientOriginalName(),
                 $this->eingebuchteIds,
@@ -560,9 +569,12 @@ class Show extends Component
         $this->showDokumentModal = false;
         $this->dokDatei = null;
         unset($this->eventDokumente);
-        $this->dokumentFlash = $e['versand_noetig']
-            ? "An {$e['empfaenger']} Eingebuchte bereitgestellt, WhatsApp läuft im Hintergrund — Stand auf der Dokumente-Seite."
-            : "An {$e['empfaenger']} Eingebuchte abgelegt.";
+        $ohneWhatsApp = !$this->dokWhatsApp && DokumentKategorie::brauchtHandlung($this->dokAktion);
+        $this->dokumentFlash = match (true) {
+            $e['versand_noetig'] => "An {$e['empfaenger']} Eingebuchte bereitgestellt, WhatsApp läuft im Hintergrund — Stand auf der Dokumente-Seite.",
+            $ohneWhatsApp        => "An {$e['empfaenger']} Eingebuchte bereitgestellt, ohne WhatsApp — Stand auf der Dokumente-Seite.",
+            default              => "An {$e['empfaenger']} Eingebuchte abgelegt.",
+        };
     }
 
     /** @return list<array{id:int, title:string, action_label:string, fortschritt:array}> */

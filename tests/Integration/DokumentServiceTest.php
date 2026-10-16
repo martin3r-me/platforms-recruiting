@@ -77,6 +77,8 @@ final class DokumentServiceTest extends TestCase
             'database/migrations/2026_10_09_000002_create_rec_document_recipients_table.php',
             // Zurueckziehen nimmt den Automatik-Haken (Spec 2026-10-16 §3.3) — die Spalte muss da sein.
             'database/migrations/2026_10_16_000001_add_info_fields_to_rec_documents.php',
+            // Haken "WhatsApp-Hinweis senden" (16.10.2026): der Service schreibt notify_mode immer mit.
+            'database/migrations/2026_10_16_000002_add_notify_mode_to_rec_documents.php',
         ] as $relativ) {
             $pfad = $eigen . '/' . $relativ;
             if (!file_exists($pfad)) {
