@@ -320,6 +320,12 @@ class Inbox extends Component
         if ($property === 'oooForm.until' && $this->oooForm['until'] !== '' && $this->oooForm['back_at'] === '') {
             $this->oooForm['back_at'] = \Carbon\Carbon::parse($this->oooForm['until'])->addDay()->format('Y-m-d');
         }
+        // Nur gueltige Filialwerte: 'all', 'ohne' oder ein Hunderterblock ('200').
+        // Alles andere (von aussen gesetzt) faellt auf 'all' zurueck.
+        if ($property === 'filiale' && !in_array($this->filiale, ['all', 'ohne'], true)
+            && !(ctype_digit($this->filiale) && (int) $this->filiale > 0 && (int) $this->filiale % 100 === 0)) {
+            $this->filiale = 'all';
+        }
         if ($property === 'search' || $property === 'owner' || $property === 'filiale') {
             $this->discardSelectionOnFilterChange();
             $this->resetPage();

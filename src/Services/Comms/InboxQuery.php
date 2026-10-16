@@ -477,6 +477,7 @@ final class InboxQuery
             array_values($bewerbungStelle),
         ));
         $stelleKst = $stellenIds === [] ? [] : \Platform\Recruiting\Models\RecPosition::query()
+            ->where('team_id', $teamId)
             ->whereIn('id', array_values(array_unique(array_map('intval', $stellenIds))))
             ->pluck('cost_center', 'id')
             ->all();
