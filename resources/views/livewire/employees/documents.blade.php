@@ -1,5 +1,15 @@
 @php
-    $kategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
+    // PDF-Weg: Text-Kategorien (info) gibt es nur ueber den Umschalter PDF | Info.
+    $kategorien = array_filter(
+        \Platform\Recruiting\Support\DokumentKategorie::labels(),
+        fn ($label, $code) => !\Platform\Recruiting\Support\DokumentKategorie::istText($code),
+        ARRAY_FILTER_USE_BOTH,
+    );
+    $istInfo = $art === 'info';
+    $artAn = 'bg-blue-50 text-blue-800 font-medium';
+    $artAus = 'text-[var(--ui-muted)] hover:bg-[var(--ui-muted-5)]';
+    $artPdfKlasse = $istInfo ? $artAus : $artAn;
+    $artInfoKlasse = $istInfo ? $artAn : $artAus;
     $aktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
     $kandidaten = $this->kandidaten;
     $abgeschnitten = $this->abgeschnitten;
@@ -17,6 +27,10 @@
     $kopfZustand = $alleTrefferGewaehlt ? 'an' : ($kopfTeilweise ? 'teil' : 'aus');
     $kopfTeilweiseJs = $kopfTeilweise ? 'true' : 'false';
     $sendenGesperrt = $gewaehlt === 0;
+    // Eine Info mit Automatik-Haken darf ohne Empfaenger raus (wartet auf Neue).
+    if ($istInfo && $autoNeue) {
+        $sendenGesperrt = false;
+    }
     $aktionLabel = $aktionen[$aktion] ?? $aktion;
     $bestaetigungTitel = trim($titel);
     $dokumente = $this->dokumente;
@@ -49,8 +63,22 @@
 
         {{-- 1. Dokument --}}
         <div class="bg-white border border-[var(--ui-border)] rounded-lg p-4">
-            <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">1 · Dokument</h3>
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h3 class="text-sm font-semibold text-[var(--ui-secondary)]">1 · Dokument</h3>
+                {{-- Umschalter PDF | Info (Spec 2026-10-16 §3.2) --}}
+                <div class="inline-flex rounded-md border border-[var(--ui-border)] overflow-hidden text-sm" role="radiogroup" aria-label="Art">
+                    <label class="flex items-center gap-1.5 px-3 py-1 cursor-pointer {{ $artPdfKlasse }}">
+                        <input type="radio" name="dokument-art" value="pdf" wire:model.live="art" class="sr-only">
+                        PDF
+                    </label>
+                    <label class="flex items-center gap-1.5 px-3 py-1 cursor-pointer border-l border-[var(--ui-border)] {{ $artInfoKlasse }}">
+                        <input type="radio" name="dokument-art" value="info" wire:model.live="art" class="sr-only">
+                        Info
+                    </label>
+                </div>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                @if (!$istInfo)
                 <div class="md:col-span-4">
                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF bis 12 MB</label>
                     <input type="file" accept=".pdf" wire:model="datei" class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
@@ -59,10 +87,12 @@
                         <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
                     @enderror
                 </div>
+                @endif
                 <div class="md:col-span-4">
                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Titel</label>
                     <input type="text" wire:model="titel" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm">
                 </div>
+                @if (!$istInfo)
                 <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Kategorie</label>
                     <select wire:model.live="kategorie" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
@@ -79,7 +109,83 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
             </div>
+
+            @if ($istInfo)
+                {{--
+                    Editor: Toast UI aus der Host-App (window.ToastUIEditor, Muster platform-notes boot()
+                    mit Rueckfall auf toastui:ready). wire:ignore ist Pflicht, sonst raeumt Livewire den
+                    Editor beim naechsten Rerender ab. Fehlt der Editor, bleibt das Textfeld (Markdown).
+                    Nach dem Bereitstellen leert das Event info-bereitgestellt beide.
+                --}}
+                <div class="mt-3" wire:key="info-editor" wire:ignore
+                     x-data="{
+                        bereit: false,
+                        editor: null,
+                        timer: null,
+                        init() {
+                            if (!this.boot()) {
+                                window.addEventListener('toastui:ready', () => this.boot(), { once: true });
+                            }
+                        },
+                        boot() {
+                            const Editor = window.ToastUIEditor;
+                            if (!Editor || this.editor) return !!this.editor;
+                            this.bereit = true;
+                            try {
+                                this.editor = new Editor({
+                                    el: this.$refs.editorEl,
+                                    height: '360px',
+                                    initialEditType: 'wysiwyg',
+                                    hideModeSwitch: true,
+                                    usageStatistics: false,
+                                    placeholder: 'Text der Info …',
+                                    toolbarItems: [['heading', 'bold', 'italic'], ['ul', 'ol'], ['link']],
+                                    initialValue: this.$wire.infoMarkdown || '',
+                                });
+                            } catch (e) {
+                                this.bereit = false;
+                                this.editor = null;
+                                return false;
+                            }
+                            this.editor.on('blur', () => this.uebernehmen());
+                            this.editor.on('change', () => {
+                                clearTimeout(this.timer);
+                                this.timer = setTimeout(() => this.uebernehmen(), 400);
+                            });
+                            return true;
+                        },
+                        uebernehmen() {
+                            clearTimeout(this.timer);
+                            if (this.editor) this.$wire.set('infoMarkdown', this.editor.getMarkdown(), false);
+                        },
+                        leeren() {
+                            clearTimeout(this.timer);
+                            if (this.editor) this.editor.setMarkdown('');
+                            if (this.$refs.fallback) this.$refs.fallback.value = '';
+                        },
+                        destroy() {
+                            clearTimeout(this.timer);
+                            if (this.editor && typeof this.editor.destroy === 'function') this.editor.destroy();
+                        },
+                     }"
+                     x-on:info-bereitgestellt.window="leeren()">
+                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Text der Info</label>
+                    <div x-show="!bereit">
+                        <textarea x-ref="fallback" wire:model.blur="infoMarkdown" rows="12" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm font-mono" placeholder="Text (Markdown: # Überschrift, **fett**, - Liste, [Link](https://…))"></textarea>
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Markdown: # Überschrift, **fett**, *kursiv*, - Liste, [Linktext](https://…). Telefonnummern werden im Portal automatisch zum Anrufknopf.</p>
+                    </div>
+                    <div x-show="bereit" x-ref="editorEl"></div>
+                </div>
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" wire:model.live="autoNeue">
+                        Automatisch an neue Mitarbeiter (beim ersten Öffnen des Portals)
+                    </label>
+                    <button type="button" wire:click="$set('vorschauOffen', true)" class="text-xs text-blue-700 hover:underline">Vorschau wie im Portal</button>
+                </div>
+            @endif
         </div>
 
         {{-- 2. Empfaenger --}}
@@ -189,7 +295,11 @@
             <div class="mt-4 flex justify-end">
                 <button type="button" wire:click="bereitstellenPruefen" wire:loading.attr="disabled" wire:target="bereitstellenPruefen,bereitstellen,datei" @disabled($sendenGesperrt)
                         class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
-                    An {{ $gewaehlt }} Personen bereitstellen
+                    @if ($istInfo)
+                        Info an {{ $gewaehlt }} Empfänger bereitstellen
+                    @else
+                        An {{ $gewaehlt }} Personen bereitstellen
+                    @endif
                 </button>
             </div>
         </div>
@@ -270,16 +380,67 @@
     <x-ui-modal wire:model="bestaetigungOffen" size="sm">
         <x-slot name="header">Bereitstellen bestätigen</x-slot>
         <div class="space-y-2 text-sm">
-            <p>„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?</p>
-            @if ($ohnePortal > 0)
-                <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).</p>
+            @if ($istInfo)
+                @if ($gewaehlt > 0)
+                    <p>Info „{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Empfänger bereitstellen?</p>
+                    @if ($autoNeue)
+                        <p>Außerdem automatisch an alle Neuen ab heute (beim ersten Öffnen des Portals).</p>
+                    @endif
+                @else
+                    <p>Info „{{ $bestaetigungTitel }}“: 0 Empfänger jetzt, automatisch an alle Neuen ab heute.</p>
+                @endif
+                @if ($ohnePortal > 0)
+                    <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal.</p>
+                @endif
+            @else
+                <p>„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?</p>
+                @if ($ohnePortal > 0)
+                    <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).</p>
+                @endif
+                <p>Der Mitarbeiter soll: {{ $aktionLabel }}.</p>
             @endif
-            <p>Der Mitarbeiter soll: {{ $aktionLabel }}.</p>
         </div>
         <x-slot name="footer">
             <div class="flex justify-end gap-2">
                 <x-ui-button type="button" variant="secondary-outline" wire:click="$set('bestaetigungOffen', false)">Abbrechen</x-ui-button>
                 <x-ui-button type="button" variant="primary" wire:click="bereitstellen" wire:loading.attr="disabled" wire:target="bereitstellen">Bereitstellen</x-ui-button>
+            </div>
+        </x-slot>
+    </x-ui-modal>
+
+    {{-- Vorschau = Portal-Renderer (InfoText::html, Spec §5.3); die Regeln unten wiederholen portal-styles (.info-text). --}}
+    <x-ui-modal wire:model="vorschauOffen" size="md">
+        <x-slot name="header">Vorschau wie im Portal</x-slot>
+        <style>
+            .info-vorschau{--brand:#22a8b8; --brand-mid:#167582; --ink:#111827; --line:#e5e7eb; --line-2:#d1d5db; --surface:#ffffff; --r:8px; max-width:420px; margin:0 auto; border:1px solid var(--line); border-left:3px solid var(--brand); border-radius:10px; padding:14px 13px; background:var(--surface)}
+            .info-vorschau .info-titel{font-size:17px; font-weight:600; line-height:1.3; margin:0 0 8px}
+            .info-vorschau .info-text{font-size:14px; line-height:1.55; color:var(--ink)}
+            .info-vorschau .info-text h2{font-size:16px; font-weight:700; line-height:1.3; margin:14px 0 6px}
+            .info-vorschau .info-text h3{font-size:14.5px; font-weight:700; line-height:1.3; margin:12px 0 5px}
+            .info-vorschau .info-text h2:first-child, .info-vorschau .info-text h3:first-child{margin-top:0}
+            .info-vorschau .info-text p{margin:0 0 10px}
+            .info-vorschau .info-text ul, .info-vorschau .info-text ol{margin:0 0 10px; padding-left:20px}
+            .info-vorschau .info-text ul{list-style:disc}
+            .info-vorschau .info-text ol{list-style:decimal}
+            .info-vorschau .info-text li{margin:3px 0}
+            .info-vorschau .info-text hr{border:none; border-top:1px solid var(--line); margin:12px 0}
+            .info-vorschau .info-text > :last-child{margin-bottom:0}
+            .info-vorschau .info-link, .info-vorschau .info-tel{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:9px 14px; margin:4px 0; border-radius:var(--r); font-size:14px; font-weight:600; text-decoration:none}
+            .info-vorschau .info-link{background:var(--brand); color:#fff; border:1px solid var(--brand)}
+            .info-vorschau .info-tel{background:var(--surface); color:var(--brand-mid); border:1px solid var(--line-2)}
+            .info-vorschau .info-tel::before{content:"\260E"}
+        </style>
+        <div class="info-vorschau">
+            <h2 class="info-titel">{{ $bestaetigungTitel !== '' ? $bestaetigungTitel : 'Ohne Titel' }}</h2>
+            @if (trim($infoMarkdown) === '')
+                <p class="text-sm text-[var(--ui-muted)]">Noch kein Text.</p>
+            @else
+                <div class="info-text">{!! $this->vorschauHtml !!}</div>
+            @endif
+        </div>
+        <x-slot name="footer">
+            <div class="flex justify-end">
+                <x-ui-button type="button" variant="secondary-outline" wire:click="$set('vorschauOffen', false)">Schließen</x-ui-button>
             </div>
         </x-slot>
     </x-ui-modal>

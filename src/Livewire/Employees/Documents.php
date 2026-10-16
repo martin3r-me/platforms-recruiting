@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\DokumentZaehler;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentFortschritt;
 use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\InfoText;
 
 /**
  * Seite Dokumente (Spec §3.4, §8): die lange Form zum Bereitstellen an eine
@@ -27,6 +28,11 @@ use Platform\Recruiting\Support\DokumentKategorie;
  * (einzeln oder "alle Treffer"); die Auswahl bleibt ueber Such- und
  * Filterwechsel stehen. Versendet wird nur nach dem Bestaetigungsschritt und
  * nur an die serverseitig gegen das Team gepruefte Auswahl.
+ *
+ * Umschalter PDF | Info (Spec 2026-10-16 §3.2): eine Info ist Text
+ * (Markdown aus dem Editor) statt PDF, Kategorie fest info, keine Aktion.
+ * Sie darf ohne Empfaenger raus, wenn der Haken "automatisch an neue
+ * Mitarbeiter" sitzt. Der PDF-Weg bleibt davon unberuehrt.
  */
 class Documents extends Component
 {
@@ -36,6 +42,14 @@ class Documents extends Component
     public string $titel = '';
     public string $kategorie = 'other';
     public string $aktion = 'none';
+
+    /** 'pdf' | 'info' — Spec 2026-10-16 §3.2 */
+    public string $art = 'pdf';
+    /** Markdown aus dem Editor (bzw. dem Rueckfall-Textfeld) */
+    public string $infoMarkdown = '';
+    /** Haken "automatisch an neue Mitarbeiter (beim ersten Oeffnen des Portals)" */
+    public bool $autoNeue = false;
+    public bool $vorschauOffen = false;
 
     public string $suche = '';
     public string $firma = '';
@@ -62,6 +76,28 @@ class Documents extends Component
     public function updatedKategorie(): void
     {
         $this->aktion = DokumentKategorie::exists($this->kategorie) ? DokumentKategorie::defaultAktion($this->kategorie) : 'none';
+    }
+
+    /** Umschalten verwirft eine offene Rueckfrage — sie galt dem anderen Weg. */
+    public function updatedArt(): void
+    {
+        if (!in_array($this->art, ['pdf', 'info'], true)) {
+            $this->art = 'pdf';
+        }
+        $this->flashError = null;
+        $this->bestaetigungOffen = false;
+    }
+
+    /** Vorschau = derselbe Renderer wie im Portal (§5.3): HR sieht, was der Mitarbeiter sieht. */
+    #[Computed]
+    public function vorschauHtml(): string
+    {
+        return InfoText::html($this->infoMarkdown);
+    }
+
+    private function istInfo(): bool
+    {
+        return $this->art === 'info';
     }
 
     public function updatedDatei(): void
@@ -212,6 +248,12 @@ class Documents extends Component
         $this->flash = null;
         $this->flashError = null;
         $this->bestaetigungOffen = false;
+        if ($this->istInfo()) {
+            $this->flashError = $this->infoFehler();
+            $this->bestaetigungOffen = $this->flashError === null;
+
+            return;
+        }
         if (!$this->datei) {
             $this->flashError = 'Bitte eine PDF auswählen.';
 
@@ -239,6 +281,11 @@ class Documents extends Component
         $this->bestaetigungOffen = false;
         $this->flash = null;
         $this->flashError = null;
+        if ($this->istInfo()) {
+            $this->infoBereitstellen();
+
+            return;
+        }
         if (!$this->datei) {
             $this->flashError = 'Bitte eine PDF auswählen.';
 
@@ -280,6 +327,68 @@ class Documents extends Component
         $this->flash = $e['versand_noetig']
             ? "An {$e['empfaenger']} Personen bereitgestellt, Versand läuft im Hintergrund."
             : "An {$e['empfaenger']} Personen abgelegt.";
+    }
+
+    /** Pflichtpruefung der Info vor der Rueckfrage; null = alles da. Die Datei des PDF-Wegs zaehlt hier nicht. */
+    private function infoFehler(): ?string
+    {
+        if (trim($this->titel) === '') {
+            return 'Bitte einen Titel angeben.';
+        }
+        if (trim($this->infoMarkdown) === '') {
+            return 'Bitte einen Text schreiben.';
+        }
+        if ($this->gewaehlteIds() === [] && !$this->autoNeue) {
+            return 'Bitte mindestens einen Empfänger wählen oder „automatisch an neue Mitarbeiter“ anhaken.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Info-Weg von bereitstellen(): Text statt PDF, kein Hinweis-Job
+     * (versand_noetig ist bei Infos immer false). Danach Formular leeren und
+     * den Editor im Browser per Event mitleeren (er steht unter wire:ignore).
+     */
+    private function infoBereitstellen(): void
+    {
+        $this->flashError = $this->infoFehler();
+        if ($this->flashError !== null) {
+            return;
+        }
+        $titel = trim($this->titel);
+
+        try {
+            $e = app(DokumentService::class)->bereitstellenText(
+                $this->teamId(),
+                ['title' => $titel, 'auto_neue_mitarbeiter' => $this->autoNeue],
+                $this->infoMarkdown,
+                $this->gewaehlteIds(),
+                auth()->id(),
+            );
+        } catch (\InvalidArgumentException $ex) {
+            $this->flashError = $ex->getMessage();
+
+            return;
+        }
+
+        $auto = $this->autoNeue;
+        $this->titel = '';
+        $this->infoMarkdown = '';
+        $this->autoNeue = false;
+        $this->vorschauOffen = false;
+        $this->auswahlSetzen([]);
+        $this->aufgeklappt = (int) $e['dokument']->id;
+        unset($this->dokumente, $this->kandidaten, $this->abgeschnitten, $this->vorschauHtml);
+        $this->grenzeCache = null;
+        $this->dispatch('info-bereitgestellt');
+
+        $n = $e['empfaenger'];
+        if ($n === 0) {
+            $this->flash = "Info „{$titel}“ wird automatisch an neue Mitarbeiter zugestellt (beim ersten Öffnen des Portals).";
+        } else {
+            $this->flash = "Info „{$titel}“ an {$n} Empfänger bereitgestellt" . ($auto ? ', zusätzlich automatisch an neue Mitarbeiter.' : '.');
+        }
     }
 
     public function aufklappen(int $documentId): void
