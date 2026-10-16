@@ -262,9 +262,11 @@ class ArchiveOldConversations extends Command
      * insert(): ein aufgehobener (veralteter) Stempel steht noch in der
      * Tabelle und wird ueberschrieben — comms_whatsapp_thread_id ist unique.
      *
-     * handled_at = letzter Eingang des Threads, nicht now() (Review
-     * 16.10.2026): ein Text, der zwischen Planen und Schreiben eingeht, ist
-     * juenger und hebt den Stempel damit auf, statt still mit abgelegt zu werden.
+     * handled_at = letzter Eingang des Threads beim Schreiben, nicht now()
+     * (Review 16.10.2026): was NACH dem Schreiben eingeht, hebt den Stempel
+     * auf. Ein Text, der genau zwischen dem Lesen von last_inbound_at hier und
+     * dem upsert eingeht, wird noch mit abgelegt — ein Fenster von
+     * Millisekunden in einem einmaligen Handlauf, bewusst hingenommen.
      *
      * @param list<int> $threadIds
      */
