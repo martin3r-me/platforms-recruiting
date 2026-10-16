@@ -177,7 +177,7 @@ final class DokumentVerlaufTest extends TestCase
         $z = $this->zeilen(DokumentVerlauf::VERSAND_GESTARTET);
         $this->assertCount(1, $z);
         $this->assertNull($z[0]->user_id);
-        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['no_phone' => 1]], $this->details($z[0]));
+        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['no_phone' => 1], 'uebersprungen_erledigt' => 0], $this->details($z[0]));
     }
 
     public function test_whatsapp_jetzt_schreibt_mit_user(): void
@@ -242,6 +242,7 @@ final class DokumentVerlaufTest extends TestCase
         $alle = $this->zeilen(DokumentVerlauf::ZURUECKGEZOGEN);
         $this->assertCount(2, $alle);
         $this->assertNull($alle[1]->rec_document_recipient_id);
+        $this->assertSame(7, (int) $alle[1]->user_id, 'auch "ganz zurueckgezogen" traegt den HR-User');
         $this->assertSame(['anzahl' => 1, 'geloescht' => true], $this->details($alle[1]));
         $this->assertSame([], $this->zeilen(DokumentVerlauf::AUTOMATIK_BEENDET), 'PDF ohne Haken: kein Automatik-Eintrag');
     }
@@ -301,7 +302,7 @@ final class DokumentVerlaufTest extends TestCase
         DB::table('rec_document_events')->where('aktion', DokumentVerlauf::BEREITGESTELLT)->update(['created_at' => '2026-10-16 09:12:00']);
         DB::table('rec_document_events')->where('aktion', DokumentVerlauf::VERSAND_GESTARTET)->update(['created_at' => '2026-10-16 09:13:00']);
 
-        $v = DokumentVerlauf::fuer((int) $d->id);
+        $v = DokumentVerlauf::fuer(3, (int) $d->id);
 
         $this->assertCount(2, $v);
         $this->assertSame(DokumentVerlauf::VERSAND_GESTARTET, $v[0]['aktion'], 'neueste oben');
@@ -321,10 +322,35 @@ final class DokumentVerlaufTest extends TestCase
         $r = RecDocumentRecipient::query()->where('rec_document_id', $d->id)->sole();
         $this->seite()->zurueckziehen((int) $r->id);
 
-        $v = DokumentVerlauf::fuer((int) $d->id);
+        $v = DokumentVerlauf::fuer(3, (int) $d->id);
         $this->assertSame('zurückgezogen für Anna Test', $v[0]['text']);
         $this->assertSame((int) $r->id, $v[0]['recipient_id']);
         $this->assertSame('bereitgestellt an 1 Empfänger (PDF, WhatsApp nein, von: Dokumente)', $v[1]['text']);
+    }
+
+    public function test_fremdes_team_sieht_nichts(): void
+    {
+        $a = $this->anstellung();
+        $d = $this->pdfBereitstellen([(int) $a->id]);
+
+        $this->assertCount(1, DokumentVerlauf::fuer(3, (int) $d->id));
+        $this->assertSame([], DokumentVerlauf::fuer(9, (int) $d->id));
+    }
+
+    public function test_versand_anstossen_ohne_vorgesehenen_versand_schreibt_nichts(): void
+    {
+        $a = $this->anstellung();
+        $ohne = $this->pdfBereitstellen([(int) $a->id], ['notify_mode' => 'none']);
+        $ablage = $this->pdfBereitstellen([(int) $a->id], ['category' => 'payslip', 'action' => 'none']);
+        $s = $this->seite();
+
+        foreach ([$ohne, $ablage] as $d) {
+            $s->versandAnstossen((int) $d->id);
+            $this->assertSame('Für dieses Dokument ist kein Versand vorgesehen.', $s->flashError);
+            $this->assertNull($s->flash);
+        }
+        $this->assertSame([], $this->zeilen(DokumentVerlauf::VERSAND_ANGESTOSSEN));
+        $this->assertSame([], $this->bus->jobs);
     }
 
     public function test_unbekannter_benutzer_heisst_system(): void
@@ -332,7 +358,7 @@ final class DokumentVerlaufTest extends TestCase
         $d = RecDocument::create(['team_id' => 3, 'title' => 'X', 'category' => 'info', 'action' => 'none', 'content_markdown' => 'x', 'file_sha256' => 'x']);
         DokumentVerlauf::schreibe(3, (int) $d->id, null, DokumentVerlauf::AUTOMATIK_BEENDET, 999);
 
-        $this->assertSame('System', DokumentVerlauf::fuer((int) $d->id)[0]['user']);
+        $this->assertSame('System', DokumentVerlauf::fuer(3, (int) $d->id)[0]['user']);
     }
 
     public function test_ueberblick_zeigt_den_verlauf_des_aufgeklappten_dokuments(): void

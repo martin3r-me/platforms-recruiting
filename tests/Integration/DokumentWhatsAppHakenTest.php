@@ -250,6 +250,45 @@ final class DokumentWhatsAppHakenTest extends TestCase
         $this->assertFalse($this->service()->whatsappJetzt($d, 7), 'zweiter Klick: schon umgedreht');
     }
 
+    public function test_whatsapp_jetzt_erreicht_nur_offene(): void
+    {
+        foreach ([
+            ['instruction', 'acknowledge', 'acknowledged_at'],
+            ['contract', 'sign', 'signed_at'],
+        ] as [$kat, $akt, $spalte]) {
+            $this->sender->angeschrieben = [];
+            $erledigt = $this->anstellung(['first_name' => 'Erledigt', 'phone' => '+491701111111']);
+            $offen = $this->anstellung(['first_name' => 'Offen', 'phone' => '+491702222222']);
+            $r = $this->service()->bereitstellen(3, ['title' => 'B', 'category' => $kat, 'action' => $akt, 'notify_mode' => 'none'], self::PDF, 'b.pdf', [(int) $erledigt->id, (int) $offen->id], null, 7);
+            DB::table('rec_document_recipients')->where('rec_document_id', $r['dokument']->id)->where('rec_employee_id', $erledigt->id)->update([$spalte => '2026-10-16 08:00:00']);
+
+            $this->service()->whatsappJetzt($r['dokument'], 7);
+            $e = $this->service()->hinweiseVersenden(RecDocument::find($r['dokument']->id));
+
+            $this->assertSame([(int) $offen->id], $this->sender->angeschrieben, "nur der Offene ({$akt})");
+            $this->assertSame(1, $e['versucht']);
+            $this->assertSame(1, $e['uebersprungen_erledigt']);
+            $this->assertSame([], $e['fehler'], 'erledigt ist kein Fehler');
+            $z = RecDocumentRecipient::query()->where('rec_document_id', $r['dokument']->id)->where('rec_employee_id', $erledigt->id)->sole();
+            $this->assertNull($z->notified_at);
+            $this->assertNull($z->notify_error, 'nicht gestempelt');
+        }
+    }
+
+    public function test_whatsapp_jetzt_bei_info_ueberspringt_gesehene(): void
+    {
+        $gesehen = $this->anstellung(['first_name' => 'Gesehen', 'phone' => '+491701111111']);
+        $offen = $this->anstellung(['first_name' => 'Offen', 'phone' => '+491702222222']);
+        $r = $this->service()->bereitstellenText(3, ['title' => 'News', 'notify_mode' => 'none'], 'Text', [(int) $gesehen->id, (int) $offen->id], 7);
+        DB::table('rec_document_recipients')->where('rec_employee_id', $gesehen->id)->update(['first_viewed_at' => '2026-10-16 08:00:00']);
+
+        $this->service()->whatsappJetzt($r['dokument'], 7);
+        $e = $this->service()->hinweiseVersenden(RecDocument::find($r['dokument']->id));
+
+        $this->assertSame([(int) $offen->id], $this->sender->angeschrieben);
+        $this->assertSame(1, $e['uebersprungen_erledigt']);
+    }
+
     public function test_whatsapp_jetzt_aus_dem_ueberblick_startet_den_job(): void
     {
         $ma = $this->anstellung();

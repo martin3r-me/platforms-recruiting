@@ -162,7 +162,7 @@ final class DokumentServiceTest extends TestCase
 
         $e = $this->service()->hinweiseVersenden($dok);
 
-        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['no_phone' => 1]], $e);
+        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['no_phone' => 1], 'uebersprungen_erledigt' => 0], $e);
         $this->assertSame([$a->id, $b->id], $this->sender->angeschrieben);
         $za = RecDocumentRecipient::where('rec_employee_id', $a->id)->first();
         $zb = RecDocumentRecipient::where('rec_employee_id', $b->id)->first();
@@ -185,8 +185,8 @@ final class DokumentServiceTest extends TestCase
         $this->sender->angeschrieben = [];
         $zweiter = $this->service()->hinweiseVersenden($dok);
 
-        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['failed' => 1]], $erster, 'Cem ist zurueckgezogen');
-        $this->assertSame(['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => []], $zweiter, 'auch der Fehlschlag wird nicht von selbst wiederholt — das ist Erneut senden');
+        $this->assertSame(['versucht' => 2, 'benachrichtigt' => 1, 'fehler' => ['failed' => 1], 'uebersprungen_erledigt' => 0], $erster, 'Cem ist zurueckgezogen');
+        $this->assertSame(['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => [], 'uebersprungen_erledigt' => 0], $zweiter, 'auch der Fehlschlag wird nicht von selbst wiederholt — das ist Erneut senden');
         $this->assertSame([], $this->sender->angeschrieben);
     }
 
@@ -197,7 +197,7 @@ final class DokumentServiceTest extends TestCase
         $r = $this->service()->bereitstellen(self::TEAM, $this->daten(['category' => 'payslip', 'action' => 'none']), self::PDF, 'x.pdf', [$a->id], null, null);
 
         $this->assertFalse($r['versand_noetig']);
-        $this->assertSame(['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => []], $this->service()->hinweiseVersenden($r['dokument']));
+        $this->assertSame(['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => [], 'uebersprungen_erledigt' => 0], $this->service()->hinweiseVersenden($r['dokument']));
         $this->assertSame([], $this->sender->angeschrieben);
     }
 

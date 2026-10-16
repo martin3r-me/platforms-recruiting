@@ -295,11 +295,17 @@ class DokumentService
      * selbst wiederholt, dafuer gibt es "Erneut senden". Zurueckgezogene und
      * "nur ablegen" bekommen nichts, ein Dokument "ohne WhatsApp" auch nicht.
      *
-     * @return array{versucht:int, benachrichtigt:int, fehler:array<string,int>}
+     * Schon Erledigte (unterschrieben/bestaetigt, Info gesehen) bekommen
+     * nichts — dieselbe Pruefung wie "Erneut senden". Relevant vor allem nach
+     * "WhatsApp jetzt senden": zwischen Bereitstellen ohne WhatsApp und dem
+     * Umdrehen koennen Leute laengst fertig sein (Review W1). Sie werden
+     * weder gestempelt noch als Fehler gezaehlt (uebersprungen_erledigt).
+     *
+     * @return array{versucht:int, benachrichtigt:int, fehler:array<string,int>, uebersprungen_erledigt:int}
      */
     public function hinweiseVersenden(RecDocument $dokument): array
     {
-        $e = ['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => []];
+        $e = ['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => [], 'uebersprungen_erledigt' => 0];
         if (!self::hinweisFaellig((string) $dokument->category, (string) $dokument->action, $this->frischerNotifyMode((int) $dokument->id))) {
             return $e;
         }
@@ -311,6 +317,11 @@ class DokumentService
             ->orderBy('id')
             ->get();
         foreach ($offene as $empfaenger) {
+            if (DokumentStatus::hinweisErledigt($empfaenger->zeitstempel(), (string) $dokument->category, (string) $dokument->action)) {
+                $e['uebersprungen_erledigt']++;
+
+                continue;
+            }
             $status = $this->hinweisSenden($empfaenger);
             $e['versucht']++;
             if (DokumentHinweisSender::istErfolg($status)) {

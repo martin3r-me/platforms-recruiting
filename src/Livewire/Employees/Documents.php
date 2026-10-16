@@ -451,6 +451,14 @@ class Documents extends Component
         if ($d === null) {
             return;
         }
+        // Nur wenn der Job wirklich startet (Review K3) — sonst stuende ein Versand im Verlauf, den es nie gab.
+        if (!DokumentService::hinweisFaellig((string) $d->category, (string) $d->action, $d->notify_mode)) {
+            $this->flash = null;
+            $this->flashError = 'Für dieses Dokument ist kein Versand vorgesehen.';
+            unset($this->dokumente);
+
+            return;
+        }
         // Nachweis: wer hat den Versand von Hand angestossen — vor dem Job, der selbst nur "System" kennt.
         DokumentVerlauf::schreibe((int) $d->team_id, (int) $d->id, null, DokumentVerlauf::VERSAND_ANGESTOSSEN, auth()->id(), ['quelle' => 'dokumente']);
         DokumentHinweiseVersenden::starten($d);
@@ -566,7 +574,7 @@ class Documents extends Component
             $verlauf = [];
             if ($this->aufgeklappt === (int) $d->id) {
                 // Nachweis "wer hat was wann getan" — nur fuer das aufgeklappte Dokument geladen.
-                $verlauf = DokumentVerlauf::fuer((int) $d->id);
+                $verlauf = DokumentVerlauf::fuer($teamId, (int) $d->id);
                 $zeilen = RecDocumentRecipient::query()
                     ->ohneUnterschriftsbild()
                     ->where('rec_document_id', $d->id)

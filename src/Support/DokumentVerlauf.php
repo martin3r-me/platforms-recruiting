@@ -82,18 +82,20 @@ final class DokumentVerlauf
     }
 
     /**
-     * Verlauf eines Dokuments, neueste oben. Benutzername per Join auf users
+     * Verlauf eines Dokuments, neueste oben. Team ist Pflicht (Review K1):
+     * ohne Team-Filter laese ein Aufrufer mit fremder Dokument-ID mit. Benutzername per Join auf users
      * (Muster HrMitarbeiterListen::gestoppte()); ohne Benutzer (Job,
      * Automatik) oder mit verschwundenem Benutzer heisst es "System".
      *
      * @return list<array{zeit:string, aktion:string, aktion_label:string, user:string, details:array, recipient_id:?int, empfaenger:?string, text:string}>
      */
-    public static function fuer(int $documentId): array
+    public static function fuer(int $teamId, int $documentId): array
     {
         $zeilen = DB::table('rec_document_events as v')
             ->leftJoin('users as u', 'u.id', '=', 'v.user_id')
             ->leftJoin('rec_document_recipients as r', 'r.id', '=', 'v.rec_document_recipient_id')
             ->leftJoin('rec_employees as e', 'e.id', '=', 'r.rec_employee_id')
+            ->where('v.team_id', $teamId)
             ->where('v.rec_document_id', $documentId)
             ->orderByDesc('v.created_at')
             ->orderByDesc('v.id')
