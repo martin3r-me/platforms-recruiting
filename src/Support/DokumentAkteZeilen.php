@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Support;
 
 use Platform\Recruiting\Models\RecDocumentRecipient;
+use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 
 /**
  * Die Zeilen der HR-Sicht (Akte und Seite Dokumente, Spec §3.2, §8): Status,
@@ -38,15 +39,19 @@ final class DokumentAkteZeilen
                 continue;
             }
             $aktion = (string) $d->action;
+            // Infos bekommen die WhatsApp auch ohne Handlung (brauchtHinweis); automatisch zugestellte nie.
+            $hinweis = DokumentKategorie::brauchtHinweis((string) $d->category, $aktion);
+            $nichtNoetig = $z->notify_error === DokumentHinweisSender::STATUS_NICHT_NOETIG;
             $status = DokumentStatus::fuer($z->zeitstempel(), $aktion);
             // Versandstand in Worten — eine Stelle fuer Akte und Seite Dokumente.
             // "Laeuft" nur innerhalb der Frist — danach ist eine unversuchte
             // Zeile liegengeblieben und heisst "nicht gesendet".
-            $unversucht = DokumentKategorie::brauchtHandlung($aktion)
+            $unversucht = $hinweis
                 && $z->withdrawn_at === null && $z->notified_at === null && $z->notify_error === null;
             $versandLaeuft = $unversucht && $z->created_at !== null && $z->created_at->greaterThanOrEqualTo($grenze);
             $versandText = match (true) {
-                !DokumentKategorie::brauchtHandlung($aktion) => 'ohne Nachricht',
+                !$hinweis                                    => 'ohne Nachricht',
+                $nichtNoetig                                 => 'ohne Nachricht (im Portal gesehen)',
                 $z->notified_at !== null                     => 'WhatsApp ' . $z->notified_at->format('d.m. H:i'),
                 $z->notify_error !== null                    => 'nicht erreicht (' . $z->notify_error . ')',
                 $z->withdrawn_at !== null                    => 'nicht gesendet',
@@ -55,11 +60,12 @@ final class DokumentAkteZeilen
             };
             // "Erneut senden": auch waehrend "laeuft" (Rettung bei totem Job),
             // nie bei Zurueckgezogenen, schon Benachrichtigten oder Erledigten.
-            $kannErneut = DokumentKategorie::brauchtHandlung($aktion)
+            $kannErneut = $hinweis
+                && !$nichtNoetig
                 && $z->withdrawn_at === null
                 && $z->notified_at === null
                 && !in_array($status, [DokumentStatus::UNTERSCHRIEBEN, DokumentStatus::BESTAETIGT], true)
-                && !DokumentStatus::istErledigt($z->zeitstempel(), $aktion);
+                && !DokumentStatus::hinweisErledigt($z->zeitstempel(), (string) $d->category, $aktion);
             $out[] = [
                 'recipient_id'       => (int) $z->id,
                 'document_id'        => (int) $d->id,

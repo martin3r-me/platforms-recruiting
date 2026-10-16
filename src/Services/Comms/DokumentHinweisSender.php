@@ -44,6 +44,13 @@ class DokumentHinweisSender
     public const STATUS_VORLAGE_UNTAUGLICH = 'vorlage_untauglich';
     public const STATUS_ALTES_PORTAL = 'altes_portal';
     public const STATUS_INAKTIV = 'inaktiv';
+    /**
+     * Kein Sendestatus, sondern ein Vermerk beim Anlegen: automatisch
+     * zugestellte Infos (DokumentAutoZustellung) entstehen, waehrend der
+     * Mensch im Portal ist — notify_error = nicht_noetig haelt sie aus dem
+     * Versand (der nimmt nur Zeilen ohne notified_at UND ohne notify_error).
+     */
+    public const STATUS_NICHT_NOETIG = 'nicht_noetig';
 
     /** Was HoldingTemplateComponents als Vorname erkennt — dieselbe Liste, damit beide Wege dasselbe meinen. */
     private const NAME_PLATZHALTER = ['name', 'vorname', '1'];

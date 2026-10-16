@@ -332,7 +332,7 @@
                                 <div class="text-xs text-right mb-1">{{ $dok['fortschritt']['text'] }}</div>
                                 @if ($dok['ausstehend'] > 0)
                                     <div class="text-[10px] text-right text-amber-700">{{ $dokVersandZeile }}</div>
-                                @elseif ($dok['action'] !== 'none')
+                                @elseif ($dok['braucht_hinweis'])
                                     <div class="text-[10px] text-right text-[var(--ui-muted)]">{{ $dok['benachrichtigt'] }} benachrichtigt</div>
                                 @endif
                                 <div class="h-1.5 bg-[var(--ui-muted-5)] rounded-full overflow-hidden"><div class="h-full bg-emerald-500" style="width: {{ $dokBalken }}%"></div></div>
@@ -340,7 +340,9 @@
                             @if ($dokZeigtAnstossen)
                                 <button type="button" wire:click="versandAnstossen({{ $dok['id'] }})" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Versand erneut anstoßen</button>
                             @endif
-                            <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dok['uuid']]) }}" target="_blank" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">PDF</a>
+                            @if (!$dok['ist_text'])
+                                <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dok['uuid']]) }}" target="_blank" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">PDF</a>
+                            @endif
                             @if (!$dok['geloescht'] && !$dok['erledigt'])
                                 <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="„{{ $dok['title'] }}“ für alle Offenen zurückziehen?" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
                             @endif
@@ -383,14 +385,17 @@
             @if ($istInfo)
                 @if ($gewaehlt > 0)
                     <p>Info „{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Empfänger bereitstellen?</p>
+                    @if ($ohnePortal > 0)
+                        <p>WhatsApp geht an {{ $gewaehlt }} Empfänger, davon {{ $ohnePortal }} im alten Portal ohne Nachricht.</p>
+                    @else
+                        <p>WhatsApp geht an {{ $gewaehlt }} Empfänger.</p>
+                    @endif
                     @if ($autoNeue)
                         <p>Außerdem automatisch an alle Neuen ab heute (beim ersten Öffnen des Portals).</p>
                     @endif
                 @else
                     <p>Info „{{ $bestaetigungTitel }}“: 0 Empfänger jetzt, automatisch an alle Neuen ab heute.</p>
-                @endif
-                @if ($ohnePortal > 0)
-                    <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal.</p>
+                    <p>Keine WhatsApp — wer neu dazukommt, sieht die Info beim ersten Öffnen des Portals.</p>
                 @endif
             @else
                 <p>„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?</p>

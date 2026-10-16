@@ -173,7 +173,9 @@ class DokumentService
             return $dokument;
         });
 
-        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => false];
+        // Mit Empfaengern geht die Portal-WhatsApp raus wie bei einer PDF (Spec §1.3, §7);
+        // ohne (nur Automatik) gibt es niemanden anzuschreiben.
+        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => $aufgeloest['ids'] !== []];
     }
 
     /**
@@ -216,7 +218,7 @@ class DokumentService
     public function hinweiseVersenden(RecDocument $dokument): array
     {
         $e = ['versucht' => 0, 'benachrichtigt' => 0, 'fehler' => []];
-        if (!DokumentKategorie::brauchtHandlung((string) $dokument->action)) {
+        if (!DokumentKategorie::brauchtHinweis((string) $dokument->category, (string) $dokument->action)) {
             return $e;
         }
         $offene = RecDocumentRecipient::query()
@@ -249,12 +251,18 @@ class DokumentService
         if ($empfaenger->withdrawn_at !== null) {
             return 'zurueckgezogen';
         }
-        $aktion = (string) DB::table('rec_documents')->where('id', $empfaenger->rec_document_id)->value('action');
-        if (!DokumentKategorie::brauchtHandlung($aktion)) {
+        $dok = DB::table('rec_documents')->where('id', $empfaenger->rec_document_id)->first(['category', 'action']);
+        $kategorie = (string) ($dok->category ?? '');
+        $aktion = (string) ($dok->action ?? '');
+        if (!DokumentKategorie::brauchtHinweis($kategorie, $aktion)) {
             return 'nur_ablegen';
         }
-        // Schon unterschrieben/bestaetigt: keine Erinnerung mehr an Erledigtes.
-        if (DokumentStatus::istErledigt($empfaenger->zeitstempel(), $aktion)) {
+        // Automatisch zugestellte Info: wird nie angeschrieben (Spec §7).
+        if ($empfaenger->notify_error === DokumentHinweisSender::STATUS_NICHT_NOETIG) {
+            return DokumentHinweisSender::STATUS_NICHT_NOETIG;
+        }
+        // Schon unterschrieben/bestaetigt bzw. Info schon gesehen: keine Erinnerung mehr an Erledigtes.
+        if (DokumentStatus::hinweisErledigt($empfaenger->zeitstempel(), $kategorie, $aktion)) {
             return 'erledigt';
         }
 

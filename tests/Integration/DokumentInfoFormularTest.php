@@ -4,7 +4,9 @@ namespace Platform\Recruiting\Tests\Integration;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
 use Platform\Recruiting\Livewire\Employees\Documents;
 use Platform\Recruiting\Models\RecDocument;
 use Platform\Recruiting\Models\RecDocumentRecipient;
@@ -24,6 +26,9 @@ final class DokumentInfoFormularTest extends TestCase
     private const PDF = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF";
 
     private string $pdfPfad;
+
+    /** Bus-Attrappe: merkt sich die eingestellten Jobs statt sie zu queuen. */
+    private object $bus;
 
     protected function setUp(): void
     {
@@ -54,6 +59,16 @@ final class DokumentInfoFormularTest extends TestCase
             }
         });
         $container->instance(DokumentService::class, new DokumentService($this->speicher));
+        $this->bus = new class {
+            /** @var list<object> */
+            public array $jobs = [];
+
+            public function dispatch($job)
+            {
+                $this->jobs[] = $job;
+            }
+        };
+        $container->instance(BusDispatcher::class, $this->bus);
         $this->pdfPfad = $this->root . '/upload.pdf';
         file_put_contents($this->pdfPfad, self::PDF);
     }
@@ -63,6 +78,7 @@ final class DokumentInfoFormularTest extends TestCase
         $c = Container::getInstance();
         $c->forgetInstance(AuthFactory::class);
         $c->forgetInstance(DokumentService::class);
+        $c->forgetInstance(BusDispatcher::class);
         $c->forgetInstance(\Livewire\EventBus::class);
         $c->forgetInstance(\Livewire\Mechanisms\DataStore::class);
         $this->harnessAbbauen();
@@ -99,6 +115,19 @@ final class DokumentInfoFormularTest extends TestCase
     private function blade(): string
     {
         return (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/documents.blade.php');
+    }
+
+    /** @return list<int> document_ids der eingestellten Hinweis-Jobs */
+    private function hinweisJobs(): array
+    {
+        $ids = [];
+        foreach ($this->bus->jobs as $job) {
+            if ($job instanceof DokumentHinweiseVersenden) {
+                $ids[] = (int) (new \ReflectionProperty($job, 'documentId'))->getValue($job);
+            }
+        }
+
+        return $ids;
     }
 
     /** @return list<string> Namen der Browser-Events, die die Komponente ausgeloest hat */
@@ -145,7 +174,8 @@ final class DokumentInfoFormularTest extends TestCase
         $this->assertFalse($s->autoNeue);
         $this->assertFalse($s->bestaetigungOffen);
         $this->assertSame('info', $s->art, 'der Umschalter bleibt stehen — HR schreibt vielleicht gleich die naechste');
-        $this->assertSame('Info „Willkommen“ an 1 Empfänger bereitgestellt, zusätzlich automatisch an neue Mitarbeiter.', $s->flash);
+        $this->assertSame('Info „Willkommen“ bereitgestellt: WhatsApp geht an 1 Empfänger; zusätzlich automatisch an neue Mitarbeiter.', $s->flash);
+        $this->assertSame([(int) $d->id], $this->hinweisJobs(), 'Info mit Empfaengern: Portal-WhatsApp ueber den Job (Spec §7)');
         $this->assertContains('info-bereitgestellt', $this->events($s), 'der Editor im Browser wird geleert');
     }
 
@@ -170,6 +200,7 @@ final class DokumentInfoFormularTest extends TestCase
         $this->assertNotNull($d);
         $this->assertSame(0, RecDocumentRecipient::query()->where('rec_document_id', $d->id)->count());
         $this->assertSame('Info „Neu bei uns“ wird automatisch an neue Mitarbeiter zugestellt (beim ersten Öffnen des Portals).', $s->flash);
+        $this->assertSame([], $this->hinweisJobs(), 'nur Automatik: kein Versand-Job');
     }
 
     public function test_info_ohne_text_wird_vor_der_rueckfrage_abgefangen(): void
@@ -310,5 +341,49 @@ final class DokumentInfoFormularTest extends TestCase
         $this->assertStringContainsString('<x-ui-modal wire:model="vorschauOffen"', $blade);
         $this->assertStringContainsString('{!! $this->vorschauHtml !!}', $blade);
         $this->assertStringContainsString('automatisch an alle Neuen ab heute', $blade);
+    }
+
+    public function test_info_nennt_empfaenger_im_alten_portal(): void
+    {
+        $neu = $this->anstellung();
+        $alt = $this->anstellung(['first_name' => 'Alt', 'portal_v2_since' => null]);
+        $s = $this->seite();
+        $s->art = 'info';
+        $s->titel = 'News';
+        $s->infoMarkdown = 'Text';
+        $s->toggle((int) $neu->id);
+        $s->toggle((int) $alt->id);
+
+        $s->bereitstellenPruefen();
+        $s->bereitstellen();
+
+        $this->assertSame('Info „News“ bereitgestellt: WhatsApp geht an 2 Empfänger, davon 1 im alten Portal ohne Nachricht.', $s->flash);
+        $this->assertCount(1, $this->hinweisJobs());
+    }
+
+    public function test_ueberblick_zeigt_bei_info_keinen_pdf_knopf_und_rechnet_den_versand(): void
+    {
+        $ma = $this->anstellung();
+        $s = $this->seite();
+        $s->art = 'info';
+        $s->titel = 'News';
+        $s->infoMarkdown = 'Text';
+        $s->toggle((int) $ma->id);
+        $s->bereitstellenPruefen();
+        $s->bereitstellen();
+        $s->zeige = 'alle';
+
+        $dok = $s->dokumente()[0];
+        $this->assertTrue($dok['ist_text']);
+        $this->assertTrue($dok['braucht_hinweis']);
+        $this->assertSame(1, $dok['ausstehend'], 'unversuchte Info-Zeile zaehlt als ausstehend');
+        $this->assertStringContainsString("@if (!\$dok['ist_text'])", $this->blade());
+    }
+
+    public function test_rueckfrage_bei_info_sagt_whatsapp(): void
+    {
+        $blade = $this->blade();
+        $this->assertStringContainsString('WhatsApp geht an {{ $gewaehlt }} Empfänger, davon {{ $ohnePortal }} im alten Portal ohne Nachricht.', $blade);
+        $this->assertStringContainsString('WhatsApp geht an {{ $gewaehlt }} Empfänger.', $blade);
     }
 }

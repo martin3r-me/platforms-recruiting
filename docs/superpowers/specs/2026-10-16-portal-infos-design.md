@@ -171,8 +171,9 @@ zugestellten Zeilen. Zurückziehen wie heute.
 ## 7. Nachricht
 
 Keine neue Vorlage. Infos mit gewählten Empfängern nutzen den bestehenden
-`DokumentHinweisSender` (Universalvorlage „im Portal ist etwas für dich offen",
-Feld „Dokument liegt im Portal"). Automatisch zugestellte Infos (§4) verschicken nichts.
+`DokumentHinweisSender` (Aktion none, aber `DokumentKategorie::brauchtHinweis`;
+Universalvorlage „im Portal ist etwas für dich offen", Feld „Dokument liegt im Portal").
+Automatisch zugestellte Zeilen tragen `notify_error = nicht_noetig` und werden nie angeschrieben.
 
 ## 8. Deploy
 

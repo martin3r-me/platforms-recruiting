@@ -61,6 +61,21 @@ final class DokumentStatus
         };
     }
 
+    /**
+     * Ist eine Erinnerung per WhatsApp sinnlos? Fuer Infos heisst das: schon
+     * gesehen. Bewusst NICHT in istErledigt(): dort gilt "none" als erledigt
+     * (nichts verlangt) — darauf bauen offene Punkte, HR-Listen und
+     * Fortschritt; eine Info soll dort weiterhin nie offen sein.
+     */
+    public static function hinweisErledigt(array $z, string $category, string $aktion): bool
+    {
+        if (DokumentKategorie::istText($category)) {
+            return ($z['withdrawn_at'] ?? null) === null && ($z['first_viewed_at'] ?? null) !== null;
+        }
+
+        return self::istErledigt($z, $aktion);
+    }
+
     public static function label(string $status): string
     {
         return self::LABELS[$status] ?? $status;

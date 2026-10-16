@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Support\DokumentKategorie;
 
 /**
@@ -65,6 +66,8 @@ class DokumentAutoZustellung
                 'rec_document_id' => (int) $dokumentId,
                 'rec_employee_id' => (int) $employee->id,
                 'person_key'      => $employee->person_key,
+                // Nie anschreiben: der Mensch ist gerade im Portal (Spec §7).
+                'notify_error'    => DokumentHinweisSender::STATUS_NICHT_NOETIG,
             ]);
             $neu++;
         }

@@ -32,7 +32,7 @@ class DokumentHinweiseVersenden implements ShouldQueue
     /** Einziger Einstieg fuer die drei Oberflaechen — stellt nur ein, wenn es etwas zu schicken gibt. */
     public static function starten(RecDocument $dokument): void
     {
-        if (DokumentKategorie::brauchtHandlung((string) $dokument->action)) {
+        if (DokumentKategorie::brauchtHinweis((string) $dokument->category, (string) $dokument->action)) {
             self::dispatch((int) $dokument->id);
         }
     }

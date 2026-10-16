@@ -100,4 +100,16 @@ final class DokumentKategorie
     {
         return $aktion === self::AKTION_ACKNOWLEDGE || $aktion === self::AKTION_SIGN;
     }
+
+    /**
+     * Bekommt der Empfaenger die Portal-WhatsApp? Alles, was eine Handlung
+     * verlangt, UND jede Info (Spec 2026-10-16 §1.3, §7): eine Info ist "nur
+     * ablegen" ohne offenen Punkt, aber der Mensch soll erfahren, dass sie da
+     * ist. Automatisch zugestellte Info-Zeilen tragen notify_error
+     * nicht_noetig und werden deshalb trotzdem nie angeschrieben.
+     */
+    public static function brauchtHinweis(string $category, string $aktion): bool
+    {
+        return self::brauchtHandlung($aktion) || self::istText($category);
+    }
 }

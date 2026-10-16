@@ -346,9 +346,10 @@ class Documents extends Component
     }
 
     /**
-     * Info-Weg von bereitstellen(): Text statt PDF, kein Hinweis-Job
-     * (versand_noetig ist bei Infos immer false). Danach Formular leeren und
-     * den Editor im Browser per Event mitleeren (er steht unter wire:ignore).
+     * Info-Weg von bereitstellen(): Text statt PDF. Mit Empfaengern geht die
+     * Portal-WhatsApp wie bei einer PDF ueber den Job (Spec §1.3, §7); nur
+     * Automatik = kein Job. Danach Formular leeren und den Editor im Browser
+     * per Event mitleeren (er steht unter wire:ignore).
      */
     private function infoBereitstellen(): void
     {
@@ -357,6 +358,8 @@ class Documents extends Component
             return;
         }
         $titel = trim($this->titel);
+        // Vor dem Leeren der Auswahl: wer im alten Portal ist, bekommt keine WhatsApp (Sender: altes_portal).
+        $ohnePortal = count(array_filter($this->gepruefteAuswahl(), fn ($k) => !$k['hat_portal']));
 
         try {
             $e = app(DokumentService::class)->bereitstellenText(
@@ -370,6 +373,10 @@ class Documents extends Component
             $this->flashError = $ex->getMessage();
 
             return;
+        }
+
+        if ($e['versand_noetig']) {
+            DokumentHinweiseVersenden::starten($e['dokument']);
         }
 
         $auto = $this->autoNeue;
@@ -387,7 +394,9 @@ class Documents extends Component
         if ($n === 0) {
             $this->flash = "Info „{$titel}“ wird automatisch an neue Mitarbeiter zugestellt (beim ersten Öffnen des Portals).";
         } else {
-            $this->flash = "Info „{$titel}“ an {$n} Empfänger bereitgestellt" . ($auto ? ', zusätzlich automatisch an neue Mitarbeiter.' : '.');
+            $this->flash = "Info „{$titel}“ bereitgestellt: WhatsApp geht an {$n} Empfänger"
+                . ($ohnePortal > 0 ? ", davon {$ohnePortal} im alten Portal ohne Nachricht" : '')
+                . ($auto ? '; zusätzlich automatisch an neue Mitarbeiter.' : '.');
         }
     }
 
@@ -470,7 +479,7 @@ class Documents extends Component
         foreach ($docs as $d) {
             $n = $zahlen[(int) $d->id] ?? DokumentZaehler::leer();
             $f = DokumentFortschritt::ausZaehlern($n, (string) $d->action);
-            $brauchtVersand = DokumentKategorie::brauchtHandlung((string) $d->action);
+            $brauchtVersand = DokumentKategorie::brauchtHinweis((string) $d->category, (string) $d->action);
             $ausstehend = $brauchtVersand ? $n['ausstehend'] : 0;
             // "laeuft" nur fuer unversuchte Zeilen innerhalb der Versandfrist;
             // aeltere sind liegengeblieben und stoppen das Pollen.
@@ -502,6 +511,8 @@ class Documents extends Component
                 'title'          => (string) $d->title,
                 'category_label' => DokumentKategorie::label((string) $d->category),
                 'action'         => (string) $d->action,
+                'ist_text'       => DokumentKategorie::istText((string) $d->category),
+                'braucht_hinweis' => $brauchtVersand,
                 'action_label'   => DokumentKategorie::aktionLabel((string) $d->action),
                 'event'          => $d->event?->name ?: $d->event?->einsatz_ref,
                 'erstellt'       => $d->created_at?->format('d.m.Y H:i') ?? '',
