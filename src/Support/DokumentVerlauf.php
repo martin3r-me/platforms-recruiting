@@ -23,6 +23,7 @@ final class DokumentVerlauf
 {
     public const BEREITGESTELLT    = 'bereitgestellt';
     public const VERSAND_GESTARTET = 'versand_gestartet';
+    public const VERSAND_ANGESTOSSEN = 'versand_angestossen';
     public const WHATSAPP_JETZT    = 'whatsapp_jetzt';
     public const ERNEUT_GESENDET   = 'erneut_gesendet';
     public const ZURUECKGEZOGEN    = 'zurueckgezogen';
@@ -32,6 +33,7 @@ final class DokumentVerlauf
     private const LABELS = [
         self::BEREITGESTELLT    => 'bereitgestellt',
         self::VERSAND_GESTARTET => 'WhatsApp-Versand',
+        self::VERSAND_ANGESTOSSEN => 'Versand angestoßen',
         self::WHATSAPP_JETZT    => 'WhatsApp jetzt senden',
         self::ERNEUT_GESENDET   => 'erneut gesendet',
         self::ZURUECKGEZOGEN    => 'zurückgezogen',
@@ -136,6 +138,7 @@ final class DokumentVerlauf
             self::VERSAND_GESTARTET => 'WhatsApp-Versand: ' . (int) ($d['benachrichtigt'] ?? 0) . ' von ' . (int) ($d['versucht'] ?? 0) . ' benachrichtigt'
                 . self::fehlerText($d['fehler'] ?? []),
             self::WHATSAPP_JETZT  => 'WhatsApp nachträglich angestoßen',
+            self::VERSAND_ANGESTOSSEN => 'Versand angestoßen (von: ' . self::einstieg($d['quelle'] ?? null) . ')',
             self::ERNEUT_GESENDET => 'erneut gesendet' . $fuer . ' (' . ($d['status'] ?? '?') . ')',
             self::ZURUECKGEZOGEN  => $empfaenger !== null
                 ? 'zurückgezogen' . $fuer

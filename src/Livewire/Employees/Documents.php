@@ -451,6 +451,8 @@ class Documents extends Component
         if ($d === null) {
             return;
         }
+        // Nachweis: wer hat den Versand von Hand angestossen — vor dem Job, der selbst nur "System" kennt.
+        DokumentVerlauf::schreibe((int) $d->team_id, (int) $d->id, null, DokumentVerlauf::VERSAND_ANGESTOSSEN, auth()->id(), ['quelle' => 'dokumente']);
         DokumentHinweiseVersenden::starten($d);
         $this->flash = 'Versand neu angestoßen, läuft im Hintergrund.';
         $this->flashError = null;

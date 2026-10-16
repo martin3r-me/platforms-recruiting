@@ -340,7 +340,7 @@ gesendet hat, von welchem User"):
   `recruiting.dokumente.verlauf_fehlgeschlagen` gewarnt und kippt die Handlung nie).
 - Aktionen: `bereitgestellt` (Empfängerzahl, notify_mode, Automatik, pdf|info, Einstieg
   dokumente|akte|veranstaltung), `versand_gestartet` (Job, user null: versucht/benachrichtigt/
-  fehler), `whatsapp_jetzt`, `erneut_gesendet` (je Empfänger, mit Status — auch abgewiesene
+  fehler), `versand_angestossen` (Knopf „Versand erneut anstoßen", mit User, vor dem Job), `whatsapp_jetzt`, `erneut_gesendet` (je Empfänger, mit Status — auch abgewiesene
   Klicks), `zurueckgezogen` (einzeln mit Empfänger, ganz mit anzahl/geloescht),
   `automatik_beendet`, `auto_zugestellt` (user null, je Empfänger). Portal-Ereignisse
   (gesehen/bestätigt/unterschrieben) stehen in den Zeitstempeln der Zustellung, nicht hier.

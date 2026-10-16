@@ -193,6 +193,22 @@ final class DokumentVerlaufTest extends TestCase
         $this->assertCount(1, $this->zeilen(DokumentVerlauf::WHATSAPP_JETZT), 'nichts umgedreht = nichts geloggt');
     }
 
+    public function test_versand_anstossen_schreibt_mit_user_vor_dem_job(): void
+    {
+        $a = $this->anstellung();
+        $d = $this->pdfBereitstellen([(int) $a->id]);
+
+        $this->seite()->versandAnstossen((int) $d->id);
+
+        $z = $this->zeilen(DokumentVerlauf::VERSAND_ANGESTOSSEN);
+        $this->assertCount(1, $z);
+        $this->assertSame(7, (int) $z[0]->user_id);
+        $this->assertNull($z[0]->rec_document_recipient_id);
+        $this->assertSame(['quelle' => 'dokumente'], $this->details($z[0]));
+        $this->assertSame('Versand angestoßen', DokumentVerlauf::label(DokumentVerlauf::VERSAND_ANGESTOSSEN));
+        $this->assertCount(1, $this->bus->jobs, 'Job laeuft wie bisher');
+    }
+
     public function test_erneut_senden_schreibt_je_empfaenger_mit_status(): void
     {
         $a = $this->anstellung();
