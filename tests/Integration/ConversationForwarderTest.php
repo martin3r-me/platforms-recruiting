@@ -275,4 +275,24 @@ class ConversationForwarderTest extends TestCase
         $this->assertFalse($b['ok']);
         $this->assertSame(0, RecConversationForward::count());
     }
+
+    public function test_vorbelegung_ist_der_dispo_kanal_der_letzten_unterhaltung(): void
+    {
+        [$dus, $cgn] = $this->dispoKanaele();
+        $chat = fn (int $kanal, string $nr, ?string $in, ?string $out) => Capsule::table('comms_whatsapp_threads')->insert([
+            'team_id' => self::TEAM, 'token' => 'tok-' . bin2hex(random_bytes(6)), 'comms_channel_id' => $kanal,
+            'remote_phone_number' => $nr, 'is_unread' => false, 'last_inbound_at' => $in, 'last_outbound_at' => $out,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $chat($dus, '+4917663854907', '2026-09-01 10:00:00', null);
+        $chat($cgn, '4917663854907', null, '2026-10-10 08:00:00');      // juenger, ohne "+"
+        $chat($cgn, '+4915100000001', null, null);                        // nie geschrieben
+
+        $kanaele = new DispoForwardChannels([$dus, $cgn]);
+
+        $this->assertSame($cgn, $kanaele->preferredFor(self::TEAM, '+4917663854907'));
+        $this->assertNull($kanaele->preferredFor(self::TEAM, '+4915100000001'), 'Leerer Thread sagt nichts.');
+        $this->assertNull($kanaele->preferredFor(self::TEAM, '+4915199999999'));
+        $this->assertSame($dus, (new DispoForwardChannels([$dus]))->preferredFor(self::TEAM, '+4915199999999'), 'Nur ein Kanal: der.');
+    }
 }

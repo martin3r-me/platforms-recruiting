@@ -77,6 +77,39 @@ final class DispoForwardChannels
         return null;
     }
 
+    /**
+     * Vorbelegung im Weiterleiten-Fenster: der Dispo-Kanal, ueber den diese
+     * Nummer zuletzt mit der Dispo geschrieben hat. Der MA hat kein eigenes
+     * Filial-Feld — wo er mit der Dispo spricht, sagt am meisten. Gibt es nur
+     * EINEN Kanal, ist er es. Sonst null: HR waehlt selbst.
+     */
+    public function preferredFor(int $teamId, string $phone): ?int
+    {
+        $ids = array_column($this->options($teamId), 'channel_id');
+        if ($ids === []) {
+            return null;
+        }
+        if (count($ids) === 1) {
+            return $ids[0];
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        if ($digits === '') {
+            return null;
+        }
+
+        $letzter = \Platform\Crm\Models\CommsWhatsAppThread::query()
+            ->whereIn('comms_channel_id', $ids)
+            ->whereIn('remote_phone_number', ['+' . $digits, $digits])
+            ->get(['comms_channel_id', 'last_inbound_at', 'last_outbound_at'])
+            ->sortByDesc(fn ($t) => max($t->last_inbound_at?->getTimestamp() ?? 0, $t->last_outbound_at?->getTimestamp() ?? 0))
+            ->first();
+
+        return $letzter !== null && ($letzter->last_inbound_at !== null || $letzter->last_outbound_at !== null)
+            ? (int) $letzter->comms_channel_id
+            : null;
+    }
+
     /** @return list<int> */
     private static function dispoChannelIds(): array
     {
