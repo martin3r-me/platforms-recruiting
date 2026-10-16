@@ -1,0 +1,89 @@
+<?php
+
+namespace Platform\Recruiting\Services\Comms\Forward;
+
+use Platform\Crm\Models\CommsChannel;
+use Platform\Recruiting\Models\RecDispoFilialeSettings;
+use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
+use Platform\Recruiting\Support\Filialen;
+
+/**
+ * Wohin HR an die Dispo weiterleiten kann (Spec 16.10.2026): JEDER aktive
+ * Kanal des Dispo-WABA-Kontos — dieselbe Menge wie das Dispo-Postfach
+ * (DispoChannelResolver::dispoChannelIds). Ein neuer Dispo-Kanal steht damit
+ * ohne Deploy zur Auswahl.
+ *
+ * Beschriftung: Filialname aus rec_dispo_filiale_settings + Support\Filialen
+ * ("Dispo Köln"). Ein Kanal ohne Filiale bleibt waehlbar und traegt seinen
+ * Kanalnamen bzw. die Nummer — nie unbeschriftet.
+ */
+final class DispoForwardChannels
+{
+    /** @param ?list<int> $channelIds Override fuer Tests; sonst das Dispo-Kanal-Set. */
+    public function __construct(private readonly ?array $channelIds = null) {}
+
+    /** @return list<array{channel_id: int, filial_nr: ?int, label: string}> */
+    public function options(int $teamId): array
+    {
+        $channelIds = $this->channelIds ?? self::dispoChannelIds();
+        if ($channelIds === []) {
+            return [];
+        }
+
+        $channels = CommsChannel::query()
+            ->whereIn('id', $channelIds)
+            ->where('team_id', $teamId)
+            ->where('type', 'whatsapp')
+            ->where('is_active', true)
+            ->get(['id', 'name', 'sender_identifier']);
+
+        $filialeByChannel = RecDispoFilialeSettings::query()
+            ->where('team_id', $teamId)
+            ->whereIn('comms_channel_id', $channels->pluck('id')->all())
+            ->pluck('filial_nr', 'comms_channel_id')
+            ->map(fn ($nr) => (int) $nr)
+            ->all();
+
+        $options = $channels->map(function (CommsChannel $c) use ($filialeByChannel) {
+            $nr = $filialeByChannel[(int) $c->id] ?? null;
+            $name = $nr !== null ? Filialen::name($nr) : null;
+
+            return [
+                'channel_id' => (int) $c->id,
+                'filial_nr' => $nr,
+                'label' => 'Dispo ' . ($name ?? (trim((string) $c->name) !== '' ? trim((string) $c->name) : (string) $c->sender_identifier)),
+            ];
+        })->all();
+
+        // Filialen in Nummernreihenfolge, Kanaele ohne Filiale dahinter.
+        usort($options, static fn (array $a, array $b) => [$a['filial_nr'] === null, $a['filial_nr'], $a['channel_id']]
+            <=> [$b['filial_nr'] === null, $b['filial_nr'], $b['channel_id']]);
+
+        return array_values($options);
+    }
+
+    /** Beschriftung eines Kanals, null wenn er (nicht mehr) zur Auswahl gehoert. */
+    public function labelFor(int $teamId, ?int $channelId): ?string
+    {
+        if ($channelId === null) {
+            return null;
+        }
+        foreach ($this->options($teamId) as $option) {
+            if ($option['channel_id'] === $channelId) {
+                return $option['label'];
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<int> */
+    private static function dispoChannelIds(): array
+    {
+        try {
+            return array_map('intval', DispoChannelResolver::dispoChannelIds());
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+}
