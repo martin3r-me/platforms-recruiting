@@ -133,6 +133,15 @@ Neue Tabelle `rec_conversation_topics` (eine Zeile je Anliegen):
 dispo_target_key, origin_message_id, asked_at, chosen_at, timestamps`.
 „Aktuelles Anliegen“ = jüngste Zeile, deren `asked_at` nicht vor der letzten 8h-Ruhepause liegt.
 
+**Nachtrag 16.10. (Anzeige, Task 5):** Für Chip, Filter und Zähler in der Kommunikation gilt eine abweichende
+Regel, festgelegt vom Controller: je Thread die **jüngste Zeile**, und zwar ohne Filter auf `topic` und ohne
+Ruhezeit-Grenze. Einen Chip gibt es nur, wenn diese Zeile ein Thema hat. Begründung: Ein offener Lohn-Chat
+soll seinen Chip behalten, auch wenn die Wahl länger als 8 h zurückliegt. Eine neue Frage ersetzt die alte
+Wahl trotzdem, weil sie eine neue Zeile ohne Thema anlegt. Die Regel liegt an einer Stelle:
+`RecConversationTopic::aktuelleJeThread()`. Der Auslöser (Task 3) prüft die Ruhezeit weiterhin selbst, weil er
+entscheidet, ob neu gefragt wird. Er zeigt nichts an. Fehlt die Tabelle (Deploy ohne migrate), läuft die
+Ansicht ohne Chips weiter.
+
 ### 2.8 Kommunikations-Ansicht
 
 - Chip am Chat (Liste + Kopf): „Lohn“, „HR“, „Dispo → Köln“, Vermerk „Akte unvollständig · Hinweis gesendet“.

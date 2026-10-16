@@ -796,38 +796,32 @@ final class InboxQuery
     }
 
     /**
-     * Juengste Zeile MIT gewaehltem Thema je Thread (Themen-Auswahl, Spec 2.8).
-     * EINE Abfrage fuer die ganze Grundmenge: Unterabfrage MAX(id) je Thread
-     * ueber das Team — ohne die Thread-ID-Liste, die bei ~1000 Chats sonst
-     * zweimal als IN-Liste mitliefe; fremde Threads fallen beim Zuordnen weg.
-     * Eine nur gestellte Frage (topic NULL, nie geklickt) zaehlt nicht — sie
-     * soll keinen Chip tragen, auch nicht ueber eine aeltere Wahl hinweg nicht
-     * „verdecken“: massgeblich ist die letzte echte Wahl.
+     * Thema je Thread fuer Chip, Filter und Zaehler (Themen-Auswahl, Spec 2.7
+     * Nachtrag / 2.8). Die Regel „aktuelles Anliegen“ steht an EINER Stelle:
+     * RecConversationTopic::aktuelleJeThread() — juengste Zeile je Thread;
+     * hat sie kein Thema (neue, unbeantwortete Frage), gibt es keinen Chip.
+     *
+     * Fehlt die Tabelle (Deploy ohne migrate), degradiert der Lesepfad:
+     * keine Chips, Themen-Zaehler 0. Sidebar (30s-Poll auf jeder
+     * Recruiting-Seite) und Kommunikation duerfen daran nicht sterben. Der
+     * Fehler wird gemeldet, nicht verschluckt.
      *
      * @param list<int> $threadIds
      * @return array<int, array{topic: string, state: string, dispo_channel_id: ?int}>
      */
     private function aktuelleThemen(int $teamId, array $threadIds): array
     {
-        if ($threadIds === []) {
+        try {
+            $aktuelle = RecConversationTopic::aktuelleJeThread($teamId, $threadIds);
+        } catch (\Illuminate\Database\QueryException $e) {
+            self::melde($e);
+
             return [];
         }
 
-        $rows = RecConversationTopic::query()
-            ->whereIn('id', function ($q) use ($teamId) {
-                $q->from('rec_conversation_topics')
-                    ->selectRaw('MAX(id)')
-                    ->where('team_id', $teamId)
-                    ->whereNotNull('topic')
-                    ->groupBy('comms_whatsapp_thread_id');
-            })
-            ->get(['comms_whatsapp_thread_id', 'topic', 'state', 'dispo_channel_id']);
-
-        $gesucht = array_fill_keys($threadIds, true);
         $out = [];
-        foreach ($rows as $row) {
-            $threadId = (int) $row->comms_whatsapp_thread_id;
-            if (!isset($gesucht[$threadId])) {
+        foreach ($aktuelle as $threadId => $row) {
+            if ($row->topic === null) {
                 continue;
             }
             $out[$threadId] = [
@@ -838,6 +832,18 @@ final class InboxQuery
         }
 
         return $out;
+    }
+
+    /**
+     * report() ohne gebundenen ExceptionHandler (Capsule-Tests booten kein
+     * Laravel) waere selbst ein Absturz — dann nur nicht melden.
+     */
+    private static function melde(\Throwable $e): void
+    {
+        $container = \Illuminate\Container\Container::getInstance();
+        if ($container->bound(\Illuminate\Contracts\Debug\ExceptionHandler::class)) {
+            report($e);
+        }
     }
 
     /**

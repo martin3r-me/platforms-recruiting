@@ -450,11 +450,15 @@
                             @endif
                             @php
                                 $dispoChip = $this->dispoForwardChip;
+                                // Nur EIN violetter Chip im Kopf: gibt es eine Weiterleitung
+                                // (dispoChip), sagt sie mehr als das Thema „Dispo → …“.
+                                $zeigeThemaImKopf = $selRow->topicLabel !== null
+                                    && !($dispoChip !== null && $selRow->topic === 'dispo');
                             @endphp
                             @if ($dispoChip !== null)
                                 <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $dispoChip['state'] === 'open' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500' }}">{{ $dispoChip['label'] }}</span>
                             @endif
-                            @if ($selRow->topicLabel !== null)
+                            @if ($zeigeThemaImKopf)
                                 <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $themaChip[$selRow->topic] ?? 'bg-gray-100 text-gray-600' }}">{{ $selRow->topicLabel }}</span>
                             @endif
                             @if ($selRow->topicNote !== null)

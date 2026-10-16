@@ -25,8 +25,10 @@ use Platform\Recruiting\Services\Comms\InboxRow;
 /**
  * Themen-Auswahl in der HR-Kommunikation (Spec 2.8): Chip „Lohn“/„HR“/
  * „Dispo → Köln“, Vermerk bei verschicktem Hinweis, Filter nach Thema.
- * Massgeblich ist je Chat die JUENGSTE Zeile mit gewaehltem Thema; eine nur
- * gestellte Frage (asked, nie geklickt) traegt kein Thema und keinen Chip.
+ * Massgeblich ist je Chat die JUENGSTE Zeile (Spec 2.7, Nachtrag 16.10.):
+ * nur wenn sie ein Thema hat, gibt es einen Chip. Eine neuere, nie
+ * beantwortete Frage loest eine aeltere Wahl ab; ohne neue Frage bleibt die
+ * Wahl stehen, auch ueber die Ruhezeit hinaus.
  * Der Themen-Filter kombiniert sich mit der Filiale (UND); die Themen-Zahlen
  * folgen der Filiale wie die uebrigen Pillen, nicht der eigenen Auswahl.
  */
@@ -43,6 +45,8 @@ class InboxTopicTest extends TestCase
     private static int $nurGefragt = 0;    // alte Frage, nie geklickt
     private static int $ohneZeile = 0;
     private static int $loginHinweis = 0;  // MA ohne Kostenstelle, lohn + lohn_info_sent
+    private static int $neueFrage = 0;     // gestern Lohn gewaehlt, vor 1h neue Frage (unbeantwortet)
+    private static int $gesternHr = 0;     // gestern HR gewaehlt, seitdem keine neue Frage
 
     private static array $previousMorphMap = [];
 
@@ -169,6 +173,22 @@ class InboxTopicTest extends TestCase
         }
     }
 
+    public function test_neuere_unbeantwortete_frage_loest_die_aeltere_wahl_ab(): void
+    {
+        $row = $this->zeilen()[self::$neueFrage];
+
+        $this->assertNull($row->topic);
+        $this->assertNull($row->topicLabel);
+        $this->assertNull($row->topicNote);
+    }
+
+    public function test_wahl_von_gestern_ohne_neue_frage_behaelt_den_chip(): void
+    {
+        // Kein Ablauf nach der Ruhezeit (Controller-Ruling 16.10.): ein offener
+        // Chat soll sein Thema weiter zeigen.
+        $this->assertSame('HR', $this->zeilen()[self::$gesternHr]->topicLabel);
+    }
+
     public function test_filter_nach_thema(): void
     {
         $lohn = array_keys($this->zeilen(new InboxFilter(topic: 'lohn')));
@@ -178,6 +198,11 @@ class InboxTopicTest extends TestCase
         $this->assertSame($erwartet, $lohn);
 
         $this->assertSame([self::$dispoCgn], array_keys($this->zeilen(new InboxFilter(topic: 'dispo'))));
+
+        // Dieselbe Regel wie der Chip: die abgeloeste Lohn-Wahl trifft nicht,
+        // die HR-Wahl von gestern schon.
+        $this->assertNotContains(self::$neueFrage, $lohn);
+        $this->assertContains(self::$gesternHr, array_keys($this->zeilen(new InboxFilter(topic: 'hr'))));
     }
 
     public function test_thema_und_filiale_wirken_zusammen(): void
@@ -189,11 +214,11 @@ class InboxTopicTest extends TestCase
     public function test_themen_zaehler_folgen_der_filiale_nicht_der_eigenen_auswahl(): void
     {
         $alle = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
-        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 2], $alle['topics']);
+        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $alle['topics']);
 
         $nurLohn = $this->query()->snapshot(self::TEAM, new InboxFilter(topic: 'lohn'), 50, 0, self::JETZT);
-        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 2], $nurLohn['counts']['topics']);
-        $this->assertSame(7, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
+        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $nurLohn['counts']['topics']);
+        $this->assertSame(9, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
         $this->assertSame(2, $nurLohn['total']);
 
         $mgl = $this->query()->snapshot(self::TEAM, new InboxFilter(filiale: '200'), 50, 0, self::JETZT)['counts'];
@@ -221,6 +246,29 @@ class InboxTopicTest extends TestCase
         Capsule::connection()->getEventDispatcher()->forget(\Illuminate\Database\Events\QueryExecuted::class);
 
         $this->assertSame(1, $n);
+    }
+
+    public function test_ohne_tabelle_laeuft_die_liste_weiter_ohne_themen(): void
+    {
+        // Deploy ohne migrate (Forge-Skript reisst im npm-Teil): Sidebar und
+        // Kommunikation duerfen nicht an der fehlenden Tabelle sterben.
+        $schema = Capsule::schema();
+        $gesichert = Capsule::table('rec_conversation_topics')->get()->map(fn ($r) => (array) $r)->all();
+        $schema->drop('rec_conversation_topics');
+        try {
+            $counts = $this->query()->counts(self::TEAM, self::JETZT);
+            $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
+        } finally {
+            (require dirname(__DIR__, 2) . '/database/migrations/2026_10_17_000001_create_rec_conversation_topics_table.php')->up();
+            Capsule::table('rec_conversation_topics')->insert($gesichert);
+        }
+
+        $this->assertSame(9, $counts['total']);
+        $this->assertSame(['dispo' => 0, 'lohn' => 0, 'hr' => 0], $counts['topics']);
+        $this->assertCount(9, $snap['rows']);
+        foreach ($snap['rows'] as $row) {
+            $this->assertNull($row->topicLabel);
+        }
     }
 
     private static function seed(): void
@@ -276,6 +324,8 @@ class InboxTopicTest extends TestCase
         self::$loginHinweis = $thread('+4915100000812', RecEmployee::class, 812);
         self::$nurGefragt = $thread('+4915100000998', null, null);
         self::$ohneZeile = $thread('+4915100000999', null, null);
+        self::$neueFrage = $thread('+4915100000997', null, null);
+        self::$gesternHr = $thread('+4915100000996', null, null);
 
         $zeile = fn (int $threadId, ?string $topic, string $state, int $vorStunden, ?int $kanal = null) => RecConversationTopic::create([
             'team_id' => self::TEAM, 'comms_whatsapp_thread_id' => $threadId,
@@ -292,5 +342,8 @@ class InboxTopicTest extends TestCase
         $zeile(self::$wechsel, RecConversationTopic::TOPIC_HR, RecConversationTopic::STATE_CHOSEN, 1);
         // Frage von vor drei Tagen (laengst ausserhalb der Ruhezeit), nie beantwortet.
         $zeile(self::$nurGefragt, null, RecConversationTopic::STATE_ASKED, 72);
+        $zeile(self::$neueFrage, RecConversationTopic::TOPIC_LOHN, RecConversationTopic::STATE_AKTE_HINT, 20);
+        $zeile(self::$gesternHr, RecConversationTopic::TOPIC_HR, RecConversationTopic::STATE_CHOSEN, 26);
+        $zeile(self::$neueFrage, null, RecConversationTopic::STATE_ASKED, 1);
     }
 }
