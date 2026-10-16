@@ -7,7 +7,9 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecConversationHandled;
+use Platform\Recruiting\Models\RecConversationTopic;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\KostenstellenBloecke;
 
 /**
@@ -29,7 +31,17 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\KostenstellenBloecke;
  */
 final class InboxQuery
 {
-    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int} */
+    /** Themen der Themen-Auswahl in Pillen-Reihenfolge. */
+    public const TOPICS = [RecConversationTopic::TOPIC_DISPO, RecConversationTopic::TOPIC_LOHN, RecConversationTopic::TOPIC_HR];
+
+    /**
+     * @param ?DispoForwardChannels $dispoKanaele Beschriftung „Dispo → Köln“;
+     *        Override fuer Tests, sonst lazy erzeugt — und nur, wenn eine
+     *        sichtbare Zeile ein Dispo-Thema mit Kanal traegt.
+     */
+    public function __construct(private ?DispoForwardChannels $dispoKanaele = null) {}
+
+    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
     public function counts(int $teamId, ?int $now = null): array
     {
         // Ohne Filial-Aufloesung: die Navigation links (Sidebar, 30s-Poll auf
@@ -69,6 +81,7 @@ final class InboxQuery
 
         $humanOutbound = $this->humanOutboundTimestamps([$id]);
         $handledAt = $this->handledTimestamps($teamId, [$id]);
+        $themen = $this->aktuelleThemen($teamId, [$id]);
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
@@ -92,9 +105,10 @@ final class InboxQuery
             ),
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
+            ...self::themaFelder($themen[$id] ?? null),
         ];
 
-        return $this->hydrate([$row])[0] ?? null;
+        return $this->hydrate([$row], $teamId)[0] ?? null;
     }
 
     /** @return array{rows: list<InboxRow>, total: int} */
@@ -129,7 +143,11 @@ final class InboxQuery
      * saubere Fehlkonfiguration und wuerde still den Verlustpfad
      * wiederherstellen, den dieses Feature beseitigt.
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
+     * 'counts.topics' = Chats je Thema — wie Alle/Bewerber/Mitarbeiter ueber
+     * die Filial-Basis, aber unabhaengig von der gewaehlten Thema-Pille
+     * (jede Pille zeigt ihre eigene Zahl).
+     *
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
      */
     public function snapshot(
         int $teamId,
@@ -192,7 +210,7 @@ final class InboxQuery
 
         return [
             'counts' => $counts,
-            'rows' => $this->hydrate($slice),
+            'rows' => $this->hydrate($slice, $teamId),
             'total' => $total,
             'fallback' => $scored['fallback'],
             'filialen' => $filialen,
@@ -228,13 +246,14 @@ final class InboxQuery
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}
      */
     private function countsFromScored(array $rows): array
     {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
                    'missed' => 0, 'total' => 0,
-                   'applicants' => 0, 'employees' => 0];
+                   'applicants' => 0, 'employees' => 0,
+                   'topics' => array_fill_keys(self::TOPICS, 0)];
 
         // Alle | Bewerber | Mitarbeiter zaehlen jeden Chat (die Liste zeigt
         // gelesene mit, wie WhatsApp). Ungelesen und Ampel zaehlen nur offene
@@ -245,6 +264,10 @@ final class InboxQuery
                 $counts['applicants']++;
             } elseif ($row['kind'] === 'employee') {
                 $counts['employees']++;
+            }
+            // Thema zaehlt wie Alle/Bewerber/Mitarbeiter jeden Chat, auch gelesene.
+            if (isset($counts['topics'][$row['topic'] ?? ''])) {
+                $counts['topics'][$row['topic']]++;
             }
             if (!$row['is_unread']) {
                 continue;
@@ -293,6 +316,7 @@ final class InboxQuery
         $threadIds = $threads->map(fn ($t) => (int) $t->id)->all();
         $humanOutbound = $this->humanOutboundTimestamps($threadIds);
         $handledAt = $this->handledTimestamps($teamId, $threadIds);
+        $themen = $this->aktuelleThemen($teamId, $threadIds);
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
@@ -355,6 +379,7 @@ final class InboxQuery
                     (string) ($thread->context_model ?? ''),
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
+                ...self::themaFelder($themen[$id] ?? null),
             ];
         }
 
@@ -373,6 +398,9 @@ final class InboxQuery
             return false;
         }
         if ($filter->kind === 'employees' && $row['kind'] !== 'employee') {
+            return false;
+        }
+        if ($filter->topic !== 'all' && ($row['topic'] ?? null) !== $filter->topic) {
             return false;
         }
 
@@ -639,7 +667,7 @@ final class InboxQuery
      * @param list<array<string, mixed>> $rows
      * @return list<InboxRow>
      */
-    private function hydrate(array $rows): array
+    private function hydrate(array $rows, int $teamId): array
     {
         $applicantMorph = (new RecApplicant)->getMorphClass();
         $applicantIds = [];
@@ -732,6 +760,9 @@ final class InboxQuery
                 urlLabel: $urlLabel,
                 secondaryUrl: $secondaryUrl,
                 secondaryLabel: $secondaryLabel,
+                topic: $row['topic'] ?? null,
+                topicLabel: $this->themaLabel($teamId, $row['topic'] ?? null, $row['topic_dispo_channel_id'] ?? null),
+                topicNote: self::themaVermerk($row['topic_state'] ?? null),
             );
         }
 
@@ -762,6 +793,113 @@ final class InboxQuery
             ->pluck('last_human_outbound_at', 'comms_whatsapp_thread_id')
             ->map(fn ($value) => \Carbon\Carbon::parse((string) $value)->getTimestamp())
             ->all();
+    }
+
+    /**
+     * Juengste Zeile MIT gewaehltem Thema je Thread (Themen-Auswahl, Spec 2.8).
+     * EINE Abfrage fuer die ganze Grundmenge: Unterabfrage MAX(id) je Thread
+     * ueber das Team — ohne die Thread-ID-Liste, die bei ~1000 Chats sonst
+     * zweimal als IN-Liste mitliefe; fremde Threads fallen beim Zuordnen weg.
+     * Eine nur gestellte Frage (topic NULL, nie geklickt) zaehlt nicht — sie
+     * soll keinen Chip tragen, auch nicht ueber eine aeltere Wahl hinweg nicht
+     * „verdecken“: massgeblich ist die letzte echte Wahl.
+     *
+     * @param list<int> $threadIds
+     * @return array<int, array{topic: string, state: string, dispo_channel_id: ?int}>
+     */
+    private function aktuelleThemen(int $teamId, array $threadIds): array
+    {
+        if ($threadIds === []) {
+            return [];
+        }
+
+        $rows = RecConversationTopic::query()
+            ->whereIn('id', function ($q) use ($teamId) {
+                $q->from('rec_conversation_topics')
+                    ->selectRaw('MAX(id)')
+                    ->where('team_id', $teamId)
+                    ->whereNotNull('topic')
+                    ->groupBy('comms_whatsapp_thread_id');
+            })
+            ->get(['comms_whatsapp_thread_id', 'topic', 'state', 'dispo_channel_id']);
+
+        $gesucht = array_fill_keys($threadIds, true);
+        $out = [];
+        foreach ($rows as $row) {
+            $threadId = (int) $row->comms_whatsapp_thread_id;
+            if (!isset($gesucht[$threadId])) {
+                continue;
+            }
+            $out[$threadId] = [
+                'topic' => (string) $row->topic,
+                'state' => (string) $row->state,
+                'dispo_channel_id' => $row->dispo_channel_id !== null ? (int) $row->dispo_channel_id : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Thema-Spalten einer duennen Zeile. Unbekannte Werte (kein dispo/lohn/hr)
+     * gelten als kein Thema — sonst stuende ein roher Code als Chip da.
+     *
+     * @param ?array{topic: string, state: string, dispo_channel_id: ?int} $thema
+     * @return array{topic: ?string, topic_state: ?string, topic_dispo_channel_id: ?int}
+     */
+    private static function themaFelder(?array $thema): array
+    {
+        if ($thema === null || !in_array($thema['topic'], self::TOPICS, true)) {
+            return ['topic' => null, 'topic_state' => null, 'topic_dispo_channel_id' => null];
+        }
+
+        return [
+            'topic' => $thema['topic'],
+            'topic_state' => $thema['state'],
+            'topic_dispo_channel_id' => $thema['dispo_channel_id'],
+        ];
+    }
+
+    /**
+     * Chip-Text. Dispo mit Kanal → „Dispo → Köln“ (Beschriftung aus
+     * DispoForwardChannels, „Dispo “ davor abgeschnitten); Kanal unbekannt
+     * oder nicht mehr in der Auswahl → nur „Dispo“. Die Kanal-Aufloesung
+     * laeuft nur hier, also nur fuer sichtbare Zeilen — und je Instanz einmal
+     * (DispoForwardChannels merkt sich die Optionen).
+     */
+    private function themaLabel(int $teamId, ?string $topic, ?int $dispoChannelId): ?string
+    {
+        return match ($topic) {
+            RecConversationTopic::TOPIC_LOHN => 'Lohn',
+            RecConversationTopic::TOPIC_HR => 'HR',
+            RecConversationTopic::TOPIC_DISPO => $this->dispoLabel($teamId, $dispoChannelId),
+            default => null,
+        };
+    }
+
+    private function dispoLabel(int $teamId, ?int $channelId): string
+    {
+        if ($channelId === null) {
+            return 'Dispo';
+        }
+        $this->dispoKanaele ??= new DispoForwardChannels();
+        $label = $this->dispoKanaele->labelFor($teamId, $channelId);
+        if ($label === null) {
+            return 'Dispo';
+        }
+        $ziel = str_starts_with($label, 'Dispo ') ? substr($label, strlen('Dispo ')) : $label;
+
+        return 'Dispo → ' . $ziel;
+    }
+
+    /** Vermerk zum Weg nach der Wahl — nur wo ein Hinweis an den MA ging. */
+    private static function themaVermerk(?string $state): ?string
+    {
+        return match ($state) {
+            RecConversationTopic::STATE_AKTE_HINT => 'Akte unvollständig · Hinweis gesendet',
+            RecConversationTopic::STATE_LOHN_INFO => 'Login-Hinweis gesendet',
+            default => null,
+        };
     }
 
     /**

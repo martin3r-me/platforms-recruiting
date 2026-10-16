@@ -21,5 +21,11 @@ final class InboxFilter
          * Zaehler (Kunde 16.10.2026: Pillen zeigen die gewaehlte Filiale).
          */
         public readonly string $filiale = 'all',
+        /**
+         * all | dispo | lohn | hr — Thema aus der Themen-Auswahl (juengste
+         * gewaehlte Zeile je Chat). Schneidet wie kind nur die Liste, nicht
+         * die Zaehler; kombiniert sich mit der Filiale (UND).
+         */
+        public readonly string $topic = 'all',
     ) {}
 }

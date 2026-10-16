@@ -63,6 +63,7 @@ class InboxFilialeFilterTest extends TestCase
         foreach ([
             [$own, '2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, '2026_09_15_000002_create_rec_conversation_handled_table.php'],
+            [$own, '2026_10_17_000001_create_rec_conversation_topics_table.php'],
             [$own, '2026_02_09_000001_create_rec_positions_table.php'],
             [$own, '2026_05_21_000006_add_cost_center_to_rec_positions.php'],
             [$own, '2026_02_09_000005_create_rec_applicants_table.php'],

@@ -158,6 +158,7 @@ class InboxLastMessageAtTest extends TestCase
         $files = [
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
+            [$own, 'database/migrations/2026_10_17_000001_create_rec_conversation_topics_table.php'], // Themen-Chip (InboxQuery)
             // hydrate() fragt rec_applicants/rec_employees auch bei leerer
             // ID-Liste ab (whereIn([])) — die Tabellen muessen existieren,
             // auch wenn dieser Test keine Zeilen darin anlegt.

@@ -36,5 +36,11 @@ final class InboxRow
          */
         public readonly ?string $secondaryUrl = null,
         public readonly ?string $secondaryLabel = null,
+        /** Thema der Themen-Auswahl: 'dispo' | 'lohn' | 'hr' | null (keins gewaehlt). */
+        public readonly ?string $topic = null,
+        /** Chip-Text: 'Lohn', 'HR', 'Dispo → Köln' (ohne bekannte Filiale nur 'Dispo'). */
+        public readonly ?string $topicLabel = null,
+        /** Vermerk zum Weg danach: 'Akte unvollständig · Hinweis gesendet' | 'Login-Hinweis gesendet' | null. */
+        public readonly ?string $topicNote = null,
     ) {}
 }

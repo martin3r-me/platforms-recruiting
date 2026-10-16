@@ -325,6 +325,7 @@ class MitarbeiterAufHrNummerTest extends TestCase
         $files = [
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
+            [$own, 'database/migrations/2026_10_17_000001_create_rec_conversation_topics_table.php'], // Themen-Chip (InboxQuery)
             [$own, 'database/migrations/2026_02_09_000005_create_rec_applicants_table.php'],
             // rejected_at: ohne die Spalte liest SQLite "rejected_at" als
             // String-Literal, der Bestandscheck faende still nie etwas.

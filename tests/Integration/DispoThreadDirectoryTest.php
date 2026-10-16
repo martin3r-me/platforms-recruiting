@@ -334,6 +334,31 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame((new \DateTimeImmutable('2026-10-01 19:24:00'))->getTimestamp(), $rows[0]['ts']);
     }
 
+    public function test_interaktive_ausgaenge_erscheinen_als_text_mit_praefix_auswahl(): void
+    {
+        // Themen-Auswahl (Spec 2.8): sendInteractive legt message_type
+        // 'interactive' mit dem Anzeigetext als body ab — im Chat steht er wie
+        // Text, mit „[Auswahl]“ davor, damit HR die Knopf-Frage erkennt.
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 999 000077', null, false, '2026-10-01 10:00:00');
+        $frage = (int) CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'message_type' => 'interactive', 'body' => 'Worum geht es?',
+        ])->id;
+        $antwort = (int) CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'inbound',
+            'message_type' => 'text', 'body' => 'Lohn',
+        ])->id;
+        Capsule::table('comms_whatsapp_messages')->where('id', $frage)->update(['created_at' => '2026-10-01 10:00:00']);
+        Capsule::table('comms_whatsapp_messages')->where('id', $antwort)->update(['created_at' => '2026-10-01 10:01:00']);
+
+        $rows = $this->directory()->messages(CommsWhatsAppThread::findOrFail($threadId), []);
+
+        $this->assertSame('text', $rows[0]['kind']);
+        $this->assertSame('[Auswahl] Worum geht es?', $rows[0]['body']);
+        $this->assertSame('Lohn', $rows[1]['body'], 'Eingehende Texte bleiben unveraendert.');
+    }
+
     public function test_messages_can_be_filtered_by_since(): void
     {
         $channel = $this->channel();

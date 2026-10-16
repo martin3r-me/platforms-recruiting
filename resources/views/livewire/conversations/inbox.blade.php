@@ -11,6 +11,18 @@
         ['key' => 'red',    'label' => 'Rot',       'value' => $counts['red'],    'class' => 'text-red-600'],
         ['key' => 'missed', 'label' => 'Verpasst',  'value' => $counts['missed'], 'class' => 'text-gray-700'],
     ];
+    // Themen-Auswahl (Spec 2.8): Chip-Farben je Thema — Dispo violett wie der
+    // Weiterleitungs-Chip, Lohn amber, HR grau.
+    $themaChip = [
+        'dispo' => 'bg-violet-50 text-violet-700',
+        'lohn'  => 'bg-amber-50 text-amber-700',
+        'hr'    => 'bg-gray-100 text-gray-600',
+    ];
+    $themaPillen = [
+        ['key' => 'dispo', 'label' => 'Dispo', 'value' => $counts['topics']['dispo'] ?? 0],
+        ['key' => 'lohn',  'label' => 'Lohn',  'value' => $counts['topics']['lohn'] ?? 0],
+        ['key' => 'hr',    'label' => 'HR',    'value' => $counts['topics']['hr'] ?? 0],
+    ];
     $levelBar = [
         'missed' => 'bg-gray-800',
         'red'    => 'bg-red-500',
@@ -209,6 +221,24 @@
                         </button>
                     @endforeach
                 </div>
+                {{-- Thema aus der Themen-Auswahl: wirkt zusammen mit Filiale und
+                     Alle/Bewerber/Mitarbeiter; zweiter Klick loest den Filter. Die
+                     Zahlen folgen der Filiale, nicht der eigenen Auswahl. --}}
+                <div class="flex flex-wrap items-center gap-1 text-xs">
+                    <span class="font-semibold text-gray-400">Thema:</span>
+                    @foreach ($themaPillen as $themaPille)
+                        @php
+                            $themaAktiv = $topic === $themaPille['key'];
+                            $themaPillenKlasse = $themaAktiv
+                                ? ($themaChip[$themaPille['key']] . ' ring-1 ring-current')
+                                : 'text-gray-500 hover:bg-gray-100';
+                        @endphp
+                        <button type="button" wire:click="setTopic('{{ $themaPille['key'] }}')"
+                                class="rounded-full px-2 py-0.5 font-semibold {{ $themaPillenKlasse }}">
+                            {{ $themaPille['label'] }} {{ $themaPille['value'] }}
+                        </button>
+                    @endforeach
+                </div>
                 {{-- Suche auf eigener Zeile und voller Breite: gequetscht neben
                      Auswahlfeld und Knopf brach der Platzhalter nach "Name oder Nu"
                      ab und niemand erkannte das Feld als Suche. --}}
@@ -326,6 +356,12 @@
                                     @if ($row->contextLabel)
                                         <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">{{ $row->contextLabel }}</span>
                                     @endif
+                                    @if ($row->topicLabel !== null)
+                                        <span class="rounded px-1.5 py-0.5 {{ $themaChip[$row->topic] ?? 'bg-gray-100 text-gray-600' }}">{{ $row->topicLabel }}</span>
+                                    @endif
+                                    @if ($row->topicNote !== null)
+                                        <span class="rounded bg-gray-50 px-1.5 py-0.5 font-normal text-gray-500">{{ $row->topicNote }}</span>
+                                    @endif
                                     @if ($row->siblingCount > 0)
                                         <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">+{{ $row->siblingCount }} weiterer Chat</span>
                                     @endif
@@ -417,6 +453,12 @@
                             @endphp
                             @if ($dispoChip !== null)
                                 <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $dispoChip['state'] === 'open' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500' }}">{{ $dispoChip['label'] }}</span>
+                            @endif
+                            @if ($selRow->topicLabel !== null)
+                                <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $themaChip[$selRow->topic] ?? 'bg-gray-100 text-gray-600' }}">{{ $selRow->topicLabel }}</span>
+                            @endif
+                            @if ($selRow->topicNote !== null)
+                                <span class="rounded bg-gray-50 px-1.5 py-0.5 text-[10.5px] font-normal text-gray-500">{{ $selRow->topicNote }}</span>
                             @endif
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>

@@ -328,6 +328,15 @@ class DispoThreadDirectory
             // Thumbnail/Titel via ContextFileReferences) jetzt durchreichen.
             $hasMedia = method_exists($m, 'hasMedia') && $m->hasMedia();
 
+            // Themen-Auswahl (S-Themen 2.8): unsere Knopf-Frage liegt als
+            // message_type 'interactive' mit dem Anzeigetext im body. Sie steht
+            // wie Text im Verlauf; „[Auswahl]“ davor zeigt, dass der MA hier
+            // Knoepfe/eine Liste bekam. Echte Knopf-Optik ist Kuer.
+            $body = (string) ($isTemplate ? ($rendered ?? '') : ($m->body ?? ''));
+            if (!$isTemplate && $m->direction === 'outbound' && $m->message_type === 'interactive') {
+                $body = '[Auswahl] ' . $body;
+            }
+
             return [
                 'id'             => (int) $m->id,
                 'ts'             => $at ? $at->getTimestamp() : 0,
@@ -335,7 +344,7 @@ class DispoThreadDirectory
                 'kind'           => $isTemplate ? 'template' : 'text',
                 'media_type'     => $hasMedia ? (string) $m->media_display_type : null,
                 'attachments'    => $hasMedia ? (array) ($m->attachments ?? []) : [],
-                'body'           => (string) ($isTemplate ? ($rendered ?? '') : ($m->body ?? '')),
+                'body'           => $body,
                 'template_label' => $isTemplate ? DispoTemplateLabels::label((string) $m->template_name, $labels) : null,
                 'template_buttons' => $buttons,
                 'status'         => $m->status,

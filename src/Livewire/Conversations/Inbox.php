@@ -46,6 +46,8 @@ class Inbox extends Component
     public string $owner = 'all';
     /** all | ohne | Filial-Block ('100', '200', …) — schneidet anders als owner auch die Pillen-Zahlen. */
     public string $filiale = 'all';
+    /** all | dispo | lohn | hr — Thema der Themen-Auswahl; wirkt mit der Filiale zusammen (UND). */
+    public string $topic = 'all';
     public string $search = '';
 
     /**
@@ -129,6 +131,7 @@ class Inbox extends Component
             currentUserId: (int) Auth::id(),
             kind: $this->kind,
             filiale: $this->filiale,
+            topic: $this->topic,
         );
     }
 
@@ -213,6 +216,15 @@ class Inbox extends Component
     public function setKind(string $kind): void
     {
         $this->kind = in_array($kind, ['all', 'applicants', 'employees'], true) ? $kind : 'all';
+        $this->discardSelectionOnFilterChange();
+        $this->resetPage();
+    }
+
+    /** Thema-Pille; zweiter Klick auf dieselbe loest den Filter wie bei den Ampel-Pillen. */
+    public function setTopic(string $topic): void
+    {
+        $gueltig = in_array($topic, InboxQuery::TOPICS, true) ? $topic : 'all';
+        $this->topic = $this->topic === $gueltig ? 'all' : $gueltig;
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
@@ -326,7 +338,11 @@ class Inbox extends Component
             && !(ctype_digit($this->filiale) && (int) $this->filiale > 0 && (int) $this->filiale % 100 === 0)) {
             $this->filiale = 'all';
         }
-        if ($property === 'search' || $property === 'owner' || $property === 'filiale') {
+        // Thema: nur die drei Werte oder 'all' (von aussen gesetzt -> 'all').
+        if ($property === 'topic' && $this->topic !== 'all' && !in_array($this->topic, InboxQuery::TOPICS, true)) {
+            $this->topic = 'all';
+        }
+        if ($property === 'search' || $property === 'owner' || $property === 'filiale' || $property === 'topic') {
             $this->discardSelectionOnFilterChange();
             $this->resetPage();
         }
