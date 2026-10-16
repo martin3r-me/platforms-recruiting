@@ -248,6 +248,21 @@ class RecEmployee extends Model
         return $this->hasMany(RecContract::class, 'rec_employee_id');
     }
 
+    /**
+     * Filiale des MA aus der Kostenstelle — Hunderterblock, weil Unternummern
+     * mitlaufen (101–103 = DUS & ES, 201–203 = MGL, …). Feld am MA vor Stelle.
+     * Gleiche Regel wie die Dispo-Seite (KostenstellenBloecke, „Jobs anbieten“).
+     */
+    public function dispoFilialNr(): ?int
+    {
+        $stelle = $this->position?->cost_center;
+
+        return \Platform\Recruiting\Services\Zas\Dispo\Jobs\KostenstellenBloecke::block(
+            $this->cost_center !== null ? (string) $this->cost_center : null,
+            $stelle !== null ? (string) $stelle : null,
+        );
+    }
+
     public function position(): BelongsTo
     {
         return $this->belongsTo(RecPosition::class, 'rec_position_id');

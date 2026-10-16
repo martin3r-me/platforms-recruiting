@@ -15,5 +15,11 @@ final class InboxFilter
         public readonly ?int $currentUserId = null,
         /** all | applicants | employees — Mitarbeiter = Mitarbeiter-Thread ODER Bewerbung mit aktivem Mitarbeiter */
         public readonly string $kind = 'all',
+        /**
+         * all | ohne | <Filial-Block, z. B. '200'> — Hunderterblock der Kostenstelle
+         * (KostenstellenBloecke). Wirkt anders als owner/search AUCH auf die
+         * Zaehler (Kunde 16.10.2026: Pillen zeigen die gewaehlte Filiale).
+         */
+        public readonly string $filiale = 'all',
     ) {}
 }

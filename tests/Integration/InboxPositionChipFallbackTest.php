@@ -143,6 +143,7 @@ class InboxPositionChipFallbackTest extends TestCase
             // rec_position_id kam erst per spaeterer ALTER-Migration dazu
             // (siehe Docblock von RecApplicant::position()).
             [$own, 'database/migrations/2026_08_18_000001_add_rec_position_id_to_rec_applicants.php'],
+            [$own, 'database/migrations/2026_05_21_000006_add_cost_center_to_rec_positions.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

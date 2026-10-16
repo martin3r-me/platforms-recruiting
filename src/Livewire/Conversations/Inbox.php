@@ -44,6 +44,8 @@ class Inbox extends Component
     /** all | applicants | employees — Umschalter ueber der Liste */
     public string $kind = 'all';
     public string $owner = 'all';
+    /** all | ohne | Filial-Block ('100', '200', …) — schneidet anders als owner auch die Pillen-Zahlen. */
+    public string $filiale = 'all';
     public string $search = '';
 
     /**
@@ -126,6 +128,7 @@ class Inbox extends Component
             search: $this->search,
             currentUserId: (int) Auth::id(),
             kind: $this->kind,
+            filiale: $this->filiale,
         );
     }
 
@@ -139,6 +142,52 @@ class Inbox extends Component
     public function total(): int
     {
         return $this->snapshot['total'];
+    }
+
+    /**
+     * Auswahl „Filiale“: jeder vorkommende Block mit Kuerzel und Anzahl Chats
+     * (ueber alle Chats), dazu „ohne Filiale“. Die gewaehlte bleibt sichtbar,
+     * auch wenn sie gerade leer ist.
+     *
+     * @return list<array{value: string, label: string, count: int}>
+     */
+    #[Computed]
+    public function filialeOptions(): array
+    {
+        $counts = (array) ($this->snapshot['filialen'] ?? []);
+        if ($this->filiale !== 'all' && !isset($counts[$this->filiale])) {
+            $counts[$this->filiale] = 0;
+        }
+
+        $out = [];
+        foreach ($counts as $value => $count) {
+            $value = (string) $value;
+            $out[] = [
+                'value' => $value,
+                'label' => $value === 'ohne'
+                    ? 'ohne Filiale'
+                    : (\Platform\Recruiting\Support\Filialen::code((int) $value) ?? ('#' . $value)),
+                'count' => (int) $count,
+            ];
+        }
+
+        return $out;
+    }
+
+    /** Kuerzel der gewaehlten Filiale fuer den Kopf („Kommunikation · nur MGL“), null bei „alle“. */
+    #[Computed]
+    public function filialeLabel(): ?string
+    {
+        if ($this->filiale === 'all') {
+            return null;
+        }
+        foreach ($this->filialeOptions as $option) {
+            if ($option['value'] === $this->filiale) {
+                return $option['label'];
+            }
+        }
+
+        return null;
     }
 
     #[Computed]
@@ -271,7 +320,13 @@ class Inbox extends Component
         if ($property === 'oooForm.until' && $this->oooForm['until'] !== '' && $this->oooForm['back_at'] === '') {
             $this->oooForm['back_at'] = \Carbon\Carbon::parse($this->oooForm['until'])->addDay()->format('Y-m-d');
         }
-        if ($property === 'search' || $property === 'owner') {
+        // Nur gueltige Filialwerte: 'all', 'ohne' oder ein Hunderterblock ('200').
+        // Alles andere (von aussen gesetzt) faellt auf 'all' zurueck.
+        if ($property === 'filiale' && !in_array($this->filiale, ['all', 'ohne'], true)
+            && !(ctype_digit($this->filiale) && (int) $this->filiale > 0 && (int) $this->filiale % 100 === 0)) {
+            $this->filiale = 'all';
+        }
+        if ($property === 'search' || $property === 'owner' || $property === 'filiale') {
             $this->discardSelectionOnFilterChange();
             $this->resetPage();
         }
@@ -942,8 +997,34 @@ class Inbox extends Component
 
         $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
         $this->forwardChannelId = $thread !== null
-            ? app(DispoForwardChannels::class)->preferredFor($this->teamId(), (string) $thread->remote_phone_number)
+            ? app(DispoForwardChannels::class)->preferredFor(
+                $this->teamId(),
+                (string) $thread->remote_phone_number,
+                $this->forwardEmployee()?->dispoFilialNr(),
+            )
             : null;
+    }
+
+    /**
+     * MA hinter dem offenen Chat: Mitarbeiter-Thread direkt, Bewerber-Thread
+     * ueber die aktive Anstellung dieser Bewerbung (wie InboxQuery::kindOf).
+     */
+    private function forwardEmployee(): ?\Platform\Recruiting\Models\RecEmployee
+    {
+        $row = $this->selectedRow;
+        if ($row === null || $row->subjectId === null) {
+            return null;
+        }
+
+        $query = \Platform\Recruiting\Models\RecEmployee::query()
+            ->with('position:id,cost_center')
+            ->where('team_id', $this->teamId());
+
+        return match ($row->subjectType) {
+            'employee' => $query->whereKey($row->subjectId)->first(),
+            'applicant' => $query->where('rec_applicant_id', $row->subjectId)->where('is_active', true)->orderByDesc('id')->first(),
+            default => null,
+        };
     }
 
     public function closeForward(): void
@@ -969,14 +1050,14 @@ class Inbox extends Component
             return;
         }
 
-        $row = $this->selectedRow;
+        $employee = $this->forwardEmployee();
         $r = app(ConversationForwarder::class)->forward(
             $this->teamId(),
             $thread,
             $ids,
             $this->forwardComment,
-            $row !== null && $row->subjectType === 'employee' ? $row->subjectId : null,
-            $row !== null ? $row->title : '',
+            $employee !== null ? (int) $employee->id : null,
+            $this->selectedRow !== null ? $this->selectedRow->title : '',
             Auth::user(),
             ForwardTargets::DISPO,
             ForwardTargets::SOURCE_HR,

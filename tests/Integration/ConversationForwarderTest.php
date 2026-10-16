@@ -295,4 +295,22 @@ class ConversationForwarderTest extends TestCase
         $this->assertNull($kanaele->preferredFor(self::TEAM, '+4915199999999'));
         $this->assertSame($dus, (new DispoForwardChannels([$dus]))->preferredFor(self::TEAM, '+4915199999999'), 'Nur ein Kanal: der.');
     }
+
+    public function test_vorbelegung_nimmt_zuerst_die_filiale_aus_der_akte(): void
+    {
+        [$dus, $cgn] = $this->dispoKanaele();
+        // Letzte Unterhaltung lief ueber Koeln …
+        Capsule::table('comms_whatsapp_threads')->insert([
+            'team_id' => self::TEAM, 'token' => 'tok-' . bin2hex(random_bytes(6)), 'comms_channel_id' => $cgn,
+            'remote_phone_number' => '+4917663854907', 'is_unread' => false, 'last_inbound_at' => '2026-10-10 08:00:00',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $kanaele = new DispoForwardChannels([$dus, $cgn]);
+
+        // … der MA ist aber Duesseldorf (Kostenstelle 100) zugeordnet: die Akte gewinnt.
+        $this->assertSame($dus, $kanaele->preferredFor(self::TEAM, '+4917663854907', 100));
+        // Filiale ohne Kanal (Wuppertal 300): Rueckfall auf die letzte Unterhaltung.
+        $this->assertSame($cgn, $kanaele->preferredFor(self::TEAM, '+4917663854907', 300));
+        $this->assertSame($cgn, $kanaele->preferredFor(self::TEAM, '+4917663854907', null));
+    }
 }
