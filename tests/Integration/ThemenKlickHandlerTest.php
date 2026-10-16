@@ -403,10 +403,12 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame($stempel, RecConversationHandled::query()->sole()->handled_at->format('Y-m-d H:i:s'));
     }
 
-    public function test_langer_text_wird_gekappt(): void
+    public function test_langer_text_wird_gekappt_die_neuesten_zeilen_bleiben(): void
     {
-        $lang = str_repeat('Äöü 😀 Einsatz ', 200);
-        [$thread] = $this->gefragt($lang);
+        // Schlussreview N1: von vorn kappen — das aktuelle Anliegen steht hinten.
+        $thread = $this->thread();
+        $this->nachricht($thread, 'inbound', -400, body: str_repeat('Äöü 😀 Alt ', 200));
+        $this->gefragt('Neu: Wo ist mein Einsatz?', thread: $thread);
         $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
         $this->gesendet->exchangeArray([]);
 
@@ -414,13 +416,15 @@ final class ThemenKlickHandlerTest extends TestCase
 
         $url = $this->gesendet[0]['interactive']['action']['parameters']['url'];
         $this->assertLessThanOrEqual(2000, strlen($url));
-        $this->assertStringStartsWith('https://wa.me/4921178177723?text=' . rawurlencode('Äöü 😀 Einsatz'), $url);
+        $this->assertStringStartsWith('https://wa.me/4921178177723?text=', $url);
+        $this->assertStringEndsWith(rawurlencode("\nNeu: Wo ist mein Einsatz?"), $url);
         $text = rawurldecode(substr($url, strlen('https://wa.me/4921178177723?text=')));
         $this->assertTrue(mb_check_encoding($text, 'UTF-8'), 'Nie mitten im Zeichen abschneiden.');
+        $this->assertStringNotContainsString(str_repeat('Äöü 😀 Alt ', 200), $text, 'Vorn gekappt.');
 
-        // Reiner ASCII-Text: 1000 Zeichen Obergrenze greift vor der URL-Grenze.
-        $ascii = ThemenKlickHandler::waMeUrl('49211', str_repeat('a', 1500));
-        $this->assertSame(1000, strlen(substr($ascii, strlen('https://wa.me/49211?text='))));
+        // Reiner ASCII-Text: 1000 Zeichen Obergrenze greift vor der URL-Grenze — die letzten 1000 bleiben.
+        $ascii = ThemenKlickHandler::waMeUrl('49211', str_repeat('a', 1000) . str_repeat('b', 500));
+        $this->assertSame(str_repeat('a', 500) . str_repeat('b', 500), substr($ascii, strlen('https://wa.me/49211?text=')));
     }
 
     public function test_dispo_nummer_wird_normalisiert_ungueltige_filiale_uebersprungen(): void
@@ -444,12 +448,15 @@ final class ThemenKlickHandlerTest extends TestCase
         );
     }
 
-    public function test_weiterleitung_scheitert_stempel_kommt_trotzdem(): void
+    public function test_weiterleitung_scheitert_kein_stempel_chat_bleibt_bei_hr(): void
     {
+        // Schlussreview I1: Stempel routed_dispo NUR, wenn der Link rausging UND
+        // die Karte bei der Dispo liegt. Sonst bleibt der Chat bei HR offen, die
+        // Zeile bleibt auf chosen — ein spaeterer Tipp darf es noch einmal versuchen.
         // a) Forwarder wirft (Tabelle weg), b) Forwarder lehnt ab (Kanal nicht in SEINER Auswahl).
         foreach (['wirft', 'lehnt_ab'] as $fall) {
             $this->setUp();
-            [$thread] = $this->gefragt();
+            [$thread, $ursprung] = $this->gefragt();
             $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
             $forwarder = $fall === 'lehnt_ab' ? new ConversationForwarder(new DispoForwardChannels([8])) : null;
             if ($fall === 'wirft') {
@@ -457,18 +464,102 @@ final class ThemenKlickHandlerTest extends TestCase
             }
 
             try {
-                $status = $this->handler($forwarder)->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7'));
+                $status = $this->handler($forwarder)->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -30));
             } finally {
                 if ($fall === 'wirft') {
                     Capsule::schema()->rename('rec_conversation_forwards_weg', 'rec_conversation_forwards');
                 }
             }
 
-            $this->assertSame('verarbeitet:dispo_7', $status, $fall);
+            $this->assertSame('verarbeitet:dispo_7', $status, $fall . ': der Link ging raus.');
             $this->assertSame(0, RecConversationForward::query()->count(), $fall);
+            $this->assertSame(0, RecConversationHandled::query()->count(), $fall . ': kein Stempel ohne Karte.');
+            $topic = RecConversationTopic::query()->sole();
+            $this->assertSame(RecConversationTopic::STATE_CHOSEN, $topic->state, $fall);
+            $this->assertSame(RecConversationTopic::TOPIC_DISPO, $topic->topic, $fall);
+            $this->assertNull($topic->dispo_channel_id, $fall);
+
+            // Spaeterer Tipp mit funktionierender Weiterleitung: Karte, Stempel, routed.
+            $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7')), $fall);
+            $f = RecConversationForward::query()->sole();
+            $this->assertSame([(int) $ursprung->id], array_map(fn ($m) => (int) $m['message_id'], $f->messages), $fall);
             $this->assertSame(RecConversationHandled::REASON_ROUTED_DISPO, RecConversationHandled::query()->sole()->handled_reason, $fall);
-            $this->assertSame(RecConversationTopic::STATE_ROUTED, RecConversationTopic::query()->sole()->state, $fall);
+            $this->assertSame(RecConversationTopic::STATE_ROUTED, $topic->fresh()->state, $fall);
+            $this->assertSame(7, (int) $topic->fresh()->dispo_channel_id, $fall);
         }
+    }
+
+    public function test_wiederholversuch_reicht_neu_getippte_nachrichten_als_zweite_karte_nach(): void
+    {
+        // Schlussreview N2: Link abgelehnt → Karte mit A. Der MA tippt B, dann
+        // erneut dispo_7 → B muss bei der Dispo ankommen, bevor der Stempel es
+        // bei HR ablegt. Umsetzung: eine zweite Karte nur mit den fehlenden Nachrichten.
+        [$thread, $a] = $this->gefragt('Komme morgen später');
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -250));
+        $this->sendStatus = ['failed'];
+        $this->assertSame('ignoriert:send_failed', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -200)));
+        $this->assertSame(1, RecConversationForward::query()->count());
+
+        $b = $this->nachricht($thread, 'inbound', -100, body: 'und brauche einen Parkschein');
+        $this->sendStatus = [];
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7')));
+
+        $karten = RecConversationForward::query()->orderBy('id')->get();
+        $this->assertCount(2, $karten);
+        $this->assertSame([(int) $a->id], array_map(fn ($m) => (int) $m['message_id'], $karten[0]->messages));
+        $this->assertSame([(int) $b->id], array_map(fn ($m) => (int) $m['message_id'], $karten[1]->messages));
+        $this->assertSame(7, (int) $karten[1]->target_channel_id);
+        $this->assertSame(
+            'https://wa.me/4921178177723?text=' . rawurlencode("Komme morgen später\nund brauche einen Parkschein"),
+            $this->gesendet[0]['interactive']['action']['parameters']['url'],
+        );
+        $this->assertSame(RecConversationHandled::REASON_ROUTED_DISPO, RecConversationHandled::query()->sole()->handled_reason);
+        $this->assertSame(RecConversationTopic::STATE_ROUTED, RecConversationTopic::query()->sole()->state);
+    }
+
+    public function test_wiederholversuch_neue_nachricht_weiterleitung_scheitert_kein_stempel(): void
+    {
+        // N2 + I1: schlaegt das Nachreichen fehl, darf B nicht abgelegt werden.
+        [$thread] = $this->gefragt('Komme morgen später');
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -250));
+        $this->sendStatus = ['failed'];
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -200));
+        $this->nachricht($thread, 'inbound', -100, body: 'und brauche einen Parkschein');
+        $this->sendStatus = [];
+
+        $abgelehnt = new ConversationForwarder(new DispoForwardChannels([8]));
+        $this->assertSame('verarbeitet:dispo_7', $this->handler($abgelehnt)->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7')));
+
+        $this->assertSame(1, RecConversationForward::query()->count());
+        $this->assertSame(0, RecConversationHandled::query()->count());
+        $this->assertSame(RecConversationTopic::STATE_CHOSEN, RecConversationTopic::query()->sole()->state);
+    }
+
+    public function test_schalter_aus_klick_wird_ignoriert(): void
+    {
+        // Schlussreview m2: nach dem Notaus beantworten offene Knoepfe nichts mehr.
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $vorher = $topic->fresh()->only(['state', 'topic', 'last_click_message_id', 'dispo_channel_id']);
+        $this->gesendet->exchangeArray([]);
+
+        foreach ([['comms_topic_enabled' => false], []] as $settings) {
+            $this->einstellungen($settings);
+            foreach (['dispo_7', 'topic_lohn', 'topic_hr', 'topic_dispo'] as $id) {
+                $this->assertSame('ignoriert:schalter_aus', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $id)), $id);
+            }
+        }
+        // Ganz ohne Einstellungszeile: auch aus — und es wird keine angelegt.
+        Capsule::table('rec_applicant_settings')->delete();
+        $this->assertSame('ignoriert:schalter_aus', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7')));
+        $this->assertSame(0, Capsule::table('rec_applicant_settings')->count());
+
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(0, RecConversationForward::query()->count());
+        $this->assertSame(0, RecConversationHandled::query()->count());
+        $this->assertEquals($vorher, $topic->fresh()->only(['state', 'topic', 'last_click_message_id', 'dispo_channel_id']));
     }
 
     // ------------------------------------------------------------ Lohn

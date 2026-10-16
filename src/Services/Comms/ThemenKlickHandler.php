@@ -3,11 +3,13 @@
 namespace Platform\Recruiting\Services\Comms;
 
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecConversationHandled;
 use Platform\Recruiting\Models\RecConversationTopic;
 use Platform\Recruiting\Models\RecEmployee;
@@ -24,9 +26,10 @@ use Platform\Recruiting\Support\PublicAddressStyle;
  * Mitarbeiters auf UNSERE Knoepfe (topic_*, dispo_<kanal>, topic_ack).
  *
  *  - topic_dispo  → Filialen als Knoepfe (bis 3) bzw. Liste (ab 4).
- *  - dispo_<id>   → wa.me-Link zur gewaehlten Dispo; NUR wenn der Link
- *                   rausging: automatische Weiterleitung der Ursprungsnachricht
- *                   in die Dispo-Postfach-Karte + Stempel routed_dispo.
+ *  - dispo_<id>   → wa.me-Link zur gewaehlten Dispo + automatische
+ *                   Weiterleitung des Getippten in die Dispo-Postfach-Karte.
+ *                   Stempel routed_dispo NUR, wenn der Link rausging UND die
+ *                   Karte bei dieser Dispo liegt (Schlussreview I1).
  *  - topic_lohn   → Hinweis aus der Akte (OffenePunkte) bzw. Login-Anleitung.
  *                   Kein Stempel — eine echte Lohnfrage bleibt bei HR.
  *  - topic_hr     → nur das Thema setzen.
@@ -91,6 +94,11 @@ final class ThemenKlickHandler
 
         $teamId = (int) $thread->team_id;
         $settings = RecApplicantSettings::query()->where('team_id', $teamId)->first();
+        // Notaus (Schlussreview m2): bei AUS beantworten auch offene Knoepfe
+        // nichts mehr — der Chat bleibt bei HR. Gelesen wird nur, nie angelegt.
+        if ($settings === null || !(bool) $settings->getSetting('comms_topic_enabled', false)) {
+            return 'ignoriert:schalter_aus';
+        }
         $ruheStunden = max(1, (int) ($settings?->getSetting('comms_topic_quiet_hours', 8) ?? 8));
 
         // Aktuelles Anliegen: juengste Frage dieses Threads innerhalb der Ruhezeit.
@@ -240,16 +248,34 @@ final class ThemenKlickHandler
 
         // Die Weiterleitung ist das Sicherheitsnetz: sie geht auch dann raus,
         // wenn Meta den Link ablehnt — das Anliegen soll bei der Dispo ankommen
-        // (Review Task 4, M3). dispo_channel_id merkt sich „schon weitergeleitet“,
-        // damit ein Wiederholversuch keine zweite Karte anlegt.
-        if ((int) ($topic->dispo_channel_id ?? 0) !== $kanalId
-            && $this->weiterleiten($thread, $topic, $teamId, $kanalId, $phone, $eingaenge->pluck('id')->all())) {
+        // (Review Task 4, M3). Weitergeleitet wird nur, was noch in keiner Karte
+        // fuer diese Dispo steht: der Wiederholversuch legt keine zweite Karte mit
+        // denselben Nachrichten an, reicht aber neu Getipptes als eigene Karte
+        // nach (Schlussreview N2). dispo_channel_id = „Karte liegt bei dieser Dispo“.
+        $ids = array_map('intval', $eingaenge->pluck('id')->all());
+        $fehlend = array_values(array_diff($ids, $this->schonBeiDerDispo($thread, $teamId, $kanalId)));
+        $zugestellt = $ids !== [] && $fehlend === [];
+        if (!$zugestellt && $this->weiterleiten($thread, $topic, $teamId, $kanalId, $phone, $fehlend)) {
+            $zugestellt = true;
+        }
+        if ($zugestellt && (int) ($topic->dispo_channel_id ?? 0) !== $kanalId) {
             $topic->forceFill(['dispo_channel_id' => $kanalId])->save();
         }
 
         if ($r['status'] !== InteraktivSender::STATUS_SENT) {
             // Kein Stempel: ohne Link bleibt der Chat bei HR sichtbar.
             return $this->sendGescheitert('dispo_link', $topic, $r);
+        }
+
+        // Schlussreview I1: Stempel NUR, wenn Link raus UND alles Getippte bei
+        // dieser Dispo liegt. Sonst bleibt der Chat bei HR offen (Thema Dispo,
+        // Zustand chosen) — ein spaeterer Tipp versucht es noch einmal.
+        if (!$zugestellt) {
+            Log::warning('recruiting.themen.link_ohne_karte_kein_stempel', [
+                'thread_id' => $thread->id, 'topic_id' => $topic->id, 'kanal_id' => $kanalId,
+            ]);
+
+            return 'verarbeitet:' . $id;
         }
 
         $this->stempeln($thread, $message);
@@ -309,13 +335,19 @@ final class ThemenKlickHandler
         return $text === '' ? self::VORBELEGUNG_OHNE_TEXT : $text;
     }
 
-    /** Text auf 1000 Zeichen, die ganze URL auf 2000 Zeichen gekappt (Review Task 4, M3). */
+    /**
+     * Text auf 1000 Zeichen, die ganze URL auf 2000 Zeichen gekappt (Review Task 4, M3).
+     * Gekappt wird von VORN: das aktuelle Anliegen steht in den neuesten Zeilen
+     * am Ende (Schlussreview N1).
+     */
     public static function waMeUrl(string $nummer, string $text): string
     {
         $basis = 'https://wa.me/' . $nummer . '?text=';
-        $text = mb_substr($text, 0, self::MAX_TEXT);
+        if (mb_strlen($text) > self::MAX_TEXT) {
+            $text = mb_substr($text, -self::MAX_TEXT);
+        }
         while ($text !== '' && strlen($basis . rawurlencode($text)) > self::MAX_URL) {
-            $text = mb_substr($text, 0, max(0, mb_strlen($text) - 20));
+            $text = mb_substr($text, min(20, mb_strlen($text)));
         }
 
         return $basis . rawurlencode($text);
@@ -344,6 +376,30 @@ final class ThemenKlickHandler
         }
 
         return $nummern;
+    }
+
+    /**
+     * Nachrichten dieses Threads, die schon in einer Karte fuer diese Dispo stehen.
+     *
+     * @return list<int>
+     */
+    private function schonBeiDerDispo(CommsWhatsAppThread $thread, int $teamId, int $kanalId): array
+    {
+        try {
+            $karten = RecConversationForward::query()
+                ->where('team_id', $teamId)
+                ->where('source_thread_id', (int) $thread->id)
+                ->where('target', ForwardTargets::DISPO)
+                ->where('target_channel_id', $kanalId)
+                ->get(['messages']);
+        } catch (QueryException) {
+            // Tabelle fehlt: dann liegt auch nichts bei der Dispo — weiterleiten() meldet den Fehler.
+            return [];
+        }
+
+        return $karten
+            ->flatMap(fn (RecConversationForward $f) => array_map(fn ($m) => (int) ($m['message_id'] ?? 0), (array) $f->messages))
+            ->unique()->values()->all();
     }
 
     /** @param list<int> $messageIds */
