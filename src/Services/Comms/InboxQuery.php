@@ -32,7 +32,9 @@ final class InboxQuery
     /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int} */
     public function counts(int $teamId, ?int $now = null): array
     {
-        return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now)['counts'];
+        // Ohne Filial-Aufloesung: die Navigation links (Sidebar, 30s-Poll auf
+        // JEDER Recruiting-Seite) braucht nur die Gesamtzahlen.
+        return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now, false)['counts'];
     }
 
     /**
@@ -135,10 +137,11 @@ final class InboxQuery
         int $limit,
         int $offset,
         ?int $now = null,
+        bool $withFiliale = true,
     ): array {
         $now ??= time();
 
-        $scored = $this->scored($teamId, $now);
+        $scored = $this->scored($teamId, $now, $withFiliale || $filter->filiale !== 'all');
         $filialen = self::filialeCounts($scored['rows']);
 
         // Filiale schneidet VOR dem Zaehlen (Kunde 16.10.2026): bei "MGL" zeigen
@@ -263,7 +266,7 @@ final class InboxQuery
      *
      * @return array{rows: list<array<string, mixed>>, fallback: bool}
      */
-    private function scored(int $teamId, int $now): array
+    private function scored(int $teamId, int $now, bool $withFiliale = true): array
     {
         $channelIds = RecruitingChannelResolver::channelIds($teamId);
         $fallback = $channelIds === [];
@@ -309,7 +312,9 @@ final class InboxQuery
             true,
         );
 
-        $filialeOf = $this->filialeResolver($teamId, $threads, $aktiveAnstellungen);
+        $filialeOf = $withFiliale
+            ? $this->filialeResolver($teamId, $threads, $aktiveAnstellungen)
+            : static fn (string $contextModel, ?int $contextId): ?int => null;
 
         // Geschwister je Nummer (letzte 10 Ziffern) zaehlen — nur fuer den Hinweis-Chip.
         $byDigits = [];

@@ -137,6 +137,31 @@ class InboxFilialeFilterTest extends TestCase
         $this->assertSame([self::$ohneZuordnung], array_map(fn ($r) => $r->threadId, $ohne['rows']));
     }
 
+    public function test_zaehler_fuer_die_navigation_kommen_ohne_filial_aufloesung_aus(): void
+    {
+        // Sidebar: gleiche Gesamtzahlen, aber ohne die Filial-Abfragen.
+        $zaehleAbfragen = function (callable $f) {
+            $n = 0;
+            Capsule::connection()->listen(function () use (&$n) {
+                $n++;
+            });
+            $f();
+            Capsule::connection()->getEventDispatcher()->forget(\Illuminate\Database\Events\QueryExecuted::class);
+
+            return $n;
+        };
+
+        $counts = null;
+        $ohne = $zaehleAbfragen(function () use (&$counts) {
+            $counts = (new InboxQuery())->counts(self::TEAM, self::JETZT);
+        });
+        $mit = $zaehleAbfragen(fn () => (new InboxQuery())->snapshot(self::TEAM, new InboxFilter(), 0, 0, self::JETZT));
+
+        $this->assertSame(5, $counts['total']);
+        $this->assertSame(5, $counts['unread']);
+        $this->assertSame(3, $mit - $ohne, 'Genau die drei Filial-Abfragen (MA, Bewerbungen, Stellen) fallen weg.');
+    }
+
     private static function seed(): void
     {
         $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
