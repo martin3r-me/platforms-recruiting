@@ -44,9 +44,11 @@ final class InboxQuery
     /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
     public function counts(int $teamId, ?int $now = null): array
     {
-        // Ohne Filial-Aufloesung: die Navigation links (Sidebar, 30s-Poll auf
-        // JEDER Recruiting-Seite) braucht nur die Gesamtzahlen.
-        return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now, false)['counts'];
+        // Ohne Filial-Aufloesung und ohne „Offen lassen“-Marker: die Navigation
+        // links (Sidebar, 30s-Poll auf JEDER Recruiting-Seite) braucht nur die
+        // Gesamtzahlen und zeigt „Offen“ nicht — 'followup' ist hier daher
+        // immer 0 (Review Task 6, M2).
+        return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now, false, false)['counts'];
     }
 
     /**
@@ -158,10 +160,16 @@ final class InboxQuery
         int $offset,
         ?int $now = null,
         bool $withFiliale = true,
+        bool $withFollowup = true,
     ): array {
         $now ??= time();
 
-        $scored = $this->scored($teamId, $now, $withFiliale || $filter->filiale !== 'all');
+        $scored = $this->scored(
+            $teamId,
+            $now,
+            $withFiliale || $filter->filiale !== 'all',
+            $withFollowup || $filter->level === 'followup',
+        );
         $filialen = self::filialeCounts($scored['rows']);
 
         // Filiale schneidet VOR dem Zaehlen (Kunde 16.10.2026): bei "MGL" zeigen
@@ -296,7 +304,7 @@ final class InboxQuery
      *
      * @return array{rows: list<array<string, mixed>>, fallback: bool}
      */
-    private function scored(int $teamId, int $now, bool $withFiliale = true): array
+    private function scored(int $teamId, int $now, bool $withFiliale = true, bool $withFollowup = true): array
     {
         $channelIds = RecruitingChannelResolver::channelIds($teamId);
         $fallback = $channelIds === [];
@@ -324,7 +332,7 @@ final class InboxQuery
         $humanOutbound = $this->humanOutboundTimestamps($threadIds);
         $handledAt = $this->handledTimestamps($teamId, $threadIds);
         $themen = $this->aktuelleThemen($teamId, $threadIds);
-        $offen = $this->offeneMarker($teamId, $threadIds);
+        $offen = $withFollowup ? $this->offeneMarker($teamId, $threadIds) : [];
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);

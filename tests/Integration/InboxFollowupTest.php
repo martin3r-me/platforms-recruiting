@@ -11,9 +11,11 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Core\Models\User;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Livewire\Conversations\Inbox;
 use Platform\Recruiting\Models\RecApplicant;
@@ -295,6 +297,107 @@ class InboxFollowupTest extends TestCase
         $this->assertSame([self::$gelesenMarkiert], array_keys($offen));
     }
 
+    public function test_antwort_ueber_den_echten_sendeweg_loest_den_marker_nicht(): void
+    {
+        // Review Task 6, I1: nicht nur der Lesepfad — auch der Sendeweg der
+        // Inbox darf den Marker nicht anfassen. Nur „Erledigt“ loest ihn.
+        $thread = (int) CommsWhatsAppThread::create([
+            'team_id' => self::SPIEL, 'comms_channel_id' => self::$channel, 'token' => bin2hex(random_bytes(8)),
+            'remote_phone_number' => '+4915100000904', 'is_unread' => false,
+            'last_inbound_at' => date('Y-m-d H:i:s', time() - 600),
+        ])->id;
+        (new FollowupMarker())->markieren(self::SPIEL, $thread, self::CLARA);
+
+        $gesendet = new \ArrayObject();
+        $meta = new class($gesendet) extends WhatsAppMetaService {
+            public function __construct(private \ArrayObject $calls) {}
+
+            public function sendText(CommsChannel $channel, string $to, string $message, ?User $sender = null): CommsWhatsAppMessage
+            {
+                $this->calls[] = $message;
+                $m = new CommsWhatsAppMessage();
+                $m->status = 'sent';
+                $m->meta_payload = [];
+
+                return $m;
+            }
+        };
+        Container::getInstance()->instance(WhatsAppMetaService::class, $meta);
+        self::bindFakeAuthAndSession(self::SPIEL);
+        try {
+            // #[Computed] selectedThread loest Livewire nur im Request-Lebenszyklus
+            // auf; ausserhalb davon reicht die Unterklasse ihn an die Methode durch.
+            $inbox = new class extends Inbox {
+                public function __get($property)
+                {
+                    return $property === 'selectedThread' ? $this->selectedThread() : parent::__get($property);
+                }
+            };
+            $inbox->selectedThreadId = $thread;
+            $inbox->replyText = 'Kümmere mich morgen darum.';
+            $inbox->sendReply();
+        } finally {
+            Container::getInstance()->forgetInstance(WhatsAppMetaService::class);
+        }
+
+        $this->assertNull($inbox->sendError);
+        $this->assertSame(['Kümmere mich morgen darum.'], $gesendet->getArrayCopy(), 'Die Antwort ging wirklich raus.');
+        $this->assertArrayHasKey($thread, (new FollowupMarker())->offeneFuer(self::SPIEL, [$thread]),
+            'Eine Antwort aus dem Chat loest den Marker nicht.');
+        $this->assertSame(1, RecConversationFollowup::query()->where('comms_whatsapp_thread_id', $thread)->whereNull('cleared_at')->count());
+    }
+
+    public function test_sidebar_zaehler_fragt_die_marker_nicht_ab(): void
+    {
+        // Review Task 6, M2: die Navigation links (30s-Poll auf jeder Seite)
+        // zeigt „Offen“ nicht — also auch keine Marker-Abfrage.
+        $n = 0;
+        Capsule::connection()->listen(function ($q) use (&$n) {
+            if (str_contains($q->sql, 'rec_conversation_followups')) {
+                $n++;
+            }
+        });
+        (new InboxQuery())->counts(self::TEAM, self::JETZT);
+        Capsule::connection()->getEventDispatcher()->forget(\Illuminate\Database\Events\QueryExecuted::class);
+
+        $this->assertSame(0, $n);
+    }
+
+    public function test_marker_abfrage_einmal_je_durchlauf_und_bei_wenigen_threads_eingeschraenkt(): void
+    {
+        $sql = [];
+        Capsule::connection()->listen(function ($q) use (&$sql) {
+            if (str_contains($q->sql, 'rec_conversation_followups')) {
+                $sql[] = $q->sql;
+            }
+        });
+        (new InboxQuery())->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
+        (new InboxQuery())->rowForThread(CommsWhatsAppThread::findOrFail(self::$gelesenMarkiert), self::TEAM, self::JETZT);
+        Capsule::connection()->getEventDispatcher()->forget(\Illuminate\Database\Events\QueryExecuted::class);
+
+        $this->assertCount(2, $sql, 'Je Durchlauf genau eine Marker-Abfrage.');
+        foreach ($sql as $q) {
+            $this->assertStringContainsString('"comms_whatsapp_thread_id" in', $q, 'Kleine Thread-Mengen gehen per IN an die DB.');
+        }
+    }
+
+    public function test_grosse_thread_menge_liest_ohne_in_liste_und_schneidet_trotzdem(): void
+    {
+        $ids = array_merge([self::$gelesenMarkiert], range(100_000, 100_500));
+        $sql = [];
+        Capsule::connection()->listen(function ($q) use (&$sql) {
+            if (str_contains($q->sql, 'rec_conversation_followups')) {
+                $sql[] = $q->sql;
+            }
+        });
+        $offen = (new FollowupMarker())->offeneFuer(self::TEAM, $ids);
+        Capsule::connection()->getEventDispatcher()->forget(\Illuminate\Database\Events\QueryExecuted::class);
+
+        $this->assertSame([self::$gelesenMarkiert], array_keys($offen), 'Nicht gesuchte markierte Threads fallen in PHP heraus.');
+        $this->assertCount(1, $sql);
+        $this->assertStringNotContainsString('"comms_whatsapp_thread_id" in', $sql[0]);
+    }
+
     private static function thread(string $nr, bool $unread, ?string $model = null, ?int $id = null, int $team = self::TEAM): int
     {
         return (int) CommsWhatsAppThread::create([
@@ -306,10 +409,12 @@ class InboxFollowupTest extends TestCase
 
     private static function bindFakeAuthAndSession(int $teamId): void
     {
-        $user = new class {
-            public int $id = InboxFollowupTest::CLARA;
+        // Echter User (nicht nur ein Objekt): der Sendeweg reicht ihn als
+        // ?User an WhatsAppMetaService::sendText() weiter.
+        $user = new class extends User {
             public $currentTeam;
         };
+        $user->id = self::CLARA;
         $user->currentTeam = (object) ['id' => $teamId];
 
         $authStub = new class($user) {

@@ -19,10 +19,19 @@ use Platform\Recruiting\Models\RecConversationFollowup;
  */
 final class FollowupMarker
 {
+    /** Bis zu so vielen Threads geht die Einschraenkung per IN an die DB (Review Task 6, M1). */
+    private const IN_GRENZE = 500;
+
     /**
      * Upsert auf die offene Zeile: solange cleared_at leer ist, gibt es je
      * Thread keine zweite. Ein erneutes Markieren schreibt Wer/Wann neu.
      * Threads anderer Teams werden nicht markiert.
+     *
+     * Transaktion + lockForUpdate gegen den Doppelklick (Review Task 6, M3):
+     * ein partieller Unique-Index (thread, cleared_at IS NULL) ist nicht
+     * portabel. Schutz greift, sobald eine offene Zeile existiert; zwei
+     * gleichzeitige ERSTE Klicks koennen weiter zwei Zeilen anlegen — das
+     * fangen erledigen() (schliesst alle) und offeneFuer() (juengste) ab.
      */
     public function markieren(int $teamId, int $threadId, ?int $userId): void
     {
@@ -34,26 +43,29 @@ final class FollowupMarker
             return;
         }
 
-        $jetzt = Carbon::now();
-        $offen = RecConversationFollowup::query()
-            ->where('team_id', $teamId)
-            ->where('comms_whatsapp_thread_id', $threadId)
-            ->whereNull('cleared_at')
-            ->orderByDesc('id')
-            ->first();
+        (new RecConversationFollowup())->getConnection()->transaction(function () use ($teamId, $threadId, $userId): void {
+            $jetzt = Carbon::now();
+            $offen = RecConversationFollowup::query()
+                ->where('team_id', $teamId)
+                ->where('comms_whatsapp_thread_id', $threadId)
+                ->whereNull('cleared_at')
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
 
-        if ($offen !== null) {
-            $offen->update(['marked_by_user_id' => $userId, 'marked_at' => $jetzt]);
+            if ($offen !== null) {
+                $offen->update(['marked_by_user_id' => $userId, 'marked_at' => $jetzt]);
 
-            return;
-        }
+                return;
+            }
 
-        RecConversationFollowup::create([
-            'team_id' => $teamId,
-            'comms_whatsapp_thread_id' => $threadId,
-            'marked_by_user_id' => $userId,
-            'marked_at' => $jetzt,
-        ]);
+            RecConversationFollowup::create([
+                'team_id' => $teamId,
+                'comms_whatsapp_thread_id' => $threadId,
+                'marked_by_user_id' => $userId,
+                'marked_at' => $jetzt,
+            ]);
+        });
     }
 
     /**
@@ -76,9 +88,11 @@ final class FollowupMarker
      * Offene Marker je Thread mit Namen der markierenden Person (Join auf
      * users wie HrMitarbeiterListen::gestoppte()).
      *
-     * Liest alle offenen Marker des Teams und schneidet in PHP — offene
-     * Marker sind wenige, die Grundmenge der Liste (~1000 Threads) als
-     * IN-Liste waere teurer. Bei mehreren offenen Zeilen gewinnt die juengste.
+     * Bis IN_GRENZE Threads (Kopfzeile, kleine Teams) schraenkt die DB per IN
+     * ein; darueber (Grundmenge der Liste, ~1000 Threads) werden alle offenen
+     * Marker des Teams gelesen und in PHP geschnitten — offene Marker sind
+     * wenige, eine riesige IN-Liste waere teurer. Bei mehreren offenen
+     * Zeilen gewinnt die juengste.
      *
      * @param list<int> $threadIds
      * @return array<int, array{by: ?string, at: int}>
@@ -90,11 +104,15 @@ final class FollowupMarker
         }
         $gesucht = array_fill_keys(array_map('intval', $threadIds), true);
 
-        $zeilen = (new RecConversationFollowup())->getConnection()
+        $abfrage = (new RecConversationFollowup())->getConnection()
             ->table('rec_conversation_followups as f')
             ->leftJoin('users as u', 'u.id', '=', 'f.marked_by_user_id')
             ->where('f.team_id', $teamId)
-            ->whereNull('f.cleared_at')
+            ->whereNull('f.cleared_at');
+        if (count($gesucht) <= self::IN_GRENZE) {
+            $abfrage->whereIn('f.comms_whatsapp_thread_id', array_keys($gesucht));
+        }
+        $zeilen = $abfrage
             ->orderBy('f.id')
             ->get(['f.comms_whatsapp_thread_id', 'f.marked_at', 'u.name as benutzer']);
 
