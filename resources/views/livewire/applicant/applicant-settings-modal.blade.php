@@ -1103,7 +1103,8 @@
                         <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Themen-Auswahl für Mitarbeiter (WhatsApp)</h3>
                         <p class="text-sm text-[var(--ui-muted)] mt-1">
                             Schreibt ein aktiver Mitarbeiter ohne Anlass, fragt das System per Knopfauswahl nach dem Thema
-                            (Einsatz/Dispo oder Lohn) und leitet es weiter. Die Filialen kommen aus den Dispo-Kanälen
+                            (Disposition, Lohn &amp; Gehalt oder HR allgemein): Disposition leitet an die gewählte Dispo weiter,
+                            Lohn &amp; Gehalt antwortet mit dem Hinweis aus der Akte, HR allgemein bleibt hier. Die Filialen kommen aus den Dispo-Kanälen
                             (Dispo-Einstellungen) — hier ist nichts einzutragen.
                         </p>
                     </div>
@@ -1137,19 +1138,26 @@
                     </div>
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
                         Ruhezeit: so lange nach der letzten Nachricht (in beide Richtungen) wird nicht erneut gefragt.
-                        Ohne URL geht der Lohn-Text ohne Knopf raus.
+                        Ohne URL geht der Lohn-Text ohne Knopf raus. Nur Adressen mit https://.
+                        Texte höchstens 1000 Zeichen (WhatsApp-Grenze).
                     </p>
 
                     <div>
                         <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text der Themen-Frage</label>
                         <textarea wire:model="settings.comms_topic_text_ask" rows="3"
                                   class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        @error('settings.comms_topic_text_ask')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Vorgabetext.</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text Lohn — mit offenen Punkten</label>
                         <textarea wire:model="settings.comms_topic_text_lohn_offen" rows="3"
                                   class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        @error('settings.comms_topic_text_lohn_offen')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
                         <p class="text-xs text-[var(--ui-muted)] mt-1">
                             Leer = Vorgabetext. Platzhalter <span class="font-mono">{PUNKTE}</span> wird durch die offenen Punkte ersetzt.
                         </p>
@@ -1158,6 +1166,9 @@
                         <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text Lohn — alles erledigt</label>
                         <textarea wire:model="settings.comms_topic_text_lohn_ok" rows="3"
                                   class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        @error('settings.comms_topic_text_lohn_ok')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Vorgabetext.</p>
                     </div>
                 </div>

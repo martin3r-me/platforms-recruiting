@@ -296,13 +296,11 @@ class ApplicantSettingsModal extends Component
         $pruefungVorher = PortalVorlagen::istAn($this->settingsModel->getSetting(PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV));
         $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] = PortalVorlagen::istAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] ?? false);
 
-        // Themen-Auswahl (WhatsApp): Schalter strikt bool, Ruhezeit 1-48 Stunden (Vorgabe 8),
-        // leere URL/Texte als null speichern (= Vorgabe bzw. Text ohne Knopf).
-        $this->settings['comms_topic_enabled'] = filter_var($this->settings['comms_topic_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $this->settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($this->settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8);
-        foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {
-            $wert = trim((string) ($this->settings[$schluessel] ?? ''));
-            $this->settings[$schluessel] = $wert === '' ? null : $wert;
+        // Themen-Auswahl (WhatsApp): siehe themenEinstellungen(). Ungueltiges wird
+        // als null (= Vorgabe) gespeichert, die Meldung steht am Feld, das Fenster bleibt offen.
+        ['settings' => $this->settings, 'fehler' => $themenFehler] = self::themenEinstellungen($this->settings);
+        foreach ($themenFehler as $feld => $meldung) {
+            $this->addError('settings.' . $feld, $meldung);
         }
 
         $this->settingsModel->settings = $this->settings;
@@ -324,7 +322,46 @@ class ApplicantSettingsModal extends Component
             ]);
         }
 
+        if ($themenFehler !== []) {
+            return;
+        }
+
         $this->modalShow = false;
+    }
+
+    /** Hoechstlaenge der Team-Texte: Meta erlaubt 1024 Zeichen Body, der Abwesenheits-Vorspann kommt noch davor. */
+    public const THEMEN_TEXT_MAX = 1000;
+
+    /**
+     * Themen-Auswahl (WhatsApp) beim Speichern: Schalter strikt bool, Ruhezeit
+     * 1-48 Stunden (Vorgabe 8), leere URL/Texte als null (= Vorgabe bzw. Text
+     * ohne Knopf). Die Login-URL nur mit https:// (Meta lehnt sonst jeden
+     * Lohn-Hinweis ab), Texte hoechstens THEMEN_TEXT_MAX Zeichen — beides sonst
+     * null plus Meldung (Schlussreview m5).
+     *
+     * @param array<string, mixed> $settings
+     * @return array{settings: array<string, mixed>, fehler: array<string, string>}
+     */
+    public static function themenEinstellungen(array $settings): array
+    {
+        $fehler = [];
+        $settings['comms_topic_enabled'] = filter_var($settings['comms_topic_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8);
+
+        foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {
+            $wert = trim((string) ($settings[$schluessel] ?? ''));
+            if ($wert !== '' && $schluessel === 'comms_topic_lohn_url'
+                && (!str_starts_with(strtolower($wert), 'https://') || filter_var($wert, FILTER_VALIDATE_URL) === false)) {
+                $fehler[$schluessel] = 'Nicht gespeichert: die Adresse muss mit https:// beginnen.';
+                $wert = '';
+            } elseif ($wert !== '' && $schluessel !== 'comms_topic_lohn_url' && mb_strlen($wert) > self::THEMEN_TEXT_MAX) {
+                $fehler[$schluessel] = 'Nicht gespeichert: höchstens ' . self::THEMEN_TEXT_MAX . ' Zeichen (' . mb_strlen($wert) . ' eingegeben). Es gilt der Vorgabetext.';
+                $wert = '';
+            }
+            $settings[$schluessel] = $wert === '' ? null : $wert;
+        }
+
+        return ['settings' => $settings, 'fehler' => $fehler];
     }
 
     /** Vorlagen-ID aus einem Select: leer, '0' oder kein positiver Zahlwert → null. */

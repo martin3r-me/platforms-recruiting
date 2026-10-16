@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Applicant\ApplicantSettingsModal;
 use Platform\Recruiting\Models\RecApplicantSettings;
 
 /**
@@ -45,8 +46,20 @@ final class ThemenSettingsTest extends TestCase
 
     public function test_save_begrenzt_ruhezeit_und_normalisiert_den_schalter(): void
     {
-        $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Applicant/ApplicantSettingsModal.php');
-        $this->assertStringContainsString("begrenze(\$this->settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8)", $quelle);
-        $this->assertStringContainsString("FILTER_VALIDATE_BOOLEAN", $quelle);
+        // Ausgefuehrt statt Quelltext-Suche (Schlussreview m5); das Speichern
+        // an der echten Komponente prueft SettingsModalThemenTest.
+        $r = ApplicantSettingsModal::themenEinstellungen([
+            'comms_topic_enabled' => 'false',
+            'comms_topic_quiet_hours' => 'abc',
+            'comms_topic_lohn_url' => '',
+        ]);
+        $this->assertFalse($r['settings']['comms_topic_enabled']);
+        $this->assertSame(8, $r['settings']['comms_topic_quiet_hours']);
+        $this->assertNull($r['settings']['comms_topic_lohn_url']);
+        $this->assertSame([], $r['fehler']);
+
+        $r = ApplicantSettingsModal::themenEinstellungen(['comms_topic_enabled' => '1', 'comms_topic_quiet_hours' => 99]);
+        $this->assertTrue($r['settings']['comms_topic_enabled']);
+        $this->assertSame(48, $r['settings']['comms_topic_quiet_hours']);
     }
 }

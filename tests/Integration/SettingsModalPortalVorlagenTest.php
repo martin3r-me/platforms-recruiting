@@ -318,6 +318,8 @@ class SettingsModalPortalVorlagenTest extends TestCase
             'settings'     => $probe->settings,
             'teamUsers'    => [],
             'serviceHours' => [],
+            // Livewire teilt $errors mit jeder Komponenten-Ansicht (@error der Themen-Texte).
+            'errors'       => new \Illuminate\Support\ViewErrorBag(),
         ];
 
         $lauf = function (string $__pfad, array $__daten): string {
