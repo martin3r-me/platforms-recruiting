@@ -434,7 +434,7 @@ public function test_info_wird_ohne_datei_mit_textpruefsumme_angelegt(): void
     $this->assertNotNull($d->published_at);
     $this->assertFalse($d->auto_neue_mitarbeiter);
     $this->assertSame(1, $r['empfaenger']);
-    $this->assertFalse($r['versand_noetig'], 'Aktion none: keine WhatsApp-Pflicht');
+    $this->assertTrue($r['versand_noetig'], 'Info mit Empfaengern: Portal-WhatsApp wie bei einer PDF (Ruling: versand_noetig = Empfaenger > 0)');
     $this->assertSame(1, RecDocumentRecipient::where('rec_document_id', $d->id)->count());
 }
 
@@ -533,7 +533,7 @@ In `DokumentService`: den Teil von `bereitstellen()`, der `$ids` → `$anstellun
             return $dokument;
         });
 
-        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => false];
+        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => $aufgeloest['ids'] !== []];
     }
 ```
 Zusätzlich in `bereitstellen()` (PDF-Weg) als Schutz: `if (DokumentKategorie::istText($kategorie)) { throw new \InvalidArgumentException('Infos werden als Text bereitgestellt, nicht als PDF.'); }`.
@@ -985,7 +985,7 @@ public function test_vorschau_rendert_mit_demselben_renderer(): void
         $this->bestaetigungOffen = false;
     }
 ```
-`bereitstellenPruefen()`: bei `$this->art === 'info'`: Titel Pflicht; `trim($this->infoMarkdown) === ''` → `flashError = 'Bitte einen Text schreiben.'`; Empfänger leer und `!$this->autoNeue` → `'Bite mindestens einen Empfänger wählen oder „automatisch an neue Mitarbeiter“ anhaken.'` (Rechtschreibung „Bitte"); sonst Bestätigung. `bereitstellen()`: bei `info` → `app(DokumentService::class)->bereitstellenText($this->teamId(), ['title' => $this->titel, 'auto_neue_mitarbeiter' => $this->autoNeue], $this->infoMarkdown, $ids, auth()->id())`, danach wie beim PDF-Weg: Auswahl leeren, `infoMarkdown = ''`, `autoNeue = false`, Flash „Info „…" bereitgestellt (n Empfänger…)" bzw. bei 0 Empfängern „…wird automatisch an neue Mitarbeiter zugestellt". Kein Job-Dispatch (`versand_noetig` false).
+`bereitstellenPruefen()`: bei `$this->art === 'info'`: Titel Pflicht; `trim($this->infoMarkdown) === ''` → `flashError = 'Bitte einen Text schreiben.'`; Empfänger leer und `!$this->autoNeue` → `'Bite mindestens einen Empfänger wählen oder „automatisch an neue Mitarbeiter“ anhaken.'` (Rechtschreibung „Bitte"); sonst Bestätigung. `bereitstellen()`: bei `info` → `app(DokumentService::class)->bereitstellenText($this->teamId(), ['title' => $this->titel, 'auto_neue_mitarbeiter' => $this->autoNeue], $this->infoMarkdown, $ids, auth()->id())`, danach wie beim PDF-Weg: Auswahl leeren, `infoMarkdown = ''`, `autoNeue = false`, Flash „Info „…" bereitgestellt (n Empfänger…)" bzw. bei 0 Empfängern „…wird automatisch an neue Mitarbeiter zugestellt". Job-Dispatch wie beim PDF-Weg, wenn `versand_noetig` (= Empfänger > 0, Ruling); nur Automatik ohne Empfänger: kein Job.
 
 - [ ] **Step 4: Blade**
 

@@ -1,6 +1,6 @@
 # Design: Infos im Mitarbeiterportal (Willkommen, News)
 
-Stand: 16.10.2026 · Zweig `feat/portal-infos` (auf `feat/ma-konto` @ 7f6800e4) · setzt auf
+Stand: 16.10.2026 · Zweig `feat/ma-konto` (Paket ab 7f6800e4, fährt mit dem ma-konto-Deploy) · setzt auf
 `docs/superpowers/specs/2026-10-08-dokumente-gegenzeichnen-design.md` (S-Dok) auf.
 
 ## 1. Ziel
