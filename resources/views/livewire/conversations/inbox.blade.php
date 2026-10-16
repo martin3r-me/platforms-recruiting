@@ -72,10 +72,6 @@
                         {{ $pill['label'] }} {{ $pill['value'] }}
                     </button>
                 @endforeach
-                <button type="button" wire:click="toggleHandledView"
-                        class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showHandled ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500' }}">
-                    Erledigt {{ $counts['handled'] }}
-                </button>
                 <button type="button" wire:click="toggleForwardsView"
                         class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showForwards ? 'border-gray-900 bg-gray-900 text-white' : 'border-violet-200 bg-white text-violet-700' }}">
                     Weitergeleitet {{ $this->openForwardCount }}
@@ -329,8 +325,6 @@
                     <div class="p-8 text-center text-sm text-gray-500">
                         @if ($search !== '')
                             Nichts gefunden für „{{ $search }}".
-                        @elseif ($showHandled)
-                            Noch nichts als erledigt markiert.
                         @else
                             Keine Konversationen im gewählten Filter.
                         @endif
@@ -347,7 +341,7 @@
                     <span class="font-semibold text-gray-700">{{ count($selected) }} markiert</span>
                     <button type="button" wire:click="selectAllVisible" class="text-gray-500 hover:underline">alle sichtbaren</button>
                     <button type="button" wire:click="clearSelection" class="text-gray-500 hover:underline">Auswahl löschen</button>
-                    <button type="button" wire:click="markSelectedHandled" class="ml-auto rounded-lg border border-gray-200 px-2.5 py-1 font-semibold text-gray-700 hover:bg-gray-50">als erledigt</button>
+                    <button type="button" wire:click="markSelectedHandled" class="ml-auto rounded-lg border border-gray-200 px-2.5 py-1 font-semibold text-gray-700 hover:bg-gray-50">als gelesen</button>
                     <button type="button" wire:click="sendHoldingToSelected" class="rounded-lg bg-gray-900 px-2.5 py-1 font-semibold text-white hover:bg-gray-800">„Wir melden uns"</button>
                 </div>
             @endif
@@ -412,17 +406,6 @@
                             class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50">
                         ungelesen schließen
                     </button>
-                    @if ($showHandled)
-                        <button type="button" wire:click="unmarkHandled({{ $selectedThreadId }})"
-                                class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
-                            zurückholen
-                        </button>
-                    @else
-                        <button type="button" wire:click="markHandled({{ $selectedThreadId }})"
-                                class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
-                            Erledigt
-                        </button>
-                    @endif
                     @if ($this->selectedRow && $this->selectedRow->subjectType === 'unassigned' && $this->selectedRow->contextLabel === null)
                         <button type="button" wire:click="openLinkPanel({{ $selectedThreadId }})"
                                 class="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100">

@@ -89,4 +89,50 @@ class ForwardCompletionTest extends TestCase
         $this->assertSame(0, (new ForwardCompletion())->completeForThreads(self::TEAM, [], 7));
         $this->assertSame(0, (new ForwardCompletion())->completeForThreads(self::TEAM, [0, -1], 7));
     }
+    public function test_oeffnen_erledigt_und_meldet_die_ids(): void
+    {
+        $a = $this->forward(['target_thread_id' => 60]);
+        $schon = $this->forward(['target_thread_id' => 60, 'done_at' => '2026-10-01 08:00:00', 'done_by_user_id' => 3]);
+        $anderer = $this->forward(['target_thread_id' => 61]);
+
+        $ids = (new ForwardCompletion())->completeForThreadIds(self::TEAM, 60, 7);
+
+        $this->assertSame([(int) $a->id], $ids, 'Nur die eben erledigte — nicht die schon vorher erledigte.');
+        $this->assertNotNull($a->fresh()->done_at);
+        $this->assertNull($anderer->fresh()->done_at);
+    }
+
+    public function test_ungelesen_schliessen_holt_nur_die_eben_erledigten_zurueck(): void
+    {
+        $a = $this->forward(['target_thread_id' => 62]);
+        $schon = $this->forward(['target_thread_id' => 62, 'done_at' => '2026-10-01 08:00:00', 'done_by_user_id' => 7]);
+        $ids = (new ForwardCompletion())->completeForThreadIds(self::TEAM, 62, 7);
+
+        // Praeparierte Liste: fremde ID, schon vorher erledigte, anderer Chat.
+        $fremdesTeam = $this->forward(['team_id' => self::TEAM + 1, 'target_thread_id' => 62, 'done_at' => '2026-10-16 09:00:00', 'done_by_user_id' => 7]);
+        $andererChat = $this->forward(['target_thread_id' => 63, 'done_at' => '2026-10-16 09:00:00', 'done_by_user_id' => 7]);
+        $andererUser = $this->forward(['target_thread_id' => 62, 'done_at' => '2026-10-16 09:00:00', 'done_by_user_id' => 8]);
+
+        $n = (new ForwardCompletion())->reopen(
+            self::TEAM,
+            62,
+            array_merge($ids, [(int) $fremdesTeam->id, (int) $andererChat->id, (int) $andererUser->id]),
+            7,
+        );
+
+        $this->assertSame(1, $n);
+        $this->assertNull($a->fresh()->done_at);
+        $this->assertNull($a->fresh()->done_by_user_id);
+        $this->assertNotNull($schon->fresh()->done_at, 'Vorher erledigt bleibt erledigt — sie stand nicht in der Liste.');
+        $this->assertNotNull($fremdesTeam->fresh()->done_at);
+        $this->assertNotNull($andererChat->fresh()->done_at);
+        $this->assertNotNull($andererUser->fresh()->done_at);
+    }
+
+    public function test_reopen_mit_leerer_liste_tut_nichts(): void
+    {
+        $f = $this->forward(['target_thread_id' => 64, 'done_at' => '2026-10-16 09:00:00', 'done_by_user_id' => 7]);
+        $this->assertSame(0, (new ForwardCompletion())->reopen(self::TEAM, 64, [], 7));
+        $this->assertNotNull($f->fresh()->done_at);
+    }
 }

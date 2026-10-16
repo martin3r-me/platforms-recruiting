@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Conversations;
 
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
@@ -40,7 +41,17 @@ class Inbox extends Component
     public string $kind = 'all';
     public string $owner = 'all';
     public string $search = '';
-    public bool $showHandled = false;
+
+    /**
+     * Weiterleitungen, die das Oeffnen des aktuellen Chats erledigt hat —
+     * „ungelesen schliessen“ holt genau diese zurueck (Spec 16.10.2026).
+     * Locked: sonst koennte der Browser beliebige IDs unterschieben
+     * (ForwardCompletion::reopen() prueft trotzdem Team/Chat/Nutzer).
+     *
+     * @var list<int>
+     */
+    #[Locked]
+    public array $openedForwardIds = [];
 
     /** Reiter "Weitergeleitet" (Spec 02.10.2026) statt Chat-Liste. */
     public bool $showForwards = false;
@@ -131,7 +142,6 @@ class Inbox extends Component
     {
         // Zweiter Klick auf dieselbe Pille loest den Filter wieder.
         $this->level = ($this->level === $level) ? 'all' : $level;
-        $this->showHandled = false;
         $this->showForwards = false;
         $this->showUndelivered = false;
         $this->discardSelectionOnFilterChange();
@@ -141,16 +151,6 @@ class Inbox extends Component
     public function setKind(string $kind): void
     {
         $this->kind = in_array($kind, ['all', 'applicants', 'employees'], true) ? $kind : 'all';
-        $this->discardSelectionOnFilterChange();
-        $this->resetPage();
-    }
-
-    public function toggleHandledView(): void
-    {
-        $this->showHandled = !$this->showHandled;
-        $this->showForwards = false;
-        $this->showUndelivered = false;
-        $this->level = 'all';
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
@@ -194,7 +194,6 @@ class Inbox extends Component
         $this->showForwards = false;
         $this->showUndelivered = false;
         $this->level = 'all';
-        $this->showHandled = false;
         $this->select($threadId);
     }
 
@@ -575,58 +574,6 @@ class Inbox extends Component
         return $knoepfe;
     }
 
-    /** Einzelnen Chat abhaken. Nur ueber threadForTeam() — nie eine fremde ID. */
-    public function markHandled(int $threadId): void
-    {
-        $thread = $this->threadForTeam($threadId);
-        if ($thread === null) {
-            return;
-        }
-
-        \Platform\Recruiting\Models\RecConversationHandled::updateOrCreate(
-            ['comms_whatsapp_thread_id' => $threadId],
-            [
-                'team_id' => $this->teamId(),
-                'handled_at' => now(),
-                'handled_by_user_id' => (int) Auth::id(),
-                'handled_reason' => \Platform\Recruiting\Models\RecConversationHandled::REASON_MANUAL,
-            ],
-        );
-
-        app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
-            ->completeForThreads($this->teamId(), [$threadId], Auth::id() !== null ? (int) Auth::id() : null);
-        unset($this->openForwardCount, $this->forwardCards);
-
-        if ($this->selectedThreadId === $threadId) {
-            $this->selectedThreadId = null;
-        }
-        $this->forgetSnapshot();
-        $this->dispatch('sidebar-refresh');
-    }
-
-    /**
-     * Stempel wieder loeschen — scharf auf team_id, damit keine fremde Zeile
-     * trifft. Fix-Runde 1, Kleinigkeit: spiegelbildlich zu markHandled()
-     * schliesst auch dieser Weg den gerade offenen Chat, wenn er selbst
-     * betroffen ist — sonst zeigt der Kopf weiter "zurückholen", weil dieser
-     * Knopf am Listenfilter ($showHandled) haengt, nicht am Zustand des
-     * Threads: nach dem Zurueckholen passt der Thread nicht mehr zum
-     * Erledigt-Filter, unter dem "zurückholen" ueberhaupt erst sichtbar war.
-     */
-    public function unmarkHandled(int $threadId): void
-    {
-        \Platform\Recruiting\Models\RecConversationHandled::query()
-            ->where('team_id', $this->teamId())
-            ->where('comms_whatsapp_thread_id', $threadId)
-            ->delete();
-
-        if ($this->selectedThreadId === $threadId) {
-            $this->selectedThreadId = null;
-        }
-        $this->forgetSnapshot();
-        $this->dispatch('sidebar-refresh');
-    }
-
     public function toggleSelectMode(): void
     {
         $this->selectMode = !$this->selectMode;
@@ -685,7 +632,7 @@ class Inbox extends Component
     }
 
     /**
-     * Sammel-Erledigen. Fix-Runde 1, Befund 2: laeuft NICHT mehr als
+     * Mehrfachauswahl „als gelesen“ (bis 16.10.2026: Sammel-Erledigen). Fix-Runde 1, Befund 2: laeuft NICHT mehr als
      * Schleife ueber markHandled() (das waeren bei 200 Chats ~600 Queries:
      * threadForTeam() + zwei fuer updateOrCreate() je ID) — ConversationBulkHandler
      * prueft die Team-Zugehoerigkeit EINMAL per whereIn und schreibt die
@@ -730,9 +677,9 @@ class Inbox extends Component
 
         $nichtGestempelt = count($ids) - count($handledIds);
         if ($handledIds === []) {
-            session()->flash('error', 'Keiner der markierten Chats konnte abgehakt werden.' . $this->nichtGestempeltHinweis($nichtGestempelt));
+            session()->flash('error', 'Keiner der markierten Chats konnte als gelesen markiert werden.' . $this->nichtGestempeltHinweis($nichtGestempelt));
         } elseif ($nichtGestempelt > 0) {
-            session()->flash('message', trim(count($handledIds) . ' Chat(s) als erledigt markiert.' . $this->nichtGestempeltHinweis($nichtGestempelt)));
+            session()->flash('message', trim(count($handledIds) . ' Chat(s) als gelesen markiert.' . $this->nichtGestempeltHinweis($nichtGestempelt)));
         }
 
         $this->selected = [];
@@ -842,7 +789,24 @@ class Inbox extends Component
             return;
         }
 
-        $this->threadForTeam($this->selectedThreadId)?->markAsUnread();
+        $thread = $this->threadForTeam($this->selectedThreadId);
+        if ($thread !== null) {
+            $thread->markAsUnread();
+
+            // Gelesen = erledigt (Spec 16.10.2026): ein Stempel (Mehrfach-
+            // auswahl, Altfall-Lauf, Button-Klick) hielte den Chat sonst
+            // weiter als erledigt fest, obwohl er gerade zurueckgelegt wurde.
+            \Platform\Recruiting\Models\RecConversationHandled::query()
+                ->where('team_id', $this->teamId())
+                ->where('comms_whatsapp_thread_id', (int) $thread->id)
+                ->delete();
+
+            if (app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+                ->reopen($this->teamId(), (int) $thread->id, $this->openedForwardIds, Auth::id() !== null ? (int) Auth::id() : null) > 0) {
+                unset($this->openForwardCount, $this->forwardCards);
+            }
+        }
+        $this->openedForwardIds = [];
         $this->selectedThreadId = null;
         $this->replyText = '';
         $this->sendError = null;
@@ -855,7 +819,20 @@ class Inbox extends Component
         $this->selectedThreadId = $threadId;
         $this->replyText = '';
         $this->sendError = null;
-        $this->threadForTeam($threadId)?->markAsRead();
+        $this->openedForwardIds = [];
+
+        $thread = $this->threadForTeam($threadId);
+        if ($thread !== null) {
+            // Oeffnen = gelesen = erledigt (Markus 15.10.2026) — auch fuer die
+            // Weiterleitungen dieses Chats. „ungelesen schliessen“ holt sie
+            // zurueck, deshalb die IDs merken.
+            $thread->markAsRead();
+            $this->openedForwardIds = app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+                ->completeForThreadIds($this->teamId(), (int) $thread->id, Auth::id() !== null ? (int) Auth::id() : null);
+            if ($this->openedForwardIds !== []) {
+                unset($this->openForwardCount, $this->forwardCards);
+            }
+        }
         $this->forgetSnapshot();
         $this->dispatch('sidebar-refresh');
     }

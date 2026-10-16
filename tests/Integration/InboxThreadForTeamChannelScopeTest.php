@@ -13,6 +13,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Livewire\Conversations\Inbox;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecConversationHandled;
 
 /**
@@ -20,8 +21,9 @@ use Platform\Recruiting\Models\RecConversationHandled;
  * bisher NUR team_id. Ein praeparierter Aufruf (z.B. markHandled()) mit der
  * ID eines Dispo-Threads DESSELBEN Teams rendert damit einen Dispo-Chat im
  * Recruiting-Postfach, samt Antwortfeld und Erledigt-Knopf. Getestet ueber
- * markHandled() — die einzige oeffentliche Methode, die threadForTeam()
- * direkt exponiert und einen beobachtbaren Seiteneffekt hat (Stempel-Zeile).
+ * markUnreadAndClose() (seit 16.10.2026; vorher markHandled(), das mit dem
+ * Erledigt-Knopf wegfiel) — beobachtbar an is_unread und am geloeschten
+ * Stempel.
  *
  * Die Einschraenkung darf NUR bei konfiguriertem Kanal-Set greifen — ein Team
  * OHNE konfiguriertes WABA-Konto (Rueckfall-Modus) muss weiterhin jeden
@@ -106,17 +108,29 @@ class InboxThreadForTeamChannelScopeTest extends TestCase
 
         self::bindFakeAuthAndSession(self::TEAM);
 
+        self::stempel(self::TEAM, $dispoThreadId);
+        self::stempel(self::TEAM, $recruitingThreadId);
+
         $inbox = new Inbox();
-        $inbox->markHandled($dispoThreadId);
-        $this->assertNull(
+        $inbox->selectedThreadId = $dispoThreadId;
+        $inbox->markUnreadAndClose();
+        $this->assertFalse(
+            (bool) CommsWhatsAppThread::query()->whereKey($dispoThreadId)->value('is_unread'),
+            'Ein Dispo-Thread desselben Teams darf ueber die Kommunikations-Seite nicht veraendert werden koennen.',
+        );
+        $this->assertNotNull(
             RecConversationHandled::query()->where('comms_whatsapp_thread_id', $dispoThreadId)->first(),
-            'Ein Dispo-Thread desselben Teams darf ueber die Kommunikations-Seite nicht abgehakt werden koennen.',
         );
 
-        $inbox->markHandled($recruitingThreadId);
-        $this->assertNotNull(
+        $inbox->selectedThreadId = $recruitingThreadId;
+        $inbox->markUnreadAndClose();
+        $this->assertTrue(
+            (bool) CommsWhatsAppThread::query()->whereKey($recruitingThreadId)->value('is_unread'),
+            'Ein echter Recruiting-Thread desselben Teams muss weiterhin zuruecklegbar sein.',
+        );
+        $this->assertNull(
             RecConversationHandled::query()->where('comms_whatsapp_thread_id', $recruitingThreadId)->first(),
-            'Ein echter Recruiting-Thread desselben Teams muss weiterhin abhakbar sein.',
+            'Zuruecklegen muss den Stempel loeschen, sonst bliebe der Chat ueber ihn erledigt.',
         );
     }
 
@@ -138,12 +152,67 @@ class InboxThreadForTeamChannelScopeTest extends TestCase
         self::bindFakeAuthAndSession(self::TEAM_OHNE_KONTO);
 
         $inbox = new Inbox();
-        $inbox->markHandled($threadId);
+        $inbox->selectedThreadId = $threadId;
+        $inbox->markUnreadAndClose();
 
-        $this->assertNotNull(
-            RecConversationHandled::query()->where('comms_whatsapp_thread_id', $threadId)->first(),
+        $this->assertTrue(
+            (bool) CommsWhatsAppThread::query()->whereKey($threadId)->value('is_unread'),
             'Ohne konfiguriertes WABA-Konto (Rueckfall) darf threadForTeam() weiterhin jeden Thread des Teams finden.',
         );
+    }
+
+    public function test_oeffnen_erledigt_weiterleitung_und_ungelesen_schliessen_holt_sie_zurueck(): void
+    {
+        // Spec 16.10.2026: Oeffnen = gelesen = erledigt, auch fuer die
+        // Weiterleitung an HR. „ungelesen schliessen“ legt beides zurueck —
+        // eine schon vorher erledigte Weiterleitung bleibt aber erledigt.
+        $channelId = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => self::TEAM_OHNE_KONTO, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
+            'sender_identifier' => '+49 160 5559304', 'is_active' => true,
+            'meta' => json_encode([]),
+        ]);
+        $threadId = (int) CommsWhatsAppThread::create([
+            'team_id' => self::TEAM_OHNE_KONTO, 'comms_channel_id' => $channelId,
+            'token' => bin2hex(random_bytes(8)), 'remote_phone_number' => '+49 151 89003004',
+            'is_unread' => true, 'last_inbound_at' => date('Y-m-d H:i:s', time() - 3600),
+        ])->id;
+        $offen = RecConversationForward::create([
+            'team_id' => self::TEAM_OHNE_KONTO, 'source_thread_id' => 1, 'target_thread_id' => $threadId,
+            'phone' => '+4915189003004', 'display_name' => 'X', 'messages' => [],
+            'forwarded_at' => date('Y-m-d H:i:s', time() - 600),
+        ]);
+        $vorher = RecConversationForward::create([
+            'team_id' => self::TEAM_OHNE_KONTO, 'source_thread_id' => 1, 'target_thread_id' => $threadId,
+            'phone' => '+4915189003004', 'display_name' => 'X', 'messages' => [],
+            'forwarded_at' => date('Y-m-d H:i:s', time() - 900),
+            'done_at' => date('Y-m-d H:i:s', time() - 800), 'done_by_user_id' => 1,
+        ]);
+
+        self::bindFakeAuthAndSession(self::TEAM_OHNE_KONTO);
+
+        $inbox = new Inbox();
+        $inbox->select($threadId);
+
+        $this->assertFalse((bool) CommsWhatsAppThread::query()->whereKey($threadId)->value('is_unread'));
+        $this->assertNotNull($offen->fresh()->done_at, 'Oeffnen muss die Weiterleitung erledigen.');
+        $this->assertSame([(int) $offen->id], $inbox->openedForwardIds);
+
+        $inbox->markUnreadAndClose();
+
+        $this->assertTrue((bool) CommsWhatsAppThread::query()->whereKey($threadId)->value('is_unread'));
+        $this->assertNull($offen->fresh()->done_at, '„ungelesen schliessen“ muss die Weiterleitung zurueckholen.');
+        $this->assertNotNull($vorher->fresh()->done_at, 'Eine vorher erledigte Weiterleitung bleibt erledigt.');
+        $this->assertSame([], $inbox->openedForwardIds);
+    }
+
+    private static function stempel(int $teamId, int $threadId): void
+    {
+        RecConversationHandled::create([
+            'team_id' => $teamId,
+            'comms_whatsapp_thread_id' => $threadId,
+            'handled_at' => date('Y-m-d H:i:s'),
+            'handled_reason' => RecConversationHandled::REASON_MANUAL,
+        ]);
     }
 
     private static function bindFakeAuthAndSession(int $teamId): void
