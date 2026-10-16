@@ -230,8 +230,15 @@ class Inbox extends Component
             return [];
         }
 
-        $forwards = RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)
+        // Offene UND die, die das Oeffnen dieses Chats gerade erledigt hat —
+        // sonst verschwaende die Karte genau beim Oeffnen (gelesen = erledigt,
+        // Review 16.10.2026 K1). Erledigte aus frueheren Besuchen bleiben weg
+        // (Spec Runde 2), der Reiter "Weitergeleitet" fuehrt sie weiter.
+        $forwards = RecConversationForward::query()
+            ->forTeam($this->teamId())
+            ->where('target', ForwardTargets::HR)
             ->where('target_thread_id', $this->selectedThreadId)
+            ->where(fn ($q) => $q->whereNull('done_at')->orWhereIn('id', $this->openedForwardIds))
             ->orderBy('forwarded_at')->orderBy('id')->get();
 
         return $forwards->map(fn (RecConversationForward $f) => [
@@ -412,7 +419,7 @@ class Inbox extends Component
 
         // Vermerke "an Dispo Köln weitergeleitet" (HR -> Dispo, Spec 16.10.2026),
         // wie die Dispo-Seite ihre "an HR weitergeleitet"-Vermerke zeigt.
-        foreach ($this->outgoingForwards() as $f) {
+        foreach ($this->outgoingForwards as $f) {
             $at = \Illuminate\Support\Carbon::instance($f['at']);
             $cards[] = [
                 'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'note', 'direction' => 'note',
@@ -847,13 +854,16 @@ class Inbox extends Component
      *
      * @return list<array{at: \DateTimeInterface, label: string, done: bool, by: string}>
      */
-    private function outgoingForwards(): array
+    #[Computed]
+    public function outgoingForwards(): array
     {
         if ($this->selectedThreadId === null) {
             return [];
         }
 
-        $kanaele = app(DispoForwardChannels::class);
+        // Beschriftungen EINMAL aus den Optionen (Review 16.10., W1) — nicht
+        // pro Zeile neu aufloesen, das laeuft im 20s-Poll.
+        $labels = array_column($this->dispoForwardOptions, 'label', 'channel_id');
 
         return RecConversationForward::query()
             ->forTeam($this->teamId())
@@ -864,7 +874,7 @@ class Inbox extends Component
             ->get()
             ->map(fn (RecConversationForward $f) => [
                 'at' => $f->forwarded_at,
-                'label' => ForwardTargets::label(ForwardTargets::DISPO, $kanaele->labelFor($this->teamId(), $f->target_channel_id ? (int) $f->target_channel_id : null)),
+                'label' => ForwardTargets::label(ForwardTargets::DISPO, $labels[(int) $f->target_channel_id] ?? null),
                 'done' => $f->done_at !== null,
                 'by' => (string) ($f->forwarded_by_name ?? ''),
             ])->all();
@@ -874,7 +884,7 @@ class Inbox extends Component
     #[Computed]
     public function dispoForwardChip(): ?array
     {
-        $alle = $this->outgoingForwards();
+        $alle = $this->outgoingForwards;
         if ($alle === []) {
             return null;
         }
@@ -978,7 +988,7 @@ class Inbox extends Component
         }
 
         $this->closeForward();
-        unset($this->messages, $this->dispoForwardChip);
+        unset($this->messages, $this->outgoingForwards, $this->dispoForwardChip);
     }
 
     public function select(int $threadId): void

@@ -22,10 +22,25 @@ final class DispoForwardChannels
     /** @param ?list<int> $channelIds Override fuer Tests; sonst das Dispo-Kanal-Set. */
     public function __construct(private readonly ?array $channelIds = null) {}
 
+    /** @var array<int, list<array{channel_id: int, filial_nr: ?int, label: string}>> je Team, pro Instanz */
+    private array $memo = [];
+
     /** @return list<array{channel_id: int, filial_nr: ?int, label: string}> */
     public function options(int $teamId): array
     {
-        $channelIds = $this->channelIds ?? self::dispoChannelIds();
+        return $this->memo[$teamId] ??= $this->build($teamId);
+    }
+
+    /** @return list<array{channel_id: int, filial_nr: ?int, label: string}> */
+    private function build(int $teamId): array
+    {
+        // HR-Kanaele nie als Dispo-Ziel — auch nicht, wenn sie (Fehlkonfiguration,
+        // gemeinsames WABA-Konto) im Dispo-Set auftauchen. Spiegel von
+        // ForwardHrThreadLookup, das Dispo-Kanaele aus dem HR-Set nimmt (Review K-a).
+        $channelIds = array_values(array_diff(
+            $this->channelIds ?? self::dispoChannelIds(),
+            self::recruitingChannelIds($teamId),
+        ));
         if ($channelIds === []) {
             return [];
         }
@@ -108,6 +123,16 @@ final class DispoForwardChannels
         return $letzter !== null && ($letzter->last_inbound_at !== null || $letzter->last_outbound_at !== null)
             ? (int) $letzter->comms_channel_id
             : null;
+    }
+
+    /** @return list<int> */
+    private static function recruitingChannelIds(int $teamId): array
+    {
+        try {
+            return array_map('intval', \Platform\Recruiting\Services\Comms\RecruitingChannelResolver::channelIds($teamId));
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** @return list<int> */

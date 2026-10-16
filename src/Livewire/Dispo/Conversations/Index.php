@@ -629,10 +629,23 @@ class Index extends Component
         }
         usort($rows, static fn (array $a, array $b) => [$a['ts'], $a['kind'] === 'note' ? 1 : 0] <=> [$b['ts'], $b['kind'] === 'note' ? 1 : 0]);
 
-        // Offene Weiterleitungen VON HR als Karte im Verlauf (Spec 16.10.2026) —
-        // gleiche Karte und Einsortierung wie im HR-Postfach.
-        $cards = RecConversationForward::query()
-            ->openForTeam((int) $thread->team_id, ForwardTargets::DISPO)
+        $cards = $this->forwardCardsFromHr($thread);
+
+        return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
+    }
+
+    /**
+     * @return list<array<string, mixed>> Karten der Weiterleitungen von HR an diesen Dispo-Thread.
+     */
+    protected function forwardCardsFromHr(CommsWhatsAppThread $thread): array
+    {
+        // Weiterleitungen VON HR als Karte im Verlauf (Spec 16.10.2026) — auch
+        // erledigte: Oeffnen erledigt sie (gelesen = erledigt), und die Dispo hat
+        // keinen eigenen Weitergeleitet-Reiter. Ohne erledigte waere die Karte
+        // genau beim ersten Oeffnen weg (Review 16.10., K1).
+        return RecConversationForward::query()
+            ->forTeam((int) $thread->team_id)
+            ->where('target', ForwardTargets::DISPO)
             ->where('target_thread_id', $thread->id)
             ->orderBy('forwarded_at')->orderBy('id')
             ->get()
@@ -642,7 +655,7 @@ class Index extends Component
                 return [
                     'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'forward', 'direction' => 'note',
                     'card' => [
-                        'from' => 'Von HR', 'messages' => (array) $f->messages, 'comment' => $f->comment,
+                        'from' => 'Von HR', 'done' => $f->done_at !== null, 'messages' => (array) $f->messages, 'comment' => $f->comment,
                         'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $at->format('d.m.Y H:i'),
                         'attachments' => app(ForwardAttachments::class)
                             ->forMessageIds(array_column((array) $f->messages, 'message_id')),
@@ -653,8 +666,6 @@ class Index extends Component
                     'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
                 ];
             })->all();
-
-        return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */

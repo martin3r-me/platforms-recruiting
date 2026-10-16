@@ -87,6 +87,13 @@ class DispoInboxForwardFromHrTest extends TestCase
         $this->assertNull($anHr->fresh()->done_at, 'Eine Weiterleitung AN HR darf das Dispo-Postfach nicht erledigen.');
         $this->assertSame([(int) $vonHr->id], $inbox->openedForwardIds);
 
+        // Die Karte muss NACH dem Oeffnen noch da sein — Oeffnen erledigt sie,
+        // ohne erledigte Karten saehe die Dispo den Inhalt nie (Review 16.10., K1).
+        $karten = $inbox->kartenVonHr($threadId);
+        $this->assertCount(2, $karten, 'Beide Weiterleitungen von HR, auch die erledigte — nie die an HR.');
+        $this->assertSame([true, true], array_map(fn ($k) => $k['card']['done'], $karten));
+        $this->assertSame(['Von HR', 'Von HR'], array_map(fn ($k) => $k['card']['from'], $karten));
+
         $inbox->select($threadId);
         $this->assertSame([(int) $vonHr->id], $inbox->openedForwardIds, 'Erneutes Oeffnen verliert die gemerkte ID nicht.');
 
@@ -139,5 +146,11 @@ class DispoInboxMitFestemKanal extends Index
     public function channelIds(): array
     {
         return [DispoInboxForwardFromHrTest::kanal()];
+    }
+
+    /** Nur fuer den Test — die Methode selbst bleibt fuer den Browser unerreichbar (protected). */
+    public function kartenVonHr(int $threadId): array
+    {
+        return $this->forwardCardsFromHr(CommsWhatsAppThread::findOrFail($threadId));
     }
 }
