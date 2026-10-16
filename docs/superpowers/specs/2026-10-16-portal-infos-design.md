@@ -10,10 +10,11 @@ Ansprechpartner je Region, Kleidung, Portal, Zeiterfassung, erste Einsätze) sol
 von Hand verschickt werden. Stattdessen:
 
 1. Der neue Mitarbeiter sieht die Willkommensinfo **beim ersten Öffnen des neuen Portals**,
-   sauber gegliedert, mit Knöpfen für Links und Telefonnummern, und hakt sie ab.
+   sauber gegliedert, mit Knöpfen für Links und Telefonnummern. Kein Haken, kein Knopf
+   (Sebastian 16.10.: „bei Infos soll er gar nicht anklicken müssen").
 2. Danach bleibt sie im Portal **jederzeit abrufbar**.
 3. HR kann jederzeit weitere Infos einstellen („News"). Der Mitarbeiter bekommt die kurze
-   Universal-WhatsApp („im Portal ist etwas für dich offen"), liest im Portal, hakt ab.
+   Universal-WhatsApp („im Portal ist etwas für dich offen") und liest im Portal.
    Per WhatsApp geht nichts Langes mehr raus.
 
 Sebastian: „nur eine neue Art, die HR oder Dispo bei Dokumenten auswählt". Genau das.
@@ -26,7 +27,9 @@ Sebastian: „nur eine neue Art, die HR oder Dispo bei Dokumenten auswählt". Ge
   schon bekommen (Sebastian 15.10.). Die Automatik trifft nur Anstellungen, die NACH der
   Veröffentlichung der Info angelegt wurden.
 - Ansprechpartner nicht aus den Filial-Einstellungen, sondern als Text (Version 1).
-- Kein Nachweisblatt-PDF für Infos (Kenntnisnahme hat auch bei PDFs keines, S-Dok §5.4).
+- Kein Nachweisblatt-PDF, keine Bestätigung, kein offener Punkt: eine Info ist gesehen,
+  sobald sie angezeigt wurde. Sie steht nie unter „Noch zu erledigen" und nie in der
+  Einsatz-Prüfung.
 - Keine Bilder, Tabellen, Code-Blöcke im Text. Keine Versionierung: eine geänderte Info ist
   eine neue Info (Dokumente sind nach Bereitstellen unveränderlich, S-Dok §2 Invarianten).
 
@@ -46,15 +49,15 @@ Erweiterung von `rec_documents`, eine Migration, additiv, mit `down()`:
 `sha256(content_markdown)` — dieselbe Spalte, dieselbe Bedeutung (Prüfsumme des
 Inhalts), damit `DokumentNachweisDaten` und die Unterschrifts-Prüfung unverändert bleiben.
 
-Neue Kategorie in `DokumentKategorie`: `info` (Label „Info / News"), Vorbelegung
-`action = acknowledge`. Eine Info hat immer `content_markdown`, nie eine Datei; die
+Neue Kategorie in `DokumentKategorie`: `info` (Label „Info / News"), Aktion fest
+`none` (nur ablegen — S-Dok: bei `none` gibt es nur `abgelegt`/`gesehen`). Eine Info hat immer `content_markdown`, nie eine Datei; die
 Kategorie entscheidet, welches Formular HR sieht und wie das Portal rendert.
 `DokumentKategorie::istText(string $category): bool` ist die eine Stelle für diese Regel.
 
 Invarianten (im Service erzwungen):
 - `info` ⇔ `content_markdown !== null` ⇔ Datei-Spalten NULL.
-- `auto_neue_mitarbeiter` nur bei `info` mit `action = acknowledge`.
-- `action = sign` ist für `info` nicht erlaubt (nichts zu unterschreiben ohne Datei).
+- `auto_neue_mitarbeiter` nur bei `info`.
+- `action` ist für `info` immer `none`; `acknowledge`/`sign` sind nicht erlaubt.
 
 ## 3. Bereitstellen
 
@@ -72,7 +75,7 @@ Sonst gilt wie heute: mindestens ein Empfänger.
 ### 3.2 Einstieg Seite „Dokumente" (`Livewire/Employees/Documents`)
 
 Im Formular ein Umschalter **PDF | Info**. Bei „Info":
-- Titel, Kategorie fest `info`, Aktion fest „zur Kenntnis nehmen".
+- Titel, Kategorie fest `info`, keine Aktionswahl (nur ablegen).
 - Editor: Toast UI Editor aus der Host-App (`window.ToastUIEditor`, Muster
   `platform-notes` `note.blade.php`: `boot()` mit Rückfall auf `toastui:ready`),
   WYSIWYG, `hideModeSwitch`, Werkzeugleiste nur `heading, bold, italic | ul, ol | link`.
@@ -118,25 +121,24 @@ die Info erscheint sofort, §5.1). Rückgabe: Zahl der neu angelegten Zeilen (Lo
 
 ### 5.1 Beim ersten Öffnen im Vordergrund
 
-Hat die Person ungelesene Infos (`category = info`, `acknowledged_at IS NULL`, nicht
+Hat die Person ungesehene Infos (`category = info`, `first_viewed_at IS NULL`, nicht
 zurückgezogen), zeigt der Startbildschirm **vor** „Noch zu erledigen" einen Kasten
-„Neu für dich" mit der ältesten ungelesenen Info: Titel, gerenderter Text (§5.3), Knopf
-„Gelesen". Klick setzt `first_viewed_at` (falls leer) und `acknowledged_at` in einer
-Transaktion (erster Zeitpunkt gewinnt), Kasten zeigt die nächste ungelesene Info oder
-verschwindet. Kein Haken „gelesen und verstanden" nötig (Kenntnisnahme-Haken bleibt den
-PDFs; eine Info ist gelesen, wenn man „Gelesen" drückt — Markus: „einmal zum Abhaken").
+„Neu für dich" mit allen ungesehenen Infos (älteste zuerst): Titel, gerenderter Text
+(§5.3). **Das Anzeigen selbst setzt `first_viewed_at`** (Query Builder, idempotent, beim
+Rendern des Starts — nicht beim bloßen Laden eines anderen Reiters). Ein kleiner Knopf
+„Schließen" klappt den Kasten für diese Sitzung zu (Livewire-Zustand, nichts in der DB);
+beim nächsten Login kommt die Info nicht wieder hoch, weil sie gesehen ist.
 
-Ungelesene Infos sind zugleich offene Punkte (S-Dok §5.2, Code `dokument:<id>`): sie
-stehen also auch unter „Noch zu erledigen" und zählen in die Einsatz-Prüfung — die
-meldet sie als neuen Punkt genau einmal (cedb8544). Das ist gewollt: Wer die Info drei
-Wochen ignoriert, hört beim nächsten Einsatz einmal davon.
+Infos sind **keine offenen Punkte**: `OffenePunkte::fuer()` nimmt nur Empfängerzeilen mit
+`action ∈ {acknowledge, sign}` (S-Dok §5.2) — bei `none` entsteht nichts. Damit stehen
+Infos nie unter „Noch zu erledigen" und nie in der Einsatz-Prüfung. Ein Test sichert das.
 
 ### 5.2 Reiter „Dokumente & Infos"
 
 Der Reiter „Dokumente" heißt künftig „Dokumente & Infos". Infos stehen in einem eigenen
-Block oben („Infos", neueste zuerst, gelesen/ungelesen), darunter Dokumente und Verträge
-wie heute. Klick öffnet die Info **inline** (ausgeklappt, kein Download-Route, keine neue
-Seite), setzt `first_viewed_at`. „Gelesen" wie §5.1.
+Block oben („Infos", neueste zuerst, Abzeichen „Neu" solange `first_viewed_at` leer),
+darunter Dokumente und Verträge wie heute. Klick klappt die Info **inline** auf (kein
+Download, keine neue Seite) und setzt `first_viewed_at`, falls leer.
 
 ### 5.3 Rendern
 
@@ -162,7 +164,7 @@ Infos (kein Dateiinhalt). Aktionen nehmen die Empfänger-ID und prüfen sie gege
 ## 6. HR-Überblick
 
 Seite „Dokumente" (S-Dok §8) zeigt Infos in derselben Liste mit Kategorie-Label „Info",
-Fortschritt „gelesen x von y" (= `acknowledged_at`). Zusätzlich bei Infos mit Automatik:
+Fortschritt „gesehen x von y" (= `first_viewed_at`). Zusätzlich bei Infos mit Automatik:
 Abzeichen „automatisch an Neue seit <published_at>" und die Zahl der automatisch
 zugestellten Zeilen. Zurückziehen wie heute.
 
@@ -180,7 +182,7 @@ Feld „Dokument liegt im Portal"). Automatisch zugestellte Infos (§4) verschic
   bestehenden Dokumente-Job hinaus. `view:clear`.
 - Checkliste `deploy-checkliste-ma-konto.md`: eigener Abschnitt „Paket Infos" nach dem
   Merge von `feat/ma-konto`; Sichttest: Info anlegen → Vorschau → als Neuer öffnen →
-  Kasten „Neu für dich" → Gelesen → Reiter.
+  Kasten „Neu für dich" → Schließen → erneut anmelden, kein Kasten → Reiter.
 - Reihenfolge: `feat/ma-konto` zuerst auf main, dann dieser Zweig (ff). Rollback: Code
   zurück genügt, Spalten sind additiv/nullable.
 
@@ -189,20 +191,23 @@ Feld „Dokument liegt im Portal"). Automatisch zugestellte Infos (§4) verschic
 Integration (Capsule+SQLite, Muster `DokumentEmpfaengerAuswahlTest`, PortalShell-Tests):
 
 1. `bereitstellenText`: Info ohne Datei, `file_sha256 = sha256(text)`, Kategorie `info`,
-   Aktion `acknowledge`; `sign` → Ausnahme; leerer Text → Ausnahme; leere Empfänger ohne
-   Haken → Ausnahme, mit Haken → ok.
+   Aktion `none`; `acknowledge`/`sign` → Ausnahme; leerer Text → Ausnahme; leere Empfänger
+   ohne Haken → Ausnahme, mit Haken → ok.
 2. Automatik: Anstellung angelegt NACH `published_at` → Zeile beim ersten Öffnen; VOR →
    keine; zweiter Aufruf → nichts Neues; RG+MA derselben Person → eine Zeile; zurückgezogene
    Info → nichts; fremdes Team → nichts.
-3. Portal: ungelesene Info → Kasten „Neu für dich" mit gerendertem Text; „Gelesen" setzt
-   `acknowledged_at` + `first_viewed_at`, zweites „Gelesen" ändert nichts; danach kein
-   Kasten; Info im Reiter mit Status; fremde Empfänger-ID → verweigert.
+3. Portal: ungesehene Info → Kasten „Neu für dich" mit gerendertem Text, das Rendern
+   setzt `first_viewed_at`; zweites Rendern ändert den Zeitpunkt nicht; nächster Login →
+   kein Kasten; Info im Reiter mit Abzeichen „Neu" nur solange ungesehen; Aufklappen einer
+   fremden Empfänger-ID → verweigert.
 4. `InfoText::html`: Überschrift/Fett/Liste/Link gerendert; `<script>` und
    `javascript:`-Link entfernt; Telefonnummer → `tel:`-Link; `h1` → `h2`; `<img>` entfernt.
-5. Offener Punkt `dokument:<id>` für ungelesene Info; nach „Gelesen" weg.
-6. HR-Überblick: Info in Liste, Fortschritt zählt `acknowledged_at`.
+5. Keine offenen Punkte: eine ungesehene Info erzeugt in `OffenePunkte::fuer()` nichts
+   und taucht in der Einsatz-Prüfung nicht auf.
+6. HR-Überblick: Info in Liste, Fortschritt zählt `first_viewed_at`.
 7. Mutationsproben: Stichtags-Vergleich umdrehen → Test 2 rot; `html_input strip`
-   entfernen → Test 4 rot; Scope-Prüfung in „Gelesen" entfernen → Test 3 rot.
+   entfernen → Test 4 rot; Scope-Prüfung beim Aufklappen entfernen → Test 3 rot;
+   `action` einer Info auf `acknowledge` zulassen → Test 5 rot.
 
 Hausregeln: Blade ohne inline `@if` in Komponenten-Attributen, `@php` nur als Block,
 `#[Locked]` auf identitätstragenden Properties, keine Eloquent-Schreibzugriffe auf
