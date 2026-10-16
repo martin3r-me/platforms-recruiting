@@ -35,12 +35,7 @@ final class OooAutoReplyHandler
         $teamId = (int) $channel->team_id;
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
 
-        if (!OooMode::isActive(
-            (bool) $settings->getSetting('comms_ooo_enabled', false),
-            $settings->getSetting('comms_ooo_from'),
-            $settings->getSetting('comms_ooo_back_at'),
-            TeamClock::today($settings->getSetting('comms_timezone')),
-        )) {
+        if (!$this->istAktiv($settings)) {
             return;
         }
 
@@ -109,6 +104,45 @@ final class OooAutoReplyHandler
                 'source' => 'recruiting_ooo_autoreply',
                 'recipient' => $phone,
             ],
+        );
+    }
+
+    /**
+     * Abwesenheitstext als Freitext fuer die Themen-Frage (S-Themen §2.1): bei
+     * aktivem OOO „Wir sind vom 20.10. bis 24.10. nicht erreichbar und ab 27.10.
+     * wieder da.“ — fehlende Teile fallen weg. null, wenn OOO nicht aktiv ist.
+     */
+    public function vorspann(int $teamId): ?string
+    {
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
+        if (!$this->istAktiv($settings)) {
+            return null;
+        }
+
+        $fmt = static fn ($ymd): ?string => $ymd ? \Carbon\Carbon::parse((string) $ymd)->format('d.m.') : null;
+        $von = $fmt($settings->getSetting('comms_ooo_from'));
+        $bis = $fmt($settings->getSetting('comms_ooo_until'));
+        $wiederDa = $fmt($settings->getSetting('comms_ooo_back_at'));
+
+        // Aktiv heisst: von und wieder-da sind gesetzt (OooMode). Ohne „bis“
+        // klaenge „vom 20.10. nicht erreichbar“ schief — dann „derzeit“.
+        $zeitraum = ($von !== null && $bis !== null) ? "vom {$von} bis {$bis}" : 'derzeit';
+        $text = "Wir sind {$zeitraum} nicht erreichbar";
+        if ($wiederDa !== null) {
+            $text .= " und ab {$wiederDa} wieder da";
+        }
+
+        return $text . '.';
+    }
+
+    /** Eine Stelle fuer die Aktiv-Pruefung — handle() und vorspann() duerfen nie auseinanderlaufen. */
+    private function istAktiv(RecApplicantSettings $settings): bool
+    {
+        return OooMode::isActive(
+            (bool) $settings->getSetting('comms_ooo_enabled', false),
+            $settings->getSetting('comms_ooo_from'),
+            $settings->getSetting('comms_ooo_back_at'),
+            TeamClock::today($settings->getSetting('comms_timezone')),
         );
     }
 

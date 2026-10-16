@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
-use Platform\Recruiting\Support\PhoneE164;
 
 /**
  * Schlanker Wrapper um WhatsAppMetaService::sendInteractive() fuer die
@@ -101,8 +100,9 @@ final class InteraktivSender
         try {
             $message = ($this->meta ?? app(WhatsAppMetaService::class))->sendInteractive($channel, $to, $interactive, $displayBody, null, true);
         } catch (\Throwable $e) {
-            // Nur die letzten Ziffern loggen, nie die ganze Nummer.
-            Log::warning('recruiting.themen.send_fehler', ['to' => PhoneE164::suffix($to), 'error' => $e->getMessage()]);
+            // Nur die letzten vier Ziffern loggen, nie die ganze Nummer (Muster EinmalcodeSender).
+            $ziffern = preg_replace('/\D+/', '', $to) ?? '';
+            Log::warning('recruiting.themen.send_fehler', ['nummer_endet_auf' => substr($ziffern, -4), 'error' => $e->getMessage()]);
 
             return ['status' => self::STATUS_ERROR, 'message_id' => null, 'error' => $e->getMessage()];
         }

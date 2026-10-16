@@ -15,6 +15,7 @@ use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\QuickReplyStamper;
+use Platform\Recruiting\Services\Comms\ThemenAuswahlHandler;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
@@ -53,16 +54,33 @@ class HandleWhatsAppInboundForRecruiting
             extra: $logExtra,
         );
 
-        // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
-        // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
-        // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
+        // Themen-Auswahl fuer Mitarbeiter (S-Themen §2.1): VOR dem OOO-Handler —
+        // bei aktiver Abwesenheit traegt die Themen-Frage den Abwesenheitstext
+        // selbst, eine zweite Nachricht gaebe es sonst doppelt. Fehler stoppen
+        // nie den Inbound-Flow; dann laeuft der OOO-Handler wie bisher.
+        $themenStatus = 'uebersprungen:fehler';
         try {
-            $this->oooAutoReply->handle($channel, $thread, $message);
+            $themenStatus = app(ThemenAuswahlHandler::class)->beiEingang($channel, $thread, $message);
         } catch (\Throwable $e) {
-            Log::warning('[Recruiting] OOO-Auto-Reply fehlgeschlagen', [
+            Log::warning('[Recruiting] Themen-Auswahl fehlgeschlagen', [
                 'thread_id' => $thread->id,
                 'error' => $e->getMessage(),
             ]);
+        }
+
+        // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
+        // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
+        // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
+        // Hat die Themen-Auswahl gesendet, steckt die Abwesenheit schon darin.
+        if ($themenStatus !== ThemenAuswahlHandler::GESENDET) {
+            try {
+                $this->oooAutoReply->handle($channel, $thread, $message);
+            } catch (\Throwable $e) {
+                Log::warning('[Recruiting] OOO-Auto-Reply fehlgeschlagen', [
+                    'thread_id' => $thread->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         // Button-Klick („Ja“/„Nein“ auf eine Vorlage) ist keine Arbeit fuer HR:
