@@ -71,8 +71,9 @@ class HandleWhatsAppInboundForRecruiting
         // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
         // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
         // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
-        // Hat die Themen-Auswahl gesendet, steckt die Abwesenheit schon darin.
-        if ($themenStatus !== ThemenAuswahlHandler::GESENDET) {
+        // Hat die Themen-Auswahl gesendet (oder ist das ein wiederholter Webhook
+        // fuer einen schon gefragten Eingang), steckt die Abwesenheit schon darin.
+        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus)) {
             try {
                 $this->oooAutoReply->handle($channel, $thread, $message);
             } catch (\Throwable $e) {

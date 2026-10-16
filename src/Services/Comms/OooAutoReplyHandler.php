@@ -6,9 +6,9 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
-use Platform\Crm\Models\CrmContact;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecConversationTopic;
 use Platform\Recruiting\Models\RecEmployee;
 
 /**
@@ -44,7 +44,15 @@ final class OooAutoReplyHandler
             return;
         }
 
-        if ($this->isBlockedContact($thread, $teamId, $phone)) {
+        // Die Themen-Frage (S-Themen §2.1) traegt bei aktivem OOO den
+        // Abwesenheitstext selbst. Ging sie in den letzten 24h an diesen Thread,
+        // ist die Abwesenheit schon mitgeteilt — die Vorlagen-Drosselung unten
+        // sieht das nicht, weil die Frage keine Vorlage ist.
+        if ($this->abwesenheitInThemenFrage($thread)) {
+            return;
+        }
+
+        if (KontaktSperre::gesperrt($thread, $teamId, $phone)) {
             CommsLog::log(
                 event: 'ooo_autoreply_skipped_blacklisted',
                 status: 'info',
@@ -146,6 +154,19 @@ final class OooAutoReplyHandler
         );
     }
 
+    /**
+     * Gab es in den letzten 24h eine Themen-Frage an diesen Thread? Aufgerufen
+     * nur bei aktivem OOO — genau dann trug die Frage den Vorspann (vorspann()
+     * und handle() teilen istAktiv()).
+     */
+    private function abwesenheitInThemenFrage(CommsWhatsAppThread $thread): bool
+    {
+        return RecConversationTopic::query()
+            ->where('comms_whatsapp_thread_id', (int) $thread->id)
+            ->where('asked_at', '>=', \Carbon\Carbon::now()->subDay())
+            ->exists();
+    }
+
     /** Bewerber-, Mitarbeiter- oder kontextloser Thread — sonst kein OOO. */
     private function isEligibleContext(?string $contextModel): bool
     {
@@ -156,30 +177,5 @@ final class OooAutoReplyHandler
         return $contextModel === (new RecApplicant)->getMorphClass()
             || $contextModel === RecApplicant::class
             || $contextModel === RecEmployee::class;
-    }
-
-    /**
-     * Zweistufiges Block-Gate: is_blacklisted ODER Kontakt-Status BLOCKED.
-     * Erst der verknuepfte Thread-Kontakt; ohne Kontakt Fallback-Lookup ueber
-     * die Telefonnummer in mehreren Schreibweisen (CRM-Muster, +49/ohne +).
-     */
-    private function isBlockedContact(CommsWhatsAppThread $thread, int $teamId, string $phone): bool
-    {
-        $contact = $thread->contact;
-        if ($contact instanceof CrmContact) {
-            return (bool) $contact->is_blacklisted
-                || $contact->contactStatus?->code === 'BLOCKED';
-        }
-
-        $variants = array_unique([$phone, '+' . ltrim($phone, '+'), ltrim($phone, '+')]);
-
-        return CrmContact::query()
-            ->where('team_id', $teamId)
-            ->where(function ($q) {
-                $q->where('is_blacklisted', true)
-                    ->orWhereHas('contactStatus', fn ($s) => $s->where('code', 'BLOCKED'));
-            })
-            ->whereHas('phoneNumbers', fn ($p) => $p->whereIn('international', $variants))
-            ->exists();
     }
 }

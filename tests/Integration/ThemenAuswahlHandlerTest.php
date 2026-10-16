@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecConversationTopic;
@@ -39,6 +40,7 @@ final class ThemenAuswahlHandlerTest extends TestCase
     private static int $hrKanalId = 0;
     private static int $dispoKanalId = 0;
     private static int $kontoId = 0;
+    private static int $vorlageId = 0;
 
     /** Aufgezeichnete sendInteractive-Aufrufe. */
     private \ArrayObject $gesendet;
@@ -69,6 +71,13 @@ final class ThemenAuswahlHandlerTest extends TestCase
             $crm . '/database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php',
             $crm . '/database/migrations/2026_07_10_000001_add_is_auto_reply_to_comms_whatsapp_messages.php',
             $integrations . '/database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php',
+            // OOO-Vorlagenweg + Kontakt-Sperre (Review Task 3, I1/M3).
+            $integrations . '/database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php',
+            $crm . '/database/migrations/2026_03_23_000001_create_comms_logs_table.php',
+            $crm . '/database/migrations/2024_01_01_000009_create_crm_contact_statuses_table.php',
+            $crm . '/database/migrations/2024_01_01_000016_create_crm_contacts_table.php',
+            $crm . '/database/migrations/2026_03_19_000001_add_is_blacklisted_to_crm_contacts_table.php',
+            $crm . '/database/migrations/2024_01_01_000014_create_crm_phone_numbers_table.php',
         ] as $path) {
             (require $path)->up();
         }
@@ -88,6 +97,12 @@ final class ThemenAuswahlHandlerTest extends TestCase
             'uuid' => 'acc-themen', 'phone_number' => '+49 160 5559001',
             'title' => 'HR', 'active' => true, 'user_id' => 1,
         ]);
+        self::$vorlageId = (int) Capsule::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid' => 'tpl-ooo-themen', 'external_id' => 'ext-ooo-themen', 'name' => 'hr_abwesend', 'language' => 'de',
+            'status' => 'APPROVED', 'category' => 'UTILITY',
+            'components' => json_encode([['type' => 'BODY', 'text' => 'Wir sind gerade nicht erreichbar.']]),
+            'whatsapp_account_id' => self::$kontoId, 'user_id' => 1,
+        ]);
         self::$hrKanalId = (int) Capsule::table('comms_channels')->insertGetId([
             'team_id' => self::TEAM, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
             'sender_identifier' => '+49 160 5559001', 'is_active' => true,
@@ -103,6 +118,8 @@ final class ThemenAuswahlHandlerTest extends TestCase
 
     public static function tearDownAfterClass(): void
     {
+        Container::getInstance()->forgetInstance('config');
+        Container::getInstance()->forgetInstance(\Illuminate\Contracts\Auth\Factory::class);
         Facade::clearResolvedInstances();
     }
 
@@ -113,6 +130,24 @@ final class ThemenAuswahlHandlerTest extends TestCase
         $c->instance('db.schema', self::$capsule->getConnection()->getSchemaBuilder());
         // Log-Attrappe VOR clearResolvedInstances (reference_log_facade_test_stub.md).
         $c->instance('log', new Logger(new NullLogger()));
+        // LogsActivity (Activity-Log-Trait an CRM-Modellen) liest die Config.
+        $c->instance('config', new \Illuminate\Config\Repository(['activity-log' => ['events' => []]]));
+        // HoldingTemplateSender reicht auth()->user() als Absender durch.
+        $c->instance(\Illuminate\Contracts\Auth\Factory::class, new class implements \Illuminate\Contracts\Auth\Factory {
+            public function guard($name = null)
+            {
+                return $this;
+            }
+
+            public function shouldUse($name)
+            {
+            }
+
+            public function user(): mixed
+            {
+                return null;
+            }
+        });
         Facade::setFacadeApplication($c);
         Facade::clearResolvedInstances();
     }
@@ -120,7 +155,8 @@ final class ThemenAuswahlHandlerTest extends TestCase
     protected function setUp(): void
     {
         self::bindeContainer();
-        foreach (['rec_conversation_topics', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'comms_thread_contexts'] as $t) {
+        foreach (['rec_conversation_topics', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'comms_thread_contexts',
+                  'comms_logs', 'crm_contacts', 'crm_phone_numbers'] as $t) {
             Capsule::table($t)->delete();
         }
         $this->gesendet = new \ArrayObject();
@@ -342,16 +378,142 @@ final class ThemenAuswahlHandlerTest extends TestCase
 
         $this->assertMatchesRegularExpression('/app\(ThemenAuswahlHandler::class\)->beiEingang\(\$channel, \$thread, \$message\)/', $quelle);
         $this->assertLessThan(strpos($quelle, '$this->oooAutoReply->handle('), strpos($quelle, 'ThemenAuswahlHandler::class)->beiEingang'));
-        $this->assertSame('gesendet', ThemenAuswahlHandler::GESENDET);
         $this->assertMatchesRegularExpression(
-            '/if \(\$themenStatus !== ThemenAuswahlHandler::GESENDET\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
+            '/if \(!ThemenAuswahlHandler::abwesenheitMitgeteilt\(\$themenStatus\)\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
             $quelle,
         );
+        $this->assertTrue(ThemenAuswahlHandler::abwesenheitMitgeteilt('gesendet'));
+        $this->assertTrue(ThemenAuswahlHandler::abwesenheitMitgeteilt('uebersprungen:schon_gefragt'));
+        $this->assertFalse(ThemenAuswahlHandler::abwesenheitMitgeteilt('uebersprungen:send_failed'));
+        $this->assertFalse(ThemenAuswahlHandler::abwesenheitMitgeteilt('uebersprungen:ruhezeit'));
         // Ein Fehler in der Themen-Auswahl darf den Eingang nie stoppen.
         $this->assertMatchesRegularExpression(
             '/try\s*\{\s*\$themenStatus = app\(ThemenAuswahlHandler::class\)->beiEingang\(\$channel, \$thread, \$message\);\s*\}\s*catch \(\\\\Throwable \$e\)/',
             $quelle,
         );
+    }
+
+    // ------------------------------------------------ Review Task 3 (Fix-Runde 1)
+
+    public function test_fruehere_eingehende_nachricht_innerhalb_der_ruhezeit_loest_nichts_aus(): void
+    {
+        // „In keine Richtung“: auch ein eigener Eingang vor 2h ist Aktivitaet.
+        $thread = $this->thread();
+        $this->nachricht($thread, 'inbound', -2 * 3600);
+        $msg = $this->nachricht($thread, 'inbound', -5);
+
+        $this->assertSame('uebersprungen:ruhezeit', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    public function test_doppelter_webhook_bei_aktiver_abwesenheit_ergibt_genau_einen_send(): void
+    {
+        $this->abwesenheitAn();
+        [$thread, $msg] = $this->eingang();
+
+        $this->wieImListener($thread, $msg);
+        $this->wieImListener($thread, $msg);
+
+        $this->assertCount(1, $this->gesendet, 'Die Wiederholung darf weder fragen noch die OOO-Vorlage schicken.');
+        $this->assertArrayHasKey('interactive', $this->gesendet[0]);
+    }
+
+    public function test_zweite_nachricht_in_der_ruhezeit_bei_aktiver_abwesenheit_schickt_keine_ooo_vorlage(): void
+    {
+        $this->abwesenheitAn();
+        $thread = $this->thread();
+        $erste = $this->nachricht($thread, 'inbound', -120);
+        $this->assertSame('gesendet', $this->wieImListener($thread, $erste));
+        $zweite = $this->nachricht($thread, 'inbound', -5);
+
+        $this->assertSame('uebersprungen:ruhezeit', $this->wieImListener($thread, $zweite));
+        $this->assertCount(1, $this->gesendet, 'Die Abwesenheit stand schon in der Themen-Frage.');
+    }
+
+    public function test_ohne_themen_frage_schickt_der_ooo_handler_wie_bisher(): void
+    {
+        // Gegenprobe: ohne Frage im Thread geht die Vorlage raus — sonst
+        // waeren die beiden Tests darueber auch ohne Fix gruen.
+        $this->abwesenheitAn();
+        $this->mitarbeiterId = null;
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:kein_aktiver_ma', $this->wieImListener($thread, $msg));
+        $this->assertCount(1, $this->gesendet);
+        $this->assertSame('hr_abwesend', $this->gesendet[0]['vorlage']);
+    }
+
+    public function test_geblacklisteter_kontakt_bekommt_keine_themen_frage(): void
+    {
+        [$thread, $msg] = $this->eingang();
+        $kontakt = (int) Capsule::table('crm_contacts')->insertGetId([
+            'uuid' => 'k-gesperrt', 'first_name' => 'Gesperrt', 'last_name' => 'Kontakt',
+            'team_id' => self::TEAM, 'is_blacklisted' => true,
+        ]);
+        Capsule::table('crm_phone_numbers')->insert([
+            'uuid' => 'p-gesperrt', 'phoneable_type' => (new CrmContact())->getMorphClass(), 'phoneable_id' => $kontakt,
+            'international' => (string) $thread->remote_phone_number, 'phone_type_id' => 1,
+        ]);
+
+        $this->assertSame('uebersprungen:kontakt_gesperrt', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+        $this->assertCount(0, $this->gesendet);
+    }
+
+    public function test_zeile_nicht_anlegbar_gilt_trotzdem_als_gesendet(): void
+    {
+        [$thread, $msg] = $this->eingang();
+        RecConversationTopic::creating(function () {
+            throw new \RuntimeException('DB weg');
+        });
+        try {
+            $status = $this->handler()->beiEingang($this->kanal, $thread, $msg);
+        } finally {
+            RecConversationTopic::flushEventListeners();
+        }
+
+        $this->assertSame('gesendet', $status, 'Die Frage ist draussen — sonst kaeme die OOO-Vorlage hinterher.');
+        $this->assertCount(1, $this->gesendet);
+    }
+
+    public function test_schalter_aus_legt_keine_einstellungen_an(): void
+    {
+        Capsule::table('rec_applicant_settings')->where('team_id', self::TEAM)->delete();
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:schalter_aus', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+        $this->assertSame(0, Capsule::table('rec_applicant_settings')->where('team_id', self::TEAM)->count());
+    }
+
+    public function test_personen_suche_laeuft_erst_nach_den_billigen_pruefungen(): void
+    {
+        // Button-Klick: die teure Suche darf gar nicht erst laufen.
+        $this->mitarbeiterId = -1; // Signal: Suche verboten
+        [$thread, $msg] = $this->eingang(payload: ['type' => 'button', 'button' => ['text' => 'Ja']]);
+
+        $this->assertSame('uebersprungen:button_klick', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    /** Ablauf wie im Listener: erst Themen-Auswahl, OOO nur, wenn die Abwesenheit noch nicht mitgeteilt ist. */
+    private function wieImListener(CommsWhatsAppThread $thread, CommsWhatsAppMessage $msg): string
+    {
+        $status = $this->handler()->beiEingang($this->kanal, $thread, $msg);
+        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($status)) {
+            $this->ooo()->handle($this->kanal, $thread->fresh(), $msg);
+        }
+
+        return $status;
+    }
+
+    private function abwesenheitAn(): void
+    {
+        $this->einstellungen([
+            'comms_topic_enabled' => true,
+            'use_informal_address' => true,
+            'comms_ooo_enabled' => true,
+            'comms_ooo_template_id' => self::$vorlageId,
+            'comms_ooo_from' => date('Y-m-d', strtotime('-1 days')),
+            'comms_ooo_until' => date('Y-m-d', strtotime('1 days')),
+            'comms_ooo_back_at' => date('Y-m-d', strtotime('2 days')),
+        ]);
     }
 
     // ---------------------------------------------------------------- Hilfen
@@ -381,6 +543,10 @@ final class ThemenAuswahlHandlerTest extends TestCase
 
             public function resolve(string $senderPhone, int $teamId): array
             {
+                if ($this->id === -1) {
+                    throw new \LogicException('Personen-Suche haette nicht laufen duerfen.');
+                }
+
                 return $this->id === null
                     ? ['status' => self::NONE, 'employee_id' => null, 'employee_ids' => []]
                     : ['status' => self::EMPLOYEE, 'employee_id' => $this->id, 'employee_ids' => [$this->id]];
@@ -392,9 +558,17 @@ final class ThemenAuswahlHandlerTest extends TestCase
 
     private function ooo(): OooAutoReplyHandler
     {
-        // Der Vorlagen-Versender wird fuer vorspann() nie benutzt.
-        $meta = new class extends WhatsAppMetaService {
-            public function __construct() {}
+        // Vorlagen-Sends landen in derselben Aufzeichnung wie die Themen-Frage:
+        // so zaehlt ein Test „genau eine Nachricht“ ueber beide Wege.
+        $meta = new class($this->gesendet) extends WhatsAppMetaService {
+            public function __construct(private \ArrayObject $calls) {}
+
+            public function sendTemplate(CommsChannel $channel, string $to, string $templateName, array $components = [], string $languageCode = 'de', ?\Platform\Core\Models\User $sender = null, bool $isAutoReply = false): CommsWhatsAppMessage
+            {
+                $this->calls[] = ['vorlage' => $templateName, 'to' => $to];
+
+                return new CommsWhatsAppMessage();
+            }
         };
 
         return new OooAutoReplyHandler(new HoldingTemplateSender($meta));

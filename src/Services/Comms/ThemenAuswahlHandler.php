@@ -27,6 +27,19 @@ use Platform\Recruiting\Support\PublicAddressStyle;
 final class ThemenAuswahlHandler
 {
     public const GESENDET = 'gesendet';
+    public const SCHON_GEFRAGT = 'uebersprungen:schon_gefragt';
+
+    /**
+     * Neutrale Werte fuer ThemenAusloeser: jede noch nicht geladene Bedingung
+     * gilt als „bestanden“. So bleibt die reine Klasse die EINE Entscheidungs-
+     * stelle, und die teuren Werte werden erst geladen, wenn die billigen
+     * Pruefungen davor bestanden sind.
+     */
+    private const NEUTRAL = [
+        'enabled' => true, 'hr_kanal' => true, 'fremder_kontext' => false, 'aktiver_ma' => true,
+        'quick_reply' => false, 'message_type' => 'text',
+        'letzte_aktivitaet_ts' => null, 'jetzt_ts' => 0, 'ruhe_stunden' => 1,
+    ];
 
     public function __construct(
         private readonly ?InteraktivSender $sender = null,
@@ -34,54 +47,93 @@ final class ThemenAuswahlHandler
         private readonly ?OooAutoReplyHandler $ooo = null,
     ) {}
 
+    /**
+     * Steckt die Abwesenheit fuer diesen Eingang schon in unserer Themen-Frage?
+     * Dann darf der OOO-Handler nicht zusaetzlich senden — auch nicht bei einem
+     * wiederholten Webhook fuer denselben Eingang.
+     */
+    public static function abwesenheitMitgeteilt(string $status): bool
+    {
+        return $status === self::GESENDET || $status === self::SCHON_GEFRAGT;
+    }
+
     public function beiEingang(CommsChannel $channel, CommsWhatsAppThread $thread, CommsWhatsAppMessage $message): string
     {
         $teamId = (int) $channel->team_id;
-        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
-        $phone = (string) ($thread->remote_phone_number ?? '');
+        $k = self::NEUTRAL;
+        $pruefe = static function (array $neu) use (&$k): ?string {
+            $k = array_merge($k, $neu);
 
-        // Mitarbeiter-Kontext ist kein fremder Fachprozess: der Listener haengt
-        // MA-Threads an RecEmployee, und genau die sollen die Frage bekommen.
-        // ThreadContextGate kennt RecEmployee nicht (es entscheidet ueber den
-        // Bewerber-Intake) — deshalb hier vor der Pruefung herausnehmen.
+            return ThemenAusloeser::qualifiziert($k);
+        };
+
+        // 1. Schalter — nur lesen, nichts anlegen: Teams ohne Recruiting-
+        //    Einstellungen (Helpdesk, Vertrieb) bekommen keine Zeile.
+        $settings = RecApplicantSettings::query()->where('team_id', $teamId)->first();
+        $schalterAn = $settings !== null && (bool) $settings->getSetting('comms_topic_enabled', false);
+        if ($grund = $pruefe(['enabled' => $schalterAn])) {
+            return 'uebersprungen:' . $grund;
+        }
+
+        // 2. HR-Kanal.
+        $hrKanal = in_array((int) $channel->id, array_map('intval', RecruitingChannelResolver::channelIds($teamId)), true);
+        if ($grund = $pruefe(['hr_kanal' => $hrKanal])) {
+            return 'uebersprungen:' . $grund;
+        }
+
+        // 3. Klick / Sprachnachricht — ohne DB.
+        if ($grund = $pruefe([
+            'quick_reply' => QuickReply::isQuickReply($message->meta_payload),
+            'message_type' => (string) ($message->message_type ?? 'text'),
+        ])) {
+            return 'uebersprungen:' . $grund;
+        }
+
+        // 4. Kontext. Mitarbeiter-Kontext ist kein fremder Fachprozess: der
+        //    Listener haengt MA-Threads an RecEmployee, und genau die sollen die
+        //    Frage bekommen. ThreadContextGate kennt RecEmployee nicht (es
+        //    entscheidet ueber den Bewerber-Intake) — deshalb vorher herausnehmen.
         $kontexte = $thread->contexts()->pluck('context_model')
             ->push($thread->context_model)
             ->filter()
             ->unique()
-            ->reject(fn ($k) => $k === RecEmployee::class)
+            ->reject(fn ($m) => $m === RecEmployee::class)
             ->all();
-
-        $schalterAn = (bool) $settings->getSetting('comms_topic_enabled', false);
-        $hrKanal = $schalterAn
-            && in_array((int) $channel->id, array_map('intval', RecruitingChannelResolver::channelIds($teamId)), true);
-        $fremderKontext = ThreadContextGate::blocksIntakeAny($kontexte);
-
-        $grund = ThemenAusloeser::qualifiziert([
-            'enabled'              => $schalterAn,
-            'hr_kanal'             => $hrKanal,
-            'fremder_kontext'      => $fremderKontext,
-            // Personen-Suche nur, wenn die billigen Pruefungen davor bestanden sind
-            // (sie laeuft bei jedem Eingang auf jedem Kanal).
-            'aktiver_ma'           => $hrKanal && !$fremderKontext && $phone !== ''
-                && ($this->empfaenger ?? app(ThemenAuswahlEmpfaenger::class))->aktiverMitarbeiter($phone, $teamId) !== null,
-            'quick_reply'          => QuickReply::isQuickReply($message->meta_payload),
-            'message_type'         => (string) ($message->message_type ?? 'text'),
-            'letzte_aktivitaet_ts' => $this->letzteAktivitaetVor($thread, $message),
-            'jetzt_ts'             => ($message->sent_at ?? $message->created_at ?? Carbon::now())->getTimestamp(),
-            'ruhe_stunden'         => max(1, (int) $settings->getSetting('comms_topic_quiet_hours', 8)),
-        ]);
-        if ($grund !== null) {
+        if ($grund = $pruefe(['fremder_kontext' => ThreadContextGate::blocksIntakeAny($kontexte)])) {
             return 'uebersprungen:' . $grund;
         }
 
-        // Meta wiederholt Webhooks, der Core feuert das Event auch fuer die
-        // Dublette. Unsere Frage liegt mit hoeherer id hinter dem Eingang und
-        // zaehlt deshalb nicht in die Ruhezeit — ohne diese Sperre fragten wir doppelt.
+        // 5. Ruhezeit (eine indizierte Abfrage).
+        if ($grund = $pruefe([
+            'letzte_aktivitaet_ts' => $this->letzteAktivitaetVor($thread, $message),
+            'jetzt_ts' => ($message->sent_at ?? $message->created_at ?? Carbon::now())->getTimestamp(),
+            'ruhe_stunden' => max(1, (int) $settings->getSetting('comms_topic_quiet_hours', 8)),
+        ])) {
+            return 'uebersprungen:' . $grund;
+        }
+
+        // 6. Meta wiederholt Webhooks, der Core feuert das Event auch fuer die
+        //    Dublette. Unsere Frage liegt mit hoeherer id hinter dem Eingang und
+        //    zaehlt deshalb nicht in die Ruhezeit — ohne diese Sperre fragten wir doppelt.
         if (RecConversationTopic::query()
             ->where('comms_whatsapp_thread_id', (int) $thread->id)
             ->where('origin_message_id', (int) $message->id)
             ->exists()) {
-            return 'uebersprungen:schon_gefragt';
+            return self::SCHON_GEFRAGT;
+        }
+
+        // 7. Geblockte/geblacklistete Kontakte bekommen keine Auto-Antwort
+        //    (dieselbe Regel wie beim OOO-Handler).
+        $phone = (string) ($thread->remote_phone_number ?? '');
+        if ($phone !== '' && KontaktSperre::gesperrt($thread, $teamId, $phone)) {
+            return 'uebersprungen:kontakt_gesperrt';
+        }
+
+        // 8. Zuletzt die teure Personen-Suche (laedt alle aktiven MA mit Nummer).
+        $aktiverMa = $phone !== ''
+            && ($this->empfaenger ?? app(ThemenAuswahlEmpfaenger::class))->aktiverMitarbeiter($phone, $teamId) !== null;
+        if ($grund = $pruefe(['aktiver_ma' => $aktiverMa])) {
+            return 'uebersprungen:' . $grund;
         }
 
         $duzen = PublicAddressStyle::informal($settings->getSetting('use_informal_address'));
@@ -99,15 +151,27 @@ final class ThemenAuswahlHandler
             return 'uebersprungen:send_' . $r['status'];
         }
 
-        RecConversationTopic::create([
-            'team_id' => $teamId,
-            'comms_whatsapp_thread_id' => (int) $thread->id,
-            'topic' => null,
-            'state' => RecConversationTopic::STATE_ASKED,
-            'origin_message_id' => (int) $message->id,
-            'ask_message_id' => $r['message_id'],
-            'asked_at' => Carbon::now(),
-        ]);
+        // Die Frage ist draussen — ab hier gilt GESENDET, auch wenn die Zeile
+        // nicht geschrieben werden kann. Sonst schickte der Listener zusaetzlich
+        // die OOO-Vorlage hinterher.
+        try {
+            RecConversationTopic::create([
+                'team_id' => $teamId,
+                'comms_whatsapp_thread_id' => (int) $thread->id,
+                'topic' => null,
+                'state' => RecConversationTopic::STATE_ASKED,
+                'origin_message_id' => (int) $message->id,
+                'ask_message_id' => $r['message_id'],
+                'asked_at' => Carbon::now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('recruiting.themen.zeile_nicht_angelegt', [
+                'thread_id' => $thread->id,
+                'message_id' => $message->id,
+                'ask_message_id' => $r['message_id'],
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return self::GESENDET;
     }
