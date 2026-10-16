@@ -18,7 +18,10 @@ final class InboxRow
         public readonly ?string $phone,
         public readonly ?int $ownerUserId,
         public readonly bool $isUnread,
+        /** Ampel der Liste — bei gelesenen Chats immer LEVEL_NONE. */
         public readonly ConversationEscalation $escalation,
+        /** Rohe Fenster-Rechnung, auch fuer gelesene — fuer den Chat-Kopf. */
+        public readonly ?ConversationEscalation $window = null,
         /** Etikett fuer fremde Kontexte, z.B. 'hcm_onboarding'. */
         public readonly ?string $contextLabel = null,
         /** Anzahl weiterer Threads derselben Person (0 = keiner). */

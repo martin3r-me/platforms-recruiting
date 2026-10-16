@@ -308,9 +308,17 @@ class ArchiveOldConversationsCommandTest extends TestCase
         [$team, $channel] = self::eigenesTeam(855, '+49 160 5554055');
         $frisch = time() - 3_600;
 
+        // Getippt, von HR beantwortet, dann Klick: der Klick ist keine Arbeit.
         $nurButton = self::createThread($team, $channel, '+49 151 80000055', $frisch);
         self::eingang($nurButton, ['type' => 'text', 'text' => ['body' => 'Hallo']]);
+        self::ausgang($nurButton);
         self::eingang($nurButton, ['type' => 'button', 'button' => ['text' => 'Ja']]);
+
+        // Getippt, NICHT beantwortet, dann Klick: der Text ist Arbeit fuer HR
+        // (Review 16.10.2026, Befund 2).
+        $textDannButton = self::createThread($team, $channel, '+49 151 80000059', $frisch);
+        self::eingang($textDannButton, ['type' => 'text', 'text' => ['body' => 'Ich komme 30 min spaeter']]);
+        self::eingang($textDannButton, ['type' => 'button', 'button' => ['text' => 'Ja']]);
 
         $buttonDannText = self::createThread($team, $channel, '+49 151 80000056', $frisch);
         self::eingang($buttonDannText, ['type' => 'button', 'button' => ['text' => 'Ja']]);
@@ -363,6 +371,18 @@ class ArchiveOldConversationsCommandTest extends TestCase
             'body' => 'x',
             'message_type' => 'text',
             'meta_payload' => $payload,
+            'sent_at' => date('Y-m-d H:i:s', time() - 3_600),
+        ]);
+    }
+
+    private static function ausgang(int $threadId): void
+    {
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId,
+            'direction' => 'outbound',
+            'is_auto_reply' => false,
+            'body' => 'Danke dir!',
+            'message_type' => 'text',
         ]);
     }
 
@@ -499,6 +519,7 @@ class ArchiveOldConversationsCommandTest extends TestCase
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
             [$crm, 'database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php'],
+            [$crm, 'database/migrations/2026_07_10_000001_add_is_auto_reply_to_comms_whatsapp_messages.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
         ];
 

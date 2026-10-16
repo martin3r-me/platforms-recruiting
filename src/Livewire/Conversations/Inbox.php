@@ -816,10 +816,14 @@ class Inbox extends Component
 
     public function select(int $threadId): void
     {
+        // Derselbe Chat erneut (z. B. ueber den Weiterleitungs-Reiter): die
+        // beim ersten Oeffnen erledigten Weiterleitungen gemerkt lassen,
+        // sonst holt „ungelesen schliessen“ sie nicht mehr zurueck.
+        $gemerkt = $this->selectedThreadId === $threadId ? $this->openedForwardIds : [];
         $this->selectedThreadId = $threadId;
         $this->replyText = '';
         $this->sendError = null;
-        $this->openedForwardIds = [];
+        $this->openedForwardIds = $gemerkt;
 
         $thread = $this->threadForTeam($threadId);
         if ($thread !== null) {
@@ -827,9 +831,10 @@ class Inbox extends Component
             // Weiterleitungen dieses Chats. „ungelesen schliessen“ holt sie
             // zurueck, deshalb die IDs merken.
             $thread->markAsRead();
-            $this->openedForwardIds = app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+            $neu = app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
                 ->completeForThreadIds($this->teamId(), (int) $thread->id, Auth::id() !== null ? (int) Auth::id() : null);
-            if ($this->openedForwardIds !== []) {
+            $this->openedForwardIds = array_values(array_unique(array_merge($gemerkt, $neu)));
+            if ($neu !== []) {
                 unset($this->openForwardCount, $this->forwardCards);
             }
         }

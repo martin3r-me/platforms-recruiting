@@ -32,6 +32,7 @@ Aufräumaktion. Neu kommt der Grund `quick_reply` dazu.
 | „ungelesen schließen“ | `markAsUnread()` wie heute **plus** Stempel dieses Chats löschen (sonst bliebe er über den Stempel erledigt) **plus** die beim Öffnen erledigten Weiterleitungen wieder öffnen (`done_at = null`, nur die gemerkten IDs, nur eigenes Team, nur vom selben User erledigt). |
 | Mehrfachauswahl | Knopf heißt „als gelesen markieren“, Funktion unverändert (Stempel `manual` + Weiterleitungen erledigen). |
 | Button-Klick kommt rein | Listener stempelt den Thread mit Grund `quick_reply`. Erkannt am Meta-Typ im `meta_payload`: `button` (Vorlagen-Quick-Reply) oder `interactive` mit `button_reply`/`list_reply`. Der Core normalisiert beides zu `text`, deshalb nur über `meta_payload`. Gilt für jeden Button, keine Ausnahmeliste (geprüft 16.10.: nur `t05` Ja/Nein und `t_init` (Dispo-Kanal) haben Quick-Replies). |
+| Button-Klick — wann NICHT | Kein Stempel (Chat bleibt offen), wenn es einen neueren Eingang gibt (Meta-Retry: der Core feuert das Event auch für Dubletten) oder seit der letzten menschlichen Antwort bzw. dem letzten gültigen Stempel etwas getippt wurde („Ich komme 30 min später“ + „Ja“). Stempelzeit = `sent_at` des Klicks, nicht die Verarbeitungszeit. (Review 16.10., Befund 1/2) |
 | Neue getippte Nachricht | Core setzt `is_unread = true`, Stempel wird durch den neueren Eingang ungültig → offen. Wie heute. |
 
 Weg fallen: Einzel-Knopf „Erledigt“, „zurückholen“, Pille „Erledigt N“, `InboxFilter::$handled`,
@@ -46,6 +47,7 @@ Weg fallen: Einzel-Knopf „Erledigt“, „zurückholen“, Pille „Erledigt N
 - **Erledigte Zeilen haben keine Eskalation** (`LEVEL_NONE`): keine Farbkante, kein
   „verpasst seit“. `InboxRow::$isUnread` = offen (fett/Punkt in der Liste).
 - Sidebar (`unread`, `red + missed`) folgt automatisch.
+- Der **Chat-Kopf** zeigt die Fenster-Restzeit („noch 5 h“) auch bei gelesenen Chats (`InboxRow::$window`).
 
 ## Einmalige Läufe (nach Deploy, je erst `--dry-run`)
 
@@ -53,7 +55,10 @@ Weg fallen: Einzel-Knopf „Erledigt“, „zurückholen“, Pille „Erledigt N
    unabhängig von Button oder nicht). Gibt es schon, nur einmal starten.
 2. `recruiting:conversations-archivieren --team=3 --quick-replies` (neu) — stempelt Threads, deren
    letzter Eingang ein Button-Klick ist, mit Grund `quick_reply`, egal wie alt. Für die letzten
-   14 Tage, die Lauf 1 nicht erfasst.
+   14 Tage, die Lauf 1 nicht erfasst. Gleiche Regel wie der Listener (`QuickReplyStamper::qualifies`).
+
+Beide Läufe stempeln mit dem Zeitpunkt des letzten Eingangs bzw. Klicks, nicht mit `now()` —
+was zwischen Probelauf und Schreiben eingeht, bleibt offen.
 
 Rückholbar: `DELETE FROM rec_conversation_handled WHERE handled_reason IN ('backfill','quick_reply')`.
 Es wird nichts gelöscht, und `is_unread` im Core wird nicht angefasst.

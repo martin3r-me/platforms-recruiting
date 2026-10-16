@@ -211,6 +211,9 @@ class InboxQueryCompletenessTest extends TestCase
             $this->assertNotNull($row);
             $this->assertFalse($row->isUnread);
             $this->assertSame(ConversationEscalation::LEVEL_NONE, $row->escalation->level);
+            // Der Chat-Kopf braucht die Fenster-Rechnung trotzdem (Review 16.10.).
+            $this->assertNotNull($row->window);
+            $this->assertSame(ConversationEscalation::LEVEL_MISSED, $row->window->level);
 
             $counts = (new InboxQuery())->counts(self::TEAM, self::JETZT);
             $this->assertSame(3, $counts['missed']);

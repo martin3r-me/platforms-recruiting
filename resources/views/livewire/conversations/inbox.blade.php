@@ -366,7 +366,9 @@
             @else
                 @php
                     $selRow = $this->selectedRow;
-                    $selFenster = $fensterText($selRow->escalation);
+                    // window statt escalation: ein geoeffneter Chat ist gelesen und
+                    // traegt keine Ampel mehr, der Kopf zeigt die Restzeit trotzdem.
+                    $selFenster = $fensterText($selRow->window ?? $selRow->escalation);
                     $selOwnerName = null;
                     foreach ($this->teamUsers as $teamUser) {
                         if ($teamUser['id'] === $selRow->ownerUserId) {

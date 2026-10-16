@@ -7,7 +7,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationHandled;
 use Platform\Recruiting\Services\Comms\ConversationHandledState;
-use Platform\Recruiting\Services\Comms\QuickReply;
+use Platform\Recruiting\Services\Comms\QuickReplyStamper;
 use Platform\Recruiting\Services\Comms\RecruitingChannelResolver;
 
 /**
@@ -89,7 +89,11 @@ class ArchiveOldConversations extends Command
             return self::SUCCESS;
         }
 
-        $this->stamp($teamId, $plan, $reason);
+        if ($quickReplies) {
+            $plan = $this->stampQuickReplies($teamId, $plan);
+        } else {
+            $this->stamp($teamId, $plan, $reason);
+        }
         $this->info(count($plan) . ' als erledigt gestempelt (Grund: ' . $reason . ').');
 
         return self::SUCCESS;
@@ -133,14 +137,42 @@ class ArchiveOldConversations extends Command
     }
 
     /**
-     * Chats, deren LETZTER Eingang ein Button-Klick war (QuickReply). Ein
-     * Button-Klick mit getipptem Text danach zaehlt nicht — der Text ist
-     * Arbeit fuer HR.
+     * Chats, deren letzter Eingang ein Button-Klick war — nach derselben
+     * Regel wie der Inbound-Listener (QuickReplyStamper::qualifies()): kein
+     * neuerer Eingang, nichts Getipptes seit der letzten Antwort bzw. dem
+     * letzten Stempel. Im Zweifel bleibt der Chat offen.
      *
      * @throws \RuntimeException wie planFor()
      * @return list<int>
      */
     public function planQuickReplies(int $teamId): array
+    {
+        return array_keys($this->quickReplyCandidates($teamId));
+    }
+
+    /**
+     * Stempelt ueber den QuickReplyStamper, der die Regel beim Schreiben
+     * erneut prueft und den Zeitpunkt des Klicks einsetzt — ein Text, der
+     * zwischen Probelauf und Schreiben eingeht, hebt den Stempel damit auf.
+     *
+     * @param list<int> $plan
+     * @return list<int> tatsaechlich gestempelt
+     */
+    private function stampQuickReplies(int $teamId, array $plan): array
+    {
+        $stamper = app(QuickReplyStamper::class);
+        $gestempelt = [];
+        foreach ($this->quickReplyCandidates($teamId) as $threadId => [$thread, $message]) {
+            if (in_array($threadId, $plan, true) && $stamper->stampIfQuickReply($thread, $message)) {
+                $gestempelt[] = $threadId;
+            }
+        }
+
+        return $gestempelt;
+    }
+
+    /** @return array<int, array{0: CommsWhatsAppThread, 1: CommsWhatsAppMessage}> */
+    private function quickReplyCandidates(int $teamId): array
     {
         $channelIds = self::channelIdsOrFail($teamId);
 
@@ -148,31 +180,33 @@ class ArchiveOldConversations extends Command
             ->where('team_id', $teamId)
             ->whereNotNull('last_inbound_at')
             ->whereIn('comms_channel_id', $channelIds)
-            ->get(['id', 'last_inbound_at']);
+            ->get(['id', 'team_id', 'last_inbound_at']);
 
+        $offen = array_flip($this->withoutValidStamp($teamId, $threads));
+        $threads = $threads->filter(fn ($t) => isset($offen[(int) $t->id]))->keyBy('id');
         if ($threads->isEmpty()) {
             return [];
         }
 
         $lastInboundIds = CommsWhatsAppMessage::query()
-            ->whereIn('comms_whatsapp_thread_id', $threads->pluck('id')->all())
+            ->whereIn('comms_whatsapp_thread_id', $threads->keys()->all())
             ->where('direction', 'inbound')
             ->groupBy('comms_whatsapp_thread_id')
             ->selectRaw('MAX(id) AS id')
             ->pluck('id')
             ->all();
 
-        $quickReplyThreadIds = CommsWhatsAppMessage::query()
-            ->whereIn('id', $lastInboundIds)
-            ->get(['id', 'comms_whatsapp_thread_id', 'meta_payload'])
-            ->filter(fn (CommsWhatsAppMessage $m) => QuickReply::isQuickReply($m->meta_payload))
-            ->map(fn (CommsWhatsAppMessage $m) => (int) $m->comms_whatsapp_thread_id)
-            ->all();
+        $stamper = app(QuickReplyStamper::class);
+        $out = [];
+        foreach (CommsWhatsAppMessage::query()->whereIn('id', $lastInboundIds)->get() as $message) {
+            $thread = $threads->get((int) $message->comms_whatsapp_thread_id);
+            if ($thread !== null && $stamper->qualifies($thread, $message)) {
+                $out[(int) $thread->id] = [$thread, $message];
+            }
+        }
+        ksort($out);
 
-        return $this->withoutValidStamp(
-            $teamId,
-            $threads->filter(fn ($t) => in_array((int) $t->id, $quickReplyThreadIds, true)),
-        );
+        return $out;
     }
 
     /**
@@ -228,6 +262,10 @@ class ArchiveOldConversations extends Command
      * insert(): ein aufgehobener (veralteter) Stempel steht noch in der
      * Tabelle und wird ueberschrieben — comms_whatsapp_thread_id ist unique.
      *
+     * handled_at = letzter Eingang des Threads, nicht now() (Review
+     * 16.10.2026): ein Text, der zwischen Planen und Schreiben eingeht, ist
+     * juenger und hebt den Stempel damit auf, statt still mit abgelegt zu werden.
+     *
      * @param list<int> $threadIds
      */
     public function stamp(int $teamId, array $threadIds, string $reason = RecConversationHandled::REASON_BACKFILL): void
@@ -239,10 +277,15 @@ class ArchiveOldConversations extends Command
         $jetzt = now();
 
         foreach (array_chunk($threadIds, 200) as $chunk) {
+            $eingang = CommsWhatsAppThread::query()
+                ->whereIn('id', $chunk)
+                ->pluck('last_inbound_at', 'id')
+                ->all();
+
             $rows = array_map(fn (int $id) => [
                 'team_id' => $teamId,
                 'comms_whatsapp_thread_id' => $id,
-                'handled_at' => $jetzt,
+                'handled_at' => $eingang[$id] ?? $jetzt,
                 'handled_by_user_id' => null,
                 'handled_reason' => $reason,
                 'created_at' => $jetzt,

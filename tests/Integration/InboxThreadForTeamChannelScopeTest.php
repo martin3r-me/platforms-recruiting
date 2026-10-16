@@ -197,6 +197,11 @@ class InboxThreadForTeamChannelScopeTest extends TestCase
         $this->assertNotNull($offen->fresh()->done_at, 'Oeffnen muss die Weiterleitung erledigen.');
         $this->assertSame([(int) $offen->id], $inbox->openedForwardIds);
 
+        // Derselbe Chat noch einmal (z. B. aus dem Weiterleitungs-Reiter) —
+        // die gemerkte ID darf dabei nicht verloren gehen (Review 16.10.).
+        $inbox->select($threadId);
+        $this->assertSame([(int) $offen->id], $inbox->openedForwardIds);
+
         $inbox->markUnreadAndClose();
 
         $this->assertTrue((bool) CommsWhatsAppThread::query()->whereKey($threadId)->value('is_unread'));

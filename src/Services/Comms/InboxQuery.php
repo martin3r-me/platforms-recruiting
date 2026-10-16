@@ -599,6 +599,7 @@ final class InboxQuery
                 ownerUserId: $owner,
                 isUnread: $row['is_unread'],
                 escalation: $row['escalation'],
+                window: $row['window'] ?? null,
                 contextLabel: $contextLabel,
                 siblingCount: (int) $row['siblings'],
                 lastMessageAt: $row['last_message_at'] ?? null,
@@ -670,7 +671,11 @@ final class InboxQuery
      * 'is_unread' traegt danach den abgeleiteten Zustand, nicht mehr die
      * rohe Core-Spalte — Liste, Pillen und Sidebar lesen nur diesen.
      *
-     * @return array{is_unread: bool, escalation: ConversationEscalation}
+     * 'window' traegt die rohe Fenster-Rechnung auch fuer gelesene Chats —
+     * nur fuer den Chat-Kopf („noch 5 h“): wer einen Chat geoeffnet hat,
+     * muss weiter sehen, wie lange er noch frei antworten kann.
+     *
+     * @return array{is_unread: bool, escalation: ConversationEscalation, window: ConversationEscalation}
      */
     private static function openState(
         bool $isUnread,
@@ -682,12 +687,12 @@ final class InboxQuery
         float $red,
     ): array {
         $open = $isUnread && !ConversationHandledState::isHandled($handledAt, $inboundAt);
+        $window = ConversationEscalation::compute($inboundAt, $humanOutboundAt, $now, $yellow, $red);
 
         return [
             'is_unread' => $open,
-            'escalation' => $open
-                ? ConversationEscalation::compute($inboundAt, $humanOutboundAt, $now, $yellow, $red)
-                : ConversationEscalation::compute(null, null, $now),
+            'escalation' => $open ? $window : ConversationEscalation::compute(null, null, $now),
+            'window' => $window,
         ];
     }
 

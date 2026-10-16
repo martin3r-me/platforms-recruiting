@@ -42,6 +42,7 @@ class QuickReplyStamperTest extends TestCase
             $own . '/database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php',
             $crm . '/database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php',
             $crm . '/database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php',
+            $crm . '/database/migrations/2026_07_10_000001_add_is_auto_reply_to_comms_whatsapp_messages.php',
         ] as $path) {
             (require $path)->up();
         }
@@ -108,10 +109,121 @@ class QuickReplyStamperTest extends TestCase
         $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $message));
     }
 
+    public function test_stempel_traegt_den_zeitpunkt_des_klicks(): void
+    {
+        [$thread, $message] = $this->eingang(['type' => 'button', 'button' => ['text' => 'Ja']]);
+
+        (new QuickReplyStamper())->stampIfQuickReply($thread, $message);
+
+        $row = RecConversationHandled::query()->where('comms_whatsapp_thread_id', $thread->id)->first();
+        $this->assertSame(
+            $message->sent_at->getTimestamp(),
+            $row->handled_at->getTimestamp(),
+            'Verarbeitungszeit statt Klickzeit wuerde jeden spaeter eingehenden Text mit ablegen.',
+        );
+    }
+
+    public function test_wiederholter_alter_klick_legt_neueren_text_nicht_ab(): void
+    {
+        // Meta wiederholt Webhooks; der Core feuert das Event auch fuer die Dublette.
+        $thread = $this->thread();
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -120);
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Wann genau?']], -60);
+
+        $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+        $this->assertSame(0, RecConversationHandled::query()->count());
+    }
+
+    public function test_erst_getippt_dann_geklickt_bleibt_offen(): void
+    {
+        $thread = $this->thread();
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Ich komme 30 min spaeter']], -120);
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -60);
+
+        $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+    }
+
+    public function test_getippt_beantwortet_dann_geklickt_wird_gestempelt(): void
+    {
+        $thread = $this->thread();
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Hallo']], -300);
+        $this->nachricht($thread, null, -200, 'outbound');
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -60);
+
+        $this->assertTrue((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+    }
+
+    public function test_auto_quittung_zaehlt_nicht_als_antwort(): void
+    {
+        $thread = $this->thread();
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Hallo?']], -300);
+        $this->nachricht($thread, null, -200, 'outbound', autoReply: true);
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -60);
+
+        $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+    }
+
+    public function test_text_vor_einem_gueltigen_stempel_zaehlt_nicht(): void
+    {
+        // Mehrfachauswahl hat den Text schon als gelesen abgelegt.
+        $thread = $this->thread();
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Hallo']], -300);
+        RecConversationHandled::create([
+            'team_id' => self::TEAM,
+            'comms_whatsapp_thread_id' => $thread->id,
+            'handled_at' => date('Y-m-d H:i:s', time() - 200),
+            'handled_reason' => RecConversationHandled::REASON_MANUAL,
+        ]);
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -60);
+
+        $this->assertTrue((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+    }
+
+    public function test_text_nach_einem_stempel_zaehlt(): void
+    {
+        $thread = $this->thread();
+        RecConversationHandled::create([
+            'team_id' => self::TEAM,
+            'comms_whatsapp_thread_id' => $thread->id,
+            'handled_at' => date('Y-m-d H:i:s', time() - 300),
+            'handled_reason' => RecConversationHandled::REASON_QUICK_REPLY,
+        ]);
+        $this->nachricht($thread, ['type' => 'text', 'text' => ['body' => 'Noch eine Frage']], -200);
+        $klick = $this->nachricht($thread, ['type' => 'button', 'button' => ['text' => 'Ja']], -60);
+
+        $this->assertFalse((new QuickReplyStamper())->stampIfQuickReply($thread, $klick));
+    }
+
+    public function test_inbound_listener_ruft_den_stamper_auf(): void
+    {
+        // Der Listener braucht den vollen App-Boot (Matching, Intake …) und
+        // laesst sich in dieser Suite nicht ausfuehren. Ohne diesen Vertrag
+        // fiele ein entfernter Aufruf nirgends auf — alle Stamper-Tests
+        // blieben gruen, waehrend auf Prod kein Button-Klick mehr gestempelt wird.
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/Listeners/HandleWhatsAppInboundForRecruiting.php');
+
+        $this->assertMatchesRegularExpression(
+            '/app\(QuickReplyStamper::class\)->stampIfQuickReply\(\$thread, \$message\)/',
+            $quelle,
+        );
+        // Vor dem Kontext-Gate: auch Mitarbeiter-Threads stehen in der Liste.
+        $this->assertLessThan(
+            strpos($quelle, 'ThreadContextGate::blocksIntakeAny'),
+            strpos($quelle, 'QuickReplyStamper::class'),
+        );
+    }
+
     /** @return array{0: CommsWhatsAppThread, 1: CommsWhatsAppMessage} */
     private function eingang(array $payload, string $direction = 'inbound'): array
     {
-        $thread = CommsWhatsAppThread::create([
+        $thread = $this->thread();
+
+        return [$thread, $this->nachricht($thread, $payload, -5, $direction)];
+    }
+
+    private function thread(): CommsWhatsAppThread
+    {
+        return CommsWhatsAppThread::create([
             'team_id' => self::TEAM,
             'comms_channel_id' => 1,
             'token' => bin2hex(random_bytes(8)),
@@ -119,14 +231,23 @@ class QuickReplyStamperTest extends TestCase
             'is_unread' => true,
             'last_inbound_at' => date('Y-m-d H:i:s', time() - 5),
         ]);
-        $message = CommsWhatsAppMessage::create([
+    }
+
+    private function nachricht(
+        CommsWhatsAppThread $thread,
+        ?array $payload,
+        int $sekundenRelativ,
+        string $direction = 'inbound',
+        bool $autoReply = false,
+    ): CommsWhatsAppMessage {
+        return CommsWhatsAppMessage::create([
             'comms_whatsapp_thread_id' => $thread->id,
             'direction' => $direction,
-            'body' => 'Ja',
+            'is_auto_reply' => $autoReply,
+            'body' => 'x',
             'message_type' => 'text',
             'meta_payload' => $payload,
+            'sent_at' => date('Y-m-d H:i:s', time() + $sekundenRelativ),
         ]);
-
-        return [$thread, $message];
     }
 }
