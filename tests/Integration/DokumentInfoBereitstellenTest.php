@@ -132,7 +132,7 @@ final class DokumentInfoBereitstellenTest extends TestCase
         $service = new DokumentService($this->speicher, $sender);
         $r = $service->bereitstellenText(3, ['title' => 'Willkommen', 'auto_neue_mitarbeiter' => true], 'Hallo', [], 7);
         DB::table('rec_documents')->where('id', $r['dokument']->id)->update(['published_at' => '2026-10-01 00:00:00']);
-        $neu = $this->anstellung(['first_name' => 'Neu', 'phone' => '+491708888888']);
+        $neu = $this->anstellung(['first_name' => 'Neu', 'phone' => '+491708888888', 'rec_applicant_id' => 501]);
         DB::table('rec_employees')->where('id', $neu->id)->update(['created_at' => '2026-10-02 00:00:00']);
         $this->assertSame(1, (new DokumentAutoZustellung())->fuerErstesOeffnen($neu->fresh()));
 

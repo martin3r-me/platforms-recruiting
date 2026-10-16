@@ -10,9 +10,10 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\DokumentAutoZustellung;
 
 /**
- * Automatik "an neue Mitarbeiter" (Spec 2026-10-16 §4): nur Anstellungen, die
- * NACH der Veroeffentlichung angelegt wurden, bekommen die Info — einmal je
- * Person, ohne WhatsApp.
+ * Automatik "an neue Mitarbeiter" (Spec 2026-10-16 §4): nur Personen, deren
+ * frueheste Anstellung NACH der Veroeffentlichung angelegt wurde und deren
+ * geoeffnete Anstellung aus einer Bewerbung stammt (Ruling Schlussreview
+ * I-4), bekommen die Info — einmal je Person, ohne WhatsApp.
  */
 final class DokumentAutoZustellungTest extends TestCase
 {
@@ -44,9 +45,10 @@ final class DokumentAutoZustellungTest extends TestCase
      * Harness. Gleiche Handynummer, damit RG+MA derselben Person ueber den
      * person_key-Zweig des PersonScopeResolver gepaart werden.
      */
-    private function anstellungAm(string $createdAt, string $company = 'RG', ?string $personKey = null): RecEmployee
+    private function anstellungAm(string $createdAt, string $company = 'RG', ?string $personKey = null, ?int $applicantId = 501): RecEmployee
     {
-        $e = $this->anstellung(['company' => $company, 'person_key' => $personKey, 'phone' => '+491701234567']);
+        // rec_applicant_id gesetzt = ueber unser Recruiting gekommen (Ruling I-4).
+        $e = $this->anstellung(['company' => $company, 'person_key' => $personKey, 'phone' => '+491701234567', 'rec_applicant_id' => $applicantId]);
         DB::table('rec_employees')->where('id', $e->id)->update(['created_at' => $createdAt]);
 
         return $e->fresh();
@@ -100,5 +102,24 @@ final class DokumentAutoZustellungTest extends TestCase
         $this->assertSame(1, $dienst->fuerErstesOeffnen($rg));
         $this->assertSame(0, $dienst->fuerErstesOeffnen($ma), 'Schwester-Anstellung hat die Info schon ueber die Person');
         $this->assertSame(1, RecDocumentRecipient::where('rec_document_id', $info)->count());
+    }
+
+    public function test_bestandsperson_mit_neuer_anstellung_nach_veroeffentlichung_bekommt_nichts(): void
+    {
+        // Schlussreview I-4 (a): alte RG-Anstellung, nach der Info kommt eine MA-Anstellung dazu.
+        $this->info(true, '2026-10-20 10:00:00');
+        $this->anstellungAm('2025-03-01 09:00:00', 'RG', 'pk-alt');
+        $ma = $this->anstellungAm('2026-10-21 09:00:00', 'MA', 'pk-alt');
+        $this->assertSame(0, (new DokumentAutoZustellung())->fuerErstesOeffnen($ma));
+        $this->assertSame(0, RecDocumentRecipient::count());
+    }
+
+    public function test_anstellung_ohne_bewerbung_loest_die_automatik_nie_aus(): void
+    {
+        // Schlussreview I-4 (b): ZAS legt die Zeile erst nach der Info an — trotzdem Bestand.
+        $this->info(true, '2026-10-20 10:00:00');
+        $zas = $this->anstellungAm('2026-10-21 09:00:00', 'RG', null, null);
+        $this->assertSame(0, (new DokumentAutoZustellung())->fuerErstesOeffnen($zas));
+        $this->assertSame(0, RecDocumentRecipient::count());
     }
 }

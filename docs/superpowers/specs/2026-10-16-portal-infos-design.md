@@ -102,8 +102,15 @@ Haken auf false (sonst bekäme der nächste Neue eine zurückgezogene Info).
 (`verify()` nach erfolgreicher Prüfung, und der Konto-Weg, der die Anstellung öffnet —
 beide laufen durch `identitaetLaden()`; der Aufruf steht davor, einmal, idempotent).
 
-Regel: Für jede Info mit `auto_neue_mitarbeiter = true`, nicht gelöscht, Team der
-Anstellung, **`published_at < rec_employees.created_at`** der Anstellung, ohne vorhandene
+Regel: Nur wenn die Person **neu** ist (Ruling Schlussreview I-4, 16.10.):
+die geöffnete Anstellung kam über unser Recruiting (**`rec_applicant_id IS NOT NULL`**)
+**und** die **früheste** Anstellung der Person (`MIN(created_at)` über alle IDs des
+Personen-Scopes, RG+MA) liegt nach der Veröffentlichung. Von ZAS gelieferte
+Anstellungen ohne Bewerbung (Stichtags-Vollimport, Nachlieferungen) lösen die Automatik
+nie aus, auch wenn ihre Zeile erst nach der Info entsteht; eine Bestandsperson mit einer
+späteren zweiten Anstellung bleibt Bestand. Dann für jede Info mit
+`auto_neue_mitarbeiter = true`, nicht gelöscht, Team der Anstellung,
+**`published_at < MIN(rec_employees.created_at)`** der Person (strikt), ohne vorhandene
 Empfängerzeile für eine Anstellung dieser Person (`person_key`-Scope wie
 `DokumentLeser`): Empfängerzeile anlegen (ohne WhatsApp — der Mensch ist gerade im Portal,
 die Info erscheint sofort, §5.1). Rückgabe: Zahl der neu angelegten Zeilen (Log-Zeile
@@ -112,7 +119,8 @@ die Info erscheint sofort, §5.1). Rückgabe: Zahl der neu angelegten Zeilen (Lo
 - Idempotent: zweiter Aufruf legt nichts an (Unique `rec_document_id` + `rec_employee_id`
   plus Prüfung über den Personen-Scope).
 - Query Builder, keine Schreibzugriffe auf `rec_employees`.
-- Bestand ist automatisch draußen: seine Anstellungen sind vor jeder Info angelegt.
+- Bestand ist draußen: seine früheste Anstellung ist vor jeder Info angelegt, und
+  ZAS-Anstellungen ohne Bewerbung zählen nie als neu.
 - Zweite Anstellung derselben Person (RG+MA): eine Zeile je Person, nicht je Anstellung
   (Scope über `person_key`, wie der Dokumente-Versand entdoppelt).
 - Kein eigener Zeitplan, kein Kommando: der Trigger ist das Öffnen des Portals.

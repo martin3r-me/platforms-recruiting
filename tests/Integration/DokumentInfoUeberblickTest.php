@@ -103,7 +103,7 @@ final class DokumentInfoUeberblickTest extends TestCase
 
     private function neueAnstellung(string $createdAt = '2026-10-17 09:00:00'): RecEmployee
     {
-        $e = $this->anstellung(['company' => 'RG', 'phone' => '+491701234599']);
+        $e = $this->anstellung(['company' => 'RG', 'phone' => '+491701234599', 'rec_applicant_id' => 501]);
         DB::table('rec_employees')->where('id', $e->id)->update(['created_at' => $createdAt]);
 
         return $e->fresh();

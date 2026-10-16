@@ -86,6 +86,7 @@ final class PortalShellVerifyTest extends TestCase
             // liefert ein String-Literal zurueck: die Pflicht-Dimension waere
             // hier still unbeweglich gewesen.
             $t->integer('rec_person_id')->nullable();
+            $t->integer('rec_applicant_id')->nullable();
             $t->boolean('is_eu_citizen')->nullable();
             $t->string('employment_type')->nullable();
             $t->boolean('is_first_aider')->nullable();
@@ -156,7 +157,8 @@ final class PortalShellVerifyTest extends TestCase
      */
     public function test_fehler_der_info_zustellung_kostet_die_anmeldung_nicht(): void
     {
-        $ma = $this->ma();
+        // Mit Bewerbung, sonst bricht die Automatik vor der ersten Abfrage ab (Ruling I-4).
+        $ma = $this->ma(['rec_applicant_id' => 501]);
         $shell = $this->shell($ma);
         $shell->birthDate = '1995-03-14';
         $shell->idLast4 = '0T47';
