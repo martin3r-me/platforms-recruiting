@@ -221,6 +221,23 @@ class RecEmployee extends Model
         return $this->hasMany(RecContract::class, 'rec_employee_id');
     }
 
+    /**
+     * Filiale des MA = Kostenstelle (100/200/300/400, Support\Filialen): das
+     * Feld am MA gewinnt, sonst die Kostenstelle der Stelle — dieselbe Regel
+     * wie die Spalte `Kostenstelle` im ZAS-Export (ZasEmployeeFieldResolver).
+     */
+    public function dispoFilialNr(): ?int
+    {
+        foreach ([$this->cost_center, $this->position?->cost_center] as $wert) {
+            $wert = trim((string) $wert);
+            if ($wert !== '' && ctype_digit($wert)) {
+                return (int) $wert;
+            }
+        }
+
+        return null;
+    }
+
     public function position(): BelongsTo
     {
         return $this->belongsTo(RecPosition::class, 'rec_position_id');

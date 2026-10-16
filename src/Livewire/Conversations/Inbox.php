@@ -942,8 +942,34 @@ class Inbox extends Component
 
         $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
         $this->forwardChannelId = $thread !== null
-            ? app(DispoForwardChannels::class)->preferredFor($this->teamId(), (string) $thread->remote_phone_number)
+            ? app(DispoForwardChannels::class)->preferredFor(
+                $this->teamId(),
+                (string) $thread->remote_phone_number,
+                $this->forwardEmployee()?->dispoFilialNr(),
+            )
             : null;
+    }
+
+    /**
+     * MA hinter dem offenen Chat: Mitarbeiter-Thread direkt, Bewerber-Thread
+     * ueber die aktive Anstellung dieser Bewerbung (wie InboxQuery::kindOf).
+     */
+    private function forwardEmployee(): ?\Platform\Recruiting\Models\RecEmployee
+    {
+        $row = $this->selectedRow;
+        if ($row === null || $row->subjectId === null) {
+            return null;
+        }
+
+        $query = \Platform\Recruiting\Models\RecEmployee::query()
+            ->with('position:id,cost_center')
+            ->where('team_id', $this->teamId());
+
+        return match ($row->subjectType) {
+            'employee' => $query->whereKey($row->subjectId)->first(),
+            'applicant' => $query->where('rec_applicant_id', $row->subjectId)->where('is_active', true)->orderByDesc('id')->first(),
+            default => null,
+        };
     }
 
     public function closeForward(): void
@@ -975,7 +1001,7 @@ class Inbox extends Component
             $thread,
             $ids,
             $this->forwardComment,
-            $row !== null && $row->subjectType === 'employee' ? $row->subjectId : null,
+            $this->forwardEmployee()?->id !== null ? (int) $this->forwardEmployee()->id : null,
             $row !== null ? $row->title : '',
             Auth::user(),
             ForwardTargets::DISPO,

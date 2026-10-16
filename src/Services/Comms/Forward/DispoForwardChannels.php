@@ -93,16 +93,26 @@ final class DispoForwardChannels
     }
 
     /**
-     * Vorbelegung im Weiterleiten-Fenster: der Dispo-Kanal, ueber den diese
-     * Nummer zuletzt mit der Dispo geschrieben hat. Der MA hat kein eigenes
-     * Filial-Feld — wo er mit der Dispo spricht, sagt am meisten. Gibt es nur
-     * EINEN Kanal, ist er es. Sonst null: HR waehlt selbst.
+     * Vorbelegung im Weiterleiten-Fenster, in dieser Reihenfolge:
+     *  1. die Filiale, der der MA zugeordnet ist ($filialNr = Kostenstelle,
+     *     siehe RecEmployee::dispoFilialNr()) — wenn sie einen Kanal hat;
+     *  2. sonst der Dispo-Kanal, ueber den diese Nummer zuletzt geschrieben hat;
+     *  3. gibt es nur EINEN Kanal, ist er es.
+     * Sonst null: HR waehlt selbst.
      */
-    public function preferredFor(int $teamId, string $phone): ?int
+    public function preferredFor(int $teamId, string $phone, ?int $filialNr = null): ?int
     {
-        $ids = array_column($this->options($teamId), 'channel_id');
+        $options = $this->options($teamId);
+        $ids = array_column($options, 'channel_id');
         if ($ids === []) {
             return null;
+        }
+        if ($filialNr !== null) {
+            foreach ($options as $option) {
+                if ($option['filial_nr'] === $filialNr) {
+                    return $option['channel_id'];
+                }
+            }
         }
         if (count($ids) === 1) {
             return $ids[0];
