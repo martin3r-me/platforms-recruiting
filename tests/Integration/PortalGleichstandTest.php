@@ -1485,6 +1485,8 @@ final class PortalGleichstandTest extends TestCase
             'duzen'        => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
             'profilGruppe' => 'entscheidet, WELCHE Felder geschrieben werden',
             'profilFokus'  => 'nur vom Server gesetzt (oeffneAngabe), haengt am offenen Blatt',
+            'infoKastenIds' => 'nur vom Server beim Seitenaufbau gesetzt; an ihr haengt, welche Infos als gesehen gelten',
+            'infoOffen'    => 'nur vom Server gesetzt (infoAufklappen), nach der Scope-Pruefung',
         ];
 
         $klasse = new \ReflectionClass(PortalShell::class);
@@ -1529,8 +1531,6 @@ final class PortalGleichstandTest extends TestCase
             'dokumentFehler'        => 'nur eine Anzeige',
             'dokumentMeldung'       => 'nur eine Anzeige',
             'infoKastenZu'          => 'der Mensch klappt den Info-Kasten selbst zu; nichts in der DB',
-            'infoKastenIds'         => 'im Kasten schon gezeigte Empfaenger-IDs; nur Filter auf DokumentLeser::sichtbare(), jeder Render setzt sie auf das Eigene zurueck',
-            'infoOffen'             => 'aufgeklappte Info; infoAufklappen() prueft die ID gegen den Scope, die Ansicht vergleicht nur mit eigenen Zeilen',
         ];
 
         foreach ($offen as $name => $warum) {

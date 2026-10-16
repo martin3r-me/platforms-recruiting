@@ -69,6 +69,8 @@ final class PortalInfosTest extends TestCase
         $shell->state = 'verified';
         $shell->duzen = $duzen;
         TestPortalSitzung::oeffne((int) $e->id);
+        // Seitenaufbau: mount (gueltige Sitzung) und verify laufen beide durch identitaetLaden().
+        $this->privat($shell, 'identitaetLaden', [$e]);
 
         return $shell;
     }
@@ -180,6 +182,48 @@ final class PortalInfosTest extends TestCase
         $this->assertStringContainsString('data-info="' . $recipientId . '"', $dritter, 'im Reiter steht sie weiter');
     }
 
+    /**
+     * Review Task 4, M1: gestempelt wird nur beim Seitenaufbau und beim
+     * Aufklappen. Eine Info, die HR waehrend der Sitzung zustellt, ist bei
+     * keinem spaeteren Render "gesehen" — sie kommt beim naechsten
+     * Seitenaufbau in den Kasten.
+     */
+    public function test_waehrend_der_sitzung_zugestellte_info_wird_erst_beim_naechsten_seitenaufbau_gezeigt_und_gestempelt(): void
+    {
+        [$e, $ersteId] = $this->mitarbeiterMitInfo('Erste Nachricht');
+        $shell = $this->portalKomponente($e);
+        $this->portalRendern($e, $shell);
+
+        $spaeterId = $this->infoAn($e, 'Spaete Nachricht', 'Spaet');
+        $zweiter = $this->portalRendern($e, $shell);
+
+        $this->assertNull($this->gesehenAm($spaeterId), 'spaetere Renders stempeln nichts');
+        $kasten = $this->kasten($zweiter);
+        $this->assertStringContainsString('Erste Nachricht', $kasten);
+        $this->assertStringNotContainsString('Spaete Nachricht', $kasten);
+        $this->assertStringContainsString('data-info="' . $spaeterId . '"', $zweiter, 'im Reiter steht sie als Neu');
+
+        $frisch = $this->portalRendern($e);
+        $this->assertStringContainsString('Spaete Nachricht', $this->kasten($frisch));
+        $this->assertStringNotContainsString('Erste Nachricht', $this->kasten($frisch), 'die erste ist seit dem ersten Seitenaufbau gesehen');
+        $this->assertNotNull($this->gesehenAm($spaeterId));
+        $this->assertNotNull($this->gesehenAm($ersteId));
+    }
+
+    /** Nur der Kasten-Ausschnitt des Markups ('' ohne Kasten). */
+    private function kasten(string $html): string
+    {
+        $start = strpos($html, 'class="info-kasten"');
+        if ($start === false) {
+            return '';
+        }
+        // Danach kommen "Noch zu erledigen" (falls offen) und immer die Spalten-Kaesten.
+        $enden = array_filter([strpos($html, 'class="aufgaben-kasten"', $start), strpos($html, 'class="bcols"', $start)]);
+        $ende = $enden !== [] ? min($enden) : strlen($html);
+
+        return substr($html, $start, $ende - $start);
+    }
+
     public function test_mehrere_neue_infos_aelteste_zuerst(): void
     {
         [$e] = $this->mitarbeiterMitInfo('Erster Text', titel: 'Erste Info');
@@ -202,9 +246,12 @@ final class PortalInfosTest extends TestCase
 
     public function test_aufklappen_im_reiter_setzt_gesehen_und_zeigt_den_text(): void
     {
-        [$e, $recipientId] = $this->mitarbeiterMitInfo("Hallo **fett**");
+        $e = $this->anstellung(['person_key' => 'pk-aufklappen']);
         $shell = $this->portalKomponente($e);
-        $shell->infosSchliessen(); // Kasten zu: das Aufklappen allein muss stempeln
+        // Waehrend der Sitzung zugestellt: der Seitenaufbau hat sie nicht gesehen, nur das Aufklappen stempelt.
+        $recipientId = $this->infoAn($e, "Hallo **fett**");
+        $this->portalRendern($e, $shell);
+        $this->assertNull($this->gesehenAm($recipientId), 'Vorflug: Render allein stempelt nicht');
 
         $shell->infoAufklappen($recipientId);
 

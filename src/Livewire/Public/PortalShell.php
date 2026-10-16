@@ -142,20 +142,24 @@ class PortalShell extends Component
     public string $dokumentMeldung = '';
 
     /**
-     * Infos (Spec 2026-10-16 §5.1/§5.2). Alles drei reiner Anzeige-Zustand,
-     * nichts davon steht in der DB und nichts davon ist #[Locked]: jede ID
-     * hier ist nur ein Filter auf DokumentLeser::sichtbare() — eine fremde
-     * findet nichts und stempelt nichts (wie dokumentId).
+     * Infos (Spec 2026-10-16 §5.1/§5.2). Reiner Anzeige-Zustand, nichts davon
+     * steht in der DB.
      *
-     * infoKastenZu: "Schliessen" klappt den Kasten fuer diese Sitzung zu.
-     * infoKastenIds: die im Kasten schon gezeigten Empfaenger-IDs. Das erste
-     * Anzeigen setzt first_viewed_at; ohne diese Liste waere der Kasten beim
-     * naechsten Klick irgendwo sonst einfach weg, mitten im Lesen.
-     * infoOffen: die im Reiter aufgeklappte Info.
+     * infoKastenZu: "Schliessen" klappt den Kasten fuer diese Sitzung zu —
+     * die Eingabe des Menschen, deshalb offen.
+     * infoKastenIds: die Infos des Kastens, festgelegt EINMAL beim
+     * Seitenaufbau (identitaetLaden, also mount mit gueltiger Sitzung oder
+     * verify) und dort als gesehen gestempelt. Spaetere Renders stempeln
+     * nichts: eine Info, die HR waehrend der Sitzung zustellt, bleibt
+     * ungesehen, bis der naechste Seitenaufbau sie zeigt (Review Task 4, M1).
+     * #[Locked], weil an ihr haengt, was als gesehen gilt; gelesen wird sie
+     * trotzdem nur als Filter auf DokumentLeser::sichtbare().
+     * infoOffen: die im Reiter aufgeklappte Info, nur von infoAufklappen()
+     * nach der Scope-Pruefung gesetzt — #[Locked].
      */
     public bool $infoKastenZu = false;
-    public array $infoKastenIds = [];
-    public ?int $infoOffen = null;
+    #[Locked] public array $infoKastenIds = [];
+    #[Locked] public ?int $infoOffen = null;
 
     /** Request-Cache fuer lookupOptionen() -- ein Lookup wird pro Aufruf hoechstens einmal gelesen. */
     private array $lookupCache = [];
@@ -1073,34 +1077,40 @@ class PortalShell extends Component
     }
 
     /**
-     * Der Kasten "Neu fuer dich" (Spec 2026-10-16 §5.1). Das Anzeigen selbst
-     * gilt als gesehen: erst die Zeilen bauen (sie zeigen sich in DIESEM
-     * Render noch als neu), dann genau diese Zustellungen stempeln —
-     * DokumentUnterschrift::oeffnen(), Query Builder, idempotent. Der Start
-     * steht in jedem angemeldeten Render im Markup (die Reiter schaltet
-     * Alpine), also ist "Start wird gerendert" hier gleich "angemeldet".
+     * Der Kasten "Neu fuer dich" (Spec 2026-10-16 §5.1): genau die Infos, die
+     * beim Seitenaufbau in infoKastenIds aufgenommen wurden — durch den
+     * Scope gefiltert, OHNE neuen Stempel. Gestempelt wird nur in
+     * infoKastenAufnehmen() und infoAufklappen().
      *
      * @return list<array> Zeilen wie DokumentLeser::fuerMitarbeiter(), aelteste zuerst
      */
     private function neueInfosAnzeigen(RecEmployee $employee): array
     {
-        if ($this->infoKastenZu) {
+        if ($this->infoKastenZu || $this->infoKastenIds === []) {
             return [];
         }
 
         $leser = app(DokumentLeser::class);
-        $zustellungen = $leser->kastenZustellungen($employee, $this->infoKastenIds);
-        $zeilen = $zustellungen->map(fn ($z) => $leser->zeile($z))->all();
 
+        return $leser->infoZustellungen($employee, $this->infoKastenIds)
+            ->map(fn ($z) => $leser->zeile($z))
+            ->all();
+    }
+
+    /**
+     * Seitenaufbau: die ungesehenen Infos dieses Moments kommen in den
+     * Kasten, und das Anzeigen gilt als gesehen — Stempel ueber
+     * DokumentUnterschrift::oeffnen() (Query Builder, idempotent). Der
+     * Kasten zeigt sie trotzdem fuer die ganze Sitzung, bis "Schliessen".
+     */
+    private function infoKastenAufnehmen(RecEmployee $employee): void
+    {
+        $zustellungen = app(DokumentLeser::class)->kastenZustellungen($employee);
         $unterschrift = app(DokumentUnterschrift::class);
         foreach ($zustellungen as $z) {
             $unterschrift->oeffnen($z);
         }
-        // Nur IDs, die gerade durch den Scope gegangen sind — der alte Wert
-        // aus dem Browser faellt damit bei jedem Render auf das Eigene zurueck.
         $this->infoKastenIds = $zustellungen->map(fn ($z) => (int) $z->id)->values()->all();
-
-        return $zeilen;
     }
 
     /** @return array{punkte:list<array>, einsatz:?array, gesperrt:bool} */
@@ -1531,6 +1541,16 @@ class PortalShell extends Component
             app(DokumentAutoZustellung::class)->fuerErstesOeffnen($employee);
         } catch (\Throwable $e) {
             Log::warning('recruiting.dokumente.auto_zustellung_fehlgeschlagen', ['employee_id' => (int) $employee->id, 'exception' => $e]);
+        }
+
+        // Erst NACH der Automatik: eine gerade zugestellte Willkommens-Info
+        // gehoert schon in diesen Kasten. Auch hier gilt: kein Fehler kostet
+        // die Anmeldung.
+        try {
+            $this->infoKastenAufnehmen($employee);
+        } catch (\Throwable $e) {
+            $this->infoKastenIds = [];
+            Log::warning('recruiting.dokumente.info_kasten_fehlgeschlagen', ['employee_id' => (int) $employee->id, 'exception' => $e]);
         }
 
         $this->displayName = $this->vorname($employee);

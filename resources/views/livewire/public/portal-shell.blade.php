@@ -208,9 +208,9 @@
                 {{--
                     Infos (Spec 2026-10-16 §5.1): ungesehene Infos stehen VOR
                     "Noch zu erledigen", aelteste zuerst. Das Anzeigen selbst
-                    gilt als gesehen (PortalShell::neueInfosAnzeigen) -- kein
-                    Klick noetig. "Schliessen" klappt den Kasten nur fuer
-                    diese Sitzung zu.
+                    gilt als gesehen -- gestempelt beim Seitenaufbau
+                    (PortalShell::infoKastenAufnehmen), kein Klick noetig.
+                    "Schliessen" klappt den Kasten nur fuer diese Sitzung zu.
                 --}}
                 @if ($neueInfos !== [])
                     <div class="info-kasten">

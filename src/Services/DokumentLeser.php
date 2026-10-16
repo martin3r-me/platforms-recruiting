@@ -49,22 +49,34 @@ class DokumentLeser
     }
 
     /**
-     * Die Zustellungen hinter dem Kasten: ungesehene Infos, dazu die schon in
-     * DIESER Sitzung gezeigten ($schonGezeigt) — die sind seit dem ersten
-     * Render gesehen, der Kasten soll aber stehen bleiben, bis der Mensch ihn
-     * schliesst. $schonGezeigt kommt aus dem Livewire-Zustand und ist nur ein
-     * Filter auf sichtbare(): eine fremde ID findet hier nichts.
+     * Die Zustellungen fuer den Kasten beim Seitenaufbau: ungesehene Infos.
      *
-     * @param  list<int> $schonGezeigt
      * @return \Illuminate\Support\Collection<int, RecDocumentRecipient> aelteste zuerst
      */
-    public function kastenZustellungen(RecEmployee $employee, array $schonGezeigt = [])
+    public function kastenZustellungen(RecEmployee $employee)
     {
-        $schonGezeigt = array_map('intval', $schonGezeigt);
+        return $this->sichtbare($employee)
+            ->filter(fn (RecDocumentRecipient $z) => DokumentKategorie::istText((string) $z->document->category)
+                && $z->first_viewed_at === null)
+            ->reverse()
+            ->values();
+    }
+
+    /**
+     * Infos zu gegebenen Empfaenger-IDs (die des Kastens), egal ob gesehen.
+     * Nur ein Filter auf sichtbare(): eine fremde, zurueckgezogene oder
+     * geloeschte ID findet hier nichts.
+     *
+     * @param  list<int> $ids
+     * @return \Illuminate\Support\Collection<int, RecDocumentRecipient> aelteste zuerst
+     */
+    public function infoZustellungen(RecEmployee $employee, array $ids)
+    {
+        $ids = array_map('intval', $ids);
 
         return $this->sichtbare($employee)
             ->filter(fn (RecDocumentRecipient $z) => DokumentKategorie::istText((string) $z->document->category)
-                && ($z->first_viewed_at === null || in_array((int) $z->id, $schonGezeigt, true)))
+                && in_array((int) $z->id, $ids, true))
             ->reverse()
             ->values();
     }

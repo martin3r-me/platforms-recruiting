@@ -164,10 +164,16 @@ final class PortalShellVerifyTest extends TestCase
         $shell->verify($this->auth());
 
         $this->assertSame('verified', $shell->state);
-        $this->assertCount(1, $this->logWarnungen);
+        // Zwei Schritte, zwei Warnungen: Automatik und (Review Task 4, M1)
+        // der Info-Kasten des Seitenaufbaus lesen dieselbe fehlende Tabelle.
+        $this->assertCount(2, $this->logWarnungen);
         $this->assertSame('recruiting.dokumente.auto_zustellung_fehlgeschlagen', $this->logWarnungen[0][0]);
-        $this->assertSame($ma->id, $this->logWarnungen[0][1]['employee_id']);
-        $this->assertInstanceOf(\Throwable::class, $this->logWarnungen[0][1]['exception']);
+        $this->assertSame('recruiting.dokumente.info_kasten_fehlgeschlagen', $this->logWarnungen[1][0]);
+        foreach ($this->logWarnungen as $warnung) {
+            $this->assertSame($ma->id, $warnung[1]['employee_id']);
+            $this->assertInstanceOf(\Throwable::class, $warnung[1]['exception']);
+        }
+        $this->assertSame([], $shell->infoKastenIds);
     }
 
     /**
