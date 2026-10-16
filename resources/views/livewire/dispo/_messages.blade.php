@@ -1,9 +1,9 @@
 {{-- Partial: Nachrichten-Verlauf eines Threads. Erwartet $messages (list) und
      optional $portalUrl (Link zur Einsatz-Seite an Vorlagen-Karten) sowie
-     $forwardable (Weiterleiten-Symbol an eingehenden Blasen, nur Dispo-Chat;
-     ruft openForward(id) der einbindenden Komponente). Zeilen mit kind "note"
-     sind interne Vermerke (grau, mittig); Zeilen mit kind "forward" sind
-     interne Weiterleitungs-Karten (nur HR-Chat). Genutzt von der Kommunikation und
+     $forwardable (Weiterleiten-Symbol an eingehenden Blasen; Dispo-Chat -> HR,
+     seit 16.10.2026 auch HR-Chat -> Dispo; ruft openForward(id) der einbindenden
+     Komponente). Zeilen mit kind "note" sind interne Vermerke (grau, mittig);
+     Zeilen mit kind "forward" sind interne Weiterleitungs-Karten (in beiden Chats). Genutzt von der Kommunikation und
      dem VA-Chat-Panel (Runde 4, #1). --}}
 @php
     $portalUrl = $portalUrl ?? null;

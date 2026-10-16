@@ -400,6 +400,12 @@
                             @if ($selRow->secondaryUrl)
                                 <a href="{{ $selRow->secondaryUrl }}" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 hover:bg-gray-200" title="Ursprüngliche Bewerbung dieser Person öffnen">{{ $selRow->secondaryLabel }} ↗</a>
                             @endif
+                            @php
+                                $dispoChip = $this->dispoForwardChip;
+                            @endphp
+                            @if ($dispoChip !== null)
+                                <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $dispoChip['state'] === 'open' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500' }}">{{ $dispoChip['label'] }}</span>
+                            @endif
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>
                     </div>
@@ -459,7 +465,9 @@
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5"
                      wire:key="msgs-{{ $selectedThreadId }}-{{ count($this->messages) }}"
                      x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
-                    @include('recruiting::livewire.dispo._messages', ['messages' => $this->messages, 'portalUrl' => null])
+                    {{-- forwardable: Weiterleiten-Symbol an eingehenden Blasen → openForward() (HR → Dispo, 16.10.2026).
+                         Nur wenn es ueberhaupt einen Dispo-Kanal gibt. --}}
+                    @include('recruiting::livewire.dispo._messages', ['messages' => $this->messages, 'portalUrl' => null, 'forwardable' => $this->dispoForwardOptions !== []])
                 </div>
 
                 {{-- Antwortleiste: Freitext nur solange das 24h-Fenster offen ist. Schliesst
@@ -509,6 +517,49 @@
                         <p class="mt-2 text-sm text-red-600">{{ $sendError }}</p>
                     @endif
                 </div>
+                @if ($forwardMessageId !== null)
+                    <div class="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-4" wire:key="fwd-{{ $forwardMessageId }}">
+                        <div class="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl">
+                            <div class="border-b border-gray-200 px-4 py-3">
+                                <div class="text-sm font-semibold text-gray-900">{{ \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::action(\Platform\Recruiting\Services\Comms\Forward\ForwardTargets::DISPO) }}</div>
+                                <div class="text-xs text-gray-500">Landet im Dispo-Postfach der gewählten Filiale als ungelesen. Der MA bekommt nichts.</div>
+                            </div>
+                            <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach ($this->dispoForwardOptions as $option)
+                                        <button type="button" wire:click="$set('forwardChannelId', {{ $option['channel_id'] }})"
+                                                class="rounded-full border px-3 py-1 text-xs font-semibold {{ (int) $forwardChannelId === $option['channel_id'] ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50' }}">
+                                            {{ $option['label'] }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                                @foreach ($this->forwardCandidates as $cand)
+                                    <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-2 text-sm hover:bg-gray-50">
+                                        <input type="checkbox" value="{{ $cand['id'] }}" wire:model="forwardSelection" class="mt-0.5 rounded border-gray-300">
+                                        <span class="min-w-0">
+                                            <span class="block text-[11px] text-gray-400 tabular-nums">{{ $cand['at'] }}</span>
+                                            <span class="block whitespace-pre-line text-gray-800">
+                                                @if ($cand['media_type'])
+                                                    📎 {{ \Platform\Recruiting\Services\Comms\Forward\ConversationForwarder::mediaLabel($cand['media_type']) }}
+                                                @endif
+                                                {{ $cand['body'] }}
+                                            </span>
+                                        </span>
+                                    </label>
+                                @endforeach
+                                <textarea wire:model="forwardComment" rows="2" maxlength="1000" placeholder="Kommentar für die Dispo (optional)"
+                                          class="w-full rounded-lg border-gray-300 text-sm"></textarea>
+                                @if ($forwardError)
+                                    <div class="text-xs font-semibold text-red-600">{{ $forwardError }}</div>
+                                @endif
+                            </div>
+                            <div class="flex justify-end gap-2 border-t border-gray-200 px-4 py-3">
+                                <button type="button" wire:click="closeForward" class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-50">Abbrechen</button>
+                                <button type="button" wire:click="submitForward" wire:loading.attr="disabled" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">Weiterleiten</button>
+                            </div>
+                        </div>
+                    </div>
+                @endif
             @endif
         </div>
     </div>

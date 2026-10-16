@@ -196,6 +196,9 @@ class InboxThreadForTeamChannelScopeTest extends TestCase
         $this->assertFalse((bool) CommsWhatsAppThread::query()->whereKey($threadId)->value('is_unread'));
         $this->assertNotNull($offen->fresh()->done_at, 'Oeffnen muss die Weiterleitung erledigen.');
         $this->assertSame([(int) $offen->id], $inbox->openedForwardIds);
+        // Die Karte bleibt nach dem Oeffnen sichtbar (Review 16.10., K1) — die
+        // vorher erledigte nicht.
+        $this->assertSame(1, count($inbox->forwardCards()), 'Oeffnen darf die eben erledigte Karte nicht verschwinden lassen.');
 
         // Derselbe Chat noch einmal (z. B. aus dem Weiterleitungs-Reiter) —
         // die gemerkte ID darf dabei nicht verloren gehen (Review 16.10.).

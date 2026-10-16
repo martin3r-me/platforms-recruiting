@@ -6,16 +6,19 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Eine an HR weitergeleitete Dispo-Nachricht (oder mehrere). Offen, solange
- * done_at leer ist. target_thread_id ist der HR-Thread — leer, bis HR die
- * Erstnachricht geschickt oder einen offenen Chat uebernommen hat.
+ * Eine weitergeleitete Nachricht (oder mehrere). Offen, solange done_at leer
+ * ist. Zwei Richtungen (ForwardTargets):
+ *  - dispo -> hr: target_thread_id ist der HR-Thread — leer, bis HR die
+ *    Erstnachricht geschickt oder einen offenen Chat uebernommen hat.
+ *  - hr -> dispo (16.10.2026): target_channel_id ist der gewaehlte
+ *    Dispo-Kanal (Filiale), target_thread_id wird beim Weiterleiten gesetzt.
  */
 class RecConversationForward extends Model
 {
     protected $table = 'rec_conversation_forwards';
 
     protected $fillable = [
-        'team_id', 'source', 'target', 'source_thread_id', 'rec_employee_id', 'phone', 'display_name',
+        'team_id', 'source', 'target', 'target_channel_id', 'source_thread_id', 'rec_employee_id', 'phone', 'display_name',
         'messages', 'comment', 'forwarded_by_user_id', 'forwarded_by_name', 'forwarded_at',
         'target_thread_id', 'first_contact_at', 'first_contact_by_user_id', 'last_error',
         'done_at', 'done_by_user_id',

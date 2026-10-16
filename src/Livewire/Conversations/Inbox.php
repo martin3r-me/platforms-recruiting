@@ -9,7 +9,11 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
+use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
+use Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels;
 use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
+use Platform\Recruiting\Services\Comms\Forward\ForwardMessageSelection;
+use Platform\Recruiting\Services\Comms\Forward\ForwardStatus;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
@@ -52,6 +56,15 @@ class Inbox extends Component
      */
     #[Locked]
     public array $openedForwardIds = [];
+
+    /** Weiterleiten an die Dispo (Spec 16.10.2026): angeklickte Nachricht (null = Fenster zu). */
+    public ?int $forwardMessageId = null;
+    /** @var list<int> */
+    public array $forwardSelection = [];
+    public string $forwardComment = '';
+    /** Gewaehlter Dispo-Kanal (Filiale); serverseitig gegen DispoForwardChannels geprueft. */
+    public ?int $forwardChannelId = null;
+    public ?string $forwardError = null;
 
     /** Reiter "Weitergeleitet" (Spec 02.10.2026) statt Chat-Liste. */
     public bool $showForwards = false;
@@ -217,8 +230,15 @@ class Inbox extends Component
             return [];
         }
 
-        $forwards = RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)
+        // Offene UND die, die das Oeffnen dieses Chats gerade erledigt hat —
+        // sonst verschwaende die Karte genau beim Oeffnen (gelesen = erledigt,
+        // Review 16.10.2026 K1). Erledigte aus frueheren Besuchen bleiben weg
+        // (Spec Runde 2) — auch der Reiter "Weitergeleitet" zeigt nur offene.
+        $forwards = RecConversationForward::query()
+            ->forTeam($this->teamId())
+            ->where('target', ForwardTargets::HR)
             ->where('target_thread_id', $this->selectedThreadId)
+            ->where(fn ($q) => $q->whereNull('done_at')->orWhereIn('id', $this->openedForwardIds))
             ->orderBy('forwarded_at')->orderBy('id')->get();
 
         return $forwards->map(fn (RecConversationForward $f) => [
@@ -396,6 +416,20 @@ class Inbox extends Component
                 'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
             ];
         }, $this->forwardCards);
+
+        // Vermerke "an Dispo Köln weitergeleitet" (HR -> Dispo, Spec 16.10.2026),
+        // wie die Dispo-Seite ihre "an HR weitergeleitet"-Vermerke zeigt.
+        foreach ($this->outgoingForwards as $f) {
+            $at = \Illuminate\Support\Carbon::instance($f['at']);
+            $cards[] = [
+                'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'note', 'direction' => 'note',
+                'body' => 'An ' . $f['label'] . ' weitergeleitet' . ($f['done'] ? ' (erledigt)' : '') . ($f['by'] !== '' ? ' · ' . $f['by'] : ''),
+                'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
+                'day_label' => \Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::dayLabel($at),
+                'status' => null, 'media_type' => null, 'attachments' => [],
+                'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
+            ];
+        }
 
         return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
     }
@@ -807,6 +841,7 @@ class Inbox extends Component
             }
         }
         $this->openedForwardIds = [];
+        $this->closeForward();
         $this->selectedThreadId = null;
         $this->replyText = '';
         $this->sendError = null;
@@ -814,8 +849,151 @@ class Inbox extends Component
         $this->dispatch('sidebar-refresh');
     }
 
+    /**
+     * Weiterleitungen AUS diesem HR-Chat an die Dispo, aelteste zuerst.
+     *
+     * @return list<array{at: \DateTimeInterface, label: string, done: bool, by: string}>
+     */
+    #[Computed]
+    public function outgoingForwards(): array
+    {
+        if ($this->selectedThreadId === null) {
+            return [];
+        }
+
+        // Beschriftungen EINMAL aus den Optionen (Review 16.10., W1) — nicht
+        // pro Zeile neu aufloesen, das laeuft im 20s-Poll.
+        $labels = array_column($this->dispoForwardOptions, 'label', 'channel_id');
+
+        return RecConversationForward::query()
+            ->forTeam($this->teamId())
+            ->where('source', ForwardTargets::SOURCE_HR)
+            ->where('target', ForwardTargets::DISPO)
+            ->where('source_thread_id', $this->selectedThreadId)
+            ->orderBy('forwarded_at')->orderBy('id')
+            ->get()
+            ->map(fn (RecConversationForward $f) => [
+                'at' => $f->forwarded_at,
+                'label' => ForwardTargets::label(ForwardTargets::DISPO, $labels[(int) $f->target_channel_id] ?? null),
+                'done' => $f->done_at !== null,
+                'by' => (string) ($f->forwarded_by_name ?? ''),
+            ])->all();
+    }
+
+    /** Chip im Chat-Kopf: juengste Weiterleitung an die Dispo — "bei Dispo Köln" / "Dispo Köln erledigt". */
+    #[Computed]
+    public function dispoForwardChip(): ?array
+    {
+        $alle = $this->outgoingForwards;
+        if ($alle === []) {
+            return null;
+        }
+        $letzte = $alle[count($alle) - 1];
+
+        return [
+            'state' => $letzte['done'] ? ForwardStatus::DONE : ForwardStatus::OPEN,
+            'label' => $letzte['done']
+                ? ForwardTargets::chipDone(ForwardTargets::DISPO, $letzte['label'])
+                : ForwardTargets::chipOpen(ForwardTargets::DISPO, $letzte['label']),
+        ];
+    }
+
+    /** @return list<array{channel_id: int, filial_nr: ?int, label: string}> */
+    #[Computed]
+    public function dispoForwardOptions(): array
+    {
+        return app(DispoForwardChannels::class)->options($this->teamId());
+    }
+
+    /** @return list<array{id:int, body:string, media_type:?string, at:string}> Auswahlliste des offenen Fensters */
+    #[Computed]
+    public function forwardCandidates(): array
+    {
+        if ($this->forwardMessageId === null) {
+            return [];
+        }
+        $byId = collect($this->messages)->filter(fn ($m) => ($m['id'] ?? null) !== null)->keyBy('id');
+        $ids = ForwardMessageSelection::candidates(
+            $byId->map(fn ($m) => ['id' => (int) $m['id'], 'direction' => $m['direction'], 'kind' => $m['kind'], 'ts' => (int) $m['ts']])->values()->all(),
+            $this->forwardMessageId,
+            time(),
+        );
+
+        return array_map(fn (int $id) => [
+            'id' => $id,
+            'body' => (string) $byId[$id]['body'],
+            'media_type' => $byId[$id]['media_type'],
+            'at' => (string) $byId[$id]['at'],
+        ], $ids);
+    }
+
+    public function openForward(int $messageId): void
+    {
+        $this->forwardMessageId = $messageId;
+        $this->forwardComment = '';
+        $this->forwardError = null;
+        unset($this->forwardCandidates);
+        if ($this->forwardCandidates === []) {
+            $this->forwardMessageId = null;
+            $this->sendError = 'Diese Nachricht kann nicht weitergeleitet werden.';
+            return;
+        }
+        $this->forwardSelection = [$messageId];
+
+        $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
+        $this->forwardChannelId = $thread !== null
+            ? app(DispoForwardChannels::class)->preferredFor($this->teamId(), (string) $thread->remote_phone_number)
+            : null;
+    }
+
+    public function closeForward(): void
+    {
+        $this->forwardMessageId = null;
+        $this->forwardSelection = [];
+        $this->forwardComment = '';
+        $this->forwardChannelId = null;
+        $this->forwardError = null;
+    }
+
+    public function submitForward(): void
+    {
+        $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
+        if ($thread === null || $this->forwardMessageId === null) {
+            $this->closeForward();
+            return;
+        }
+
+        $ids = ForwardMessageSelection::sanitize($this->forwardSelection, array_column($this->forwardCandidates, 'id'));
+        if ($ids === []) {
+            $this->forwardError = 'Bitte mindestens eine Nachricht auswählen.';
+            return;
+        }
+
+        $row = $this->selectedRow;
+        $r = app(ConversationForwarder::class)->forward(
+            $this->teamId(),
+            $thread,
+            $ids,
+            $this->forwardComment,
+            $row !== null && $row->subjectType === 'employee' ? $row->subjectId : null,
+            $row !== null ? $row->title : '',
+            Auth::user(),
+            ForwardTargets::DISPO,
+            ForwardTargets::SOURCE_HR,
+            $this->forwardChannelId !== null ? (int) $this->forwardChannelId : null,
+        );
+        if (!$r['ok']) {
+            $this->forwardError = $r['error'];
+            return;
+        }
+
+        $this->closeForward();
+        unset($this->messages, $this->outgoingForwards, $this->dispoForwardChip);
+    }
+
     public function select(int $threadId): void
     {
+        $this->closeForward();
         // Derselbe Chat erneut (z. B. ueber den Weiterleitungs-Reiter): die
         // beim ersten Oeffnen erledigten Weiterleitungen gemerkt lassen,
         // sonst holt „ungelesen schliessen“ sie nicht mehr zurueck.
@@ -844,6 +1022,7 @@ class Inbox extends Component
 
     public function back(): void
     {
+        $this->closeForward();
         $this->selectedThreadId = null;
         $this->forgetSnapshot();
     }

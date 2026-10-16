@@ -9,6 +9,9 @@ use Platform\Recruiting\Models\RecConversationForward;
  * Chats (Spec Runde 2, 02.10.2026) — sonst haekt HR an zwei Stellen ab.
  * Bereits erledigte bleiben unberuehrt (done_at wird nie ueberschrieben).
  *
+ * $target: dieselbe Regel gilt im Dispo-Postfach fuer Weiterleitungen von HR
+ * (ForwardTargets::DISPO, Spec 16.10.2026 HR -> Dispo).
+ *
  * Seit 16.10.2026 ist Oeffnen = erledigt: completeForThreadIds() beim
  * Oeffnen, reopen() bei „ungelesen schliessen“ — nur fuer genau die IDs,
  * die das Oeffnen erledigt hat.
@@ -39,14 +42,14 @@ final class ForwardCompletion
      *
      * @return list<int>
      */
-    public function completeForThreadIds(int $teamId, int $threadId, ?int $userId): array
+    public function completeForThreadIds(int $teamId, int $threadId, ?int $userId, string $target = ForwardTargets::HR): array
     {
         if ($threadId <= 0) {
             return [];
         }
 
         $ids = RecConversationForward::query()
-            ->openForTeam($teamId, ForwardTargets::HR)
+            ->openForTeam($teamId, $target)
             ->where('target_thread_id', $threadId)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
@@ -70,7 +73,7 @@ final class ForwardCompletion
      *
      * @param array<int, int|string> $forwardIds
      */
-    public function reopen(int $teamId, int $threadId, array $forwardIds, ?int $userId): int
+    public function reopen(int $teamId, int $threadId, array $forwardIds, ?int $userId, string $target = ForwardTargets::HR): int
     {
         $ids = array_values(array_unique(array_filter(
             array_map('intval', $forwardIds),
@@ -82,7 +85,7 @@ final class ForwardCompletion
 
         return RecConversationForward::query()
             ->where('team_id', $teamId)
-            ->where('target', ForwardTargets::HR)
+            ->where('target', $target)
             ->where('target_thread_id', $threadId)
             ->where('done_by_user_id', $userId)
             ->whereNotNull('done_at')

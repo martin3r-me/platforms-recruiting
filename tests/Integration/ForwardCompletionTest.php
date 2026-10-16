@@ -135,4 +135,22 @@ class ForwardCompletionTest extends TestCase
         $this->assertSame(0, (new ForwardCompletion())->reopen(self::TEAM, 64, [], 7));
         $this->assertNotNull($f->fresh()->done_at);
     }
+
+    public function test_ziel_dispo_wird_getrennt_von_hr_erledigt_und_zurueckgeholt(): void
+    {
+        // Gleicher Thread-Wert, verschiedene Ziele: das Dispo-Postfach darf
+        // keine HR-Weiterleitung erledigen und umgekehrt.
+        $anDispo = $this->forward(['source' => 'hr', 'target' => 'dispo', 'target_thread_id' => 70]);
+        $anHr = $this->forward(['target_thread_id' => 70]);
+
+        $ids = (new ForwardCompletion())->completeForThreadIds(self::TEAM, 70, 7, 'dispo');
+
+        $this->assertSame([(int) $anDispo->id], $ids);
+        $this->assertNotNull($anDispo->fresh()->done_at);
+        $this->assertNull($anHr->fresh()->done_at);
+
+        $this->assertSame(0, (new ForwardCompletion())->reopen(self::TEAM, 70, $ids, 7), 'Ziel HR (Standard) trifft die Dispo-Weiterleitung nicht.');
+        $this->assertSame(1, (new ForwardCompletion())->reopen(self::TEAM, 70, $ids, 7, 'dispo'));
+        $this->assertNull($anDispo->fresh()->done_at);
+    }
 }
