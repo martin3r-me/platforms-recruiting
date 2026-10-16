@@ -7,12 +7,12 @@ use Platform\Recruiting\Support\DokumentKategorie;
 
 final class DokumentKategorieTest extends TestCase
 {
-    public function test_sechs_kategorien_mit_label(): void
+    public function test_sieben_kategorien_mit_label(): void
     {
-        $this->assertSame(['contract', 'instruction', 'form', 'payslip', 'certificate', 'other'], DokumentKategorie::codes());
+        $this->assertSame(['contract', 'instruction', 'form', 'payslip', 'certificate', 'other', 'info'], DokumentKategorie::codes());
         $this->assertSame('Vertrag / Zusatzvereinbarung', DokumentKategorie::label('contract'));
         $this->assertSame('Belehrung / Unterweisung', DokumentKategorie::label('instruction'));
-        $this->assertCount(6, DokumentKategorie::labels());
+        $this->assertCount(7, DokumentKategorie::labels());
     }
 
     public function test_default_aktion_je_kategorie(): void

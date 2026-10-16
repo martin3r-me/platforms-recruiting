@@ -24,6 +24,7 @@ class RecDocument extends Model
         'team_id', 'uuid', 'title', 'category', 'action',
         'disk', 'stored_path', 'original_filename', 'file_sha256', 'file_size',
         'rec_dispo_event_id', 'created_by_user_id',
+        'content_markdown', 'auto_neue_mitarbeiter', 'published_at',
     ];
 
     protected $casts = [
@@ -31,6 +32,8 @@ class RecDocument extends Model
         'file_size'          => 'integer',
         'rec_dispo_event_id' => 'integer',
         'created_by_user_id' => 'integer',
+        'auto_neue_mitarbeiter' => 'boolean',
+        'published_at'       => 'datetime',
     ];
 
     protected static function booted(): void

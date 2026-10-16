@@ -16,6 +16,7 @@ final class DokumentKategorie
     public const PAYSLIP     = 'payslip';
     public const CERTIFICATE = 'certificate';
     public const OTHER       = 'other';
+    public const INFO        = 'info';
 
     public const AKTION_NONE        = 'none';
     public const AKTION_ACKNOWLEDGE = 'acknowledge';
@@ -28,6 +29,7 @@ final class DokumentKategorie
         self::PAYSLIP     => ['label' => 'Lohnabrechnung',               'aktion' => self::AKTION_NONE],
         self::CERTIFICATE => ['label' => 'Bescheinigung',                'aktion' => self::AKTION_NONE],
         self::OTHER       => ['label' => 'Sonstiges',                    'aktion' => self::AKTION_NONE],
+        self::INFO        => ['label' => 'Info / News',                  'aktion' => self::AKTION_NONE],
     ];
 
     private const AKTIONEN = [
@@ -65,6 +67,16 @@ final class DokumentKategorie
         }
 
         return self::KATALOG[$code]['aktion'];
+    }
+
+    /**
+     * Textbasierte Kategorie (Spec 2026-10-16 §2): statt einer PDF traegt das
+     * Dokument content_markdown; die Aktion ist immer AKTION_NONE. Die EINE
+     * Stelle fuer diese Regel — Service, Blade und Portal fragen hier.
+     */
+    public static function istText(string $category): bool
+    {
+        return $category === self::INFO;
     }
 
     /** @return array<string,string> Code → Label */
