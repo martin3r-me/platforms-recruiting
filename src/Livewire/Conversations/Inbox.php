@@ -100,7 +100,6 @@ class Inbox extends Component
             level: $this->level,
             owner: $this->owner,
             search: $this->search,
-            handled: $this->showHandled,
             currentUserId: (int) Auth::id(),
             kind: $this->kind,
         );
