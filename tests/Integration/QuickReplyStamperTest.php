@@ -20,6 +20,8 @@ use Platform\Recruiting\Services\Comms\QuickReplyStamper;
  */
 class QuickReplyStamperTest extends TestCase
 {
+    private static int $nummer = 0;
+
     private const TEAM = 731;
 
     public static function setUpBeforeClass(): void
@@ -253,7 +255,7 @@ class QuickReplyStamperTest extends TestCase
             'team_id' => self::TEAM,
             'comms_channel_id' => 1,
             'token' => bin2hex(random_bytes(8)),
-            'remote_phone_number' => '+4915170000' . random_int(100, 999),
+            'remote_phone_number' => '+491517' . str_pad((string) ++self::$nummer, 7, '0', STR_PAD_LEFT), // eindeutig je Lauf — Zufall aus 900 Werten kollidierte am Unique-Index (Kanal, Nummer)
             'is_unread' => true,
             'last_inbound_at' => date('Y-m-d H:i:s', time() - 5),
         ]);
