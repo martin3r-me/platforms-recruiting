@@ -63,6 +63,9 @@ class DokumentService
         if (!DokumentKategorie::exists($kategorie)) {
             throw new \InvalidArgumentException('Unbekannte Kategorie.');
         }
+        if (DokumentKategorie::istText($kategorie)) {
+            throw new \InvalidArgumentException('Infos werden als Text bereitgestellt, nicht als PDF.');
+        }
         if (!DokumentKategorie::aktionExists($aktion)) {
             throw new \InvalidArgumentException('Unbekannte Aktion.');
         }
@@ -71,22 +74,9 @@ class DokumentService
             throw new \InvalidArgumentException($dateiFehler);
         }
 
-        $ids = array_values(array_unique(array_map('intval', $employeeIds)));
-        $anstellungen = $ids === [] ? [] : DB::table('rec_employees')
-            ->where('team_id', $teamId)
-            ->whereIn('id', $ids)
-            ->get(['id', 'person_key'])
-            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key])
-            ->keyBy('id')
-            ->all();
-        // Reihenfolge der Eingabe behalten, fremde/unbekannte ids stumm uebergehen.
-        $geordnet = [];
-        foreach ($ids as $id) {
-            if (isset($anstellungen[$id])) {
-                $geordnet[] = $anstellungen[$id];
-            }
-        }
-        $empfaengerIds = EmpfaengerEntdoppler::aufPersonen($geordnet);
+        $aufgeloest = $this->empfaengerAufloesen($teamId, $employeeIds);
+        $empfaengerIds = $aufgeloest['ids'];
+        $anstellungen = $aufgeloest['anstellungen'];
         if ($empfaengerIds === []) {
             throw new \InvalidArgumentException('Bitte mindestens einen Empfänger wählen.');
         }
@@ -126,6 +116,91 @@ class DokumentService
             'empfaenger'    => count($empfaengerIds),
             'versand_noetig' => DokumentKategorie::brauchtHandlung($aktion),
         ];
+    }
+
+    public const INFO_MAX_ZEICHEN = 20000;
+
+    /**
+     * Info/News als Text statt PDF (Spec 2026-10-16 §3.1). Kategorie info,
+     * Aktion none, Pruefsumme ueber den Text in file_sha256. Ohne Empfaenger
+     * nur mit auto_neue_mitarbeiter — sonst laege eine Info, die nie jemand
+     * sieht. Keine Datei, kein Speicher.
+     *
+     * @param  array{title:string, auto_neue_mitarbeiter?:bool} $daten
+     * @param  list<int> $employeeIds
+     * @return array{dokument: RecDocument, empfaenger: int, versand_noetig: bool}
+     */
+    public function bereitstellenText(int $teamId, array $daten, string $markdown, array $employeeIds, ?int $userId): array
+    {
+        $titel = trim((string) ($daten['title'] ?? ''));
+        $auto = (bool) ($daten['auto_neue_mitarbeiter'] ?? false);
+        if ($titel === '') {
+            throw new \InvalidArgumentException('Bitte einen Titel angeben.');
+        }
+        if (trim($markdown) === '') {
+            throw new \InvalidArgumentException('Bitte einen Text schreiben.');
+        }
+        if (mb_strlen($markdown) > self::INFO_MAX_ZEICHEN) {
+            throw new \InvalidArgumentException('Der Text ist zu lang (höchstens ' . self::INFO_MAX_ZEICHEN . ' Zeichen).');
+        }
+        $aufgeloest = $this->empfaengerAufloesen($teamId, $employeeIds);
+        if ($aufgeloest['ids'] === [] && !$auto) {
+            throw new \InvalidArgumentException('Bitte mindestens einen Empfänger wählen oder „automatisch an neue Mitarbeiter“ anhaken.');
+        }
+
+        $dokument = DB::transaction(function () use ($teamId, $titel, $markdown, $auto, $userId, $aufgeloest) {
+            $dokument = RecDocument::create([
+                'team_id'               => $teamId,
+                'uuid'                  => (string) UuidV7::generate(),
+                'title'                 => mb_substr($titel, 0, 255),
+                'category'              => DokumentKategorie::INFO,
+                'action'                => DokumentKategorie::AKTION_NONE,
+                'content_markdown'      => $markdown,
+                'file_sha256'           => hash('sha256', $markdown),
+                'auto_neue_mitarbeiter' => $auto,
+                'published_at'          => now(),
+                'created_by_user_id'    => $userId,
+            ]);
+            foreach ($aufgeloest['ids'] as $employeeId) {
+                RecDocumentRecipient::create([
+                    'team_id'         => $teamId,
+                    'rec_document_id' => $dokument->id,
+                    'rec_employee_id' => $employeeId,
+                    'person_key'      => $aufgeloest['anstellungen'][$employeeId]['person_key'] ?? null,
+                ]);
+            }
+
+            return $dokument;
+        });
+
+        return ['dokument' => $dokument->fresh(), 'empfaenger' => count($aufgeloest['ids']), 'versand_noetig' => false];
+    }
+
+    /**
+     * Team-gepruefte, entdoppelte Empfaenger (Eingabereihenfolge bleibt,
+     * fremde/unbekannte ids stumm uebergangen). Gemeinsam fuer PDF und Text.
+     *
+     * @param  list<int> $employeeIds
+     * @return array{ids: list<int>, anstellungen: array<int, array{id:int, person_key:?string}>}
+     */
+    private function empfaengerAufloesen(int $teamId, array $employeeIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $employeeIds)));
+        $anstellungen = $ids === [] ? [] : DB::table('rec_employees')
+            ->where('team_id', $teamId)
+            ->whereIn('id', $ids)
+            ->get(['id', 'person_key'])
+            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key])
+            ->keyBy('id')
+            ->all();
+        $geordnet = [];
+        foreach ($ids as $id) {
+            if (isset($anstellungen[$id])) {
+                $geordnet[] = $anstellungen[$id];
+            }
+        }
+
+        return ['ids' => EmpfaengerEntdoppler::aufPersonen($geordnet), 'anstellungen' => $anstellungen];
     }
 
     /**
