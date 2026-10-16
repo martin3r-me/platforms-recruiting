@@ -356,11 +356,11 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - [ ] Dispo-Kanäle prüfen: `DispoForwardChannels::options` liefert mindestens einen Eintrag (Filialen kommen von dort, nicht aus den Einstellungen).
 - [ ] Testnummer eines aktiven Mitarbeiters bereithalten (nicht die eines Bewerbers — Bewerber-Threads bekommen die Frage nie).
 - [ ] Schalter `comms_topic_enabled` einschalten; danach per SQL nachsehen, dass der Wert steht (Settings-Fenster-Falle, 2.3).
-- [ ] Testnachricht ohne Anlass von der Testnummer schicken: Knopfauswahl „Einsatz/Dispo" / „Lohn" kommt zurück.
-- [ ] Klick-Durchlauf: Einsatz/Dispo → Filiale wählen → Dispo-Postfach zeigt die Karte, der HR-Chat ist mit `routed_dispo` gestempelt; Lohn → Text mit offenen Punkten bzw. „alles erledigt" mit Login-Knopf.
-- [ ] Sichttest „Offen lassen": Frage unbeantwortet lassen bzw. im Chat bewusst „Offen lassen" wählen → Nachfass-Marker erscheint am Chat, erledigt sich durch eine menschliche Antwort (eine Auto-Antwort zählt nicht), keine zweite Frage innerhalb der Ruhezeit (8 h, beide Richtungen).
+- [ ] Testnachricht ohne Anlass von der Testnummer schicken: Knopfauswahl mit den drei Knöpfen „Disposition" / „Lohn & Gehalt" / „HR allgemein" kommt zurück; eine zweite Nachricht innerhalb der Ruhezeit (8 h, beide Richtungen) löst keine zweite Frage aus.
+- [ ] Klick-Durchlauf: Disposition → Filiale wählen → Link „Zur Dispo …" kommt, Dispo-Postfach zeigt die Karte, erst dann ist der HR-Chat mit `routed_dispo` gestempelt (Stempel nur, wenn Link gesendet UND Karte bei der Dispo; scheitert die Weiterleitung, bleibt der Chat bei HR offen); Lohn & Gehalt → Text mit offenen Punkten bzw. „alles erledigt" mit Login-Knopf, Chat bleibt bei HR; HR allgemein → nur Thema gesetzt, Chat bleibt bei HR.
+- [ ] Sichttest „Offen lassen": im Chat „Offen lassen" klicken → Nachfass-Marker erscheint am Chat. Der Marker entsteht NUR durch diesen Klick (eine unbeantwortete Frage setzt keinen) und verschwindet NUR über „Erledigt" — eine Antwort von HR löst ihn **nicht** (auch keine Auto-Antwort). Gegenprobe: antworten → Marker bleibt; „Erledigt" → Marker weg.
 - [ ] Kein `queue:restart` nötig: die Themen-Frage läuft im Eingangs-Listener `HandleWhatsAppInboundForRecruiting`, der nicht `ShouldQueue` implementiert (synchron im Webhook-Request); `view:clear` aus 4.5 genügt. Gilt nur, solange der Listener nicht in eine Queue gelegt wird.
-- [ ] Notaus: `comms_topic_enabled` wieder aus — wirkt sofort, laufende Auswahlen bleiben stehen.
+- [ ] Notaus: `comms_topic_enabled` wieder aus — wirkt sofort: keine neuen Fragen, und Klicks auf schon verschickte Knöpfe werden ignoriert (`ignoriert:schalter_aus`, keine Antwort, keine Weiterleitung, kein Stempel; der Chat bleibt bei HR offen). Bereits gesetzte Themen, Stempel und Karten bleiben stehen.
 
 ---
 

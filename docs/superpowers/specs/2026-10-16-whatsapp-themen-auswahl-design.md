@@ -193,7 +193,8 @@ Rollout: Feature-Schalter erst nach Sichttest an; Texte von Markus abnehmen lass
 Auslöser (8h in beide Richtungen, nur aktiver MA, kein Klick, keine Sprachnachricht, Schalter aus),
 Klick-Verarbeitung je ID, Stamper-Ausnahme für `topic_*`/`dispo_*`, `routed_dispo`-Stempel,
 wa.me-Link mit URL-kodiertem Ursprungstext, Lohn-Zweig mit/ohne offene Punkte und mit/ohne `portal_v2_since`,
-Followup-Marker erledigt sich durch menschliche Antwort, nicht durch Auto-Antwort.
+Followup-Marker entsteht nur durch „Offen lassen“ und erledigt sich nur über „Erledigt“ — eine Antwort (menschlich
+oder automatisch) löst ihn **nicht** (wie §3; Korrektur Schlussreview I2).
 `sendInteractive` in Tests über Unterklasse/Fake ersetzen (Muster `DokumentHinweisSender`).
 
 ---
@@ -205,6 +206,10 @@ Abweichungen von der Spec (Rulings aus dem Ledger):
 - **§2.7 Chip-Regel:** Der Themen-Chip richtet sich nach der jüngsten Zeile je Thread (ohne Themen-Filter) und zeigt sich nur, wenn diese Zeile ein Thema trägt — **ohne** Ruhezeit-Ablauf. Ein offener Lohn-Chat verliert seinen Chip nicht nach 8 h; eine neue Frage (neue `asked`-Zeile) ersetzt ihn. Kosten bei Irrtum: ein alter Chip an einem längst erledigten Chat, bis eine neue Frage kommt.
 - **§2.4 Lohn-Text ohne Login-URL:** geht als Ein-Knopf-Nachricht „Alles klar" (`topic_ack`) raus, weil `sendText` im CRM kein Auto-Reply-Flag hat. Kosten: ein zusätzlicher Knopf.
 - **§2.3 Abgelehnter wa.me-Link:** die Weiterleitung an Dispo läuft trotzdem (das Anliegen soll ankommen); der Stempel `routed_dispo` nur bei gesendetem Link. Im Fehlerfall sehen HR und Dispo den Fall beide.
+- **§2.3 Stempel nur mit Karte (Schlussreview I1):** `routed_dispo` und Zustand `routed` NUR, wenn der wa.me-Link gesendet wurde **und** alles Getippte in einer Karte für genau diese Dispo liegt (`dispo_channel_id` = gewählter Kanal). Scheitert die Weiterleitung (Kanal aus der Auswahl gefallen, Tabelle fehlt, Ablehnung), bleibt der Chat bei HR offen (Thema Dispo, Zustand `chosen`); ein späterer Tipp versucht es erneut. Beim Wiederholversuch werden neu getippte Nachrichten, die in keiner Karte für diese Dispo stehen, als **zweite Karte** nachgereicht (Schlussreview N2 — einfacher und nachvollziehbarer als das Anhängen an die alte Karte); scheitert das, kein Stempel.
+- **wa.me-Vorbelegung:** gekappt wird von vorn, die neuesten Zeilen bleiben (Schlussreview N1).
+- **Notaus wirkt auch auf Klicks (Schlussreview m2):** Schalter aus → Klicks auf offene Knöpfe → `ignoriert:schalter_aus`, der Chat bleibt bei HR.
+- **Einstellungen (Schlussreview m5):** Login-URL nur mit `https://`, Team-Texte höchstens 1000 Zeichen (Meta-Body 1024 inkl. Abwesenheits-Vorspann); sonst null (= Vorgabe) plus Meldung am Feld.
 - **Kontext-Gate:** der `RecEmployee`-Kontext wird vor dem `ThreadContextGate` herausgenommen, sonst würde jeder erkannte MA-Thread dauerhaft geblockt; andere Fremdkontexte blocken weiter.
 - **Datenmodell:** `last_click_message_id` liegt gleich in der ersten Migration (Schutz gegen doppelte Webhooks).
 - **Logging:** Telefonnummern im Sender-Log nur mit den letzten vier Ziffern (wie `EinmalcodeSender`).
