@@ -41,7 +41,7 @@ final class InboxQuery
      */
     public function __construct(private ?DispoForwardChannels $dispoKanaele = null) {}
 
-    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
+    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
     public function counts(int $teamId, ?int $now = null): array
     {
         // Ohne Filial-Aufloesung: die Navigation links (Sidebar, 30s-Poll auf
@@ -82,6 +82,7 @@ final class InboxQuery
         $humanOutbound = $this->humanOutboundTimestamps([$id]);
         $handledAt = $this->handledTimestamps($teamId, [$id]);
         $themen = $this->aktuelleThemen($teamId, [$id]);
+        $offen = $this->offeneMarker($teamId, [$id]);
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
@@ -106,6 +107,7 @@ final class InboxQuery
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
             ...self::themaFelder($themen[$id] ?? null),
+            'followup' => $offen[$id] ?? null,
         ];
 
         return $this->hydrate([$row], $teamId)[0] ?? null;
@@ -147,7 +149,7 @@ final class InboxQuery
      * die Filial-Basis, aber unabhaengig von der gewaehlten Thema-Pille
      * (jede Pille zeigt ihre eigene Zahl).
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
      */
     public function snapshot(
         int $teamId,
@@ -246,12 +248,12 @@ final class InboxQuery
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}
      */
     private function countsFromScored(array $rows): array
     {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
-                   'missed' => 0, 'total' => 0,
+                   'missed' => 0, 'followup' => 0, 'total' => 0,
                    'applicants' => 0, 'employees' => 0,
                    'topics' => array_fill_keys(self::TOPICS, 0)];
 
@@ -268,6 +270,11 @@ final class InboxQuery
             // Thema zaehlt wie Alle/Bewerber/Mitarbeiter jeden Chat, auch gelesene.
             if (isset($counts['topics'][$row['topic'] ?? ''])) {
                 $counts['topics'][$row['topic']]++;
+            }
+            // „Offen“ zaehlt markierte Chats unabhaengig von gelesen (Spec §3) —
+            // deshalb VOR der is_unread-Pruefung.
+            if (($row['followup'] ?? null) !== null) {
+                $counts['followup']++;
             }
             if (!$row['is_unread']) {
                 continue;
@@ -317,6 +324,7 @@ final class InboxQuery
         $humanOutbound = $this->humanOutboundTimestamps($threadIds);
         $handledAt = $this->handledTimestamps($teamId, $threadIds);
         $themen = $this->aktuelleThemen($teamId, $threadIds);
+        $offen = $this->offeneMarker($teamId, $threadIds);
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
@@ -380,6 +388,7 @@ final class InboxQuery
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
                 ...self::themaFelder($themen[$id] ?? null),
+                'followup' => $offen[$id] ?? null,
             ];
         }
 
@@ -405,14 +414,23 @@ final class InboxQuery
         }
 
         $level = $row['escalation']->level;
-        // Jede Pille ausser "Alle" zeigt nur offene Chats. Eine Ampelstufe
-        // haben ohnehin nur offene (openState()), die Pruefung auf is_unread
-        // steht trotzdem fuer alle Stufen da, damit beides nie auseinanderlaeuft.
-        if ($filter->level !== 'all' && !$row['is_unread']) {
-            return false;
-        }
-        if (!in_array($filter->level, ['all', 'unread'], true) && $level !== $filter->level) {
-            return false;
+        if ($filter->level === 'followup') {
+            // „Offen“ (Spec §3): nur markierte Chats, aber UNABHAENGIG von
+            // gelesen/ungelesen — deshalb vor der is_unread-Pruefung. Owner und
+            // Suche greifen weiter unten trotzdem.
+            if (($row['followup'] ?? null) === null) {
+                return false;
+            }
+        } else {
+            // Jede Pille ausser "Alle" zeigt nur offene Chats. Eine Ampelstufe
+            // haben ohnehin nur offene (openState()), die Pruefung auf is_unread
+            // steht trotzdem fuer alle Stufen da, damit beides nie auseinanderlaeuft.
+            if ($filter->level !== 'all' && !$row['is_unread']) {
+                return false;
+            }
+            if (!in_array($filter->level, ['all', 'unread'], true) && $level !== $filter->level) {
+                return false;
+            }
         }
 
         // Zustaendigkeit haengt am Bewerber. Mitarbeiter-Chats und nicht
@@ -763,6 +781,7 @@ final class InboxQuery
                 topic: $row['topic'] ?? null,
                 topicLabel: $this->themaLabel($teamId, $row['topic'] ?? null, $row['topic_dispo_channel_id'] ?? null),
                 topicNote: self::themaVermerk($row['topic_state'] ?? null),
+                followup: $row['followup'] ?? null,
             );
         }
 
@@ -832,6 +851,25 @@ final class InboxQuery
         }
 
         return $out;
+    }
+
+    /**
+     * Offene „Offen lassen“-Marker je Thread (FollowupMarker). Fehlt die
+     * Tabelle (Deploy ohne migrate), degradiert der Lesepfad wie bei den
+     * Themen: keine Marker, Zaehler 0 — gemeldet, nicht verschluckt.
+     *
+     * @param list<int> $threadIds
+     * @return array<int, array{by: ?string, at: int}>
+     */
+    private function offeneMarker(int $teamId, array $threadIds): array
+    {
+        try {
+            return (new FollowupMarker())->offeneFuer($teamId, $threadIds);
+        } catch (\Illuminate\Database\QueryException $e) {
+            self::melde($e);
+
+            return [];
+        }
     }
 
     /**

@@ -10,7 +10,28 @@
         ['key' => 'yellow', 'label' => 'Gelb',      'value' => $counts['yellow'], 'class' => 'text-amber-600'],
         ['key' => 'red',    'label' => 'Rot',       'value' => $counts['red'],    'class' => 'text-red-600'],
         ['key' => 'missed', 'label' => 'Verpasst',  'value' => $counts['missed'], 'class' => 'text-gray-700'],
+        // „Offen lassen“ (Spec §3): markierte Chats, auch gelesene.
+        ['key' => 'followup', 'label' => 'Offen',   'value' => $counts['followup'] ?? 0, 'class' => 'text-sky-700'],
     ];
+    // Chip „offen gelassen von Clara · 18:05“ — Vorname der markierenden
+    // Person, Zeit in der Team-Zeitzone; aelter als heute mit Datum.
+    $offenTz = $this->commsTimezone;
+    $offenChipText = function (?array $followup) use ($offenTz): ?string {
+        if ($followup === null) {
+            return null;
+        }
+        $zeit = \Carbon\Carbon::createFromTimestamp($followup['at'], $offenTz);
+        $wann = $zeit->isToday() ? $zeit->format('H:i') : $zeit->format('d.m. H:i');
+        $vorname = null;
+        if ($followup['by'] !== null) {
+            $teile = preg_split('/\s+/', trim($followup['by'])) ?: [];
+            $vorname = $teile[0] ?? null;
+        }
+
+        return $vorname !== null && $vorname !== ''
+            ? 'offen gelassen von ' . $vorname . ' · ' . $wann
+            : 'offen gelassen · ' . $wann;
+    };
     // Themen-Auswahl (Spec 2.8): Chip-Farben je Thema — Dispo violett wie der
     // Weiterleitungs-Chip, Lohn amber, HR grau.
     $themaChip = [
@@ -362,6 +383,9 @@
                                     @if ($row->topicNote !== null)
                                         <span class="rounded bg-gray-50 px-1.5 py-0.5 font-normal text-gray-500">{{ $row->topicNote }}</span>
                                     @endif
+                                    @if ($row->followup !== null)
+                                        <span class="rounded bg-sky-50 px-1.5 py-0.5 text-sky-700" title="{{ $row->followup['by'] ?? '' }}">{{ $offenChipText($row->followup) }}</span>
+                                    @endif
                                     @if ($row->siblingCount > 0)
                                         <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">+{{ $row->siblingCount }} weiterer Chat</span>
                                     @endif
@@ -464,9 +488,27 @@
                             @if ($selRow->topicNote !== null)
                                 <span class="rounded bg-gray-50 px-1.5 py-0.5 text-[10.5px] font-normal text-gray-500">{{ $selRow->topicNote }}</span>
                             @endif
+                            @if ($selRow->followup !== null)
+                                <span class="rounded bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-sky-700" title="{{ $selRow->followup['by'] ?? '' }}">{{ $offenChipText($selRow->followup) }}</span>
+                            @endif
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>
                     </div>
+                    {{-- „Offen lassen“ / „Erledigt“ (Spec §3): eigener Zustand neben
+                         „ungelesen schließen“ — geloest wird er NUR ueber „Erledigt“. --}}
+                    @if ($selRow->followup === null)
+                        <button type="button" wire:click="offenLassen"
+                                title="Chat als noch zu erledigen markieren — bleibt unter „Offen“, bis jemand „Erledigt“ klickt"
+                                class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50">
+                            Offen lassen
+                        </button>
+                    @else
+                        <button type="button" wire:click="followupErledigen"
+                                title="Markierung „offen gelassen“ lösen"
+                                class="shrink-0 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100">
+                            Erledigt
+                        </button>
+                    @endif
                     <button type="button" wire:click="markUnreadAndClose"
                             title="Chat schließen und wieder als ungelesen markieren — z. B. um später zu antworten"
                             class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50">

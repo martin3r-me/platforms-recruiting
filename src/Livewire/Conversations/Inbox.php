@@ -921,6 +921,55 @@ class Inbox extends Component
     }
 
     /**
+     * „Offen lassen“ (Spec 2026-10-16 §3): den offenen Chat bewusst als noch
+     * zu erledigen markieren. Der Chat bleibt offen, der Lesestatus bleibt
+     * unberuehrt — der Marker ist ein eigener Zustand neben „ungelesen“.
+     */
+    public function offenLassen(): void
+    {
+        $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
+        if ($thread === null) {
+            return;
+        }
+
+        try {
+            app(\Platform\Recruiting\Services\Comms\FollowupMarker::class)
+                ->markieren($this->teamId(), (int) $thread->id, Auth::id() !== null ? (int) Auth::id() : null);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Deploy ohne migrate: Hinweis statt 500.
+            report($e);
+            session()->flash('error', '„Offen lassen“ ist noch nicht eingerichtet.');
+
+            return;
+        }
+        $this->forgetSnapshot();
+    }
+
+    /**
+     * „Erledigt“: loest den Marker bewusst — der EINZIGE Weg, eine Antwort
+     * loest ihn nicht. Am Lesestatus aendert sich nichts: der Chat ist
+     * geoeffnet, also ohnehin gelesen.
+     */
+    public function followupErledigen(): void
+    {
+        $thread = $this->selectedThreadId !== null ? $this->threadForTeam($this->selectedThreadId) : null;
+        if ($thread === null) {
+            return;
+        }
+
+        try {
+            app(\Platform\Recruiting\Services\Comms\FollowupMarker::class)
+                ->erledigen($this->teamId(), (int) $thread->id, Auth::id() !== null ? (int) Auth::id() : null);
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+            session()->flash('error', '„Offen lassen“ ist noch nicht eingerichtet.');
+
+            return;
+        }
+        $this->forgetSnapshot();
+    }
+
+    /**
      * Weiterleitungen AUS diesem HR-Chat an die Dispo, aelteste zuerst.
      *
      * @return list<array{at: \DateTimeInterface, label: string, done: bool, by: string}>

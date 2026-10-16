@@ -42,5 +42,10 @@ final class InboxRow
         public readonly ?string $topicLabel = null,
         /** Vermerk zum Weg danach: 'Akte unvollständig · Hinweis gesendet' | 'Login-Hinweis gesendet' | null. */
         public readonly ?string $topicNote = null,
+        /**
+         * „Offen lassen“-Marker: ['by' => Name|null, 'at' => Unix-TS] oder null.
+         * Geloest nur ueber „Erledigt“, nie durch eine Antwort.
+         */
+        public readonly ?array $followup = null,
     ) {}
 }
