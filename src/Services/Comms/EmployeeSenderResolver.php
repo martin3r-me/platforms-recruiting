@@ -23,7 +23,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoPhoneMatcher;
  *    kanonische id = kleinste id der Gruppe
  *  - verschiedene Personen mit derselben Nummer = mehrdeutig, nie raten
  */
-final class EmployeeSenderResolver
+class EmployeeSenderResolver
 {
     public const NONE = 'none';
     public const EMPLOYEE = 'employee';

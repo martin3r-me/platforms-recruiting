@@ -45,4 +45,13 @@ final class ThemenTexteTest extends TestCase
         $this->assertSame('Dispo Mönchengladba…', ThemenTexte::filialKnopf('Dispo Mönchengladbach'));
         $this->assertSame('Dispo Köln', ThemenTexte::filialKnopf('Dispo Köln'));
     }
+
+    public function test_listen_titel_wird_auf_24_zeichen_gekuerzt(): void
+    {
+        $this->assertSame('Köln', ThemenTexte::listenTitel('Köln'));
+        $this->assertSame(str_repeat('a', 24), ThemenTexte::listenTitel(str_repeat('a', 24)));
+        $gekuerzt = ThemenTexte::listenTitel(str_repeat('ä', 30));
+        $this->assertSame(str_repeat('ä', 23) . '…', $gekuerzt);
+        $this->assertSame(ThemenTexte::MAX_LIST, mb_strlen($gekuerzt));
+    }
 }

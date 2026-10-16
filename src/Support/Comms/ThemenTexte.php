@@ -68,6 +68,12 @@ final class ThemenTexte
         return mb_strlen($label) <= self::MAX_BUTTON ? $label : mb_substr($label, 0, self::MAX_BUTTON - 1) . '…';
     }
 
+    /** Listenzeilen-Titel: Meta erlaubt 24 Zeichen, ein längerer wird auf 23 + „…“ gekürzt. */
+    public static function listenTitel(string $titel): string
+    {
+        return mb_strlen($titel) <= self::MAX_LIST ? $titel : mb_substr($titel, 0, self::MAX_LIST - 1) . '…';
+    }
+
     private static function oderVorgabe(?string $teamText, string $vorgabe): string
     {
         $t = trim((string) $teamText);
