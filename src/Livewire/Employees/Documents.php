@@ -393,9 +393,15 @@ class Documents extends Component
         $n = $e['empfaenger'];
         if ($n === 0) {
             $this->flash = "Info „{$titel}“ wird automatisch an neue Mitarbeiter zugestellt (beim ersten Öffnen des Portals).";
-        } else {
+        } elseif ($ohnePortal === 0) {
             $this->flash = "Info „{$titel}“ bereitgestellt: WhatsApp geht an {$n} Empfänger"
-                . ($ohnePortal > 0 ? ", davon {$ohnePortal} im alten Portal ohne Nachricht" : '')
+                . ($auto ? '; zusätzlich automatisch an neue Mitarbeiter.' : '.');
+        } else {
+            // Zwei Aussagen statt "geht an 2, davon 1 ohne" (Review Task 5, M2):
+            // die WhatsApp-Zahl ist nur die im neuen Portal.
+            $mitWhatsApp = max(0, $n - $ohnePortal);
+            $this->flash = "Info „{$titel}“ an {$n} Empfänger bereitgestellt: WhatsApp geht an {$mitWhatsApp} Empfänger; "
+                . "{$ohnePortal} im alten Portal: keine Nachricht, sichtbar nach der Umstellung"
                 . ($auto ? '; zusätzlich automatisch an neue Mitarbeiter.' : '.');
         }
     }
@@ -457,11 +463,28 @@ class Documents extends Component
     }
 
     /**
+     * Nur die Automatik einer Info stoppen (Spec 2026-10-16 §6, Review Task 5
+     * M3): "Zurueckziehen" nimmt die Info allen weg und loescht sie — wer nur
+     * keine weiteren Neuen beliefern will, braucht den sanfteren Knopf.
+     */
+    public function automatikBeenden(int $documentId): void
+    {
+        $d = RecDocument::query()->where('team_id', $this->teamId())->find($documentId);
+        if ($d === null) {
+            return;
+        }
+        app(DokumentService::class)->automatikBeenden($d);
+        $this->flash = "Automatik für „{$d->title}“ beendet — wer die Info schon hat, behält sie.";
+        $this->flashError = null;
+        unset($this->dokumente);
+    }
+
+    /**
      * Ueberblick: Dokumente ohne Zustellungen laden, die Zahlen kommen aus
      * EINER gruppierten Abfrage (DokumentZaehler). Volle Zeilen — ohne
      * signature_data — nur fuer das aufgeklappte Dokument.
      *
-     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
+     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, is_info:bool, auto:bool, published:?string, automatisch:int, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
      */
     #[Computed]
     public function dokumente(): array
@@ -484,7 +507,12 @@ class Documents extends Component
             // "laeuft" nur fuer unversuchte Zeilen innerhalb der Versandfrist;
             // aeltere sind liegengeblieben und stoppen das Pollen.
             $versandLaeuft = $brauchtVersand && $n['ausstehend'] - $n['ausstehend_alt'] > 0;
-            $erledigt = $f['gesamt'] === 0 || $f['erledigt'] === $f['gesamt'];
+            $istInfo = DokumentKategorie::istText((string) $d->category);
+            // Info mit Automatik-Haken arbeitet noch (wartet auf Neue): nie
+            // "erledigt", sonst verschwaende sie unter "Nur offene" samt Knopf
+            // zum Stoppen — auch mit 0 Empfaengern (Review Task 5, M3).
+            $auto = $istInfo && (bool) $d->auto_neue_mitarbeiter && $d->deleted_at === null;
+            $erledigt = !$auto && ($f['gesamt'] === 0 || $f['erledigt'] === $f['gesamt']);
             if ($this->zeige === 'offen' && $erledigt) {
                 continue;
             }
@@ -511,7 +539,10 @@ class Documents extends Component
                 'title'          => (string) $d->title,
                 'category_label' => DokumentKategorie::label((string) $d->category),
                 'action'         => (string) $d->action,
-                'ist_text'       => DokumentKategorie::istText((string) $d->category),
+                'is_info'        => $istInfo,
+                'auto'           => $auto,
+                'published'      => $d->published_at?->format('d.m.Y'),
+                'automatisch'    => $n['automatisch'],
                 'braucht_hinweis' => $brauchtVersand,
                 'action_label'   => DokumentKategorie::aktionLabel((string) $d->action),
                 'event'          => $d->event?->name ?: $d->event?->einsatz_ref,

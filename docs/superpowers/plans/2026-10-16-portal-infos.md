@@ -1079,6 +1079,6 @@ git commit -m "feat(recruiting): Dokumente — Infos im HR-Ueberblick (gesehen x
 
 ## Self-Review (vom Planer ausgeführt)
 
-- **Spec-Abdeckung:** §2 Datenmodell → Task 1; §3.1 Service → Task 2; §3.2 Formular/Editor/Vorschau → Task 5; §3.3 Zurückziehen nimmt Haken → Task 6; §4 Automatik → Task 3; §5.1 Kasten ohne Klick, Anzeigen stempelt → Task 4; §5.2 Reiter → Task 4; §5.3 Renderer → Task 1; §5.4 Rechte → Task 4 (Scope-Test); §6 HR-Überblick → Task 6; §7 keine neue Vorlage → nichts zu tun (Task 2 `versand_noetig=false`); §8 Deploy → Task 6 Checkliste; §9 Tests → verteilt, Mutationsproben beim Review.
+- **Spec-Abdeckung:** §2 Datenmodell → Task 1; §3.1 Service → Task 2; §3.2 Formular/Editor/Vorschau → Task 5; §3.3 Zurückziehen nimmt Haken → Task 6; §4 Automatik → Task 3; §5.1 Kasten ohne Klick, Anzeigen stempelt → Task 4; §5.2 Reiter → Task 4; §5.3 Renderer → Task 1; §5.4 Rechte → Task 4 (Scope-Test); §6 HR-Überblick → Task 6; §7 keine neue Vorlage → bestehender `DokumentHinweisSender` (Task 2/5: `versand_noetig` = Empfänger > 0, nur Automatik ohne Job); §8 Deploy → Task 6 Checkliste; §9 Tests → verteilt, Mutationsproben beim Review.
 - **Typen:** `bereitstellenText(int, array, string, array, ?int): array` in Task 2 und 5 gleich; `fuerErstesOeffnen(RecEmployee): int` in Task 3 und 6; `zeile()`-Schlüssel `is_info/content_html/gesehen` in Task 4 und 6.
 - **Review Focus:** 1 → Task 1 Tests 3/4; 2 → Task 3 „vorher angelegt"; 3 → Task 3 „RG+MA"; 4 → Task 4 „fremde ID"; 5 → Task 2 „ohne Empfänger ohne Haken".

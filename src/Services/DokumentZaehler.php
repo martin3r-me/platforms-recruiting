@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services;
 
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 
 /**
@@ -14,13 +15,15 @@ use Platform\Recruiting\Support\DokumentAkteZeilen;
  * "erledigt"-Zaehler zaehlen nur nicht zurueckgezogene Zeilen, wie
  * DokumentFortschritt::fuer(). "ausstehend" = unversucht und nicht
  * zurueckgezogen; "ausstehend_alt" = davon aelter als die Versandfrist
- * (DokumentAkteZeilen::VERSAND_FRIST_MINUTEN).
+ * (DokumentAkteZeilen::VERSAND_FRIST_MINUTEN). "automatisch" = von der
+ * Info-Automatik zugestellte Zeilen (notify_error = nicht_noetig, Spec
+ * 2026-10-16 §6), zurueckgezogene mitgezaehlt — zugestellt wurden sie.
  */
 final class DokumentZaehler
 {
     /**
      * @param  list<int> $documentIds
-     * @return array<int, array{gesamt:int, zurueckgezogen:int, unterschrieben:int, bestaetigt:int, gesehen:int, benachrichtigt:int, ausstehend:int, ausstehend_alt:int}>
+     * @return array<int, array{gesamt:int, zurueckgezogen:int, unterschrieben:int, bestaetigt:int, gesehen:int, benachrichtigt:int, ausstehend:int, ausstehend_alt:int, automatisch:int}>
      */
     public static function fuer(array $documentIds): array
     {
@@ -44,8 +47,9 @@ final class DokumentZaehler
                 . " SUM(CASE WHEN $aktiv AND first_viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS gesehen,"
                 . ' SUM(CASE WHEN notified_at IS NOT NULL THEN 1 ELSE 0 END) AS benachrichtigt,'
                 . " SUM(CASE WHEN $unversucht THEN 1 ELSE 0 END) AS ausstehend,"
-                . " SUM(CASE WHEN $unversucht AND (created_at IS NULL OR created_at < ?) THEN 1 ELSE 0 END) AS ausstehend_alt",
-                [$grenze]
+                . " SUM(CASE WHEN $unversucht AND (created_at IS NULL OR created_at < ?) THEN 1 ELSE 0 END) AS ausstehend_alt,"
+                . ' SUM(CASE WHEN notify_error = ? THEN 1 ELSE 0 END) AS automatisch',
+                [$grenze, DokumentHinweisSender::STATUS_NICHT_NOETIG]
             )
             ->get();
 
@@ -60,6 +64,7 @@ final class DokumentZaehler
                 'benachrichtigt' => (int) $z->benachrichtigt,
                 'ausstehend'     => (int) $z->ausstehend,
                 'ausstehend_alt' => (int) $z->ausstehend_alt,
+                'automatisch'    => (int) $z->automatisch,
             ];
         }
 
@@ -69,6 +74,6 @@ final class DokumentZaehler
     /** Die leere Zeile fuer ein Dokument ohne Zustellungen. */
     public static function leer(): array
     {
-        return ['gesamt' => 0, 'zurueckgezogen' => 0, 'unterschrieben' => 0, 'bestaetigt' => 0, 'gesehen' => 0, 'benachrichtigt' => 0, 'ausstehend' => 0, 'ausstehend_alt' => 0];
+        return ['gesamt' => 0, 'zurueckgezogen' => 0, 'unterschrieben' => 0, 'bestaetigt' => 0, 'gesehen' => 0, 'benachrichtigt' => 0, 'ausstehend' => 0, 'ausstehend_alt' => 0, 'automatisch' => 0];
     }
 }

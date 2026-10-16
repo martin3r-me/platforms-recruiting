@@ -332,6 +332,12 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - [ ] HR-Schreibtisch: Anzahl neuer Fälle „Arbeitserlaubnis fehlt" gegen Trockenlauf-Zahl k.
 - [ ] `updates.csv`-Volumen nach dem ersten ZAS-Abruf (Spiegel → beide Gesellschaften). [S-Spiegel §9, M:project_zas_update_export_vorfall]
 
+### 4.12 Paket Infos (`feat/portal-infos`, nach dem Merge von `feat/ma-konto`)
+- [ ] Merge ff `feat/portal-infos` → main, Bump, Forge-Deploy MIT migrate: `2026_10_16_000001_add_info_fields_to_rec_documents` (3 neue Spalten, 5 Datei-Spalten nullable per change() — vorher `migrate --pretend` auf MySQL lesen). `view:clear`. Kein neuer Zeitplan, keine neue Einstellung.
+- [ ] Sichttest: Dokumente → Umschalter „Info" → Text im Editor (fällt der Editor aus: Textfeld) → Vorschau → Haken „automatisch an neue Mitarbeiter" → Bereitstellen ohne Empfänger → neue Test-Anstellung umstellen → Portal öffnen: Kasten „Neu für dich" oben, Text mit Knöpfen (kein Klick nötig, Anzeigen zählt als gesehen) → Schließen → neu anmelden: kein Kasten → Reiter „Dokumente & Infos": Info mit „Gesehen".
+- [ ] Sichttest HR: Überblick zeigt „gesehen 1 von 1" und Abzeichen „automatisch an Neue seit …" (Info bleibt unter „Nur offene", solange der Haken sitzt); „Automatik beenden" nimmt nur den Haken (Info bleibt bei allen), Zurückziehen nimmt den Haken und die Info allen weg.
+- [ ] Willkommenstext (Sheran, Mail 14.10.) von HR im Editor einpflegen; Satz zu Zugangsdaten bleibt (ZAS-Portal).
+
 ---
 
 ## 5. ROLLBACK

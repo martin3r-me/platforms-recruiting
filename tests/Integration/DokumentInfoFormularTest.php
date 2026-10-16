@@ -357,7 +357,7 @@ final class DokumentInfoFormularTest extends TestCase
         $s->bereitstellenPruefen();
         $s->bereitstellen();
 
-        $this->assertSame('Info „News“ bereitgestellt: WhatsApp geht an 2 Empfänger, davon 1 im alten Portal ohne Nachricht.', $s->flash);
+        $this->assertSame('Info „News“ an 2 Empfänger bereitgestellt: WhatsApp geht an 1 Empfänger; 1 im alten Portal: keine Nachricht, sichtbar nach der Umstellung.', $s->flash);
         $this->assertCount(1, $this->hinweisJobs());
     }
 
@@ -374,16 +374,17 @@ final class DokumentInfoFormularTest extends TestCase
         $s->zeige = 'alle';
 
         $dok = $s->dokumente()[0];
-        $this->assertTrue($dok['ist_text']);
+        $this->assertTrue($dok['is_info']);
         $this->assertTrue($dok['braucht_hinweis']);
         $this->assertSame(1, $dok['ausstehend'], 'unversuchte Info-Zeile zaehlt als ausstehend');
-        $this->assertStringContainsString("@if (!\$dok['ist_text'])", $this->blade());
+        $this->assertStringContainsString("@if (!\$dok['is_info'])", $this->blade());
     }
 
     public function test_rueckfrage_bei_info_sagt_whatsapp(): void
     {
         $blade = $this->blade();
-        $this->assertStringContainsString('WhatsApp geht an {{ $gewaehlt }} Empfänger, davon {{ $ohnePortal }} im alten Portal ohne Nachricht.', $blade);
-        $this->assertStringContainsString('WhatsApp geht an {{ $gewaehlt }} Empfänger.', $blade);
+        $this->assertStringContainsString('WhatsApp geht an {{ $mitWhatsApp }} Empfänger.', $blade);
+        $this->assertStringContainsString('{{ $ohnePortal }} im alten Portal: keine Nachricht, sichtbar nach der Umstellung.', $blade);
+        $this->assertStringNotContainsString('davon {{ $ohnePortal }} im alten Portal ohne Nachricht', $blade, 'Fund M2: kein "geht an 2, davon 1 ohne"');
     }
 }

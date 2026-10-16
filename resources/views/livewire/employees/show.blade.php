@@ -722,8 +722,11 @@
                                 <span class="text-xs text-[var(--ui-muted)]">{{ $dzVersand }}</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dz['document_uuid']]) }}" target="_blank"
-                                   class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)]">PDF</a>
+                                {{-- Info = Text ohne Datei: kein PDF-Link (der Datei-Weg liefe ins Leere). --}}
+                                @if (!$dz['is_info'])
+                                    <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dz['document_uuid']]) }}" target="_blank"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)]">PDF</a>
+                                @endif
                                 @if ($dz['hat_nachweis'])
                                     <a href="{{ route('recruiting.employees.dokument.nachweis', ['uuid' => $dz['recipient_uuid']]) }}" target="_blank"
                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 text-emerald-800 bg-emerald-50 text-xs font-medium rounded-md hover:bg-emerald-100">Nachweis</a>

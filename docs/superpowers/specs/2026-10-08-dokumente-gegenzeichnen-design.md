@@ -273,6 +273,11 @@ dort ist die Einsatz-Prüfung der zweite Fang. Das Portal zeigt alle offenen Dok
   dann SoftDelete am Dokument nur, wenn KEIN Empfänger unterschrieben hat. Mit
   Unterschriften bleibt das Dokument (Nachweis), Status „teilweise zurückgezogen".
 - Kein Hard-Delete, keine Dateilöschung.
+- Nachtrag 16.10.2026 (Kategorie `info`, S-Info §3.3): Zurückziehen des ganzen Dokuments
+  setzt zusätzlich `auto_neue_mitarbeiter = false` (Query Builder) — sonst bekäme der
+  nächste Neue eine zurückgezogene Info. Eine Info hat nie eine Unterschrift, wird also
+  allen weggenommen und gelöscht. Wer nur die Automatik stoppen will: „Automatik beenden"
+  (nimmt nur den Haken, die Info bleibt bei allen, die sie haben).
 
 ---
 
@@ -298,6 +303,18 @@ Nachtrag Final-Review (08.10.2026):
   sind; stellt `DokumentHinweiseVersenden` erneut ein (idempotent).
 - Die Zahlen des Überblicks kommen aus einer gruppierten Abfrage (`DokumentZaehler`); volle
   Zeilen nur für das aufgeklappte Dokument. Listen laden nie `signature_data`.
+
+Nachtrag Infos (16.10.2026, Spec `2026-10-16-portal-infos-design.md`, „S-Info"):
+- Neue Kategorie `info` („Info / News", Aktion `none`): Text (`content_markdown`) statt PDF,
+  im Portal als Kasten „Neu für dich" und im Reiter „Dokumente & Infos". Kein PDF-Knopf,
+  weder auf der Seite Dokumente (dort „INFO") noch in der Akte; Nachweis nur bei Unterschrift.
+- Fortschritt „gesehen x von y" (`first_viewed_at`, wie bei `none`).
+- Haken „automatisch an neue Mitarbeiter": Abzeichen „automatisch an Neue seit
+  <published_at>" plus Zahl der automatisch zugestellten Zeilen (`notify_error = nicht_noetig`).
+  Solange der Haken sitzt, gilt die Info nie als erledigt (bleibt unter „Nur offene", auch
+  mit 0 Empfängern); Knopf „Automatik beenden" nimmt nur den Haken.
+- Infos mit gewählten Empfängern bekommen die Portal-WhatsApp wie ein PDF
+  (`DokumentKategorie::brauchtHinweis`); automatisch zugestellte nie.
 
 ---
 

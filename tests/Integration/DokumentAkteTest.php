@@ -166,7 +166,7 @@ final class DokumentAkteTest extends TestCase
 
         $this->assertSame([
             'gesamt' => 4, 'zurueckgezogen' => 1, 'unterschrieben' => 1, 'bestaetigt' => 1, 'gesehen' => 1,
-            'benachrichtigt' => 1, 'ausstehend' => 2, 'ausstehend_alt' => 1,
+            'benachrichtigt' => 1, 'ausstehend' => 2, 'ausstehend_alt' => 1, 'automatisch' => 0,
         ], $n[$d->id]);
         $this->assertArrayNotHasKey($leer->id, $n, 'ohne Zustellungen keine Zeile — Aufrufer nimmt leer()');
 

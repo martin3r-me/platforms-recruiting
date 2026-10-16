@@ -18,6 +18,8 @@
     $auswahlIds = array_column($auswahlZeilen, 'id');
     $gewaehlt = count($auswahlZeilen);
     $ohnePortal = count(array_filter($auswahlZeilen, fn ($k) => !$k['hat_portal']));
+    // Nur wer im neuen Portal ist, bekommt die WhatsApp (Review Task 5, M2: zwei Aussagen statt "davon … ohne").
+    $mitWhatsApp = max(0, $gewaehlt - $ohnePortal);
     $trefferIds = array_column($kandidaten, 'id');
     $trefferGewaehlt = count(array_intersect($trefferIds, $auswahlIds));
     $alleTrefferGewaehlt = count($trefferIds) > 0 && $trefferGewaehlt === count($trefferIds);
@@ -321,15 +323,32 @@
                         $dokVersandZeile = $dok['benachrichtigt'] . ' von ' . ($dok['benachrichtigt'] + $dok['ausstehend']) . ' benachrichtigt, '
                             . ($dok['versand_laeuft'] ? 'läuft …' : 'Rest nicht gesendet');
                         $dokZeigtAnstossen = $dok['ausstehend'] > 0 && !$dok['geloescht'];
+                        // Infos: "gesehen x von y" (Spec 2026-10-16 §6), sonst der Text aus DokumentFortschritt.
+                        $dokFortschrittText = $dok['is_info']
+                            ? 'gesehen ' . $dok['fortschritt']['erledigt'] . ' von ' . $dok['fortschritt']['gesamt']
+                            : $dok['fortschritt']['text'];
+                        $dokAutoText = 'automatisch an Neue seit ' . ($dok['published'] ?? '—');
+                        // Infos haben keine Unterschrift: Zurueckziehen nimmt sie allen weg (auch Gesehenen) und beendet die Automatik.
+                        $dokZurueckFrage = $dok['is_info']
+                            ? '„' . $dok['title'] . '“ zurückziehen? Die Info verschwindet für alle aus dem Portal, die Automatik endet.'
+                            : '„' . $dok['title'] . '“ für alle Offenen zurückziehen?';
                     @endphp
                     <div class="p-3">
                         <div class="flex items-center gap-3">
                             <button type="button" wire:click="aufklappen({{ $dok['id'] }})" class="flex-1 text-left">
                                 <div class="text-sm font-medium">{{ $dok['title'] }} @if ($dok['geloescht'])<span class="text-xs text-[var(--ui-muted)]">(zurückgezogen)</span>@endif</div>
                                 <div class="text-xs text-[var(--ui-muted)]">{{ $dok['category_label'] }} · {{ $dok['action_label'] }} · {{ $dok['erstellt'] }}@if ($dok['event']) · {{ $dok['event'] }}@endif</div>
+                                @if ($dok['auto'])
+                                    <div class="mt-1 flex items-center gap-2 flex-wrap">
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">{{ $dokAutoText }}</span>
+                                        <span class="text-[10px] text-[var(--ui-muted)]">{{ $dok['automatisch'] }} automatisch zugestellt</span>
+                                    </div>
+                                @elseif ($dok['automatisch'] > 0)
+                                    <div class="mt-1 text-[10px] text-[var(--ui-muted)]">{{ $dok['automatisch'] }} automatisch zugestellt · Automatik beendet</div>
+                                @endif
                             </button>
                             <div class="w-44">
-                                <div class="text-xs text-right mb-1">{{ $dok['fortschritt']['text'] }}</div>
+                                <div class="text-xs text-right mb-1">{{ $dokFortschrittText }}</div>
                                 @if ($dok['ausstehend'] > 0)
                                     <div class="text-[10px] text-right text-amber-700">{{ $dokVersandZeile }}</div>
                                 @elseif ($dok['braucht_hinweis'])
@@ -340,11 +359,18 @@
                             @if ($dokZeigtAnstossen)
                                 <button type="button" wire:click="versandAnstossen({{ $dok['id'] }})" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Versand erneut anstoßen</button>
                             @endif
-                            @if (!$dok['ist_text'])
+                            @if ($dok['is_info'])
+                                <span class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)]">INFO</span>
+                            @endif
+                            @if (!$dok['is_info'])
                                 <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dok['uuid']]) }}" target="_blank" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">PDF</a>
                             @endif
+                            {{-- Stoppt nur die Zustellung an kuenftige Neue; Zurueckziehen nimmt die Info dagegen allen weg. --}}
+                            @if ($dok['auto'])
+                                <button type="button" wire:click="automatikBeenden({{ $dok['id'] }})" wire:confirm="Automatik für „{{ $dok['title'] }}“ beenden? Neue bekommen die Info dann nicht mehr, wer sie schon hat, behält sie." class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Automatik beenden</button>
+                            @endif
                             @if (!$dok['geloescht'] && !$dok['erledigt'])
-                                <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="„{{ $dok['title'] }}“ für alle Offenen zurückziehen?" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
+                                <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="{{ $dokZurueckFrage }}" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
                             @endif
                         </div>
                         @if ($dokOffen)
@@ -385,10 +411,9 @@
             @if ($istInfo)
                 @if ($gewaehlt > 0)
                     <p>Info „{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Empfänger bereitstellen?</p>
+                    <p>WhatsApp geht an {{ $mitWhatsApp }} Empfänger.</p>
                     @if ($ohnePortal > 0)
-                        <p>WhatsApp geht an {{ $gewaehlt }} Empfänger, davon {{ $ohnePortal }} im alten Portal ohne Nachricht.</p>
-                    @else
-                        <p>WhatsApp geht an {{ $gewaehlt }} Empfänger.</p>
+                        <p class="text-amber-700">{{ $ohnePortal }} im alten Portal: keine Nachricht, sichtbar nach der Umstellung.</p>
                     @endif
                     @if ($autoNeue)
                         <p>Außerdem automatisch an alle Neuen ab heute (beim ersten Öffnen des Portals).</p>

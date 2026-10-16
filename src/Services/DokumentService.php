@@ -293,11 +293,16 @@ class DokumentService
      * Ganzes Dokument zurueckziehen (Spec §7): alle offenen Zustellungen, dann
      * SoftDelete nur, wenn NIEMAND unterschrieben hat. Mit Unterschriften bleibt
      * das Dokument als Nachweis stehen ("teilweise zurueckgezogen").
+     * Zusaetzlich faellt der Automatik-Haken (Spec 2026-10-16 §3.3) — sonst
+     * bekaeme der naechste Neue eine zurueckgezogene Info. Das SoftDelete
+     * allein reicht nicht: mit Unterschriften bleibt das Dokument stehen.
      *
      * @return array{zurueckgezogen:int, geloescht:bool}
      */
     public function dokumentZurueckziehen(RecDocument $dokument): array
     {
+        $this->automatikBeenden($dokument);
+
         $zurueck = DB::table('rec_document_recipients')
             ->where('rec_document_id', $dokument->id)
             ->whereNull('signed_at')
@@ -314,6 +319,19 @@ class DokumentService
         }
 
         return ['zurueckgezogen' => (int) $zurueck, 'geloescht' => !$unterschrieben];
+    }
+
+    /**
+     * Nur den Automatik-Haken einer Info nehmen (Spec 2026-10-16 §6): keine
+     * neuen Zustellungen mehr an Neue, wer die Info schon hat, behaelt sie.
+     * Query Builder, damit kein Modell-Hook mitlaeuft. true = Haken war gesetzt.
+     */
+    public function automatikBeenden(RecDocument $dokument): bool
+    {
+        return DB::table('rec_documents')
+            ->where('id', $dokument->id)
+            ->where('auto_neue_mitarbeiter', true)
+            ->update(['auto_neue_mitarbeiter' => false, 'updated_at' => now()]) > 0;
     }
 
     /**

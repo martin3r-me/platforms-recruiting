@@ -27,7 +27,7 @@ final class DokumentAkteZeilen
 
     /**
      * @param  list<RecDocumentRecipient> $zustellungen mit geladener Relation document
-     * @return list<array{recipient_id:int, document_id:int, document_uuid:string, recipient_uuid:string, employee_id:int, title:string, category_label:string, action:string, action_label:string, status:string, status_label:string, benachrichtigt:?string, fehler:?string, versand_laeuft:bool, versand_text:string, kann_erneut_senden:bool, signed_at:?string, kann_zurueckziehen:bool, hat_nachweis:bool, provided_at:string}>
+     * @return list<array{recipient_id:int, document_id:int, document_uuid:string, recipient_uuid:string, employee_id:int, title:string, category_label:string, is_info:bool, action:string, action_label:string, status:string, status_label:string, benachrichtigt:?string, fehler:?string, versand_laeuft:bool, versand_text:string, kann_erneut_senden:bool, signed_at:?string, kann_zurueckziehen:bool, hat_nachweis:bool, provided_at:string}>
      */
     public static function fuer(array $zustellungen): array
     {
@@ -74,6 +74,8 @@ final class DokumentAkteZeilen
                 'employee_id'        => (int) $z->rec_employee_id,
                 'title'              => (string) $d->title,
                 'category_label'     => DokumentKategorie::label((string) $d->category),
+                // Info = Text ohne Datei: kein PDF-Link in der Akte (Review Task 5, M4).
+                'is_info'            => DokumentKategorie::istText((string) $d->category),
                 'action'             => $aktion,
                 'action_label'       => DokumentKategorie::aktionLabel($aktion),
                 'status'             => $status,
