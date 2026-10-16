@@ -155,7 +155,7 @@ final class PortalInfosTest extends TestCase
         $html = $this->portalRendern($e);
 
         $this->assertStringNotContainsString('Neu für dich', $html);
-        $this->assertStringContainsString('Dokumente &amp; Infos', $html);
+        $this->assertStringContainsString('Dokumente <span class="amp">&amp;</span> Infos', $html);
         $this->assertStringContainsString('data-info="' . $recipientId . '"', $html);
         $this->assertStringContainsString('Gesehen', $html);
     }

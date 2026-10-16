@@ -140,7 +140,7 @@
                 <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg> Einsätze
             </button>
             <button type="button" class="rnav" @click="tab = 'docs'" :class="tab === 'docs' && 'on'">
-                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg> Dokumente &amp; Infos
+                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg> Dokumente <span class="amp">&amp;</span> Infos
             </button>
             <button type="button" class="rnav" @click="tab = 'me'" :class="tab === 'me' && 'on'">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg> Profil
@@ -394,7 +394,7 @@
             {{-- ---------------- DOKUMENTE ---------------- --}}
             <div class="pane" :class="tab === 'docs' && 'on'">
                 <div class="greet">
-                    <h2>Dokumente &amp; Infos</h2>
+                    <h2>Dokumente <span class="amp">&amp;</span> Infos</h2>
                     <p>Was von {{ $duzen ? 'dir' : 'Ihnen' }} gebraucht wird — und was {{ $duzen ? 'dir' : 'Ihnen' }} gehört.</p>
                 </div>
 
@@ -816,7 +816,7 @@
                         :aria-selected="tab === 'docs'" :class="tab === 'docs' && 'on'">
                     <span class="ico">
                         <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
-                    </span>Dokumente &amp; Infos
+                    </span>Dokumente <span class="amp">&amp;</span> Infos
                 </button>
                 <button class="tab" role="tab" type="button" @click="tab = 'me'"
                         :aria-selected="tab === 'me'" :class="tab === 'me' && 'on'">

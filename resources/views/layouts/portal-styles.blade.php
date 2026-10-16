@@ -58,6 +58,8 @@
 *{box-sizing:border-box}
 body{margin:0; background:var(--ground); color:var(--ink); font-family:var(--body); font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased}
 h1,h2,h3,h4{font-family:var(--display); font-weight:400; text-wrap:balance; margin:0; line-height:1.1}
+/* Chau Philomene One zeichnet "&" als Et-Ligatur (sieht aus wie "eT"): das Zeichen in Ueberschriften/Reitern in die Textschrift. */
+.amp{font-family:var(--body)}
 p{margin:0}
 :focus-visible{outline:2px solid var(--brand); outline-offset:2px; border-radius:6px}
 .wrap{max-width:1120px; margin:0 auto; padding:0 24px}
