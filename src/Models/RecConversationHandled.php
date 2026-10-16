@@ -13,6 +13,8 @@ class RecConversationHandled extends Model
 {
     public const REASON_MANUAL = 'manual';
     public const REASON_BACKFILL = 'backfill';
+    /** Letzter Eingang war ein Button-Klick (QuickReply) — keine Arbeit fuer HR. */
+    public const REASON_QUICK_REPLY = 'quick_reply';
 
     protected $table = 'rec_conversation_handled';
 

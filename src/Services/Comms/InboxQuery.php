@@ -28,7 +28,7 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 final class InboxQuery
 {
-    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int} */
+    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int} */
     public function counts(int $teamId, ?int $now = null): array
     {
         return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now)['counts'];
@@ -47,8 +47,8 @@ final class InboxQuery
      *
      * Bewusst OHNE InboxFilter-Parameter: die Zeile wird unabhaengig vom
      * aktuellen Filterzustand aufgeloest (ein bereits geoeffneter Chat soll
-     * seine Kopfzeile behalten, auch wenn er z.B. gerade nicht "erledigt"
-     * ist, waehrend die Erledigt-Ansicht aktiv ist).
+     * seine Kopfzeile behalten, auch wenn er z.B. unter "Verpasst" gerade
+     * nicht mehr auftaucht, weil das Oeffnen ihn gelesen hat).
      *
      * `siblingCount` bleibt 0 — die Kopfzeile zeigt sie nicht an, und ihre
      * echte Berechnung braucht wieder einen Scan ueber alle Threads
@@ -78,15 +78,15 @@ final class InboxQuery
             'context_model' => (string) ($thread->context_model ?? ''),
             'context_model_id' => $thread->context_model_id ? (int) $thread->context_model_id : null,
             'preview' => $thread->last_message_preview,
-            'is_unread' => (bool) $thread->is_unread,
-            'escalation' => ConversationEscalation::compute(
+            ...self::openState(
+                (bool) $thread->is_unread,
+                $handledAt[$id] ?? null,
                 $inboundAt,
                 $humanOutbound[$id] ?? null,
                 $now,
                 $yellow,
                 $red,
             ),
-            'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
         ];
@@ -126,7 +126,7 @@ final class InboxQuery
      * saubere Fehlkonfiguration und wuerde still den Verlustpfad
      * wiederherstellen, den dieses Feature beseitigt.
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool}
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}, rows: list<InboxRow>, total: int, fallback: bool}
      */
     public function snapshot(
         int $teamId,
@@ -188,28 +188,28 @@ final class InboxQuery
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int, applicants:int, employees:int}
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, total:int, applicants:int, employees:int}
      */
     private function countsFromScored(array $rows): array
     {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
-                   'missed' => 0, 'handled' => 0, 'total' => 0,
+                   'missed' => 0, 'total' => 0,
                    'applicants' => 0, 'employees' => 0];
 
+        // Alle | Bewerber | Mitarbeiter zaehlen jeden Chat (die Liste zeigt
+        // gelesene mit, wie WhatsApp). Ungelesen und Ampel zaehlen nur offene
+        // — gelesen = erledigt (Markus 15.10.2026).
         foreach ($rows as $row) {
-            if ($row['handled']) {
-                $counts['handled']++;
-                continue;
-            }
             $counts['total']++;
             if ($row['kind'] === 'applicant') {
                 $counts['applicants']++;
             } elseif ($row['kind'] === 'employee') {
                 $counts['employees']++;
             }
-            if ($row['is_unread']) {
-                $counts['unread']++;
+            if (!$row['is_unread']) {
+                continue;
             }
+            $counts['unread']++;
             $level = $row['escalation']->level;
             if (isset($counts[$level])) {
                 $counts[$level]++;
@@ -291,15 +291,15 @@ final class InboxQuery
                 'context_model' => (string) ($thread->context_model ?? ''),
                 'context_model_id' => $thread->context_model_id ? (int) $thread->context_model_id : null,
                 'preview' => $thread->last_message_preview,
-                'is_unread' => (bool) $thread->is_unread,
-                'escalation' => ConversationEscalation::compute(
+                ...self::openState(
+                    (bool) $thread->is_unread,
+                    $handledAt[$id] ?? null,
                     $inboundAt,
                     $humanOutbound[$id] ?? null,
                     $now,
                     $yellow,
                     $red,
                 ),
-                'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
                 'siblings' => max(0, count($byDigits[$digits] ?? []) - 1),
                 'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
                 'kind' => $this->kindOf(
@@ -321,10 +321,6 @@ final class InboxQuery
      */
     private function matches(array $row, InboxFilter $filter, ?array $allowed): bool
     {
-        if ($row['handled'] !== $filter->handled) {
-            return false;
-        }
-
         if ($filter->kind === 'applicants' && $row['kind'] !== 'applicant') {
             return false;
         }
@@ -333,7 +329,10 @@ final class InboxQuery
         }
 
         $level = $row['escalation']->level;
-        if ($filter->level === 'unread' && !$row['is_unread']) {
+        // Jede Pille ausser "Alle" zeigt nur offene Chats. Eine Ampelstufe
+        // haben ohnehin nur offene (openState()), die Pruefung auf is_unread
+        // steht trotzdem fuer alle Stufen da, damit beides nie auseinanderlaeuft.
+        if ($filter->level !== 'all' && !$row['is_unread']) {
             return false;
         }
         if (!in_array($filter->level, ['all', 'unread'], true) && $level !== $filter->level) {
@@ -600,6 +599,7 @@ final class InboxQuery
                 ownerUserId: $owner,
                 isUnread: $row['is_unread'],
                 escalation: $row['escalation'],
+                window: $row['window'] ?? null,
                 contextLabel: $contextLabel,
                 siblingCount: (int) $row['siblings'],
                 lastMessageAt: $row['last_message_at'] ?? null,
@@ -656,6 +656,44 @@ final class InboxQuery
                 (int) $row->comms_whatsapp_thread_id => $row->handled_at->getTimestamp(),
             ])
             ->all();
+    }
+
+    /**
+     * Offen = ungelesen UND kein gueltiger Stempel (Spec 16.10.2026,
+     * Markus: „ungelesen = muss noch bearbeitet werden, gelesen = erledigt“).
+     * Der Stempel kommt aus der Mehrfachauswahl, dem Archiv-Lauf oder einem
+     * Button-Klick; ein spaeterer Eingang hebt ihn auf.
+     *
+     * Gelesene Chats bekommen KEINE Eskalation: sie stehen unter "Alle"
+     * weiter in der Liste, duerfen dort aber weder Farbkante noch
+     * „verpasst seit“ tragen — sonst sieht ein Dritter wieder rot.
+     *
+     * 'is_unread' traegt danach den abgeleiteten Zustand, nicht mehr die
+     * rohe Core-Spalte — Liste, Pillen und Sidebar lesen nur diesen.
+     *
+     * 'window' traegt die rohe Fenster-Rechnung auch fuer gelesene Chats —
+     * nur fuer den Chat-Kopf („noch 5 h“): wer einen Chat geoeffnet hat,
+     * muss weiter sehen, wie lange er noch frei antworten kann.
+     *
+     * @return array{is_unread: bool, escalation: ConversationEscalation, window: ConversationEscalation}
+     */
+    private static function openState(
+        bool $isUnread,
+        ?int $handledAt,
+        ?int $inboundAt,
+        ?int $humanOutboundAt,
+        int $now,
+        float $yellow,
+        float $red,
+    ): array {
+        $open = $isUnread && !ConversationHandledState::isHandled($handledAt, $inboundAt);
+        $window = ConversationEscalation::compute($inboundAt, $humanOutboundAt, $now, $yellow, $red);
+
+        return [
+            'is_unread' => $open,
+            'escalation' => $open ? $window : ConversationEscalation::compute(null, null, $now),
+            'window' => $window,
+        ];
     }
 
     /** @return list<string> */

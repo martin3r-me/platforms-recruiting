@@ -36,7 +36,7 @@ use Platform\Recruiting\Services\Comms\InboxRow;
  * Fix-Runde 1 (Review): zusaetzlich abgedeckt —
  *  - Auto-Antwort-Ausschluss vs. menschlicher Outbound (echte Nachrichten-Zeilen)
  *  - Bewerber-Zweig von hydrate() (subjectType/title/ownerUserId), inkl. Morph-Map
- *  - voller Zaehler-Satz statt nur 'handled'
+ *  - voller Zaehler-Satz
  *  - deterministische Sortierung bei Gleichstand (thread_id als Tiebreaker)
  *  - snapshot()/fallback
  */
@@ -154,39 +154,74 @@ class InboxQueryCompletenessTest extends TestCase
         $this->assertNotContains(self::$threadFremderKanal, $this->threadIds(new InboxFilter()));
     }
 
-    public function test_erledigter_chat_faellt_aus_der_liste_und_den_zaehlern(): void
+    public function test_gestempelter_chat_steht_unter_alle_zaehlt_aber_nicht_als_offen(): void
     {
-        $this->assertNotContains(self::$threadErledigt, $this->threadIds(new InboxFilter()));
+        // Gelesen = erledigt (Spec 16.10.2026): "Alle" zeigt auch erledigte
+        // Chats, wie WhatsApp — aber ohne Ampel und ausserhalb jeder Pille.
+        $this->assertContains(self::$threadErledigt, $this->threadIds(new InboxFilter()));
+        $this->assertNotContains(self::$threadErledigt, $this->threadIds(new InboxFilter(level: 'missed')));
+        $this->assertNotContains(self::$threadErledigt, $this->threadIds(new InboxFilter(level: 'unread')));
 
         $counts = (new InboxQuery())->counts(self::TEAM, self::JETZT);
 
-        // Voller Zaehler-Satz, nicht nur 'handled' — sonst faellt ein
-        // Auseinanderlaufen von Liste und Pillen (Ampel zeigt etwas anderes
-        // als die sichtbaren Zeilen) hier nicht auf. Sichtbare Nicht-
-        // Handled-Threads: ohneKontext, bewerber, zwilling, nurAutoReply
-        // (alle 'missed', gleiches altes last_inbound_at) + beantwortet
-        // ('none', menschlich beantwortet). Fremder Kanal zaehlt gar nicht
-        // mit (anderer Kanal), erledigt nur unter 'handled'.
+        // Voller Zaehler-Satz — sonst faellt ein Auseinanderlaufen von Liste
+        // und Pillen hier nicht auf. Offen (ungelesen, ohne gueltigen
+        // Stempel): ohneKontext, bewerber, zwilling, nurAutoReply (alle
+        // 'missed', gleiches altes last_inbound_at) + beantwortet ('none',
+        // menschlich beantwortet, aber nie geoeffnet). Der gestempelte Chat
+        // zaehlt nur unter Alle/Bewerber. Fremder Kanal zaehlt gar nicht.
         $this->assertSame([
-            'unread' => 0,
+            'unread' => 5,
             'green' => 0,
             'yellow' => 0,
             'red' => 0,
             'missed' => 4,
-            'handled' => 1,
-            'total' => 5,
-            // Filter Alle | Bewerber | Mitarbeiter: vier der fuenf haengen an
+            'total' => 6,
+            // Filter Alle | Bewerber | Mitarbeiter: fuenf der sechs haengen an
             // einem Bewerber, der Chat ohne Kontext zaehlt nur unter "Alle".
-            'applicants' => 4,
+            'applicants' => 5,
             'employees' => 0,
         ], $counts);
+
+        $row = self::findRow(
+            (new InboxQuery())->page(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['rows'],
+            self::$threadErledigt,
+        );
+        $this->assertNotNull($row);
+        $this->assertFalse($row->isUnread);
+        $this->assertSame(ConversationEscalation::LEVEL_NONE, $row->escalation->level);
     }
 
-    public function test_erledigt_filter_zeigt_genau_die_abgehakten(): void
+    public function test_geoeffneter_chat_ist_erledigt_auch_wenn_nie_geantwortet(): void
     {
-        $ids = $this->threadIds(new InboxFilter(handled: true));
+        // Markus 15.10.2026: „steht auf gelesen = erledigt“. Ein Chat, den
+        // jemand geoeffnet hat (is_unread=false im Core), ist erledigt — auch
+        // ohne Antwort und ohne Stempel. Er bleibt unter "Alle" sichtbar,
+        // aber ohne „verpasst“.
+        CommsWhatsAppThread::query()->whereKey(self::$threadOhneKontext)->update(['is_unread' => false]);
 
-        $this->assertSame([self::$threadErledigt], $ids);
+        try {
+            $this->assertContains(self::$threadOhneKontext, $this->threadIds(new InboxFilter()));
+            $this->assertNotContains(self::$threadOhneKontext, $this->threadIds(new InboxFilter(level: 'missed')));
+
+            $row = self::findRow(
+                (new InboxQuery())->page(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['rows'],
+                self::$threadOhneKontext,
+            );
+            $this->assertNotNull($row);
+            $this->assertFalse($row->isUnread);
+            $this->assertSame(ConversationEscalation::LEVEL_NONE, $row->escalation->level);
+            // Der Chat-Kopf braucht die Fenster-Rechnung trotzdem (Review 16.10.).
+            $this->assertNotNull($row->window);
+            $this->assertSame(ConversationEscalation::LEVEL_MISSED, $row->window->level);
+
+            $counts = (new InboxQuery())->counts(self::TEAM, self::JETZT);
+            $this->assertSame(3, $counts['missed']);
+            $this->assertSame(4, $counts['unread']);
+            $this->assertSame(6, $counts['total']);
+        } finally {
+            CommsWhatsAppThread::query()->whereKey(self::$threadOhneKontext)->update(['is_unread' => true]);
+        }
     }
 
     public function test_neuer_eingang_nach_dem_stempel_holt_den_chat_zurueck(): void
@@ -196,7 +231,7 @@ class InboxQueryCompletenessTest extends TestCase
             ->update(['last_inbound_at' => date('Y-m-d H:i:s', self::JETZT - 60)]);
 
         try {
-            $this->assertContains(self::$threadErledigt, $this->threadIds(new InboxFilter()));
+            $this->assertContains(self::$threadErledigt, $this->threadIds(new InboxFilter(level: 'unread')));
         } finally {
             // Fuer die folgenden Tests zuruecksetzen — im finally, damit ein
             // Fehlschlag der Assertion oben nicht den naechsten Test aus dem
@@ -212,9 +247,9 @@ class InboxQueryCompletenessTest extends TestCase
         $result = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 2, 0, self::JETZT);
 
         $this->assertCount(2, $result['rows']);
-        // 5 sichtbare Threads: ohne Kontext, Bewerber, Zwilling, beantwortet,
-        // nur-Auto-Reply. Fremder Kanal und abgehakter Chat gehoeren nicht dazu.
-        $this->assertSame(5, $result['total']);
+        // 6 sichtbare Threads: ohne Kontext, Bewerber, Zwilling, abgehakt,
+        // beantwortet, nur-Auto-Reply. Nur der fremde Kanal gehoert nicht dazu.
+        $this->assertSame(6, $result['total']);
     }
 
     public function test_auto_antwort_zaehlt_nicht_als_beantwortet_aber_menschlicher_outbound_schon(): void
@@ -261,7 +296,7 @@ class InboxQueryCompletenessTest extends TestCase
         // Eingang, hat also die juengste Nachricht des Fixture-Satzes und muss
         // damit ganz oben stehen — obwohl er als einziger NICHT eskaliert ist.
         // Genau daran wuerde ein Rueckfall auf die alte Reihenfolge auffallen.
-        // Die uebrigen vier teilen sich denselben last_inbound_at (echter
+        // Die uebrigen fuenf teilen sich denselben last_inbound_at (echter
         // Gleichstand) und ordnen sich darin aufsteigend nach thread_id.
         $full = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
         $fullIds = array_map(fn (InboxRow $row) => $row->threadId, $full['rows']);
@@ -272,6 +307,7 @@ class InboxQueryCompletenessTest extends TestCase
                 self::$threadOhneKontext,
                 self::$threadBewerber,
                 self::$threadZwilling,
+                self::$threadErledigt,
                 self::$threadNurAutoReply,
             ],
             $fullIds,
@@ -284,7 +320,7 @@ class InboxQueryCompletenessTest extends TestCase
         // beim Blaettern eine Zeile uebersprungen werden oder doppelt
         // erscheinen.
         $page1 = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 3, 0, self::JETZT);
-        $page2 = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 2, 3, self::JETZT);
+        $page2 = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 3, 3, self::JETZT);
         $combined = array_map(
             fn (InboxRow $row) => $row->threadId,
             array_merge($page1['rows'], $page2['rows']),
@@ -443,7 +479,10 @@ class InboxQueryCompletenessTest extends TestCase
             'remote_phone_number' => $phone,
             'context_model' => $contextModel,
             'context_model_id' => $contextId,
-            'is_unread' => false,
+            // Ungelesen: seit 16.10.2026 ist ein gelesener Chat erledigt und
+            // traegt keine Ampel mehr. Die Fixtures stehen fuer nie geoeffnete
+            // Chats, an denen die Eskalationsregeln geprueft werden.
+            'is_unread' => true,
             'last_inbound_at' => date('Y-m-d H:i:s', self::JETZT - 100_000),
             'last_message_preview' => 'Dankeschoen',
         ])->id;

@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
 use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
+use Platform\Recruiting\Services\Comms\QuickReplyStamper;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
@@ -59,6 +60,18 @@ class HandleWhatsAppInboundForRecruiting
             $this->oooAutoReply->handle($channel, $thread, $message);
         } catch (\Throwable $e) {
             Log::warning('[Recruiting] OOO-Auto-Reply fehlgeschlagen', [
+                'thread_id' => $thread->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Button-Klick („Ja“/„Nein“ auf eine Vorlage) ist keine Arbeit fuer HR:
+        // Chat gleich als gelesen ablegen (Spec 2026-10-16). Vor dem
+        // Kontext-Gate, weil auch Mitarbeiter-Threads in der Liste stehen.
+        try {
+            app(QuickReplyStamper::class)->stampIfQuickReply($thread, $message);
+        } catch (\Throwable $e) {
+            Log::warning('[Recruiting] Quick-Reply-Stempel fehlgeschlagen', [
                 'thread_id' => $thread->id,
                 'error' => $e->getMessage(),
             ]);

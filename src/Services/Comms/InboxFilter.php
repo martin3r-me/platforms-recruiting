@@ -11,8 +11,6 @@ final class InboxFilter
         /** all | mine | <userId> */
         public readonly string $owner = 'all',
         public readonly string $search = '',
-        /** true = NUR abgehakte zeigen */
-        public readonly bool $handled = false,
         /** fuer owner = 'mine' */
         public readonly ?int $currentUserId = null,
         /** all | applicants | employees — Mitarbeiter = Mitarbeiter-Thread ODER Bewerbung mit aktivem Mitarbeiter */

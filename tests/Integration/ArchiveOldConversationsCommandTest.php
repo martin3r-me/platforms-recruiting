@@ -10,6 +10,7 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Console\Commands\ArchiveOldConversations;
@@ -148,7 +149,7 @@ class ArchiveOldConversationsCommandTest extends TestCase
         $this->assertNotContains(
             self::$threadAltBereitsErledigt,
             $plan,
-            'Ein Chat, der bereits einen Stempel traegt (egal aus welchem Grund), darf nicht erneut aufgenommen werden.',
+            'Ein Chat mit gueltigem Stempel (egal aus welchem Grund) darf nicht erneut aufgenommen werden.',
         );
     }
 
@@ -271,6 +272,118 @@ class ArchiveOldConversationsCommandTest extends TestCase
             RecConversationHandled::query()->where('comms_whatsapp_thread_id', self::$threadOhneKanalAlt)->first(),
             'Ohne Kanalfilter haette der Lauf JEDEN alten Thread des Teams getroffen — genau das soll der Abbruch verhindern.',
         );
+    }
+
+    /**
+     * Spec 16.10.2026: ein Stempel, den ein spaeterer Eingang aufgehoben hat,
+     * darf den Chat nicht vom Aufraeumen ausschliessen — sonst bliebe genau
+     * er dauerhaft offen. Bis dahin schloss JEDER Stempel aus, und insert()
+     * waere an der unique-Spalte gescheitert.
+     */
+    public function test_veralteter_stempel_wird_neu_gestempelt(): void
+    {
+        [$team, $channel] = self::eigenesTeam(854, '+49 160 5554054');
+        $thread = self::createThread($team, $channel, '+49 151 80000054', self::JETZT - 100 * 86_400);
+        RecConversationHandled::create([
+            'team_id' => $team,
+            'comms_whatsapp_thread_id' => $thread,
+            'handled_at' => date('Y-m-d H:i:s', self::JETZT - 200 * 86_400),
+            'handled_reason' => RecConversationHandled::REASON_MANUAL,
+        ]);
+
+        $command = new ArchiveOldConversations();
+        $plan = $command->planFor($team, 14, self::JETZT);
+        $this->assertSame([$thread], $plan);
+
+        $command->stamp($team, $plan);
+
+        $rows = RecConversationHandled::query()->where('comms_whatsapp_thread_id', $thread)->get();
+        $this->assertCount(1, $rows);
+        $this->assertSame('backfill', $rows[0]->handled_reason);
+        $this->assertSame([], $command->planFor($team, 14, self::JETZT));
+    }
+
+    public function test_quick_replies_trifft_nur_chats_mit_button_klick_als_letztem_eingang(): void
+    {
+        [$team, $channel] = self::eigenesTeam(855, '+49 160 5554055');
+        $frisch = time() - 3_600;
+
+        // Getippt, von HR beantwortet, dann Klick: der Klick ist keine Arbeit.
+        $nurButton = self::createThread($team, $channel, '+49 151 80000055', $frisch);
+        self::eingang($nurButton, ['type' => 'text', 'text' => ['body' => 'Hallo']]);
+        self::ausgang($nurButton);
+        self::eingang($nurButton, ['type' => 'button', 'button' => ['text' => 'Ja']]);
+
+        // Getippt, NICHT beantwortet, dann Klick: der Text ist Arbeit fuer HR
+        // (Review 16.10.2026, Befund 2).
+        $textDannButton = self::createThread($team, $channel, '+49 151 80000059', $frisch);
+        self::eingang($textDannButton, ['type' => 'text', 'text' => ['body' => 'Ich komme 30 min spaeter']]);
+        self::eingang($textDannButton, ['type' => 'button', 'button' => ['text' => 'Ja']]);
+
+        $buttonDannText = self::createThread($team, $channel, '+49 151 80000056', $frisch);
+        self::eingang($buttonDannText, ['type' => 'button', 'button' => ['text' => 'Ja']]);
+        self::eingang($buttonDannText, ['type' => 'text', 'text' => ['body' => 'Aber wann genau?']]);
+
+        $interaktiv = self::createThread($team, $channel, '+49 151 80000057', $frisch);
+        self::eingang($interaktiv, ['type' => 'interactive', 'interactive' => ['type' => 'button_reply']]);
+
+        $nurText = self::createThread($team, $channel, '+49 151 80000058', $frisch);
+        self::eingang($nurText, ['type' => 'text', 'text' => ['body' => 'Ja bin dabei']]);
+
+        $command = new ArchiveOldConversations();
+        $plan = $command->planQuickReplies($team);
+        sort($plan);
+        $this->assertSame([$nurButton, $interaktiv], $plan);
+
+        [$exitCode, $ausgabe] = $this->runCommand(['--team' => (string) $team, '--quick-replies' => true, '--dry-run' => true]);
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('2 Chats, deren letzter Eingang ein Button-Klick war.', $ausgabe);
+        $this->assertSame(0, RecConversationHandled::query()->where('team_id', $team)->count(), 'Probelauf schreibt nichts.');
+
+        [$exitCode] = $this->runCommand(['--team' => (string) $team, '--quick-replies' => true]);
+        $this->assertSame(0, $exitCode);
+        $reasons = RecConversationHandled::query()->where('team_id', $team)->pluck('handled_reason', 'comms_whatsapp_thread_id')->all();
+        ksort($reasons);
+        $this->assertSame([$nurButton => 'quick_reply', $interaktiv => 'quick_reply'], $reasons);
+    }
+
+    /** @return array{0: int, 1: int} [teamId, channelId] */
+    private static function eigenesTeam(int $team, string $sender): array
+    {
+        $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-rec-archive-' . $team, 'phone_number' => $sender,
+            'title' => 'Recruiting ' . $team, 'active' => true, 'user_id' => 1,
+        ]);
+        $channel = self::createChannel($team, $sender, $accountId);
+        RecApplicantSettings::create([
+            'team_id' => $team,
+            'settings' => ['auto_pilot_wa_account_id' => $accountId],
+        ]);
+
+        return [$team, $channel];
+    }
+
+    private static function eingang(int $threadId, array $payload): void
+    {
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId,
+            'direction' => 'inbound',
+            'body' => 'x',
+            'message_type' => 'text',
+            'meta_payload' => $payload,
+            'sent_at' => date('Y-m-d H:i:s', time() - 3_600),
+        ]);
+    }
+
+    private static function ausgang(int $threadId): void
+    {
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId,
+            'direction' => 'outbound',
+            'is_auto_reply' => false,
+            'body' => 'Danke dir!',
+            'message_type' => 'text',
+        ]);
     }
 
     /** @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe] */
@@ -406,6 +519,7 @@ class ArchiveOldConversationsCommandTest extends TestCase
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
             [$crm, 'database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php'],
+            [$crm, 'database/migrations/2026_07_10_000001_add_is_auto_reply_to_comms_whatsapp_messages.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
         ];
 
