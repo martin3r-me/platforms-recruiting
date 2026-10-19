@@ -181,10 +181,11 @@ class ZasInboundSpiegelTest extends TestCase
     }
 
     /**
-     * Bewusst NICHT umgebaut (Auftrag 12.10.): ohne offenen Marker setzt eine
-     * ZAS-Lieferung die Steuerklasse der getroffenen Akte, ohne die Regel
-     * zwischen den Anstellungen anzuwenden — beide koennen danach != 6 sein.
-     * Der Test haelt das Verhalten fest, damit eine Aenderung bewusst passiert.
+     * Seit 19.10.2026 (Sebastian/Olaf): tax_class ist beim Import geschuetzt
+     * (OVERWRITE_PROTECTED) — ZAS liefert die Steuerklasse nicht, der
+     * Mitarbeiter pflegt sie selbst. Auch ohne offenen Marker ueberschreibt
+     * die Lieferung sie nicht, und die Regel zwischen den Anstellungen
+     * wird nicht angewendet.
      */
     public function test_zas_lieferung_ohne_offenen_marker_wendet_die_regel_nicht_an(): void
     {
@@ -194,7 +195,7 @@ class ZasInboundSpiegelTest extends TestCase
 
         $this->run_($this->row(['Status' => 'MA', 'Steuerklasse' => '1']));
 
-        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+        $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'ZAS-Wert ueberschreibt die eigene Angabe nicht');
         $this->assertSame('1', (string) $this->zeile($rg)->tax_class);
     }
 

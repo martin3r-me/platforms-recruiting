@@ -543,9 +543,12 @@ class ZasInboundEmployeeImporter
      *    Aenderung sperrt den Mitarbeiter aus
      *  - country_code: der Mapper setzt bei leerem `Land` 'de' (ZAS liefert
      *    es nie) — ueberschreiben setzte jeden auf Deutschland zurueck
+     *  - tax_class: pflegt der Mitarbeiter selbst im Portal; ZAS liefert sie
+     *    nicht, ein spaeterer ZAS-Wert darf die eigene Angabe nicht
+     *    ueberschreiben (Sebastian/Olaf 19.10.2026)
      *  - personnel_number, company: nur Nachtrag in leere Felder (siehe oben)
      */
-    public const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company'];
+    public const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company', 'tax_class'];
 
     /** rec_employee_hr_data-Felder, die ZAS beim Bestand ueberschreiben darf. */
     protected const OVERWRITE_HR_FIELDS = ['contract_sent_date', 'contract_signed_at', 'contract_end_date', 'employment_classification'];

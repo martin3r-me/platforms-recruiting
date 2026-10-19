@@ -27,7 +27,8 @@ use Platform\Recruiting\Services\Zas\ZasLookupReverseResolver;
  * Nicht betroffen: Mitarbeiter aus unserem Funnel und Mischfaelle (Lieferung
  * + spaeter verknuepfte Bewerbung). Nie ueberschrieben: Telefon (wird fuer
  * ALLE bei uns gepflegt — Dispo/WhatsApp), Land (Default 'de'), Ausweisnummer
- * (Portal-Login), Personalnummer und Firma (nur Nachtrag).
+ * (Portal-Login), Personalnummer und Firma (nur Nachtrag), Steuerklasse
+ * (pflegt der Mitarbeiter im Portal, ZAS liefert sie nicht — 19.10.2026).
  * Eine leere Zelle loescht nichts. Keine Rueckkopplung: nichts davon markiert
  * den Mitarbeiter fuer den Rueck-Export an ZAS.
  */
@@ -254,6 +255,18 @@ class ZasInboundOverwriteTest extends TestCase
         $this->assertSame('at', $f->country_code, 'Land nie ueberschreiben (Import-Default de)');
         $this->assertSame('RG4711', $f->personnel_number);
         $this->assertSame('RG', $f->company);
+    }
+
+    public function test_steuerklasse_wird_nie_ueberschrieben(): void
+    {
+        $e = $this->makeEmployee('zas', ['tax_class' => '1']);
+
+        $report = $this->run_($this->row(['Steuerklasse' => '6', 'Vorname' => 'Neu']));
+
+        $f = $e->fresh();
+        $this->assertSame('1', $f->tax_class, 'eigene Angabe im Portal, ZAS-Wert darf sie nicht ersetzen');
+        $this->assertSame('Neu', $f->first_name, 'andere Felder laufen weiter');
+        $this->assertNotContains('tax_class', $report['updated'][0]['changed'] ?? []);
     }
 
     public function test_funnel_mitarbeiter_werden_nicht_ueberschrieben(): void
