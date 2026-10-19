@@ -2016,6 +2016,24 @@ final class KontoZuruecksetzenTest extends TestCase
         );
     }
 
+    /** Pilot-Sperre (Controller-Ruling 19.10.2026): ohne neues Portal wandert die Nummer, aber es entsteht keine Einladung. */
+    public function test_weg5_ohne_neues_portal_setzt_die_nummer_aber_keine_einladung(): void
+    {
+        DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
+        $vorher = $this->zeile()->invite_token_hash;
+
+        [, $probe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT, '--dry-run' => true]);
+        $this->assertStringContainsString('KEINE Einladung: kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $probe);
+
+        [$code, $ausgabe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone, 'die Nummer wandert trotzdem');
+        $this->assertSame($vorher, $this->zeile()->invite_token_hash, 'keine neue Einladung');
+        $this->assertStringNotContainsString('Einladungscode', $ausgabe);
+        $this->assertStringContainsString('keine Einladung erstellt — kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen).', $ausgabe);
+    }
+
     /**
      * Weg 5 haendigt KEIN Konto aus.
      *

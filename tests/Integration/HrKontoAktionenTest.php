@@ -337,29 +337,55 @@ final class HrKontoAktionenTest extends TestCase
         $this->assertSame([['person' => $id, 'code' => (string) $e->einladungsCode]], $sender->aufrufe);
     }
 
-    /**
-     * Pilot-Sperre am Konto-Kasten (Sebastian 19.10.2026): ohne neues Portal
-     * keine Einladung und kein Zuruecksetzen — nichts erzeugt, nichts
-     * verschickt, kein Vermerk.
-     */
-    public function test_ohne_neues_portal_keine_einladung_und_kein_zuruecksetzen(): void
+    /** Pilot-Sperre (Sebastian 19.10.2026): ohne neues Portal keine Einladung — nichts erzeugt, nichts verschickt, kein Vermerk. */
+    public function test_ohne_neues_portal_keine_einladung(): void
     {
         $sender = $this->einladungSender(EinladungSender::STATUS_GESENDET);
         $neu = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17', 'portal_v2_since' => null]);
         $idNeu = $this->person([], $neu);
-        $reg = $this->akte(['phone' => self::NEU, 'birth_date' => '1990-05-17', 'portal_v2_since' => null]);
-        $idReg = $this->person(['password_hash' => Hash::make('ganz-geheim-2026'), 'registered_at' => '2026-10-01 10:00:00'], $reg);
 
-        foreach ([$this->aktionen()->ladeNeuEin($neu->id, self::NOTIZ), $this->aktionen()->setzeKontoZurueck($reg->id, self::NOTIZ)] as $e) {
-            $this->assertSame(HrAktionErgebnis::FEHLER, $e->stufe);
-            $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $e->meldung);
-            $this->assertStringContainsString('kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $e->meldung, 'Wortlaut wie im Kommando');
-            $this->assertNull($e->einladungsCode);
-        }
+        $e = $this->aktionen()->ladeNeuEin($neu->id, self::NOTIZ);
+
+        $this->assertSame(HrAktionErgebnis::FEHLER, $e->stufe);
+        $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $e->meldung);
+        $this->assertStringContainsString('kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $e->meldung, 'Wortlaut wie im Kommando');
+        $this->assertNull($e->einladungsCode);
         $this->assertNull($this->personZeile($idNeu)->invite_token_hash);
-        $this->assertNotNull($this->personZeile($idReg)->password_hash, 'Passwort bleibt');
         $this->assertSame([], $sender->aufrufe);
         $this->assertCount(0, $this->vermerke());
+    }
+
+    /**
+     * Controller-Ruling 19.10.2026: Zuruecksetzen ist eine Sicherheitsaktion
+     * und bleibt fuer Nicht-Piloten moeglich — Passwort und Sitzungen fallen,
+     * eine offene alte Einladung auch, aber es entsteht KEINE neue und es
+     * geht nichts raus. Auch die Einladungs-Riegel (hier: kein Geburtsdatum)
+     * halten das Zuruecksetzen dann nicht auf.
+     */
+    public function test_zuruecksetzen_ohne_neues_portal_ohne_einladung(): void
+    {
+        $sender = $this->einladungSender(EinladungSender::STATUS_GESENDET);
+        $reg = $this->akte(['phone' => self::NEU, 'birth_date' => null, 'portal_v2_since' => null]);
+        $id = $this->person([
+            'password_hash' => Hash::make('ganz-geheim-2026'), 'registered_at' => '2026-10-01 10:00:00',
+            'invite_token_hash' => str_repeat('a', 64), 'invite_expires_at' => '2026-10-15 10:00:00',
+        ], $reg);
+        $this->sitzung->put(PortalAuth::sessionKey($reg->id), true);
+
+        $e = $this->aktionen()->setzeKontoZurueck($reg->id, self::NOTIZ);
+
+        $this->assertSame(HrAktionErgebnis::OK, $e->stufe, $e->meldung);
+        $this->assertStringContainsString('Konto zurückgesetzt', $e->meldung);
+        $this->assertStringContainsString(HrKontoAktionen::ZURUECKSETZEN_OHNE_EINLADUNG, $e->meldung);
+        $this->assertNull($e->einladungsCode);
+        $zeile = $this->personZeile($id);
+        $this->assertNull($zeile->password_hash, 'Passwort weg');
+        $this->assertNotNull($zeile->sitzungen_ungueltig_ab, 'Sitzungen enden');
+        $this->assertFalse(PortalAuth::sitzungGueltig($reg->id));
+        $this->assertNull($zeile->invite_token_hash, 'alte Einladung entwertet, keine neue');
+        $this->assertSame([], $sender->aufrufe);
+        $v = $this->vermerke()->sole();
+        $this->assertSame(['konto_zurueckgesetzt', 'ohne Einladung'], [$v->art, $v->ergebnis]);
     }
 
     /** Review Focus 3 (Dienst-Ebene). */

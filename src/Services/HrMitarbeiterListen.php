@@ -497,8 +497,8 @@ final class HrMitarbeiterListen
         $registriert = $person !== null && $person->password_hash !== null;
         $knoepfeAus = $person === null || $stillgelegt !== null;
         // Pilot-Sperre (Sebastian 19.10.2026): ohne neues Portal keine
-        // Einladung und kein Zuruecksetzen — der Kasten zeigt den Grund statt
-        // der Knoepfe; HrKontoAktionen prueft beim Klick erneut.
+        // Einladung — der Kasten zeigt den Grund statt des Knopfs;
+        // HrKontoAktionen prueft beim Klick erneut. Zuruecksetzen bleibt.
         $ohneNeuesPortal = $person !== null && !PilotKreis::personHatNeuesPortal((int) $person->id);
         $einladungMoeglich = !$knoepfeAus && !$gesperrt;
 
@@ -516,8 +516,12 @@ final class HrMitarbeiterListen
             'antrag_offen'       => $person !== null && $person->wechsel_wirksam_ab !== null,
             'verlauf'            => $verlauf,
             'kann_einladen'      => $einladungMoeglich && !$ohneNeuesPortal && !$registriert,
-            'kann_zuruecksetzen' => $einladungMoeglich && !$ohneNeuesPortal && $registriert,
-            'einladung_riegel'   => $einladungMoeglich && $ohneNeuesPortal ? HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT : null,
+            // Zuruecksetzen bleibt auch ohne neues Portal (Controller-Ruling
+            // 19.10.2026) — dann ohne Einladung, der Hinweis sagt es.
+            'kann_zuruecksetzen' => $einladungMoeglich && $registriert,
+            'einladung_riegel'   => $einladungMoeglich && $ohneNeuesPortal
+                ? ($registriert ? HrKontoAktionen::ZURUECKSETZEN_OHNE_EINLADUNG_HINWEIS : HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT)
+                : null,
             'knoepfe_aus'        => $knoepfeAus,
         ];
     }

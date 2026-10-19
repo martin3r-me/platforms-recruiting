@@ -6,8 +6,10 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\EinladungsRiegel;
 use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\PilotKreis;
 use Throwable;
 
 /**
@@ -117,8 +119,15 @@ class KontoZuruecksetzen extends Command
             return self::FAILURE;
         }
 
+        // Pilot-Sperre (Controller-Ruling 19.10.2026): die Nummer wandert
+        // immer, eine Einladung gibt es nur mit neuem Portal — ohne fuehrte
+        // sie nach der Anmeldung ins Leere ('ohne-ziel').
+        $mitEinladung = PilotKreis::personHatNeuesPortal($personId);
+
         if ($this->option('dry-run')) {
-            $this->line("Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, danach neue Einladung.");
+            $this->line($mitEinladung
+                ? "Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, danach neue Einladung."
+                : "Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, KEINE Einladung: " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
 
             return self::SUCCESS;
         }
@@ -135,6 +144,12 @@ class KontoZuruecksetzen extends Command
 
         if ($alt !== null) {
             $this->hinweisAnAlteNummer($personId, $alt);
+        }
+
+        if (!$mitEinladung) {
+            $this->line("Person {$personId}: keine Einladung erstellt — " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
+
+            return self::SUCCESS;
         }
 
         // Die Einladung ist der zweite Teil von Weg 5 — ohne sie haette der

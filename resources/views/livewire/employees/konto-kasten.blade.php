@@ -68,7 +68,7 @@
                 <button type="button" class="{{ $knopfRot }}" wire:click="oeffne('konto_zuruecksetzen')" wire:loading.attr="disabled" wire:target="oeffne">Konto zurücksetzen</button>
             @endif
         </div>
-        {{-- Pilot-Sperre: statt „Einladung neu“ / „Konto zurücksetzen“ steht der Grund da (HrMitarbeiterListen::kasten). --}}
+        {{-- Pilot-Sperre: statt „Einladung neu“ steht der Grund da; bei registrierten Nicht-Piloten der Hinweis zum Zurücksetzen ohne Einladung (HrMitarbeiterListen::kasten). --}}
         @if ($k['einladung_riegel'] !== null)
             <p class="mt-2 text-sm text-amber-900">{{ $k['einladung_riegel'] }}</p>
         @endif

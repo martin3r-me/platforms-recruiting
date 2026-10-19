@@ -23,6 +23,7 @@ use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\HrAktionErgebnis;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\TriggerRegeln;
 use Platform\Recruiting\Support\VertragErinnerungsPause;
 use Platform\Recruiting\Support\VertragsHerkunft;
@@ -97,6 +98,14 @@ final class HrKontoAktionen
      */
     public const KEIN_NEUES_PORTAL_TEXT = 'Kein neues Portal — ' . EinladungsRiegel::KEIN_NEUES_PORTAL
         . '. Ohne neues Portal landet der Mensch nach der Anmeldung im Leeren.';
+
+    /** Zuruecksetzen ohne neues Portal (Controller-Ruling 19.10.2026): Grund, warum keine Einladung entsteht. */
+    public const ZURUECKSETZEN_OHNE_EINLADUNG = 'Keine neue Einladung erstellt: ' . EinladungsRiegel::KEIN_NEUES_PORTAL
+        . '. Frühere Einladungen gelten nicht mehr.';
+
+    /** Hinweis im Kasten neben „Konto zurücksetzen" bei registrierten Nicht-Piloten. */
+    public const ZURUECKSETZEN_OHNE_EINLADUNG_HINWEIS = 'Zurücksetzen beendet Passwort und Anmeldungen, erstellt aber keine Einladung — '
+        . EinladungsRiegel::KEIN_NEUES_PORTAL . '.';
 
     /** Zusatz zur Einladungs-Meldung je Versand-Status (EinladungSender). */
     public const EINLADUNG_GESENDET = 'Einladung per WhatsApp verschickt (gilt 7 Tage).';
@@ -425,6 +434,22 @@ final class HrKontoAktionen
         if (!$zuruecksetzen && $person->password_hash !== null) {
             return HrAktionErgebnis::fehler('Das Konto ist schon registriert — dafür gibt es „Konto zurücksetzen“.');
         }
+        // Controller-Ruling 19.10.2026: Zuruecksetzen ist eine
+        // Sicherheitsaktion und bleibt auch ohne neues Portal moeglich —
+        // Passwort und Sitzungen fallen, aber es entsteht KEINE Einladung
+        // (sie fuehrte ins Leere). Die Einladungs-Riegel betreffen dann nur
+        // die Einladung und greifen nicht.
+        if ($zuruecksetzen && !PilotKreis::personHatNeuesPortal($personId)) {
+            $r = KontoWriter::setzeKontoZurueckDurchHr($personId, false);
+            $ergebnis = $r['antrag_entfernt'] ? self::ANTRAG_ENTFERNT : 'ohne Einladung';
+            $this->vermerk($teamId, $personId, $employeeId, 'konto_zurueckgesetzt', $notiz, null, $ergebnis);
+
+            return HrAktionErgebnis::ok('Konto zurückgesetzt. Das alte Passwort gilt nicht mehr, laufende Anmeldungen sind beendet. '
+                . 'Die gespeicherte Telefonnummer bleibt unverändert.'
+                . ($r['antrag_entfernt'] ? ' Dabei wurde ein ' . self::ANTRAG_ENTFERNT . '.' : '')
+                . ' ' . self::ZURUECKSETZEN_OHNE_EINLADUNG);
+        }
+
         $grund = EinladungsRiegel::fuerPerson($personId);
         if ($grund !== null) {
             return HrAktionErgebnis::fehler(self::RIEGEL_TEXT[$grund]);

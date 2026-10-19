@@ -378,7 +378,7 @@ final class KontoKastenTest extends TestCase
 
         $daten = $k->kasten();
         $this->assertFalse($daten['kann_einladen']);
-        $this->assertFalse($daten['kann_zuruecksetzen']);
+        $this->assertFalse($daten['kann_zuruecksetzen'], 'nicht registriert');
         $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $daten['einladung_riegel']);
 
         // Der Knopf fehlt — wer die Aktion trotzdem ausloest, bekommt den Grund.
@@ -389,6 +389,15 @@ final class KontoKastenTest extends TestCase
         $this->assertNull($this->geheim($k, 'einladungsCode'));
         $this->assertNull($this->personZeile($personId)->invite_token_hash);
         $this->assertCount(0, $this->vermerke());
+
+        // Registriert ohne neues Portal: Zuruecksetzen bleibt, mit Hinweis (Controller-Ruling 19.10.2026).
+        $reg = $this->akte(['birth_date' => '1990-05-17', 'portal_v2_since' => null]);
+        $this->person(['password_hash' => Hash::make('x-geheim-2026'), 'registered_at' => now()], $reg);
+        $regDaten = $this->kasten($reg->id)->kasten();
+        $this->assertTrue($regDaten['kann_zuruecksetzen']);
+        $this->assertFalse($regDaten['kann_einladen']);
+        $this->assertSame(HrKontoAktionen::ZURUECKSETZEN_OHNE_EINLADUNG_HINWEIS, $regDaten['einladung_riegel']);
+        $this->assertStringContainsString('erstellt aber keine Einladung', $regDaten['einladung_riegel']);
 
         // Im Pilot ist der Grund weg.
         $imPilot = $this->akte(['birth_date' => '1990-05-17']);

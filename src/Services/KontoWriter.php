@@ -1103,19 +1103,33 @@ final class KontoWriter
      * (das bleibt eine eigene HR-Entscheidung). Ob einer lag, meldet
      * antrag_entfernt — der Aufrufer schreibt es in den Vermerk.
      *
-     * @return array{token: string, antrag_entfernt: bool} token = Klartext der neuen Einladung (nur fuer die Einmal-Anzeige)
+     * OHNE EINLADUNG (Controller-Ruling 19.10.2026, $mitEinladung = false):
+     * fuer Menschen ohne neues Portal. Passwort und Sitzungen fallen wie
+     * immer (Sicherheitsaktion, die HR immer haben muss), aber es entsteht
+     * KEINE neue Einladung — und eine noch offene alte wird entwertet, sonst
+     * bliebe nach einem Uebernahme-Verdacht ein Weg zur Neuregistrierung
+     * offen. token ist dann null.
+     *
+     * @return array{token: ?string, antrag_entfernt: bool} token = Klartext der neuen Einladung (nur fuer die Einmal-Anzeige), null ohne Einladung
      */
-    public static function setzeKontoZurueckDurchHr(int $personId): array
+    public static function setzeKontoZurueckDurchHr(int $personId, bool $mitEinladung = true): array
     {
         // Vorbedingung vor jedem Schreiben: ohne Pfeffer keine Einladung.
-        self::pfeffer();
+        if ($mitEinladung) {
+            self::pfeffer();
+        }
 
-        $ergebnis = DB::transaction(function () use ($personId) {
+        $ergebnis = DB::transaction(function () use ($personId, $mitEinladung) {
             $person = self::pruefeOffen(self::sperrAbfrage($personId)->first(), $personId);
 
             $antragEntfernt = $person->wechsel_neue_nummer !== null || $person->wechsel_wirksam_ab !== null;
 
-            DB::table('rec_persons')->where('id', $personId)->update([
+            $einladungWeg = $mitEinladung ? [] : [
+                'invite_token_hash' => null,
+                'invite_expires_at' => null,
+            ];
+
+            DB::table('rec_persons')->where('id', $personId)->update($einladungWeg + [
                 'password_hash'          => null,
                 'code_hash'              => null,
                 'code_expires_at'        => null,
@@ -1135,7 +1149,7 @@ final class KontoWriter
             // 180 Tage am Leben.
             LangeSitzung::vergissPerson($personId);
 
-            return ['token' => self::ladeEin($personId), 'antrag_entfernt' => $antragEntfernt];
+            return ['token' => $mitEinladung ? self::ladeEin($personId) : null, 'antrag_entfernt' => $antragEntfernt];
         });
 
         if ($ergebnis['antrag_entfernt']) {
