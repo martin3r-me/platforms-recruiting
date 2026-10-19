@@ -148,3 +148,20 @@ MA-Vertragstext und Vertrags-Automatik (E10/E13), Zahlungsstatus (Folie 14), Tau
 - Leere Zelle bei ZAS (Fall 2) — Olaf; durch den ZAS-Inbound nur noch für Zeilen relevant, die ZAS selbst nicht gepflegt hat (Grundlohn 0) oder nie geliefert wurden.
 - **Befund CSV 19.10. (437 Personen mit RG+MA):** ZAS rechnet heute schon „Grundlohn EG 1, Zuschlag = RG-Gesamt − EG 1" (248 von 317 gepflegten Zeilen passen, Rest veraltete Stände); +1 € nur bei 79 Zeilen — die Steuerklasse an der MA-Zeile muss gepflegt sein, sonst geht der Zuschlag ohne Euro raus (sichtbar in der Begründung). Veraltete ZAS-Stände (14,96 / 14,53 / Grundlohn 0) werden durch den Export korrigiert; Vorflug liefert die Zahl für die Ankündigung.
 - `tax_class` leer an der MA-Zeile → kein Euro. Sichtbar in der Begründung („Steuerklasse unbekannt").
+
+## 16. Umsetzung (19.10.2026)
+
+Gebaut auf `feat/ma-konto`. Dateien und Entscheidungen:
+
+- `src/Support/EntgeltgruppeEins.php` — datierte Tarifstufe EG 1. `src/Support/LohnMa.php` — die Rechenregel mit den Fällen `angleich`, `zas`, `unbekannt`, `manuell`, `nur_ma`.
+- `database/migrations/2026_10_19_000002_add_zuschlag_manuell_to_rec_employees.php` — manuelles Feld `zuschlag_manuell`.
+- `src/Services/LohnMaErmittlung.php` — Kette Bewerbung → `zas_zuschlag` (nur bei `zas_grundlohn > 0`) → `zuschlag_manuell`; Mindestlohn je Team im Prozess gemerkt; `ermittelnMitSchwester`.
+- `src/Services/Zas/ZasEmployeeFieldResolver.php` — MA-Zeilen: EG 1 + Angleich; RG-Zeilen ohne Bewerbung: dieselbe Kette.
+- `src/Observers/RecEmployeeExportObserver.php` — Marker bei Bewerbungs-Zuschlag, `zuschlag_manuell` und ZAS-Lohn an der RG-Zeile, jeweils auf die MA-Schwestern.
+- `src/Livewire/Employees/Show.php` + `resources/views/livewire/employees/_lohn-ma.blade.php` — Block „Lohn an ZAS"; das Feld RG-Zuschlag erscheint nur bei RG ohne Bewerbung UND ohne brauchbaren ZAS-Wert (Ruling R2); ZAS-Lohnfelder und Vorbelegung mit Komma.
+- `src/Services/HrMitarbeiterListen.php`, `src/Livewire/HrDesk/Mitarbeiter.php` + `mitarbeiter.blade.php` — Unterliste „Lohn: RG-Zuschlag fehlt", Liste 60 s je Team gecacht. Der rote Hauptreiter-Zähler enthält die Lohn-Liste nicht (Ruling §10).
+- `src/Console/Commands/LohnMaExport.php` — `recruiting:lohn-ma-export` mit Vergleich `gleich` / `abweichend` / `zas_leer`.
+- `resources/views/livewire/applicant/applicant-settings-modal.blade.php` — Lohnbuchhaltung: Mindestlohn RG, EG 1 lesend.
+- Ruling R3: Bewerbung ohne Zuschlag und ohne lesbaren AV-Code → RG-Export bleibt leer (wie heute); der MA-Angleich rechnet mit 0,00.
+- Abhängigkeit auf main: ZAS-Lohn-Inbound `fff2ad69` (Migration `2026_10_19_000001_add_zas_lohn_to_hr_data`) muss deployt sein.
+- Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Aktive MA ohne `rec_person_id` und `person_key` rechnen als „nur MA" (0,00) — vor `--markieren` zählen (Checkliste 4.4 Schritt 4b).
