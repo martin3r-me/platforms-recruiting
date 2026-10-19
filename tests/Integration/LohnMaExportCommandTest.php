@@ -126,6 +126,7 @@ class LohnMaExportCommandTest extends TestCase
         Capsule::table('rec_employees')->insert(array_merge([
             'id' => $nr, 'team_id' => self::TEAM, 'uuid' => 'u-' . $nr, 'first_name' => 'A', 'last_name' => 'B',
             'is_active' => 1, 'company' => 'RG', 'zas_changed_at' => null,
+            'tax_class' => ($set['company'] ?? 'RG') === 'RG' ? '1' : null,
             'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00',
         ], $set));
 
@@ -148,26 +149,31 @@ class LohnMaExportCommandTest extends TestCase
         $this->zeile(['company' => 'RG', 'rec_person_id' => 2]);
         $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'personnel_number' => 'MA2']);
         $this->zeile(['company' => 'RG', 'rec_person_id' => 3, 'zuschlag_manuell' => 2.50]);
-        $ma3 = $this->zeile(['company' => 'MA', 'rec_person_id' => 3, 'personnel_number' => 'MA3']);
+        $ma3 = $this->zeile(['company' => 'MA', 'rec_person_id' => 3, 'tax_class' => '1', 'personnel_number' => 'MA3']);
         $ma4 = $this->zeile(['company' => 'MA', 'rec_person_id' => 4, 'personnel_number' => 'MA4']);   // Person ohne RG = nur MA (R4)
         $this->zeile(['company' => 'MA', 'is_active' => 0, 'personnel_number' => 'MA5']);   // ausgeschieden: nicht im Lauf
+        $this->zeile(['company' => 'RG', 'rec_person_id' => 5, 'zuschlag_manuell' => 2.50]);
+        $this->zeile(['company' => 'MA', 'rec_person_id' => 5, 'personnel_number' => 'MA6']);   // Klasse an der MA leer
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
-        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 1, 'nur_ma' => 1], $r['zahlen']);
-        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 4], $r['vergleich']);
-        $this->assertSame(4, $r['gesamt']);
+        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 1, 'nur_ma' => 1, 'steuerklasse_fehlt' => 1], $r['zahlen']);
+        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 5], $r['vergleich']);
+        $this->assertSame(5, $r['gesamt']);
         $this->assertSame(1, $r['sechs']);
         $this->assertSame(0, $r['markiert']);
         $this->assertSame(0, Capsule::table('rec_employees')->whereNotNull('zas_changed_at')->count(), 'ohne --markieren kein Marker');
 
         $zeilen = array_map('str_getcsv', file($this->csv, FILE_IGNORE_NEW_LINES));
         $this->assertSame(['employee_id', 'personnel_number', 'name', 'person_id', 'rg_employee_id', 'fall', 'grundlohn', 'zuschlag', 'steuerklasse', 'zas_grundlohn', 'zas_zuschlag', 'vergleich', 'begruendung'], $zeilen[0]);
-        $this->assertCount(5, $zeilen);
+        $this->assertCount(6, $zeilen);
         $ma2Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA2'))[0];
         $this->assertSame('unbekannt', $ma2Zeile[5]);
         $this->assertSame('15,33', $ma2Zeile[6]);
         $this->assertSame('', $ma2Zeile[7]);
+        $ma6Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA6'))[0];
+        $this->assertSame('steuerklasse_fehlt', $ma6Zeile[5]);
+        $this->assertSame('', $ma6Zeile[7], 'leere Zelle statt falschem Wert');
     }
 
     public function test_vergleich_mit_dem_zas_stand_der_ma_zeile(): void

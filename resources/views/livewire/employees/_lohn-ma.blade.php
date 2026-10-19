@@ -3,6 +3,7 @@
     @php
         $zuschlagText = $lohn['zuschlag'] ?? null;
         $istUnbekannt = $lohn['fall'] === 'unbekannt';
+        $steuerklasseFehlt = $lohn['fall'] === 'steuerklasse_fehlt';
         $rgUnklar = (bool) ($lohn['rg_unklar'] ?? false);
         $rgLink = $lohn['rg_employee_id'] !== null ? route('recruiting.employees.show', ['employee' => $lohn['rg_employee_id']]) : null;
     @endphp
@@ -22,6 +23,9 @@
             @endif
         </dl>
         <p class="mt-2 text-xs text-[var(--ui-muted)]">{{ $lohn['begruendung'] }}</p>
+        @if ($steuerklasseFehlt)
+            <p class="mt-1 text-xs font-medium text-amber-700">Steuerklasse in der Akte bzw. im Portal pflegen.</p>
+        @endif
         @if ($istUnbekannt && $rgLink !== null && $rgUnklar)
             <a href="{{ $rgLink }}" class="mt-2 inline-block text-xs font-medium text-blue-700 hover:underline">RG-Anstellung mit gleicher Kennung prüfen (Personen-Zuordnung) →</a>
         @elseif ($istUnbekannt && $rgLink !== null)

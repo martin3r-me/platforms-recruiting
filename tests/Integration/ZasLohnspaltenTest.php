@@ -122,7 +122,7 @@ final class ZasLohnspaltenTest extends TestCase
         Capsule::table('rec_employees')->insert(array_merge([
             'id' => $nr, 'team_id' => self::TEAM, 'uuid' => 'u-' . $nr, 'first_name' => 'A', 'last_name' => 'B',
             'is_active' => 1, 'company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => null,
-            'person_key' => null, 'tax_class' => null, 'zuschlag_manuell' => null,
+            'person_key' => null, 'tax_class' => ($set['company'] ?? 'RG') === 'RG' ? '1' : null, 'zuschlag_manuell' => null,
             'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00',
         ], $set));
 
@@ -203,6 +203,17 @@ final class ZasLohnspaltenTest extends TestCase
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 13, 'tax_class' => '6']);
 
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()) + 1.00, 2)), $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** Markus 14.10.: der Euro nur bei RG 1-5 und MA 6; ist die RG-Klasse leer, bleibt die Zelle leer. */
+    public function test_ma_6_rg_steuerklasse_leer_liefert_leeren_zuschlag(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 17, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 17, 'tax_class' => null]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 17, 'tax_class' => '6']);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'), 'leere Zelle statt falschem Wert');
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(\Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString())), $this->resolver()->col($ma, 'Grundlohn'));
     }
 
     /** ZAS-Grundlohn 0 = Zeile bei ZAS nicht gepflegt, der Zuschlag daneben ist keine Angabe. */

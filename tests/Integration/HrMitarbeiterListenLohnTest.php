@@ -51,6 +51,16 @@ final class HrMitarbeiterListenLohnTest extends TestCase
         $this->assertCount(1, $this->listen()->lohn($this->team, 'unbek'));
     }
 
+    /** Sebastian: sonst Hunderte ZAS-Bestandsleute ohne Steuerklasse — die Liste zeigt nur "unbekannt". */
+    public function test_steuerklasse_fehlt_steht_nicht_in_der_liste(): void
+    {
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10, 'tax_class' => '1']), $ma = $this->akte(['company' => 'MA', 'tax_class' => null]));
+
+        $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma->fresh());
+        $this->assertSame('steuerklasse_fehlt', $l->fall, 'Vorbedingung');
+        $this->assertSame([], $this->listen()->lohn($this->team));
+    }
+
     /** Ruling R4 Fall A: gleiche Kennung, andere Person — in der Liste, mit der RG-Zeile als Anker. */
     public function test_gleiche_kennung_andere_person_steht_mit_rg_id_in_der_liste(): void
     {

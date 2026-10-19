@@ -7,7 +7,9 @@ namespace Platform\Recruiting\Support;
  *
  * Grundlohn = EG 1. Zuschlag gleicht an den RG-Gesamtlohn der Person an
  * (Markus 15.10.2026, E14: "mindestens den identischen Gesamtlohn"), dazu
- * +1,00 EUR bei Steuerklasse 6. Ohne RG-Anstellung gibt es nichts
+ * +1,00 EUR, wenn die RG-Schwester Steuerklasse 1-5 und die MA die 6 hat
+ * (Markus 14.10.2026). Fehlt eine der beiden Steuerklassen, bleibt der
+ * Zuschlag leer (Fall steuerklasse_fehlt). Ohne RG-Anstellung gibt es nichts
  * anzugleichen ("nur MA ohne Zuschlag", 16.10.2026). Ist der RG-Zuschlag
  * unbekannt (Bestand ohne Bewerbung, nichts eingetragen), bleibt der
  * Zuschlag LEER — ein geratener Betrag landet im Lohn, ein leerer faellt auf.
@@ -21,6 +23,7 @@ final class LohnMa
     public const UNBEKANNT = 'unbekannt';
     public const MANUELL   = 'manuell';
     public const NUR_MA    = 'nur_ma';
+    public const STEUERKLASSE_FEHLT = 'steuerklasse_fehlt';
 
     public const QUELLE_BEWERBUNG = 'bewerbung';
     public const QUELLE_ZAS       = 'zas';
@@ -37,52 +40,70 @@ final class LohnMa
     }
 
     /**
-     * @param  float        $eg1          Tarifsatz EG 1 am Stichtag
-     * @param  float        $mindestlohn  RG-Grundlohn (Team-Einstellung minimum_wage_hourly)
-     * @param  bool         $hatRg        aktive RG-Anstellung derselben Person vorhanden
-     * @param  float|null   $rgZuschlag   RG-Zuschlag; null = unbekannt
-     * @param  string|null  $quelle       QUELLE_BEWERBUNG | QUELLE_ZAS | QUELLE_MANUELL | null
-     * @param  string|null  $steuerklasse tax_class der MA-Anstellung ('1'..'6' oder null)
+     * @param  float        $eg1            Tarifsatz EG 1 am Stichtag
+     * @param  float        $mindestlohn    RG-Grundlohn (Team-Einstellung minimum_wage_hourly)
+     * @param  bool         $hatRg          aktive RG-Anstellung derselben Person vorhanden
+     * @param  float|null   $rgZuschlag     RG-Zuschlag; null = unbekannt
+     * @param  string|null  $quelle         QUELLE_BEWERBUNG | QUELLE_ZAS | QUELLE_MANUELL | null
+     * @param  string|null  $steuerklasseMa tax_class der MA-Anstellung ('1'..'6' oder null)
+     * @param  string|null  $steuerklasseRg tax_class der RG-Schwester ('1'..'6' oder null)
      */
-    public static function rechne(float $eg1, float $mindestlohn, bool $hatRg, ?float $rgZuschlag, ?string $quelle, ?string $steuerklasse): self
+    public static function rechne(float $eg1, float $mindestlohn, bool $hatRg, ?float $rgZuschlag, ?string $quelle, ?string $steuerklasseMa, ?string $steuerklasseRg = null): self
     {
         $teile = ['EG 1 ' . self::euro($eg1)];
-        $klasse = trim((string) $steuerklasse);
-        $sechs = $klasse === '6' ? self::KLASSE_SECHS_EURO : 0.0;
 
+        // Nur MA: nichts anzugleichen, NIE ein Euro ("Nur MA immer EG 1 ohne
+        // Zuschlag", Markus 16.10.2026) — egal welche Steuerklasse.
         if (!$hatRg) {
             $teile[] = 'nur MA, kein Angleich';
-            $zuschlag = round($sechs, 2);
-            $fall = self::NUR_MA;
-        } elseif ($rgZuschlag === null) {
+            $teile[] = 'Zuschlag ' . self::euro(0.0);
+
+            return new self(self::NUR_MA, $eg1, 0.0, implode(' · ', $teile));
+        }
+
+        // Unbekannter RG-Zuschlag hat Vorrang vor der Steuerklasse.
+        if ($rgZuschlag === null) {
             $teile[] = 'RG-Zuschlag unbekannt (keine Bewerbung, nichts eingetragen)';
             $teile[] = 'Zuschlag leer';
 
             return new self(self::UNBEKANNT, $eg1, null, implode(' · ', $teile));
-        } else {
-            $gesamt = $mindestlohn + $rgZuschlag;
-            $angleich = max(0.0, $gesamt - $eg1);
-            $herkunft = match ($quelle) {
-                self::QUELLE_MANUELL => ', von HR eingetragen',
-                self::QUELLE_ZAS     => ', laut ZAS',
-                default              => '',
-            };
-            $teile[] = sprintf('Angleich an RG %s (%s + %s%s) → %s',
-                self::euro($gesamt), self::zahl($mindestlohn), self::zahl($rgZuschlag), $herkunft, self::euro($angleich));
-            $zuschlag = round($angleich + $sechs, 2);
-            $fall = match ($quelle) {
-                self::QUELLE_MANUELL => self::MANUELL,
-                self::QUELLE_ZAS     => self::ZAS,
-                default              => self::ANGLEICH,
-            };
         }
 
+        $gesamt = $mindestlohn + $rgZuschlag;
+        $angleich = max(0.0, $gesamt - $eg1);
+        $herkunft = match ($quelle) {
+            self::QUELLE_MANUELL => ', von HR eingetragen',
+            self::QUELLE_ZAS     => ', laut ZAS',
+            default              => '',
+        };
+        $teile[] = sprintf('Angleich an RG %s (%s + %s%s) → %s',
+            self::euro($gesamt), self::zahl($mindestlohn), self::zahl($rgZuschlag), $herkunft, self::euro($angleich));
+
+        // Steuerklasse an MA oder RG leer: der +1-Euro-Vergleich ist nicht
+        // moeglich. Lieber leere Zelle (ZAS behaelt seinen Wert) als ein
+        // falscher Wert.
+        $ma = trim((string) $steuerklasseMa);
+        $rg = trim((string) $steuerklasseRg);
+        if ($ma === '' || $rg === '') {
+            $fehlt = $ma === '' && $rg === '' ? 'MA und RG' : ($ma === '' ? 'MA' : 'RG');
+            $teile[] = 'Steuerklasse fehlt (' . $fehlt . ') — Zuschlag leer, ZAS behält seinen Wert';
+
+            return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile));
+        }
+
+        // Markus 14.10.: RG 1-5 und in der MA die 6 → 1,00 EUR mehr.
+        $sechs = ($ma === '6' && in_array($rg, ['1', '2', '3', '4', '5'], true)) ? self::KLASSE_SECHS_EURO : 0.0;
         if ($sechs > 0) {
             $teile[] = 'Steuerklasse 6 +' . self::euro($sechs);
-        } elseif ($klasse === '') {
-            $teile[] = 'Steuerklasse unbekannt, kein +1 €';
         }
+        $zuschlag = round($angleich + $sechs, 2);
         $teile[] = 'Zuschlag ' . self::euro($zuschlag);
+
+        $fall = match ($quelle) {
+            self::QUELLE_MANUELL => self::MANUELL,
+            self::QUELLE_ZAS     => self::ZAS,
+            default              => self::ANGLEICH,
+        };
 
         return new self($fall, $eg1, $zuschlag, implode(' · ', $teile));
     }

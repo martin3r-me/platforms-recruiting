@@ -69,7 +69,7 @@ class LohnMaExport extends Command
     {
         $tag = $datum ?? now()->toDateString();
         $e = new LohnMaErmittlung();
-        $zahlen = [LohnMa::ANGLEICH => 0, LohnMa::ZAS => 0, LohnMa::UNBEKANNT => 0, LohnMa::MANUELL => 0, LohnMa::NUR_MA => 0];
+        $zahlen = [LohnMa::ANGLEICH => 0, LohnMa::ZAS => 0, LohnMa::UNBEKANNT => 0, LohnMa::MANUELL => 0, LohnMa::NUR_MA => 0, LohnMa::STEUERKLASSE_FEHLT => 0];
         $vergleich = ['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 0];
         $sechs = 0;
         $ids = [];

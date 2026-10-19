@@ -58,6 +58,7 @@ final class LohnMaErmittlung
             $quelle['wert'],
             $quelle['quelle'],
             $ma->tax_class !== null ? (string) $ma->tax_class : null,
+            ($rg->tax_class ?? null) !== null ? (string) $rg->tax_class : null,
         );
     }
 
@@ -72,7 +73,7 @@ final class LohnMaErmittlung
      * zuordnung_unklar = true zurueck (Ruling R4, Fall A): Ihr Zuschlag wird
      * nicht verwendet, die HR-Liste braucht aber ihre Id.
      *
-     * @return object|null Zeile mit id, rec_applicant_id, zuschlag_manuell, zas_grundlohn, zas_zuschlag[, zuordnung_unklar]
+     * @return object|null Zeile mit id, rec_applicant_id, zuschlag_manuell, zas_grundlohn, zas_zuschlag, tax_class[, zuordnung_unklar]
      */
     public function rgSchwester(RecEmployee $ma): ?object
     {
@@ -152,7 +153,7 @@ final class LohnMaErmittlung
             ->leftJoin('rec_employee_hr_data as h', 'h.rec_employee_id', '=', 'e.id')
             ->where('e.is_active', 1)
             ->where(fn ($w) => $w->whereNull('e.company')->orWhere('e.company', '')->orWhereRaw('UPPER(TRIM(e.company)) = ?', ['RG']))
-            ->select(['e.id', 'e.rec_applicant_id', 'e.zuschlag_manuell', 'h.zas_grundlohn', 'h.zas_zuschlag']);
+            ->select(['e.id', 'e.rec_applicant_id', 'e.zuschlag_manuell', 'h.zas_grundlohn', 'h.zas_zuschlag', 'e.tax_class']);
     }
 
     /**

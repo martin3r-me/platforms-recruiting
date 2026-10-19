@@ -77,6 +77,20 @@ final class LohnMaAkteTest extends TestCase
         $this->assertMatchesRegularExpression('~^\d{2}\.\d{2}\.\d{4}$~', $b['eg1_ab']);
     }
 
+    public function test_block_steuerklasse_fehlt_zeigt_leer_und_hinweis(): void
+    {
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10, 'tax_class' => '1']), $ma = $this->akte(['company' => 'MA', 'tax_class' => null]));
+
+        $b = Show::lohnBlock($ma->fresh());
+        $this->assertSame('steuerklasse_fehlt', $b['fall']);
+        $this->assertNull($b['zuschlag']);
+        $this->assertStringContainsString('Steuerklasse fehlt (MA)', $b['begruendung']);
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/_lohn-ma.blade.php');
+        $this->assertStringContainsString("=== 'steuerklasse_fehlt'", $blade);
+        $this->assertStringContainsString('Steuerklasse in der Akte bzw. im Portal pflegen', $blade);
+    }
+
     public function test_zas_lohnfelder_zeigen_euro_mit_komma(): void
     {
         $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Employees/Show.php');
