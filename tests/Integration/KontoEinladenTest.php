@@ -235,6 +235,7 @@ final class KontoEinladenTest extends TestCase
             $t->boolean('is_active')->default(true);
             $t->timestamp('portal_locked_at')->nullable();
             $t->timestamp('zas_changed_at')->nullable();
+            $t->timestamp('portal_v2_since')->nullable();
             $t->timestamps();
         });
 
@@ -299,6 +300,8 @@ final class KontoEinladenTest extends TestCase
             'company'       => 'RG',
             'phone'         => self::NUMMER,
             'is_active'     => 1,
+            // Pilot-Sperre: eingeladen wird nur, wer das neue Portal hat.
+            'portal_v2_since' => self::ANGEFASST,
             'created_at'    => self::ANGEFASST,
             'updated_at'    => self::ANGEFASST,
         ], $attr));
@@ -646,6 +649,36 @@ final class KontoEinladenTest extends TestCase
      * Registrierung weist sie danach fuenfmal ab. Geprueft wird deshalb
      * gegen dieselbe Lesart, die KontoWriter::alsTag() anlegt.
      */
+    /** Pilot-Sperre (Review Fix-Runde 1): ohne neues Portal keine Einladung — auch nicht ueber --ids. */
+    public function test_ohne_neues_portal_keine_einladung_und_der_grund_steht_da(): void
+    {
+        $alt = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($alt, 'tok-a', ['portal_v2_since' => null]);
+        $neu = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($neu, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [, $ausgabe] = $this->kommando(['--ids' => $alt . ',' . $neu]);
+
+        $this->assertNull($this->zeile($alt)->invite_token_hash, $ausgabe);
+        $this->assertNotNull($this->zeile($neu)->invite_token_hash, $ausgabe);
+        $this->assertStringContainsString('kein neues Portal', $ausgabe);
+    }
+
+    public function test_ohne_neues_portal_auch_in_der_welle_und_im_probelauf_benannt(): void
+    {
+        $alt = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($alt, 'tok-a', ['portal_v2_since' => null]);
+        // Eine beendete umgestellte Anstellung zaehlt nicht (Anmeldung kennt nur aktive).
+        $this->anstellung($alt, 'tok-a2', ['is_active' => 0]);
+
+        [, $probe] = $this->kommando(['--dry-run' => true]);
+        $this->assertStringContainsString('kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen): 1', $probe);
+
+        [, $ausgabe] = $this->kommando(['--welle' => '10']);
+        $this->assertNull($this->zeile($alt)->invite_token_hash, $ausgabe);
+        $this->assertStringContainsString('0 eingeladen', $ausgabe);
+    }
+
     public function test_ein_leeres_geburtsdatum_zaehlt_nicht(): void
     {
         $person = $this->person(self::NUMMER, 'p-a');

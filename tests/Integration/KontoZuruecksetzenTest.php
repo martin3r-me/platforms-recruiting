@@ -1252,6 +1252,59 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame('vergessen-code', $seite->state, 'die Antwort bleibt trotzdem dieselbe');
     }
 
+    /**
+     * Pilot-Sperre (Review Fix-Runde 1): ohne Anstellung mit neuem Portal
+     * fuehrt der Code ins Leere. Kein Versand, nichts gemerkt — und die
+     * Antwort ist zeichengleich mit der auf eine unbekannte Nummer.
+     */
+    public function test_ohne_neues_portal_kein_code_und_dieselbe_antwort_wie_unbekannt(): void
+    {
+        DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
+
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwortCodeAnfordern($this->sender());
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertNull($this->gemerktePerson());
+        $this->assertSame('vergessen-code', $seite->state);
+
+        $unbekannt = $this->seite();
+        $unbekannt->zumPasswortVergessen();
+        $unbekannt->nummer = '0151 99999999';
+        $unbekannt->passwortCodeAnfordern($this->sender());
+        $this->assertSame($this->rendere($unbekannt), $this->rendere($seite));
+    }
+
+    public function test_mit_neuem_portal_geht_der_code_raus(): void
+    {
+        // Gegenprobe zur Pilot-Sperre (Vorgabe-Anstellung ist umgestellt).
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwortCodeAnfordern($this->sender());
+
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertSame($this->personId, $this->gemerktePerson());
+    }
+
+    public function test_ohne_neues_portal_kein_code_beim_nummernwechsel(): void
+    {
+        DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
+
+        $seite = $this->seite();
+        $seite->zumNummernwechsel();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwort = self::PASSWORT;
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->nummerAnfordern($this->auth(), $this->sender());
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('nummer-code', $seite->state, 'der Ablauf sieht gleich aus');
+        $this->assertNull($this->gemerktePerson());
+    }
+
     /** Ein gesperrtes Konto ebenso — und ohne dass die Seite es verraet. */
     public function test_ein_gesperrtes_konto_bekommt_keinen_code(): void
     {
@@ -1655,6 +1708,23 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame('notfall-code', $richtig->state, 'die Seite steht gar nicht im Code-Schritt');
 
         $this->assertSame($antwort, $this->rendere($falsch));
+    }
+
+    public function test_ohne_neues_portal_kein_code_im_notfallweg(): void
+    {
+        DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
+
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('notfall-code', $seite->state);
+        $this->assertNull($this->gemerktePerson());
     }
 
     /** Dasselbe fuer ein falsches Geburtsdatum. */

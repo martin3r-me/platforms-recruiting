@@ -18,6 +18,7 @@ use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Support\LangeSitzung;
 use Platform\Recruiting\Support\PasswortRegeln;
 use Platform\Recruiting\Support\PhoneE164;
+use Platform\Recruiting\Support\PilotKreis;
 
 /**
  * Die Anmeldeseite des Mitarbeiterkontos (Canvas 68, Spec 2.1).
@@ -668,6 +669,17 @@ class KontoAnmelden extends Component
         }
 
         $personId = (int) $ergebnis['personId'];
+
+        // Pilot-Sperre (19.10.2026): ohne neues Portal kein Code. Der Ablauf
+        // sieht gleich aus (Zustand 'nummer-code'), es kommt nur kein Code —
+        // dieselbe Linie wie bei 'gedrosselt'/'failed' darunter.
+        if (!PilotKreis::personHatNeuesPortal($personId)) {
+            $this->merkePerson(null);
+            $this->state = 'nummer-code';
+
+            return;
+        }
+
         $this->merkePerson($personId);
 
         // DER RUECKGABEWERT WIRD NICHT AUSGEWERTET (s. Klassen-Docblock):
@@ -807,6 +819,14 @@ class KontoAnmelden extends Component
             // (KontoWriter). Eine eigene Abfrage hier waere eine zweite
             // Fassung derselben Regel.
             $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+
+            // Pilot-Sperre (19.10.2026): ohne Anstellung mit neuem Portal
+            // fuehrt der Code ins Leere. Behandelt wie eine unbekannte Nummer —
+            // kein Versand, nichts gemerkt, dieselbe Antwort; sonst verriete
+            // der Unterschied, dass die Nummer existiert.
+            if ($personId !== null && !PilotKreis::personHatNeuesPortal($personId)) {
+                $personId = null;
+            }
             $this->merkePerson($personId);
 
             if ($personId !== null) {
@@ -983,6 +1003,12 @@ class KontoAnmelden extends Component
                 // die Zeile steht hinter der IP-Bremse (darfAnfordern).
                 if ($personId !== null && !KontoWriter::notfallWegAn($personId)) {
                     Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'anfordern', 'ebene' => 'team']);
+                    $personId = null;
+                }
+
+                // Pilot-Sperre (19.10.2026): wie oben bei Weg 3 — ohne neues
+                // Portal kein Code, dieselbe Antwort wie bei falschen Nachweisen.
+                if ($personId !== null && !PilotKreis::personHatNeuesPortal($personId)) {
                     $personId = null;
                 }
 

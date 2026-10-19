@@ -54,4 +54,38 @@ final class PilotKreis
             ->whereNotNull('portal_v2_since')
             ->exists();
     }
+
+    /**
+     * Hat dieser MENSCH (rec_persons.id) mindestens eine aktive Anstellung
+     * mit neuem Portal? Fuer das Konto (Codes, Einladung): ohne neues Portal
+     * fuehrt jede Anmeldung ins Leere ('ohne-ziel'), ein Code per WhatsApp
+     * waere eine Nachricht ohne Ziel — und neue Features gibt es nur im
+     * Pilot (Sebastian 19.10.2026). Derselbe Schnitt wie anstellungenVon()
+     * in KontoAnmelden (aktiv, ueber rec_person_id).
+     */
+    public static function personHatNeuesPortal(int $personId): bool
+    {
+        return self::personenMitNeuemPortal([$personId]) !== [];
+    }
+
+    /**
+     * @param  list<int>  $personIds
+     * @return list<int>  die Teilmenge mit neuem Portal
+     */
+    public static function personenMitNeuemPortal(array $personIds): array
+    {
+        if ($personIds === []) {
+            return [];
+        }
+
+        return DB::table('rec_employees')
+            ->whereIn('rec_person_id', $personIds)
+            ->where('is_active', true)
+            ->whereNotNull('portal_v2_since')
+            ->distinct()
+            ->pluck('rec_person_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+    }
 }

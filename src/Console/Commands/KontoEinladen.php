@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\EinladungsRiegel;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
 use Throwable;
@@ -90,8 +91,22 @@ final class KontoEinladen extends Command
 
     private const GRUND_KEIN_WHATSAPP = EinladungsRiegel::KEIN_WHATSAPP;
 
-    /** Pruefreihenfolge: EinladungsRiegel::GRUENDE (eine Regel fuer Kommando und Konto-Kasten). */
-    private const GRUENDE = EinladungsRiegel::GRUENDE;
+    /**
+     * Pilot-Sperre (Sebastian 19.10.2026, Review Fix-Runde 1): ohne aktive
+     * Anstellung mit neuem Portal (portal_v2_since) fuehrt das Konto ins
+     * Leere — die Anmeldung endet in 'ohne-ziel', ein Passwort-Code ginge
+     * nicht raus. Solche Menschen werden nicht eingeladen und mit diesem
+     * Grund benannt. Nur hier im Kommando, nicht im EinladungsRiegel.
+     */
+    private const GRUND_KEIN_NEUES_PORTAL = 'kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)';
+
+    /** Pruefreihenfolge: keine Nummer, dann kein neues Portal, dann EinladungsRiegel::GRUENDE. */
+    private const GRUENDE = [
+        EinladungsRiegel::KEINE_NUMMER,
+        self::GRUND_KEIN_NEUES_PORTAL,
+        EinladungsRiegel::KEIN_GEBURTSDATUM,
+        EinladungsRiegel::KEIN_WHATSAPP,
+    ];
 
     public function handle(): int
     {
@@ -549,6 +564,7 @@ final class KontoEinladen extends Command
         // eingeladen.
         $ohneGeburtsdatum = array_flip(KontoWriter::personenOhneGeburtsdatum($ohneKontoIds));
         $ohneWhatsapp     = array_flip($this->ohneWhatsapp($ohneKonto));
+        $mitNeuemPortal   = array_flip(PilotKreis::personenMitNeuemPortal($ohneKontoIds));
 
         $stand = [
             'registriert'      => [],
@@ -565,7 +581,7 @@ final class KontoEinladen extends Command
                 continue;
             }
 
-            $grund = $this->grund($person, $ohneGeburtsdatum, $ohneWhatsapp);
+            $grund = $this->grund($person, $ohneGeburtsdatum, $ohneWhatsapp, $mitNeuemPortal);
 
             if ($grund !== null) {
                 $stand['nicht_erreichbar'][] = ['person' => $person, 'grund' => $grund];
@@ -591,14 +607,22 @@ final class KontoEinladen extends Command
      *
      * @param  array<int, int>  $ohneGeburtsdatum
      * @param  array<int, int>  $ohneWhatsapp
+     * @param  array<int, int>  $mitNeuemPortal  Personen mit aktiver umgestellter Anstellung (als Schluessel)
      */
-    private function grund(object $person, array $ohneGeburtsdatum, array $ohneWhatsapp): ?string
+    private function grund(object $person, array $ohneGeburtsdatum, array $ohneWhatsapp, array $mitNeuemPortal = []): ?string
     {
-        return EinladungsRiegel::grund(
+        $grund = EinladungsRiegel::grund(
             (string) $person->phone,
             isset($ohneGeburtsdatum[(int) $person->id]),
             isset($ohneWhatsapp[(int) $person->id]),
         );
+
+        // "keine Nummer" sticht weiter alles; danach entscheidet das Portal.
+        if ($grund !== EinladungsRiegel::KEINE_NUMMER && !isset($mitNeuemPortal[(int) $person->id])) {
+            return self::GRUND_KEIN_NEUES_PORTAL;
+        }
+
+        return $grund;
     }
 
     /**
