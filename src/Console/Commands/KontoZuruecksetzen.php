@@ -127,7 +127,7 @@ class KontoZuruecksetzen extends Command
         if ($this->option('dry-run')) {
             $this->line($mitEinladung
                 ? "Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, danach neue Einladung."
-                : "Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, KEINE Einladung: " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
+                : "Person {$personId}: Nummer wuerde auf ...{$this->kurz($nummer)} gesetzt, eine offene alte Einladung zurueckgezogen, KEINE neue Einladung: " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
 
             return self::SUCCESS;
         }
@@ -147,7 +147,23 @@ class KontoZuruecksetzen extends Command
         }
 
         if (!$mitEinladung) {
-            $this->line("Person {$personId}: keine Einladung erstellt — " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
+            // Fix-Runde 2: ohne neue Einladung muss die alte ausdruecklich
+            // weg — sie koennte auf dem verlorenen Geraet liegen.
+            try {
+                $zurueckgezogen = KontoWriter::zieheEinladungZurueck($personId);
+            } catch (Throwable $e) {
+                $this->error("Person {$personId}: Nummer gesetzt, aber die alte Einladung liess sich nicht zurueckziehen (Naeheres im Log).");
+                Log::warning('recruiting.konto.hr_einladung_fehler', [
+                    'person_id' => $personId,
+                    'fehler'    => $this->ohneVolleNummern($e->getMessage()),
+                ]);
+
+                return self::FAILURE;
+            }
+            $this->line($zurueckgezogen
+                ? "Person {$personId}: die alte Einladung ist zurueckgezogen, ihr Link gilt nicht mehr."
+                : "Person {$personId}: es lag keine offene Einladung vor.");
+            $this->line("Person {$personId}: keine neue Einladung erstellt — " . EinladungsRiegel::KEIN_NEUES_PORTAL . '.');
 
             return self::SUCCESS;
         }

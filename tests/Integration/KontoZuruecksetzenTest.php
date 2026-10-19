@@ -2020,18 +2020,51 @@ final class KontoZuruecksetzenTest extends TestCase
     public function test_weg5_ohne_neues_portal_setzt_die_nummer_aber_keine_einladung(): void
     {
         DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
-        $vorher = $this->zeile()->invite_token_hash;
-
         [, $probe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT, '--dry-run' => true]);
-        $this->assertStringContainsString('KEINE Einladung: kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $probe);
+        $this->assertStringContainsString('eine offene alte Einladung zurueckgezogen, KEINE neue Einladung: kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $probe);
 
         [$code, $ausgabe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
 
         $this->assertSame(0, $code, $ausgabe);
         $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone, 'die Nummer wandert trotzdem');
-        $this->assertSame($vorher, $this->zeile()->invite_token_hash, 'keine neue Einladung');
+        $this->assertNull($this->zeile()->invite_token_hash, 'keine neue Einladung');
         $this->assertStringNotContainsString('Einladungscode', $ausgabe);
-        $this->assertStringContainsString('keine Einladung erstellt — kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen).', $ausgabe);
+        $this->assertStringContainsString('keine neue Einladung erstellt — kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen).', $ausgabe);
+    }
+
+    /**
+     * Fix-Runde 2: Weg 5 heisst "altes Geraet weg" — eine noch offene alte
+     * Einladung darf danach die Registrierung nicht mehr oeffnen, auch wenn
+     * ohne neues Portal keine neue entsteht.
+     */
+    public function test_weg5_ohne_neues_portal_zieht_die_alte_einladung_zurueck(): void
+    {
+        $alterCode = KontoWriter::ladeEin($this->personId);
+        $this->assertSame($this->personId, KontoWriter::personFuerEinladung($alterCode), 'Vorbedingung: alte Einladung gilt');
+        DB::table('rec_employees')->where('id', $this->anstellungId)->update(['portal_v2_since' => null]);
+
+        [$code, $ausgabe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone);
+        $this->assertNull($this->zeile()->invite_token_hash);
+        $this->assertNull($this->zeile()->invite_expires_at);
+        $this->assertNull(KontoWriter::personFuerEinladung($alterCode), 'der alte Link oeffnet die Registrierung nicht mehr');
+        $this->assertStringContainsString('die alte Einladung ist zurueckgezogen', $ausgabe);
+        $this->assertStringNotContainsString($alterCode, $ausgabe);
+    }
+
+    /** Gegenprobe: im Pilot bleibt Weg 5 wie er war — neue Einladung, die alte ist durch sie ersetzt. */
+    public function test_weg5_im_pilot_ersetzt_die_alte_einladung_durch_eine_neue(): void
+    {
+        $alterCode = KontoWriter::ladeEin($this->personId);
+
+        [, $ausgabe] = $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $this->assertNull(KontoWriter::personFuerEinladung($alterCode));
+        $this->assertSame(1, preg_match('/Einladungscode ([A-Z0-9]{8})/', $ausgabe, $treffer), $ausgabe);
+        $this->assertSame($this->personId, KontoWriter::personFuerEinladung($treffer[1]));
+        $this->assertStringNotContainsString('zurueckgezogen', $ausgabe);
     }
 
     /**

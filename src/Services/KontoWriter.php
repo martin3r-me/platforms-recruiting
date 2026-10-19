@@ -1012,6 +1012,35 @@ final class KontoWriter
     }
 
     /**
+     * Zieht eine offene Einladung zurueck: invite_token_hash und
+     * invite_expires_at fallen, der alte Link oeffnet die Registrierung
+     * nicht mehr (Fix-Runde 2, Weg 5 ohne neues Portal). Frueher ueberschrieb
+     * ladeEin() die alte Einladung; ohne neue Einladung muss sie ausdruecklich
+     * weg — Weg 5 heisst "altes Geraet/alte Nummer weg", und der alte Link
+     * kann genau dort liegen.
+     *
+     * Gleiches Muster wie die anderen HR-Schreibwege: Transaktion,
+     * Zeilensperre, offene Zeile (nicht gesperrt/stillgelegt).
+     *
+     * @return bool  ob eine Einladung da war
+     */
+    public static function zieheEinladungZurueck(int $personId): bool
+    {
+        return DB::transaction(function () use ($personId): bool {
+            $person = self::pruefeOffen(self::sperrAbfrage($personId)->first(), $personId);
+            $war = $person->invite_token_hash !== null;
+
+            DB::table('rec_persons')->where('id', $personId)->update([
+                'invite_token_hash' => null,
+                'invite_expires_at' => null,
+                'updated_at'        => now(),
+            ]);
+
+            return $war;
+        });
+    }
+
+    /**
      * Die Personen-Zeile, gelesen MIT Zeilensperre (InnoDB). Stoppen,
      * Freigeben und der Stundenlauf nehmen dieselbe Sperre; der zweite
      * wartet, liest neu und findet den Antrag nicht mehr (Spec §5.2). Nur
