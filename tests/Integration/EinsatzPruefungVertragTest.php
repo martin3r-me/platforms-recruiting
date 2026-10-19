@@ -284,6 +284,82 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('Einsatz-Pruefung ist aus (Einstellungen → Kommunikation → Mitarbeiterportal) — uebersprungen', $ausgabe);
     }
 
+    // ---- Pilot-Sperre (Sebastian 19.10.2026) ---------------------------
+
+    public function test_pilot_sperre_nicht_im_pilot_bekommt_keinen_vertragsfall(): void
+    {
+        $alt = $this->maAnstellung(['personnel_number' => 'MA801', 'portal_v2_since' => null]);
+        $pilot = $this->maAnstellung(['personnel_number' => 'MA802']);
+        $this->einbuchung($alt, '2026-10-20', 'MA801');
+        $this->einbuchung($pilot, '2026-10-20', 'MA802');
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertSame([$pilot->id], $this->vertragsFaelle()->pluck('rec_employee_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertStringContainsString('2 Buchungen geprüft, 2 ohne Vertrag, 1 Fälle neu', $ausgabe);
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $ausgabe);
+        $this->assertStringContainsString('  MA #' . $alt->id . "\n", $ausgabe);
+    }
+
+    public function test_pilot_sperre_aus_beide_bekommen_den_vertragsfall(): void
+    {
+        $this->einstellung(['MA'], true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => false]);
+        $alt = $this->maAnstellung(['personnel_number' => 'MA801', 'portal_v2_since' => null]);
+        $pilot = $this->maAnstellung(['personnel_number' => 'MA802']);
+        $this->einbuchung($alt, '2026-10-20', 'MA801');
+        $this->einbuchung($pilot, '2026-10-20', 'MA802');
+
+        $ausgabe = $this->laufe('2026-10-09');
+
+        $this->assertCount(2, $this->vertragsFaelle());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $ausgabe);
+    }
+
+    public function test_pilot_sperre_trockenlauf_zaehlt_den_uebersprungenen_vertragsfall(): void
+    {
+        $alt = $this->maAnstellung(['personnel_number' => 'MA801', 'portal_v2_since' => null]);
+        $this->einbuchung($alt, '2026-10-20', 'MA801');
+
+        $ausgabe = $this->laufe('2026-10-09', ['--dry-run' => true]);
+
+        $this->assertCount(0, $this->vertragsFaelle());
+        $this->assertStringContainsString('0 Fälle neu', $ausgabe);
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $ausgabe);
+    }
+
+    public function test_pilot_sperre_verschiebt_keinen_bestehenden_fall(): void
+    {
+        // Ohne Sperre wanderte der Fall auf die neue MA-Zeile (Schliessen hier,
+        // Anlegen dort). Mit Sperre gibt es kein Anlegen — also bleibt er stehen.
+        $rg = $this->maAnstellung(['company' => 'RG', 'personnel_number' => 'RG353', 'portal_v2_since' => null]);
+        $this->einbuchung($rg, '2026-10-20', 'MA353');
+        $this->einstellung(['MA'], true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => false]);
+        $this->laufe('2026-10-09');
+        $alt = $this->vertragsFaelle()->first();
+        $this->assertNotNull($alt, 'Vorflug');
+
+        $this->einstellung(['MA']);
+        $ma = $this->maAnstellung(['personnel_number' => 'MA353', 'portal_v2_since' => null]);
+        $this->personVerbinden($rg, $ma);
+        $ausgabe = $this->laufe('2026-10-10');
+
+        $this->assertSame(RecHrDeskCase::STATUS_OPEN, $alt->fresh()->status, 'unberuehrt');
+        $this->assertCount(1, $this->vertragsFaelle());
+        $this->assertStringContainsString('0 Fälle neu, 0 Fälle geschlossen.', $ausgabe);
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $ausgabe);
+    }
+
+    public function test_pilot_sperre_neue_einstellung_ist_im_fenster_verdrahtet(): void
+    {
+        $this->assertTrue(RecApplicantSettings::DEFAULT_SETTINGS[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT]);
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
+        $this->assertMatchesRegularExpression('~<input type="checkbox"[^>]*wire:model="settings\.einsatz_pruefung_nur_pilot"~s', $blade);
+        $this->assertStringContainsString('HR-Fälle nur für die Pilotgruppe', $blade);
+        $this->assertStringContainsString('Aus = für alle eingebuchten Mitarbeiter.', $blade);
+        $modal = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Applicant/ApplicantSettingsModal.php');
+        $this->assertStringContainsString('$this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? true, FILTER_VALIDATE_BOOLEAN', $modal);
+    }
+
     /** Probe: Horizont entfernen → der Einsatz in 31 Tagen oeffnet einen Fall, rot. */
     public function test_nur_buchungen_der_naechsten_30_tage(): void
     {
@@ -636,13 +712,13 @@ final class EinsatzPruefungVertragTest extends TestCase
         ], $set));
     }
 
-    private function einstellung(array $firmen, bool $einsatzPruefung = true): void
+    private function einstellung(array $firmen, bool $einsatzPruefung = true, array $weitere = []): void
     {
         DB::table('rec_applicant_settings')->where('team_id', $this->team)->delete();
         DB::table('rec_applicant_settings')->insert(['team_id' => $this->team, 'settings' => json_encode([
             'contract_check_companies'             => $firmen,
             PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => $einsatzPruefung,
-        ])]);
+        ] + $weitere)]);
     }
 
     private function hrSchliesst(RecHrDeskCase $fall): void

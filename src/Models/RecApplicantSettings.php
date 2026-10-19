@@ -143,6 +143,10 @@ class RecApplicantSettings extends Model
         // gespeicherter Altwert bleibt in der DB stehen und wird nicht gelesen.
         // Einsatz-Pruefung im Portal: Team-Schalter, Vorgabe aus.
         'einsatz_pruefung_aktiv' => false,
+        // HR-Faelle (Arbeitserlaubnis, Vertrag) nur fuer die Pilotgruppe
+        // (PilotKreis), Vorgabe an — Sebastian 19.10.2026: neue Features erst
+        // im Pilot. Fuer alle erst nach dem Pilot oeffnen.
+        'einsatz_pruefung_nur_pilot' => true,
         // Kommunikations-Übersicht / Eskalation (WhatsApp 24h-Fenster).
         // Restzeit-Schwellen IM offenen Fenster (NICHT "Stunden seit Eingang"):
         // grün > yellow, gelb <= yellow, rot <= red, verpasst = Fenster zu.

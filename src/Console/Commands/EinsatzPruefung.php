@@ -18,6 +18,7 @@ use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
 use Platform\Recruiting\Support\Bote;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\TriggerRegeln;
@@ -300,6 +301,9 @@ class EinsatzPruefung extends Command
     /** @var array<int, list<string>> contract_check_companies je Team, einmal je Lauf gelesen */
     private array $vertragsFirmenJeTeam = [];
 
+    /** @var array<int, bool> einsatz_pruefung_nur_pilot je Team, einmal je Lauf gelesen */
+    private array $nurPilotJeTeam = [];
+
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
@@ -368,6 +372,9 @@ class EinsatzPruefung extends Command
             'vertrag_geschlossen' => 0,
         ];
 
+        /** @var list<string> $nichtImPilot Kennungen der Menschen, deren HR-Fall die Pilot-Sperre zurueckhielt — nie Namen */
+        $nichtImPilot = [];
+
         /** @var list<string> $gesperrt Kennungen mit Grund — nie Namen */
         $gesperrt = [];
 
@@ -405,6 +412,15 @@ class EinsatzPruefung extends Command
                     $z['abweichend']++;
                 }
 
+                // ---- Pilot-Sperre der HR-Faelle (Sebastian 19.10.2026: neue
+                // Features nur fuer die Pilotgruppe). Wer keine umgestellte
+                // Anstellung hat, bekaeme ohnehin keine Nachricht (Bote) — ein
+                // HR-Fall fuer ihn waere Arbeit am alten Bestand, die niemand
+                // bestellt hat. Es wird NUR das Anlegen zurueckgehalten:
+                // bestehende offene Faelle bleiben stehen (kein Aufraeumen).
+                $darfFallAnlegen = !$this->nurPilot((int) $rep->team_id) || PilotKreis::istImPilot((int) $rep->id);
+                $pilotGesperrt = false;
+
                 // ---- Die harte Sperre. Sie haengt am MITARBEITER und
                 // braucht deshalb keine Personen-Zeile.
                 if ($stand['gesperrt']) {
@@ -412,10 +428,14 @@ class EinsatzPruefung extends Command
                     $gesperrt[] = sprintf('MA #%d (%s)', $rep->id, $gruende === [] ? 'ohne Angabe' : implode(', ', $gruende));
 
                     if (!$this->hatOffenenArbeitserlaubnisFall($umfang['ids'])) {
-                        if (!$dryRun) {
-                            $this->oeffneFall($rep, $gruende);
+                        if (!$darfFallAnlegen) {
+                            $pilotGesperrt = true;
+                        } else {
+                            if (!$dryRun) {
+                                $this->oeffneFall($rep, $gruende);
+                            }
+                            $z['faelle_neu']++;
                         }
-                        $z['faelle_neu']++;
                     }
                 }
 
@@ -428,7 +448,7 @@ class EinsatzPruefung extends Command
                 // faerbt aber den Lauf (abgebrochen) wie jeder andere Abbruch.
                 $kommende = $this->kommendeAuftraege($umfang['ids'], $heute);
                 try {
-                    $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $heute, $dryRun, $z);
+                    $this->vertragsPruefung($rep, $umfang['ids'], $kommende, $heute, $dryRun, $z, $darfFallAnlegen, $pilotGesperrt);
                 } catch (\Throwable $e) {
                     $z['abgebrochen']++;
                     $vertragAbgebrochen = true;
@@ -438,6 +458,11 @@ class EinsatzPruefung extends Command
                         'error'           => $e->getMessage(),
                         'exception'       => $e,
                     ]);
+                }
+
+                // Einmal je Mensch, auch wenn beide Fallarten zurueckgehalten wurden.
+                if ($pilotGesperrt) {
+                    $nichtImPilot[] = sprintf('MA #%d', $rep->id);
                 }
 
                 // ---- Ist nichts offen, ist auch nichts zu melden. Vorher
@@ -571,7 +596,7 @@ class EinsatzPruefung extends Command
             }
         }
 
-        $this->bericht($z, $gesperrt, $angesprochen, $welle, $dryRun);
+        $this->bericht($z, $gesperrt, $angesprochen, $welle, $dryRun, $nichtImPilot);
 
         return $z['abgebrochen'] > 0 ? self::FAILURE : self::SUCCESS;
     }
@@ -771,8 +796,10 @@ class EinsatzPruefung extends Command
      * @param  list<int>  $umfangIds
      * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
      * @param  array<string,int>  $z
+     * @param  bool  $darfAnlegen  false = Pilot-Sperre: kein neuer Fall, kein Verschieben
+     * @param  bool  $pilotGesperrt  wird true, wenn ein Fall wegen der Pilot-Sperre unterblieb
      */
-    private function vertragsPruefung(RecEmployee $rep, array $umfangIds, $kommende, string $heute, bool $dryRun, array &$z): void
+    private function vertragsPruefung(RecEmployee $rep, array $umfangIds, $kommende, string $heute, bool $dryRun, array &$z, bool $darfAnlegen = true, bool &$pilotGesperrt = false): void
     {
         $firmen = $this->vertragsFirmen((int) $rep->team_id);
         if ($firmen === []) {
@@ -796,7 +823,10 @@ class EinsatzPruefung extends Command
         // die Zeile nicht mehr blockieren (kein neuer Fall daneben) und nicht
         // mit der falschen Notiz "unterschrieben" schliessen. Verschobene
         // Faelle zaehlen unten nicht mehr als offen — auch im Trockenlauf.
-        $verschoben = $this->verschiebeVertragsFaelle($umfangIds, $jeAnstellung, $dryRun);
+        // Pilot-Sperre: Verschieben ist Schliessen HIER plus Anlegen DORT. Ohne
+        // das Anlegen bliebe nur das Schliessen — ein offener Fall verschwaende.
+        // Deshalb bleibt er bei gesperrtem Anlegen, wo er ist (unberuehrt).
+        $verschoben = $darfAnlegen ? $this->verschiebeVertragsFaelle($umfangIds, $jeAnstellung, $dryRun) : [];
         $z['vertrag_geschlossen'] += count($verschoben);
 
         foreach ($jeAnstellung as $anstellungId => $befunde) {
@@ -820,10 +850,14 @@ class EinsatzPruefung extends Command
             if ($ungedeckt !== null) {
                 if (!$this->hatOffenenVertragsFall((int) $anstellungId, $verschoben)
                     && !$this->vonHrErledigt((int) $anstellungId, (string) $ungedeckt['erster_tag'])) {
-                    if (!$dryRun) {
-                        $this->oeffneVertragsFall($ungedeckt);
+                    if (!$darfAnlegen) {
+                        $pilotGesperrt = true;
+                    } else {
+                        if (!$dryRun) {
+                            $this->oeffneVertragsFall($ungedeckt);
+                        }
+                        $z['vertrag_faelle_neu']++;
                     }
-                    $z['vertrag_faelle_neu']++;
                 }
 
                 continue;
@@ -959,6 +993,27 @@ class EinsatzPruefung extends Command
         }
 
         return $this->vertragsFirmenJeTeam[$teamId];
+    }
+
+    /**
+     * Pilot-Sperre der HR-Faelle je Team. Ohne Settings-Zeile oder ohne
+     * Schluessel: Vorgabe AN. Ein unlesbarer Wert sperrt ebenfalls
+     * (fail-closed) — ausgeschaltet ist nur ein ausdrueckliches false/0/off.
+     * Query Builder statt getOrCreateForTeam(): eine Pruefung legt keine Zeilen an.
+     */
+    private function nurPilot(int $teamId): bool
+    {
+        if (!array_key_exists($teamId, $this->nurPilotJeTeam)) {
+            $roh = DB::table('rec_applicant_settings')->where('team_id', $teamId)->value('settings');
+            $settings = is_string($roh) ? (json_decode($roh, true) ?: []) : (is_array($roh) ? $roh : []);
+            $wert = $settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? null;
+
+            $this->nurPilotJeTeam[$teamId] = $wert === null
+                ? (bool) RecApplicantSettings::DEFAULT_SETTINGS[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT]
+                : (filter_var($wert, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
+        }
+
+        return $this->nurPilotJeTeam[$teamId];
     }
 
     /** @param list<int> $ausser  in diesem Lauf verschobene Faelle */
@@ -1236,8 +1291,9 @@ class EinsatzPruefung extends Command
      * @param  array<string,int>  $z
      * @param  list<string>  $gesperrt
      * @param  list<string>  $angesprochen
+     * @param  list<string>  $nichtImPilot
      */
-    private function bericht(array $z, array $gesperrt, array $angesprochen, int $welle, bool $dryRun): void
+    private function bericht(array $z, array $gesperrt, array $angesprochen, int $welle, bool $dryRun, array $nichtImPilot = []): void
     {
         $this->line(sprintf(
             'Geprueft: %d Mensch(en) in %d Anstellung(en).',
@@ -1305,6 +1361,16 @@ class EinsatzPruefung extends Command
             $z['vertrag_faelle_neu'],
             $z['vertrag_geschlossen'],
         ));
+
+        // Pilot-Sperre: wer einen HR-Fall bekommen HAETTE, aber keine
+        // umgestellte Anstellung hat. Gezaehlt je Mensch, Kennungen statt Namen.
+        $this->line(sprintf(
+            'Nicht im Pilot, übersprungen: %d (HR-Fall nicht angelegt — Schalter „HR-Fälle nur für die Pilotgruppe").',
+            count($nichtImPilot),
+        ));
+        if ($nichtImPilot !== []) {
+            $this->line('  '.implode(' · ', $nichtImPilot));
+        }
 
         if ($z['abgebrochen'] > 0) {
             $this->error(sprintf('%d Mensch(en) mit Abbruch — siehe Protokoll.', $z['abgebrochen']));

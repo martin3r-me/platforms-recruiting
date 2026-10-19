@@ -1272,6 +1272,17 @@
                                 </p>
                             </div>
                         </label>
+                        <label class="flex items-center gap-3 cursor-pointer mt-3">
+                            <input type="checkbox"
+                                   wire:model="settings.einsatz_pruefung_nur_pilot"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">HR-Fälle nur für die Pilotgruppe</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                    Aus = für alle eingebuchten Mitarbeiter.
+                                </p>
+                            </div>
+                        </label>
                     </div>
                 </div>
             </div>

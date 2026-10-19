@@ -1248,6 +1248,95 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     // =================================================================
+    // Pilot-Sperre der HR-Faelle (Sebastian 19.10.2026)
+    // =================================================================
+
+    public function test_pilot_sperre_nicht_im_pilot_bekommt_keinen_arbeitserlaubnis_fall(): void
+    {
+        // Vorgabe: Sperre an, ohne dass der Schluessel in den Einstellungen steht.
+        $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $pilot = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($alt, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->einbuchung($pilot, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(0, RecHrDeskCase::query()->where('rec_employee_id', $alt->id)->count());
+        $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $pilot->id)->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $this->letzteAusgabe);
+        $this->assertStringContainsString('  MA #'.$alt->id."\n", $this->letzteAusgabe);
+        $this->assertStringContainsString('davon 1 neu auf dem HR-Schreibtisch', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_aus_beide_bekommen_den_fall(): void
+    {
+        $this->schalter(self::TEAM, true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => false]);
+        $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $pilot = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($alt, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->einbuchung($pilot, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $alt->id)->count());
+        $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $pilot->id)->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_ausdruecklich_an_wirkt_wie_die_vorgabe(): void
+    {
+        $this->schalter(self::TEAM, true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => true]);
+        $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->einbuchung($alt, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+    }
+
+    public function test_pilot_sperre_rg_und_ma_mit_nur_einer_umgestellten_zeile_ist_im_pilot(): void
+    {
+        // Die Buchung haengt an der NICHT umgestellten Zeile.
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false]);
+        $this->einbuchung($rg, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(1, RecHrDeskCase::query()->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_laesst_bestehende_offene_faelle_stehen(): void
+    {
+        $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->einbuchung($alt, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->schalter(self::TEAM, true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => false]);
+        $this->laufe('2026-10-01');
+        $this->assertSame(1, RecHrDeskCase::query()->where('status', RecHrDeskCase::STATUS_OPEN)->count(), 'Vorflug');
+
+        $this->schalter(self::TEAM, true);
+        $this->laufe('2026-10-02');
+
+        $this->assertSame(1, RecHrDeskCase::query()->where('status', RecHrDeskCase::STATUS_OPEN)->count(), 'kein Aufraeumen');
+        // Der offene Fall verhindert schon den neuen — also nichts zurueckgehalten.
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_der_trockenlauf_zaehlt_die_uebersprungenen(): void
+    {
+        $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->einbuchung($alt, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $this->letzteAusgabe);
+        $this->assertStringContainsString('davon 0 neu auf dem HR-Schreibtisch', $this->letzteAusgabe);
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+    }
+
+    // =================================================================
     // ET-24 — die Laufsperre
     // =================================================================
 
@@ -1807,6 +1896,9 @@ final class EinsatzPruefungTest extends TestCase
      */
     public function test_das_alte_portal_bekommt_keine_nachricht_aber_den_hr_fall(): void
     {
+        // Seit der Pilot-Sperre (19.10.2026) nur noch bei ausgeschalteter
+        // Sperre — mit Sperre siehe test_pilot_sperre_*.
+        $this->schalter(self::TEAM, true, [PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT => false]);
         $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);
         $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
 
@@ -2057,12 +2149,12 @@ final class EinsatzPruefungTest extends TestCase
      *
      * @return int Rueckgabewert des Kommandos
      */
-    private function schalter(int $team, bool $an): void
+    private function schalter(int $team, bool $an, array $weitere = []): void
     {
         DB::table('rec_applicant_settings')->where('team_id', $team)->delete();
         DB::table('rec_applicant_settings')->insert([
             'team_id'  => $team,
-            'settings' => json_encode([PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => $an]),
+            'settings' => json_encode([PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV => $an] + $weitere),
         ]);
     }
 

@@ -17,6 +17,8 @@ final class PortalVorlagen
     public const HINWEIS_ALTE_NUMMER    = 'konto_hinweis_alte_nummer_wa_template_id';
     public const AUFGABEN_NEU           = 'aufgaben_neu_wa_template_id';
     public const EINSATZ_PRUEFUNG_AKTIV = 'einsatz_pruefung_aktiv';
+    /** HR-Faelle der Einsatz-Pruefung nur fuer die Pilotgruppe (PilotKreis), Vorgabe an. */
+    public const EINSATZ_PRUEFUNG_NUR_PILOT = 'einsatz_pruefung_nur_pilot';
 
     /** Zweck (KontoWriter::ZWECK_*) → Schluessel. 'anmeldung' fehlt bewusst (wird nirgends verschickt). */
     public const CODE_SCHLUESSEL = [

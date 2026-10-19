@@ -295,6 +295,8 @@ class ApplicantSettingsModal extends Component
         }
         $pruefungVorher = PortalVorlagen::istAn($this->settingsModel->getSetting(PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV));
         $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] = PortalVorlagen::istAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] ?? false);
+        // Pilot-Sperre der HR-Faelle: fehlt der Schluessel, gilt die Vorgabe AN.
+        $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] = filter_var($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? true, FILTER_VALIDATE_BOOLEAN);
 
         // Themen-Auswahl (WhatsApp): siehe themenEinstellungen(). Ungueltiges wird
         // als null (= Vorgabe) gespeichert, die Meldung steht am Feld, das Fenster bleibt offen.
