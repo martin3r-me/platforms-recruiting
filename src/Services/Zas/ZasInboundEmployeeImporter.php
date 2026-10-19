@@ -466,6 +466,25 @@ class ZasInboundEmployeeImporter
             DB::table('rec_employees')
                 ->where('id', $existing->id)
                 ->update($employeeUpdate);
+
+            // RG-Anstellung von ZAS (de)aktiviert oder Firma nachgetragen
+            // (Final-Review F3): Der Direkt-Update oben umgeht den Observer,
+            // die MA-Schwestern der Person verlieren/gewinnen aber ihre
+            // RG-Schwester — ihr Zuschlag muss neu zu ZAS. Nur die Schwestern
+            // (Query Builder); der eigene Marker dieser Zeile ist oben
+            // wiederhergestellt, der Inbound ist kein Echo.
+            $warRg = !\Platform\Recruiting\Services\LohnMaErmittlung::istMa($existing->company);
+            $istRg = !\Platform\Recruiting\Services\LohnMaErmittlung::istMa($companyFill ?? $existing->company);
+            if (($aktiv !== null || $companyFill !== null) && ($warRg || $istRg)) {
+                $schwestern = \Platform\Recruiting\Services\LohnMaErmittlung::maSchwesternIds(
+                    (int) $existing->id,
+                    $existing->rec_person_id !== null ? (int) $existing->rec_person_id : null,
+                    $existing->person_key,
+                );
+                if ($schwestern !== []) {
+                    DB::table('rec_employees')->whereIn('id', $schwestern)->update(['zas_changed_at' => now()]);
+                }
+            }
         });
 
         // Spiegel (Spec 2026-10-09 §5.2): ZAS hat den Wert fuer DIESE Akte

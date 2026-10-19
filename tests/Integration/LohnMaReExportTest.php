@@ -177,4 +177,51 @@ class LohnMaReExportTest extends TestCase
         $this->assertTrue($this->markiert($ma));
         $this->assertFalse($this->markiert($rg));
     }
+    /** Final-Review F1: RG hat schon eine Person, die MA-Zeile nur den person_key — sie rechnet mit diesem RG-Zuschlag, also muss sie mit. */
+    public function test_rg_mit_person_markiert_ma_mit_nur_person_key(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9, 'person_key' => 'k-9']);
+        $ma = $this->zeile(['company' => 'MA', 'person_key' => 'k-9']);
+        $fremd = $this->zeile(['company' => 'MA', 'person_key' => 'k-10']);
+
+        RecEmployee::query()->findOrFail($rg)->update(['zuschlag_manuell' => 1.10]);
+
+        $this->assertTrue($this->markiert($ma));
+        $this->assertFalse($this->markiert($fremd));
+    }
+
+    /** Final-Review F3a: RG-Anstellung endet — die MA-Schwester faellt auf "nur MA" und muss neu raus. */
+    public function test_rg_deaktiviert_markiert_ma_schwester(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $fremd = $this->zeile(['company' => 'MA', 'rec_person_id' => 10]);
+
+        RecEmployee::query()->findOrFail($rg)->update(['is_active' => false]);
+
+        $this->assertTrue($this->markiert($ma));
+        $this->assertFalse($this->markiert($fremd));
+    }
+
+    /** Final-Review F3a: Firmenwechsel RG -> MA — die bisherige RG-Schwester ist weg. */
+    public function test_firmenwechsel_rg_nach_ma_markiert_ma_schwester(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+
+        RecEmployee::query()->findOrFail($rg)->update(['company' => 'MA']);
+
+        $this->assertTrue($this->markiert($ma));
+    }
+
+    /** Gegenprobe: Aktiv-Wechsel einer MA-Zeile beruehrt die anderen MA-Zeilen nicht. */
+    public function test_ma_deaktiviert_markiert_keine_ma_schwester(): void
+    {
+        $ma1 = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+
+        RecEmployee::query()->findOrFail($ma1)->update(['is_active' => false]);
+
+        $this->assertFalse($this->markiert($ma2));
+    }
 }

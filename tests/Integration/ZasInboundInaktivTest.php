@@ -81,6 +81,9 @@ class ZasInboundInaktivTest extends TestCase
             $t->string('company')->nullable();
             $t->string('personnel_number')->nullable();
             $t->integer('rec_applicant_id')->nullable();
+            // Personen-Spalten: Marker der MA-Schwestern beim Aktiv-Wechsel (Lohn MA F3).
+            $t->integer('rec_person_id')->nullable();
+            $t->string('person_key')->nullable();
             $t->boolean('is_active')->default(true);
             $t->dateTime('zas_changed_at')->nullable();
             $t->dateTime('zas_initial_exported_at')->nullable();
@@ -420,5 +423,34 @@ class ZasInboundInaktivTest extends TestCase
 
         $inaktiv->update(['is_active' => false]);
         $this->assertSame('INAKTIV', $this->hrStatus($inaktiv->id), 'Deaktivieren setzt nichts');
+    }
+    /**
+     * Lohn MA, Final-Review F3b: ZAS deaktiviert die RG-Anstellung — die
+     * MA-Schwester verliert ihre RG-Schwester und muss mit neuem Zuschlag
+     * raus; die RG-Zeile selbst bleibt ohne Marker (kein Echo).
+     */
+    public function test_inaktiv_einer_rg_zeile_markiert_die_ma_schwester(): void
+    {
+        $rg = $this->makeEmployee('GO', true, ['rec_person_id' => 9]);
+        $ma = $this->makeEmployee('GO', true, ['company' => 'MA', 'personnel_number' => '9911', 'rec_person_id' => 9]);
+        $fremd = $this->makeEmployee('GO', true, ['company' => 'MA', 'personnel_number' => '9912', 'rec_person_id' => 10]);
+
+        $this->importer()->import([$this->row(['Status' => 'inaktiv'])], (object) ['id' => 99], false);
+
+        $this->assertFalse($this->isActive($rg->id));
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $rg->id)->value('zas_changed_at'));
+        $this->assertNotNull(Capsule::table('rec_employees')->where('id', $ma->id)->value('zas_changed_at'));
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $fremd->id)->value('zas_changed_at'));
+    }
+
+    /** Gegenprobe: Status-Lieferung ohne Aktiv-Wechsel markiert keine Schwester. */
+    public function test_statuswechsel_ohne_aktiv_wechsel_markiert_keine_ma_schwester(): void
+    {
+        $this->makeEmployee('GO', true, ['rec_person_id' => 9]);
+        $ma = $this->makeEmployee('GO', true, ['company' => 'MA', 'personnel_number' => '9911', 'rec_person_id' => 9]);
+
+        $this->importer()->import([$this->row(['Status' => 'MA'])], (object) ['id' => 99], false);
+
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $ma->id)->value('zas_changed_at'));
     }
 }

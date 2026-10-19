@@ -161,6 +161,25 @@ class RecEmployeeExportObserver
                 }
             }, 'rec_employee.updated.lohn_ma', $employee->id);
 
+            // RG-Anstellung endet, lebt wieder auf oder wechselt die Firma
+            // (Final-Review F3): Nur eine AKTIVE RG-Anstellung ist RG-Schwester —
+            // der MA-Zuschlag der Person faellt damit auf "nur MA" oder kommt
+            // zurueck. Massgeblich ist, ob die Zeile vorher ODER nachher RG war.
+            self::safelyRun(function () use ($employee): void {
+                $changes = $employee->getChanges();
+                if (!array_key_exists('is_active', $changes) && !array_key_exists('company', $changes)) {
+                    return;
+                }
+                $warRg = !LohnMaErmittlung::istMa($employee->getRawOriginal('company'));
+                $istRg = !LohnMaErmittlung::istMa($employee->company);
+                if (!$warRg && !$istRg) {
+                    return;
+                }
+                foreach (LohnMaErmittlung::maSchwesternIds((int) $employee->id, $employee->rec_person_id !== null ? (int) $employee->rec_person_id : null, $employee->person_key) as $id) {
+                    self::markEmployeeId($id);
+                }
+            }, 'rec_employee.updated.lohn_ma_rg_status', $employee->id);
+
             // Payroll-Tracking: lohnrelevante Aenderungen separat tracken
             self::safelyRun(function () use ($employee): void {
                 self::trackPayrollChanges($employee);

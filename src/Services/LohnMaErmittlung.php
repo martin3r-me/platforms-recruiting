@@ -121,19 +121,31 @@ final class LohnMaErmittlung
      * Aktive MA-Anstellungen derselben Person, ohne die eigene — fuer den
      * Re-Export-Marker, wenn sich der RG-Zuschlag aendert.
      *
+     * Bewusst weiter als die Lookup-Richtung (rgSchwester): Person ODER
+     * person_key. Die MA-Zeile kann nur den person_key tragen, waehrend die
+     * RG-Zeile schon eine Person hat — sie rechnet dann mit diesem RG-Zuschlag
+     * (Suche ueber person_key), muss also auch markiert werden (Final-Review
+     * F1). Ein Marker zu viel ist nur ein Re-Export mit gleichem Inhalt, einer
+     * zu wenig ein falscher Lohn bei ZAS.
+     *
      * @return list<int>
      */
     public static function maSchwesternIds(int $employeeId, ?int $personId, ?string $personKey): array
     {
-        $q = DB::table('rec_employees')->where('id', '!=', $employeeId)->where('is_active', 1)
-            ->whereRaw('UPPER(TRIM(company)) = ?', ['MA']);
-        if ($personId !== null) {
-            $q->where('rec_person_id', $personId);
-        } elseif (trim((string) $personKey) !== '') {
-            $q->where('person_key', trim((string) $personKey));
-        } else {
+        $key = trim((string) $personKey);
+        if ($personId === null && $key === '') {
             return [];
         }
+        $q = DB::table('rec_employees')->where('id', '!=', $employeeId)->where('is_active', 1)
+            ->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])
+            ->where(function ($w) use ($personId, $key): void {
+                if ($personId !== null) {
+                    $w->orWhere('rec_person_id', $personId);
+                }
+                if ($key !== '') {
+                    $w->orWhere('person_key', $key);
+                }
+            });
 
         return $q->orderBy('id')->pluck('id')->map(fn ($v) => (int) $v)->all();
     }
