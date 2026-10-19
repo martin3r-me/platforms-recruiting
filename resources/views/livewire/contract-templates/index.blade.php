@@ -152,6 +152,11 @@
                 'applicant.source_position_title' => 'Stellenbezeichnung',
                 'applicant.extra_field.geburtsort' => 'Geburtsort',
             ],
+            // MA-Vorlagen: Lohn aus der Lohnlogik, nie settings.minimum_wage_hourly (RG-Mindestlohn).
+            'Lohn' => [
+                'lohn.eg1' => 'Grundlohn MA – Entgeltgruppe 1 zum Vertragsbeginn',
+                'contract.extra_field.zuschlag' => 'Zuschlag aus dem Vertrag',
+            ],
             'Meta' => [
                 'meta.datum_heute' => 'Datum heute',
             ],

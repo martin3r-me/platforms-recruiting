@@ -142,7 +142,7 @@ final class ThemenAuswahlHandler
         //    Pilotgruppe). Vorgabe an; der Personen-Schnitt steht in PilotKreis —
         //    ein RG+MA, dessen MA-Zeile umgestellt ist, schreibt auch ueber die
         //    RG-Nummer als Pilot.
-        $nurPilot = (bool) $settings->getSetting('comms_topic_nur_pilot', true);
+        $nurPilot = PilotKreis::sperreAn(($settings->settings ?? [])['comms_topic_nur_pilot'] ?? null);
         if ($grund = $pruefe(['pilot' => !$nurPilot || PilotKreis::istImPilot((int) $mitarbeiterId)])) {
             return 'uebersprungen:' . $grund;
         }

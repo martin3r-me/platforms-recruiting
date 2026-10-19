@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Support\HrEinstellungen;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\PortalVorlagen;
 
 class ApplicantSettingsModal extends Component
@@ -296,7 +297,7 @@ class ApplicantSettingsModal extends Component
         $pruefungVorher = PortalVorlagen::istAn($this->settingsModel->getSetting(PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV));
         $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] = PortalVorlagen::istAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_AKTIV] ?? false);
         // Pilot-Sperre der HR-Faelle: fehlt der Schluessel, gilt die Vorgabe AN.
-        $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] = filter_var($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] = PilotKreis::sperreAn($this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? null);
 
         // Themen-Auswahl (WhatsApp): siehe themenEinstellungen(). Ungueltiges wird
         // als null (= Vorgabe) gespeichert, die Meldung steht am Feld, das Fenster bleibt offen.
@@ -350,7 +351,7 @@ class ApplicantSettingsModal extends Component
         $settings['comms_topic_enabled'] = filter_var($settings['comms_topic_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
         // Pilot-Sperre: fehlt der Schluessel (Altbestand), gilt die Vorgabe AN —
         // sonst oeffnete das blosse Speichern die Auswahl fuer alle.
-        $settings['comms_topic_nur_pilot'] = filter_var($settings['comms_topic_nur_pilot'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $settings['comms_topic_nur_pilot'] = PilotKreis::sperreAn($settings['comms_topic_nur_pilot'] ?? null);
         $settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8);
 
         foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {

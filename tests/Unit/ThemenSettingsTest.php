@@ -75,5 +75,28 @@ final class ThemenSettingsTest extends TestCase
         $this->assertTrue(ApplicantSettingsModal::themenEinstellungen(['comms_topic_nur_pilot' => '1'])['settings']['comms_topic_nur_pilot']);
         // Fehlt der Schluessel, bleibt die Sperre an — Speichern oeffnet nichts.
         $this->assertTrue(ApplicantSettingsModal::themenEinstellungen([])['settings']['comms_topic_nur_pilot']);
+        // Fail-closed (Review Fix-Runde 1): Unlesbares bleibt an.
+        foreach (['abc', '', '  ', 'ja?', [], 2] as $unlesbar) {
+            $this->assertTrue(ApplicantSettingsModal::themenEinstellungen(['comms_topic_nur_pilot' => $unlesbar])['settings']['comms_topic_nur_pilot'], var_export($unlesbar, true));
+        }
+    }
+
+    public function test_pilot_schalter_lesart_ist_fail_closed(): void
+    {
+        foreach ([false, 0, '0', 'false', 'FALSE', ' off ', 'no'] as $aus) {
+            $this->assertFalse(\Platform\Recruiting\Support\PilotKreis::sperreAn($aus), var_export($aus, true));
+        }
+        foreach ([true, 1, '1', 'true', 'on', null, '', 'abc', [], 2] as $an) {
+            $this->assertTrue(\Platform\Recruiting\Support\PilotKreis::sperreAn($an), var_export($an, true));
+        }
+        // Fenster und Einsatz-Pruefung lesen mit DERSELBEN Stelle.
+        $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Console/Commands/EinsatzPruefung.php');
+        $this->assertStringContainsString('PilotKreis::sperreAn($settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? null)', $quelle);
+    }
+
+    public function test_vorlagen_editor_bietet_die_lohn_quellen_an(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/contract-templates/index.blade.php');
+        $this->assertMatchesRegularExpression("~'Lohn' => \\[\\s*'lohn\\.eg1' => 'Grundlohn MA – Entgeltgruppe 1 zum Vertragsbeginn',\\s*'contract\\.extra_field\\.zuschlag' => 'Zuschlag aus dem Vertrag',~u", $blade);
     }
 }

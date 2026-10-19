@@ -31,6 +31,28 @@ use Illuminate\Support\Facades\DB;
  */
 final class PilotKreis
 {
+    /**
+     * Liest einen Pilot-Schalter (comms_topic_nur_pilot,
+     * einsatz_pruefung_nur_pilot) fail-closed: fehlend, leer oder unlesbar
+     * bleibt die Sperre AN. Nur ein ausdrueckliches false / 0 / "false" /
+     * "off" / "no" oeffnet fuer alle. Eine Stelle fuer Einstellungsfenster
+     * und Einsatz-Pruefung, damit beide dasselbe lesen.
+     */
+    public static function sperreAn(mixed $wert): bool
+    {
+        if (is_bool($wert)) {
+            return $wert;
+        }
+        if ($wert === 0 || $wert === 0.0) {
+            return false;
+        }
+        if (is_string($wert) && in_array(strtolower(trim($wert)), ['0', 'false', 'off', 'no'], true)) {
+            return false;
+        }
+
+        return true;
+    }
+
     public static function istImPilot(int $employeeId): bool
     {
         $zeile = DB::table('rec_employees')

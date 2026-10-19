@@ -357,7 +357,7 @@ final class EinsatzPruefungVertragTest extends TestCase
         $this->assertStringContainsString('HR-Fälle nur für die Pilotgruppe', $blade);
         $this->assertStringContainsString('Aus = für alle eingebuchten Mitarbeiter.', $blade);
         $modal = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Applicant/ApplicantSettingsModal.php');
-        $this->assertStringContainsString('$this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? true, FILTER_VALIDATE_BOOLEAN', $modal);
+        $this->assertStringContainsString('$this->settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] = PilotKreis::sperreAn(', $modal);
     }
 
     /** Probe: Horizont entfernen → der Einsatz in 31 Tagen oeffnet einen Fall, rot. */

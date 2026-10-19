@@ -19,6 +19,7 @@ use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
 use Platform\Recruiting\Support\Bote;
 use Platform\Recruiting\Support\EinsatzBezug;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\TriggerRegeln;
 use Platform\Recruiting\Support\VertragsDeckung;
@@ -1004,7 +1005,8 @@ class EinsatzPruefung extends Command
     /**
      * Pilot-Sperre der HR-Faelle je Team. Ohne Settings-Zeile oder ohne
      * Schluessel: Vorgabe AN. Ein unlesbarer Wert sperrt ebenfalls
-     * (fail-closed) — ausgeschaltet ist nur ein ausdrueckliches false/0/off.
+     * (fail-closed, PilotKreis::sperreAn — dieselbe Lesart wie das
+     * Einstellungsfenster).
      * Query Builder statt getOrCreateForTeam(): eine Pruefung legt keine Zeilen an.
      */
     private function nurPilot(int $teamId): bool
@@ -1012,11 +1014,7 @@ class EinsatzPruefung extends Command
         if (!array_key_exists($teamId, $this->nurPilotJeTeam)) {
             $roh = DB::table('rec_applicant_settings')->where('team_id', $teamId)->value('settings');
             $settings = is_string($roh) ? (json_decode($roh, true) ?: []) : (is_array($roh) ? $roh : []);
-            $wert = $settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? null;
-
-            $this->nurPilotJeTeam[$teamId] = $wert === null
-                ? (bool) RecApplicantSettings::DEFAULT_SETTINGS[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT]
-                : (filter_var($wert, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
+            $this->nurPilotJeTeam[$teamId] = PilotKreis::sperreAn($settings[PortalVorlagen::EINSATZ_PRUEFUNG_NUR_PILOT] ?? null);
         }
 
         return $this->nurPilotJeTeam[$teamId];
