@@ -1,0 +1,280 @@
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Support\Facades\Facade;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\ZasEmployeeFieldResolver;
+
+/**
+ * LOHNSPALTEN IM EXPORT: MA liefert EG 1 + Angleich, Spec 2026-10-19.
+ *
+ * Grundlohn = minimum_wage_hourly und Zuschlag aus der Bewerbung sind nur
+ * fuer RG richtig. MA-Grundlohn = Entgeltgruppe 1 (datiert), MA-Zuschlag =
+ * Angleich an den RG-Lohn der Person (+1 EUR bei Steuerklasse 6). RG
+ * unveraendert; RG-Bestand ohne Bewerbung liest ZAS-Wert bzw. zuschlag_manuell.
+ * Die Spalten selbst bleiben an ihrem Platz (ZAS parst ggf. positionsbasiert).
+ */
+final class ZasLohnspaltenTest extends TestCase
+{
+    private const TEAM = 7;
+
+    private Capsule $capsule;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $container = Container::getInstance();
+        Container::setInstance($container);
+
+        $this->capsule = new Capsule($container);
+        $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $this->capsule->setEventDispatcher(new \Illuminate\Events\Dispatcher($container));
+        $this->capsule->setAsGlobal();
+        $this->capsule->bootEloquent();
+
+        $container->instance('db', $this->capsule->getDatabaseManager());
+        $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+        Facade::setFacadeApplication($container);
+        Facade::clearResolvedInstances();
+
+        // Echte Migration fuer die Grundtabelle; company/tax_class kommen in
+        // Produktion aus anderen (schweren) Migrationen, hier minimal nachgezogen.
+        $own = dirname(__DIR__, 2);
+        foreach ([
+            'database/migrations/2026_05_20_000001_create_rec_employees_table.php',
+            'database/migrations/2026_05_21_000005_add_zas_export_markers_to_rec_employees.php',
+            'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php',
+            'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
+        ] as $relative) {
+            (require $own . '/' . $relative)->up();
+        }
+        $this->capsule->schema()->table('rec_employees', function ($t) {
+            $t->string('company', 8)->nullable();
+            $t->string('tax_class', 1)->nullable();
+        });
+        (require $own . '/database/migrations/2026_10_19_000002_add_zuschlag_manuell_to_rec_employees.php')->up();
+        $this->capsule->schema()->create('rec_employee_hr_data', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_employee_id')->unique();
+            $t->decimal('zas_grundlohn', 6, 2)->nullable();
+            $t->decimal('zas_zuschlag', 6, 2)->nullable();
+        });
+        $this->capsule->schema()->create('rec_persons', function ($t) {
+            $t->increments('id');
+            $t->integer('team_id');
+            $t->integer('merged_into_person_id')->nullable();
+        });
+
+        $this->capsule->schema()->create('rec_applicant_settings', function ($t) {
+            $t->increments('id');
+            $t->integer('team_id')->unique();
+            $t->text('settings')->nullable();
+            $t->timestamps();
+        });
+        $this->capsule->schema()->create('rec_applicants', function ($t) {
+            $t->increments('id');
+            $t->decimal('zuschlag', 5, 2)->nullable();
+            $t->integer('contract_template_id')->nullable();
+        });
+        $this->capsule->schema()->create('rec_contract_templates', function ($t) {
+            $t->increments('id');
+            $t->string('code')->nullable();
+        });
+
+        Capsule::table('rec_applicant_settings')->insert([
+            'team_id' => self::TEAM, 'settings' => json_encode(['minimum_wage_hourly' => 13.90]),
+        ]);
+        Capsule::table('rec_contract_templates')->insert(['id' => 60, 'code' => 'AV-060']);
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 500, 'zuschlag' => 1.10, 'contract_template_id' => null],
+            ['id' => 501, 'zuschlag' => null, 'contract_template_id' => 60],
+        ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Facade::clearResolvedInstances();
+        $this->capsule->schema()->dropAllTables();
+        parent::tearDown();
+    }
+
+    private function resolver(): object
+    {
+        return new class extends ZasEmployeeFieldResolver {
+            public function __construct() {}
+            public function col(RecEmployee $e, string $column): ?string
+            {
+                return $this->resolveColumn($e, null, $column);
+            }
+        };
+    }
+
+    /** Hilfe: Zeile anlegen, Instanz laden. */
+    private function zeile(array $set): RecEmployee
+    {
+        static $nr = 1000;
+        $nr++;
+        Capsule::table('rec_employees')->insert(array_merge([
+            'id' => $nr, 'team_id' => self::TEAM, 'uuid' => 'u-' . $nr, 'first_name' => 'A', 'last_name' => 'B',
+            'is_active' => 1, 'company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => null,
+            'person_key' => null, 'tax_class' => null, 'zuschlag_manuell' => null,
+            'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00',
+        ], $set));
+
+        return RecEmployee::query()->findOrFail($nr);
+    }
+
+    /** Hilfe: ZAS-Lohnwerte der Anstellung (hr_data-Zeile). */
+    private function zasLohn(int $employeeId, ?float $grundlohn, ?float $zuschlag): void
+    {
+        Capsule::table('rec_employee_hr_data')->insert([
+            'rec_employee_id' => $employeeId, 'zas_grundlohn' => $grundlohn, 'zas_zuschlag' => $zuschlag,
+        ]);
+    }
+
+    public function test_ma_fall_1_angleich_ueber_person(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 9, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 9]);          // 13,90 + 1,10 = 15,00
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9, 'tax_class' => '6']);
+
+        $r = $this->resolver();
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(\Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString())), $r->col($ma, 'Grundlohn'));
+        $this->assertSame('1,00', $r->col($ma, 'Zuschlag'), 'Angleich 0 (15,00 < 15,33) + 1 EUR Klasse 6');
+    }
+
+    /** Review Focus 3: nur person_key, keine Personen-Zeile. */
+    public function test_ma_fall_1_ueber_person_key(): void
+    {
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'person_key' => 'k-1', 'phone' => '+491511']);
+        $ma = $this->zeile(['company' => 'MA', 'person_key' => 'k-1', 'phone' => '+491511', 'tax_class' => '1']);
+
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    public function test_ma_fall_1b_zas_zuschlag_der_rg_schwester(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 13, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 13]);
+        $this->zasLohn($rg->id, 13.90, 2.50);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 13, 'tax_class' => '6']);
+
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()) + 1.00, 2)), $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** ZAS-Grundlohn 0 = Zeile bei ZAS nicht gepflegt, der Zuschlag daneben ist keine Angabe. */
+    public function test_zas_wert_mit_grundlohn_null_zaehlt_nicht(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 14, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 14]);
+        $this->zasLohn($rg->id, 0.0, 0.0);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 14, 'tax_class' => '6']);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** Reihenfolge der Quellen: Bewerbung vor ZAS vor manuell. */
+    public function test_bewerbung_schlaegt_zas_und_zas_schlaegt_manuell(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 15, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 15, 'zuschlag_manuell' => 9.99]);  // Bewerbung 1,10
+        $this->zasLohn($rg->id, 13.90, 5.00);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 15, 'tax_class' => '1']);
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'), 'Bewerbung 15,00 < EG 1');
+
+        Capsule::table('rec_persons')->insert(['id' => 16, 'team_id' => self::TEAM]);
+        $rg2 = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 16, 'zuschlag_manuell' => 9.99]);
+        $this->zasLohn($rg2->id, 13.90, 2.50);
+        $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 16, 'tax_class' => '1']);
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()), 2)), $this->resolver()->col($ma2, 'Zuschlag'), 'ZAS vor manuell');
+    }
+
+    public function test_ma_fall_2_unbekannt_liefert_zuschlag_leer_grundlohn_voll(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 10, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 10]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 10, 'tax_class' => '6']);
+
+        $r = $this->resolver();
+        $this->assertNotNull($r->col($ma, 'Grundlohn'));
+        $this->assertNull($r->col($ma, 'Zuschlag'));
+    }
+
+    public function test_ma_fall_3_manuell(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 11, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 11, 'zuschlag_manuell' => 2.50]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 11, 'tax_class' => '6']);
+
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()) + 1.00, 2)), $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    public function test_ma_fall_4_nur_ma(): void
+    {
+        $ma = $this->zeile(['company' => 'MA', 'tax_class' => '1']);
+
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** Review Focus 2: ausgeschiedene RG-Schwester zaehlt nicht. */
+    public function test_inaktive_rg_schwester_ist_nur_ma(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 12, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 12, 'is_active' => 0]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 12, 'tax_class' => '1']);
+
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'), 'nicht leer (unbekannt), sondern nur MA');
+    }
+
+    public function test_rg_ohne_bewerbung_liefert_zas_oder_manuellen_zuschlag(): void
+    {
+        $zas = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10]);
+        $this->zasLohn($zas->id, 13.90, 2.10);
+        $manuell = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10]);
+        $ohne = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null]);
+
+        $this->assertSame('2,10', $this->resolver()->col($zas, 'Zuschlag'), 'ZAS vor manuell');
+        $this->assertSame('1,10', $this->resolver()->col($manuell, 'Zuschlag'));
+        $this->assertNull($this->resolver()->col($ohne, 'Zuschlag'));
+    }
+
+    /** Bewerbung gewinnt — eine Wahrheit je Person. */
+    public function test_rg_mit_bewerbung_ignoriert_zuschlag_manuell(): void
+    {
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'zuschlag_manuell' => 9.99]);
+
+        $this->assertSame('1,10', $this->resolver()->col($rg, 'Zuschlag'));
+    }
+    public function test_rg_anstellung_liefert_mindestlohn_und_zuschlag_wie_bisher(): void
+    {
+        $r = $this->resolver();
+
+        $this->assertSame('13,90', $r->col($this->zeile(['company' => 'RG', 'rec_applicant_id' => 500]), 'Grundlohn'));
+        $this->assertSame('1,10', $r->col($this->zeile(['company' => 'RG', 'rec_applicant_id' => 500]), 'Zuschlag'));
+        $this->assertSame('0,60', $r->col($this->zeile(['company' => 'RG', 'rec_applicant_id' => 501]), 'Zuschlag'), 'Fallback AV-Code unveraendert');
+    }
+
+    /** Bestand ohne Firma ist RG — Verhalten wie bisher. */
+    public function test_anstellung_ohne_firma_wie_rg(): void
+    {
+        $r = $this->resolver();
+
+        $this->assertSame('13,90', $r->col($this->zeile(['company' => null, 'rec_applicant_id' => 500]), 'Grundlohn'));
+        $this->assertSame('1,10', $r->col($this->zeile(['company' => null, 'rec_applicant_id' => 500]), 'Zuschlag'));
+    }
+
+    /** Spaltenzahl und -reihenfolge unveraendert — nur der Wert ist leer. */
+    public function test_lohnspalten_bleiben_an_ihrem_platz(): void
+    {
+        $cols = ZasEmployeeFieldResolver::COLUMNS;
+        $i = array_search('Grundlohn', $cols, true);
+
+        $this->assertNotFalse($i);
+        $this->assertSame(['SchulungsDatum', 'Grundlohn', 'Zuschlag', 'UUID'], array_slice($cols, $i - 1, 4));
+    }
+}

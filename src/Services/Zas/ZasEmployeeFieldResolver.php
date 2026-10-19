@@ -24,6 +24,11 @@ use Platform\Recruiting\Support\SchoolCertificateFields;
  */
 class ZasEmployeeFieldResolver
 {
+    /** @var array<int, \Platform\Recruiting\Support\LohnMa> */
+    private array $lohnMaJeAkte = [];
+
+    private ?\Platform\Recruiting\Services\LohnMaErmittlung $lohnErmittlung = null;
+
     public function __construct(
         protected ZasSignedUrlGenerator $signedUrlGenerator,
     ) {}
@@ -516,23 +521,24 @@ class ZasEmployeeFieldResolver
         return $this->formatDate($row->starts_at ?? null);
     }
 
+    /** MA-Lohn je Zeile einmal rechnen (Grundlohn und Zuschlag fragen beide). */
+    protected function lohnMa(RecEmployee $employee): \Platform\Recruiting\Support\LohnMa
+    {
+        return $this->lohnMaJeAkte[(int) $employee->id] ??= ($this->lohnErmittlung ??= new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($employee);
+    }
+
     /**
-     * Grundlohn (minimum_wage_hourly) aus den Team-Settings.
+     * Grundlohn: RG = minimum_wage_hourly aus den Team-Settings.
      *
-     * MA-Anstellungen liefern LEER (15.10.2026): der Mindestlohn ist nur fuer
-     * RG richtig. Markus 14.10.2026 (E14/E15): MA-Grundlohn = Entgeltgruppe 1
-     * aus dem Tarif (Wert fehlt noch), Zuschlag nach eigener Regel — "bitte
-     * den Export sichern vor dem Start, sonst sind die Daten in ZAS fuer den
-     * Lohn fehlerhaft". Mit dem Personen-Spiegel gehen MA-Zeilen ab dem Start
-     * regelmaessig in updates.csv. Leer bleibt es, bis die EG-Logik steht.
-     * OFFEN: dass ZAS eine leere Zelle als "nicht anfassen" liest (und nicht
-     * als "Wert loeschen"), ist noch NICHT bestaetigt — Frage an Olaf Michel.
-     * Spalte bleibt an ihrem Platz, nur der Wert ist leer.
+     * MA-Anstellungen liefern die Entgeltgruppe 1 am heutigen Tag (datiert,
+     * Support\EntgeltgruppeEins) — der Mindestlohn ist nur fuer RG richtig
+     * (Markus 14.10.2026, E14/E15). Zuschlag und Angleich: siehe
+     * getZuschlag() und LohnMaErmittlung (Spec Lohn MA 2026-10-19).
      */
     protected function getGrundlohn(RecEmployee $employee): ?string
     {
         if ($this->isMaAnstellung($employee)) {
-            return null;
+            return $this->lohnMa($employee)->grundlohnText();
         }
 
         $settings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id);
@@ -545,18 +551,24 @@ class ZasEmployeeFieldResolver
      * Zuschlag aus dem AV-Template-Code des verknuepften Bewerbers.
      * AV-060 → "0,60", AV-110 → "1,10", usw.
      *
-     * MA-Anstellungen liefern LEER (15.10.2026) — Grund und offene ZAS-Frage
-     * siehe getGrundlohn(): der Zuschlag aus der (RG-)Bewerbung gilt fuer den
-     * MA-Vertrag nicht, die MA-Regel (E14/E15) ist noch nicht gebaut.
+     * MA-Anstellungen: Angleich an den RG-Lohn der Person (+1 EUR bei
+     * Steuerklasse 6), siehe LohnMaErmittlung. RG ohne Bewerbung: Kette
+     * ZAS-Wert → zuschlag_manuell.
      */
     protected function getZuschlag(RecEmployee $employee): ?string
     {
         if ($this->isMaAnstellung($employee)) {
-            return null;
+            return $this->lohnMa($employee)->zuschlagText();
         }
 
         if (!$employee->rec_applicant_id) {
-            return null;
+            // Bestand ohne Bewerbung: ZAS-Wert (derselbe, den ZAS hat) oder von
+            // HR eingetragen (Spec Lohn MA §3/§7); leer nur, wenn beides fehlt.
+            $this->lohnErmittlung ??= new \Platform\Recruiting\Services\LohnMaErmittlung();
+            $rg = $this->lohnErmittlung->rgZeile((int) $employee->id);
+            $w = $rg === null ? null : $this->lohnErmittlung->rgZuschlag($rg)['wert'];
+
+            return $w === null ? null : number_format($w, 2, ',', '.');
         }
 
         // Neu: Zuschlag aus dem Datenfeld des verknüpften Bewerbers.
@@ -588,7 +600,7 @@ class ZasEmployeeFieldResolver
      */
     protected function isMaAnstellung(RecEmployee $employee): bool
     {
-        return strtoupper(trim((string) $employee->company)) === 'MA';
+        return \Platform\Recruiting\Services\LohnMaErmittlung::istMa($employee->company);
     }
 
     /**
