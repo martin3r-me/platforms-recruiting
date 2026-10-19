@@ -3,11 +3,13 @@
 namespace Platform\Recruiting\Observers;
 
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeHrData;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\LohnMaErmittlung;
 
 /**
  * Setzt rec_employees.zas_changed_at = now() bei Aenderungen, die fuer
@@ -21,6 +23,10 @@ use Platform\Recruiting\Models\RecPosition;
  *   - RecEmployeeHrData::saved  HR-only-Aenderungen
  *   - RecContract::saved        signed_at-Transition bei MA-zugehoerigem
  *                               Vertrag (relevant fuer IFSG-Computed-Felder)
+ *   - RecApplicant::saved       Zuschlag-Aenderung → RG-Zeile + MA-Schwestern
+ *                               (Spec Lohn MA §8)
+ *   - RecEmployeeHrData::saved  (zweiter Zweig) ZAS-Lesewerte zas_zuschlag/
+ *                               zas_grundlohn → nur die MA-Schwestern
  *
  * Alle Listener in safelyRun-Wrapper. Direkter DB::update zur Rekursion-
  * Vermeidung.
@@ -60,7 +66,11 @@ class RecEmployeeExportObserver
         'iban', 'bic', 'bank_institute', 'account_holder',
 
         // Steuer / Versicherung
-        'tax_class', 'steuer_id', 'sozialversicherungsnummer', 'health_insurance',
+        'tax_class',
+        // RG-Zuschlag von HR (Spec Lohn MA §8) — markiert die RG-Zeile; die
+        // MA-Schwestern markiert der Block im updated-Listener.
+        'zuschlag_manuell',
+        'steuer_id', 'sozialversicherungsnummer', 'health_insurance',
 
         // Sonstiges
         'drivers_license_class', 'has_car', 'recruited_by_personnel_number',
@@ -140,6 +150,17 @@ class RecEmployeeExportObserver
                 self::markEmployeeId($employee->id);
             }, 'rec_employee.updated', $employee->id);
 
+            // RG-Zuschlag von HR geaendert (Spec Lohn MA 2026-10-19 §8): der
+            // MA-Zuschlag der Person rechnet daraus — die MA-Zeilen muessen mit.
+            self::safelyRun(function () use ($employee): void {
+                if (!array_key_exists('zuschlag_manuell', $employee->getChanges())) {
+                    return;
+                }
+                foreach (LohnMaErmittlung::maSchwesternIds((int) $employee->id, $employee->rec_person_id !== null ? (int) $employee->rec_person_id : null, $employee->person_key) as $id) {
+                    self::markEmployeeId($id);
+                }
+            }, 'rec_employee.updated.lohn_ma', $employee->id);
+
             // Payroll-Tracking: lohnrelevante Aenderungen separat tracken
             self::safelyRun(function () use ($employee): void {
                 self::trackPayrollChanges($employee);
@@ -186,6 +207,27 @@ class RecEmployeeExportObserver
                     self::markEmployeeId((int) $hr->rec_employee_id);
                 }
             }, 'rec_employee_hr_data.saved', $hr->id);
+
+            // ZAS hat fuer diese (RG-)Zeile einen anderen Zuschlag geliefert
+            // (Spec Lohn MA §8): der MA-Zuschlag der Person rechnet daraus —
+            // die MA-Schwestern neu raus. Die Zeile selbst bleibt ohne Marker,
+            // der Inbound ist kein Echo (und der Importer stellt ihn ohnehin wieder her).
+            self::safelyRun(function () use ($hr): void {
+                // Nach create() ist getChanges() leer — dort zaehlt, ob ein Zuschlag geliefert wurde.
+                $geaendert = $hr->wasRecentlyCreated
+                    ? $hr->zas_zuschlag !== null
+                    : array_intersect(['zas_zuschlag', 'zas_grundlohn'], array_keys($hr->getChanges())) !== [];
+                if (!$hr->rec_employee_id || !$geaendert) {
+                    return;
+                }
+                $z = DB::table('rec_employees')->where('id', (int) $hr->rec_employee_id)->first(['id', 'rec_person_id', 'person_key']);
+                if ($z === null) {
+                    return;
+                }
+                foreach (LohnMaErmittlung::maSchwesternIds((int) $z->id, ($z->rec_person_id ?? null) !== null ? (int) $z->rec_person_id : null, $z->person_key ?? null) as $id) {
+                    self::markEmployeeId($id);
+                }
+            }, 'rec_employee_hr_data.saved.lohn_ma', $hr->id);
         });
 
         RecContract::saved(static function (RecContract $contract): void {
@@ -206,6 +248,18 @@ class RecEmployeeExportObserver
             }, 'rec_contract.saved.signed_at', $contract->id);
         });
 
+        // Bewerbungs-Zuschlag geaendert (Lohn-Empfehlung, Schreibtisch, Neu
+        // ausstellen …): RG-Zeile und MA-Schwestern neu an ZAS. Bisher
+        // markierte das NICHTS fuer den Mitarbeiter-Export (Spec Lohn MA §8).
+        RecApplicant::saved(static function (RecApplicant $applicant): void {
+            self::safelyRun(function () use ($applicant): void {
+                if (!array_key_exists('zuschlag', $applicant->getChanges())) {
+                    return;
+                }
+                self::beiBewerbungsZuschlag((int) $applicant->id);
+            }, 'rec_applicant.saved.lohn_ma', $applicant->id);
+        });
+
         // Position-Kostenstelle aendert sich → alle aktiven MAs dieser
         // Stelle muessen ein Update an ZAS bekommen (Kostenstelle ist
         // teil des MA-Exports).
@@ -220,6 +274,18 @@ class RecEmployeeExportObserver
                     ->update(['zas_changed_at' => now()]);
             }, 'rec_position.updated.cost_center', $position->id);
         });
+    }
+
+    /** Alle Anstellungen dieser Bewerbung plus deren aktive MA-Schwestern markieren. */
+    public static function beiBewerbungsZuschlag(int $applicantId): void
+    {
+        $zeilen = DB::table('rec_employees')->where('rec_applicant_id', $applicantId)->get(['id', 'rec_person_id', 'person_key']);
+        foreach ($zeilen as $z) {
+            self::markEmployeeId((int) $z->id);
+            foreach (LohnMaErmittlung::maSchwesternIds((int) $z->id, $z->rec_person_id !== null ? (int) $z->rec_person_id : null, $z->person_key) as $id) {
+                self::markEmployeeId($id);
+            }
+        }
     }
 
     protected static function safelyRun(callable $fn, string $context, mixed $entityId): void
