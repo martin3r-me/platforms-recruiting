@@ -580,6 +580,10 @@ class ZasEmployeeFieldResolver
         }
 
         // Fallback (Bestand): aus dem AV-Template-Code parsen.
+        // Bekannte Abweichung (Final-Review F5, bewusst NICHT angeglichen): diese
+        // Regex trimmt den Code nicht, ZuschlagWert::ausAvCode (MA-Angleich)
+        // schon. Ein Code mit Leerraum ergibt hier leer, im MA-Angleich einen
+        // Wert. Der RG-Pfad mit Bewerbung bleibt unveraendert (Global Constraint).
         $templateCode = DB::table('rec_applicants')
             ->join('rec_contract_templates', 'rec_applicants.contract_template_id', '=', 'rec_contract_templates.id')
             ->where('rec_applicants.id', $employee->rec_applicant_id)

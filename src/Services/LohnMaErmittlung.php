@@ -133,33 +133,44 @@ final class LohnMaErmittlung
 
     /**
      * Zuschlag der RG-Anstellung in dieser Reihenfolge: Bewerbung (Datenfeld,
-     * sonst AV-Code, sonst 0,00 — Bewerbung vorhanden heisst bekannt), sonst
-     * ZAS (zas_zuschlag, aber nur bei zas_grundlohn > 0: Grundlohn 0 heisst
-     * bei ZAS "Zeile nicht gepflegt", der Zuschlag daneben ist keine Angabe —
-     * Befund 19.10.2026, 125 solcher Zeilen), sonst zuschlag_manuell, sonst
-     * unbekannt. Dieselbe Kette fuer MA-Angleich und RG-Export.
+     * sonst AV-Code), sonst ZAS (zas_zuschlag, aber nur bei zas_grundlohn > 0:
+     * Grundlohn 0 heisst bei ZAS "Zeile nicht gepflegt", der Zuschlag daneben
+     * ist keine Angabe — Befund 19.10.2026, 125 solcher Zeilen), sonst
+     * zuschlag_manuell, sonst unbekannt.
+     *
+     * Ruling R3' (ersetzt R3, Final-Review F5): Eine Bewerbung OHNE Zuschlag
+     * und ohne lesbaren AV-Code ist keine Angabe — die Kette laeuft weiter
+     * zu ZAS und manuell. Erst wenn auch dort nichts steht, gilt 0,00 mit
+     * Quelle Bewerbung (Bewerbung vorhanden heisst bekannt, wie bisher).
+     * Der RG-Export MIT Bewerbung liest den Zuschlag weiter selbst
+     * (ZasEmployeeFieldResolver::getZuschlag) und bleibt unveraendert.
      *
      * @return array{wert:?float, quelle:?string}
      */
     public function rgZuschlag(object $rg): array
     {
+        $ausBewerbung = null;
         if ($rg->rec_applicant_id !== null) {
-            $z = DB::table('rec_applicants')->where('id', (int) $rg->rec_applicant_id)->value('zuschlag');
-            if ($z === null) {
+            $ausBewerbung = DB::table('rec_applicants')->where('id', (int) $rg->rec_applicant_id)->value('zuschlag');
+            if ($ausBewerbung === null) {
                 $code = DB::table('rec_applicants')
                     ->join('rec_contract_templates', 'rec_applicants.contract_template_id', '=', 'rec_contract_templates.id')
                     ->where('rec_applicants.id', (int) $rg->rec_applicant_id)
                     ->value('rec_contract_templates.code');
-                $z = ZuschlagWert::ausAvCode($code !== null ? (string) $code : null) ?? 0.0;
+                $ausBewerbung = ZuschlagWert::ausAvCode($code !== null ? (string) $code : null);
             }
-
-            return ['wert' => (float) $z, 'quelle' => LohnMa::QUELLE_BEWERBUNG];
+            if ($ausBewerbung !== null) {
+                return ['wert' => (float) $ausBewerbung, 'quelle' => LohnMa::QUELLE_BEWERBUNG];
+            }
         }
         if ($rg->zas_zuschlag !== null && (float) $rg->zas_grundlohn > 0) {
             return ['wert' => (float) $rg->zas_zuschlag, 'quelle' => LohnMa::QUELLE_ZAS];
         }
         if ($rg->zuschlag_manuell !== null) {
             return ['wert' => (float) $rg->zuschlag_manuell, 'quelle' => LohnMa::QUELLE_MANUELL];
+        }
+        if ($rg->rec_applicant_id !== null) {
+            return ['wert' => 0.0, 'quelle' => LohnMa::QUELLE_BEWERBUNG];
         }
 
         return ['wert' => null, 'quelle' => null];

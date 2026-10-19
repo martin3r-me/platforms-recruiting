@@ -16,7 +16,7 @@ Tarif: `251112_GVP-Basistarifwerk.pdf` (DGB/GVP, Stand Januar 2026), Anlage zum 
 
 - **RG** / **MA**: `rec_employees.company` (`'RG'`/`'MA'`, leer = RG; Normalisierung wie `ZasEmployeeFieldResolver::isMaAnstellung`).
 - **EG 1**: Tarif-Stundensatz Entgeltgruppe 1, datiert (Abschnitt 4).
-- **RG-Zuschlag**: Zuschlag der Person bei RG. Quellen in dieser Reihenfolge: (1) Bewerbung — `rec_applicants.zuschlag`, Fallback AV-Code (`ZuschlagWert::ausAvCode`), leer = 0,00 (Bewerbung vorhanden = bekannt); (2) **ZAS** — `rec_employee_hr_data.zas_zuschlag` der RG-Anstellung, aber nur wenn `zas_grundlohn` > 0 (Grundlohn 0 heißt bei ZAS „Zeile nicht gepflegt", der Zuschlag daneben ist dann keine Angabe; Befund CSV 19.10.: 125 solcher Zeilen); (3) manuell — `rec_employees.zuschlag_manuell`. Die ZAS-Werte liest der Inbound seit main fff2ad69 (19.10.) bei jeder Lieferung mit, nur lesend.
+- **RG-Zuschlag**: Zuschlag der Person bei RG. Quellen in dieser Reihenfolge: (1) Bewerbung — `rec_applicants.zuschlag`, Fallback AV-Code (`ZuschlagWert::ausAvCode`); hat die Bewerbung weder Wert noch lesbaren AV-Code, läuft die Kette weiter (Ruling R3'), und erst wenn auch (2) und (3) nichts liefern, gilt 0,00 aus der Bewerbung (Bewerbung vorhanden = bekannt); (2) **ZAS** — `rec_employee_hr_data.zas_zuschlag` der RG-Anstellung, aber nur wenn `zas_grundlohn` > 0 (Grundlohn 0 heißt bei ZAS „Zeile nicht gepflegt", der Zuschlag daneben ist dann keine Angabe; Befund CSV 19.10.: 125 solcher Zeilen); (3) manuell — `rec_employees.zuschlag_manuell`. Die ZAS-Werte liest der Inbound seit main fff2ad69 (19.10.) bei jeder Lieferung mit, nur lesend.
 - **RG-Gesamtlohn** = `minimum_wage_hourly` (Team-Einstellung, 13,90) + RG-Zuschlag.
 - **RG-Schwester** einer MA-Anstellung: die aktive RG-Anstellung derselben Person (Abschnitt 6).
 
@@ -76,7 +76,7 @@ bzw. `EG 1 15,33 € · nur MA, kein Angleich · Zuschlag 0,00 €`.
 
 Eine **inaktive** RG-Anstellung zählt nicht: Wer bei RG ausgeschieden ist, ist „nur MA".
 
-`ermitteln(RecEmployee $ma, ?string $datum = null): LohnMa` liefert das Ergebnis; `LohnMa` (reine Wertklasse in `src/Support/LohnMa.php`) rechnet aus `(eg1, mindestlohn, hatRg, rgZuschlag|null, quelle ∈ bewerbung|zas|manuell|null, steuerklasse|null)` die Tabelle aus Abschnitt 3 und baut die Begründung. `LohnMa::fall` ∈ `angleich|zas|unbekannt|manuell|nur_ma`; `quelle` bestimmt den Fall bei bekanntem RG-Zuschlag. Die RG-Schwester wird mit ihren `hr_data`-Werten `zas_grundlohn`/`zas_zuschlag` gelesen (Left Join). Kette: Bewerbung (`rec_applicants.zuschlag`, sonst AV-Code, sonst 0,00) → ZAS (`zas_zuschlag`, nur wenn `zas_grundlohn` > 0) → manuell → unbekannt.
+`ermitteln(RecEmployee $ma, ?string $datum = null): LohnMa` liefert das Ergebnis; `LohnMa` (reine Wertklasse in `src/Support/LohnMa.php`) rechnet aus `(eg1, mindestlohn, hatRg, rgZuschlag|null, quelle ∈ bewerbung|zas|manuell|null, steuerklasse|null)` die Tabelle aus Abschnitt 3 und baut die Begründung. `LohnMa::fall` ∈ `angleich|zas|unbekannt|manuell|nur_ma`; `quelle` bestimmt den Fall bei bekanntem RG-Zuschlag. Die RG-Schwester wird mit ihren `hr_data`-Werten `zas_grundlohn`/`zas_zuschlag` gelesen (Left Join). Kette: Bewerbung (`rec_applicants.zuschlag`, sonst AV-Code) → ZAS (`zas_zuschlag`, nur wenn `zas_grundlohn` > 0) → manuell → mit Bewerbung 0,00, sonst unbekannt (Ruling R3').
 
 ## 7. Export
 
@@ -162,6 +162,6 @@ Gebaut auf `feat/ma-konto`. Dateien und Entscheidungen:
 - `src/Services/HrMitarbeiterListen.php`, `src/Livewire/HrDesk/Mitarbeiter.php` + `mitarbeiter.blade.php` — Unterliste „Lohn: RG-Zuschlag fehlt", Liste 60 s je Team gecacht. Der rote Hauptreiter-Zähler enthält die Lohn-Liste nicht (Ruling §10).
 - `src/Console/Commands/LohnMaExport.php` — `recruiting:lohn-ma-export` mit Vergleich `gleich` / `abweichend` / `zas_leer`.
 - `resources/views/livewire/applicant/applicant-settings-modal.blade.php` — Lohnbuchhaltung: Mindestlohn RG, EG 1 lesend.
-- Ruling R3: Bewerbung ohne Zuschlag und ohne lesbaren AV-Code → RG-Export bleibt leer (wie heute); der MA-Angleich rechnet mit 0,00.
+- Ruling R3' (ersetzt R3, Final-Review 19.10.): Bewerbung ohne Zuschlag und ohne lesbaren AV-Code → RG-Export bleibt leer (wie heute, Pfad mit Bewerbung unverändert); der MA-Angleich läuft weiter durch die Kette: `zas_zuschlag` (bei `zas_grundlohn` > 0, Quelle zas) → `zuschlag_manuell` (Quelle manuell) → erst dann 0,00 mit Quelle Bewerbung. Bekannte, bewusst belassene Abweichung: die AV-Code-Regex im RG-Resolverpfad trimmt nicht, `ZuschlagWert::ausAvCode` schon (Kommentar am Resolver).
 - Abhängigkeit auf main: ZAS-Lohn-Inbound `fff2ad69` (Migration `2026_10_19_000001_add_zas_lohn_to_hr_data`) muss deployt sein.
 - Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Aktive MA ohne `rec_person_id` und `person_key` rechnen als „nur MA" (0,00) — vor `--markieren` zählen (Checkliste 4.4 Schritt 4b).

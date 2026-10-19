@@ -317,4 +317,48 @@ final class ZasLohnspaltenTest extends TestCase
         $this->assertNotFalse($i);
         $this->assertSame(['SchulungsDatum', 'Grundlohn', 'Zuschlag', 'UUID'], array_slice($cols, $i - 1, 4));
     }
+
+    /**
+     * Ruling R3' (Final-Review F5): Bewerbung ohne Zuschlag und ohne lesbaren
+     * AV-Code ist keine Angabe — der MA-Angleich nimmt den ZAS-Wert der
+     * RG-Schwester. Der RG-Export mit Bewerbung bleibt dabei unveraendert leer.
+     */
+    public function test_bewerbung_ohne_wert_laeuft_weiter_zu_zas(): void
+    {
+        Capsule::table('rec_applicants')->insert(['id' => 502, 'zuschlag' => null, 'contract_template_id' => null]);
+        Capsule::table('rec_persons')->insert(['id' => 31, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 502, 'rec_person_id' => 31]);
+        $this->zasLohn($rg->id, 13.90, 2.00);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 31, 'tax_class' => '1']);
+
+        $tag = '2026-10-19';
+        $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma, $tag);
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::ZAS, $l->fall);
+        $this->assertSame(round(13.90 + 2.00 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz($tag), 2), $l->zuschlag);   // 0,57
+        $this->assertNull($this->resolver()->col($rg, 'Zuschlag'), 'RG-Export mit Bewerbung unveraendert');
+    }
+
+    /** R3': Bewerbung ohne Wert, kein ZAS, nichts manuell — erst dann 0,00 aus der Bewerbung. */
+    public function test_bewerbung_ohne_wert_ohne_zas_rechnet_mit_null(): void
+    {
+        Capsule::table('rec_applicants')->insert(['id' => 503, 'zuschlag' => null, 'contract_template_id' => null]);
+        Capsule::table('rec_persons')->insert(['id' => 32, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 503, 'rec_person_id' => 32]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 32, 'tax_class' => '6']);
+
+        $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma, '2026-10-19');
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::ANGLEICH, $l->fall);
+        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'), '13,90 + 0,00 liegt unter EG 1 -> 0,00 + Klasse 6');
+    }
+
+    /** R3': Bewerbung ohne Wert, kein ZAS, aber manuell eingetragen — der manuelle Wert gilt. */
+    public function test_bewerbung_ohne_wert_nimmt_manuellen_zuschlag(): void
+    {
+        Capsule::table('rec_applicants')->insert(['id' => 504, 'zuschlag' => null, 'contract_template_id' => null]);
+        Capsule::table('rec_persons')->insert(['id' => 33, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 504, 'rec_person_id' => 33, 'zuschlag_manuell' => 2.50]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 33, 'tax_class' => '1']);
+
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::MANUELL, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
+    }
 }
