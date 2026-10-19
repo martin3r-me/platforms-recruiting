@@ -10,7 +10,7 @@ final class ThemenAusloeserTest extends TestCase
     private function k(array $o = []): array
     {
         return $o + [
-            'enabled' => true, 'hr_kanal' => true, 'aktiver_ma' => true,
+            'enabled' => true, 'hr_kanal' => true, 'aktiver_ma' => true, 'pilot' => true,
             'quick_reply' => false, 'message_type' => 'text',
             'letzte_aktivitaet_ts' => null, 'jetzt_ts' => 1_000_000, 'ruhe_stunden' => 8,
             'fremder_kontext' => false,
@@ -30,6 +30,19 @@ final class ThemenAusloeserTest extends TestCase
         $this->assertSame('button_klick', ThemenAusloeser::qualifiziert($this->k(['quick_reply' => true])));
         $this->assertSame('sprachnachricht', ThemenAusloeser::qualifiziert($this->k(['message_type' => 'audio'])));
         $this->assertSame('fremder_kontext', ThemenAusloeser::qualifiziert($this->k(['fremder_kontext' => true])));
+        $this->assertSame('nicht_im_pilot', ThemenAusloeser::qualifiziert($this->k(['pilot' => false])));
+    }
+
+    public function test_pilot_sperre_kommt_direkt_nach_dem_aktiven_mitarbeiter(): void
+    {
+        // Ein Bewerber ist nie Pilot — er soll als Bewerber gezaehlt werden, nicht als „nicht im Pilot“.
+        $this->assertSame('kein_aktiver_ma', ThemenAusloeser::qualifiziert($this->k(['aktiver_ma' => false, 'pilot' => false])));
+        // Davor stehende Gruende stechen die Pilot-Sperre.
+        $this->assertSame('fremder_kontext', ThemenAusloeser::qualifiziert($this->k(['fremder_kontext' => true, 'pilot' => false])));
+        // Die Pilot-Sperre sticht alle Gruende dahinter.
+        $this->assertSame('nicht_im_pilot', ThemenAusloeser::qualifiziert($this->k(['pilot' => false, 'quick_reply' => true])));
+        $this->assertSame('nicht_im_pilot', ThemenAusloeser::qualifiziert($this->k(['pilot' => false, 'message_type' => 'audio'])));
+        $this->assertSame('nicht_im_pilot', ThemenAusloeser::qualifiziert($this->k(['pilot' => false, 'letzte_aktivitaet_ts' => 1_000_000 - 60])));
     }
 
     public function test_bilder_und_dokumente_loesen_aus(): void

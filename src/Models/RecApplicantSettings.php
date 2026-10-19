@@ -173,6 +173,7 @@ class RecApplicantSettings extends Model
         // Themen-Auswahl fuer Mitarbeiter (S-Themen §2.1/§2.4).
         'comms_topic_enabled' => false,          // Default aus, Rollout bewusst
         'comms_topic_quiet_hours' => 8,          // Ruhezeit in Stunden, in beide Richtungen
+        'comms_topic_nur_pilot' => true,         // Nur Pilotgruppe (PilotKreis); Sebastian 19.10.2026: neue Features erst im Pilot
         'comms_topic_lohn_url' => null,          // Login-Anleitung fuer den Lohn-Zweig; leer = Text ohne Knopf
         'comms_topic_text_ask' => null,          // Team-Texte (null = Vorgabe aus ThemenTexte)
         'comms_topic_text_lohn_offen' => null,

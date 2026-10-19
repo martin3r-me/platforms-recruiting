@@ -1158,6 +1158,17 @@
                                 </p>
                             </div>
                         </label>
+                        <label class="flex items-center gap-3 cursor-pointer mt-3">
+                            <input type="checkbox"
+                                   wire:model="settings.comms_topic_nur_pilot"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Nur für die Pilotgruppe (Mitarbeiter mit neuem Portal)</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                    Aus = alle aktiven Mitarbeiter des Teams.
+                                </p>
+                            </div>
+                        </label>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

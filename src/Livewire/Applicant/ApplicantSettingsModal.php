@@ -346,6 +346,9 @@ class ApplicantSettingsModal extends Component
     {
         $fehler = [];
         $settings['comms_topic_enabled'] = filter_var($settings['comms_topic_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        // Pilot-Sperre: fehlt der Schluessel (Altbestand), gilt die Vorgabe AN —
+        // sonst oeffnete das blosse Speichern die Auswahl fuer alle.
+        $settings['comms_topic_nur_pilot'] = filter_var($settings['comms_topic_nur_pilot'] ?? true, FILTER_VALIDATE_BOOLEAN);
         $settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($settings['comms_topic_quiet_hours'] ?? null, 1, 48, 8);
 
         foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {

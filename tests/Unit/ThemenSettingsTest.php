@@ -62,4 +62,18 @@ final class ThemenSettingsTest extends TestCase
         $this->assertTrue($r['settings']['comms_topic_enabled']);
         $this->assertSame(48, $r['settings']['comms_topic_quiet_hours']);
     }
+
+    public function test_pilot_sperre_vorgabe_an_checkbox_und_normalisierung(): void
+    {
+        $this->assertTrue(RecApplicantSettings::DEFAULT_SETTINGS['comms_topic_nur_pilot']);
+        $this->assertMatchesRegularExpression('~<input type="checkbox"[^>]*wire:model="settings\.comms_topic_nur_pilot"~s', $this->blade());
+        $this->assertStringContainsString('Nur für die Pilotgruppe (Mitarbeiter mit neuem Portal)', $this->blade());
+        $this->assertStringContainsString('Aus = alle aktiven Mitarbeiter des Teams', $this->blade());
+
+        $this->assertFalse(ApplicantSettingsModal::themenEinstellungen(['comms_topic_nur_pilot' => 'false'])['settings']['comms_topic_nur_pilot']);
+        $this->assertFalse(ApplicantSettingsModal::themenEinstellungen(['comms_topic_nur_pilot' => false])['settings']['comms_topic_nur_pilot']);
+        $this->assertTrue(ApplicantSettingsModal::themenEinstellungen(['comms_topic_nur_pilot' => '1'])['settings']['comms_topic_nur_pilot']);
+        // Fehlt der Schluessel, bleibt die Sperre an — Speichern oeffnet nichts.
+        $this->assertTrue(ApplicantSettingsModal::themenEinstellungen([])['settings']['comms_topic_nur_pilot']);
+    }
 }

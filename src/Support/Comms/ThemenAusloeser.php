@@ -8,7 +8,12 @@ namespace Platform\Recruiting\Support\Comms;
  * JUENGSTE Aktivitaet im Thread in beide Richtungen, auch Auto-Antworten —
  * wer auf unsere Nachricht antwortet, hat kein neues Anliegen.
  *
- * @param array{enabled:bool, hr_kanal:bool, aktiver_ma:bool, quick_reply:bool, message_type:string,
+ * `pilot`: true = Absender ist in der Pilotgruppe (PilotKreis) ODER die
+ * Team-Sperre comms_topic_nur_pilot ist aus. Neue Features nur fuer den
+ * Pilot (Sebastian 19.10.2026) — wer noch am alten Portal haengt, bekommt
+ * die Frage nicht.
+ *
+ * @param array{enabled:bool, hr_kanal:bool, aktiver_ma:bool, pilot:bool, quick_reply:bool, message_type:string,
  *              letzte_aktivitaet_ts:?int, jetzt_ts:int, ruhe_stunden:int, fremder_kontext:bool} $k
  */
 final class ThemenAusloeser
@@ -26,6 +31,9 @@ final class ThemenAusloeser
         }
         if (!$k['aktiver_ma']) {
             return 'kein_aktiver_ma';
+        }
+        if (!$k['pilot']) {
+            return 'nicht_im_pilot';
         }
         if ($k['quick_reply']) {
             return 'button_klick';

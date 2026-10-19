@@ -93,6 +93,16 @@ final class ThemenAuswahlHandlerTest extends TestCase
             $table->timestamp('created_at')->useCurrent();
         });
 
+        // Pilot-Sperre (PilotKreis): nur die Spalten, die der Personen-Schnitt
+        // liest — von Hand, die rec_employees-Migrationen brauchen den halben Bestand.
+        Capsule::schema()->create('rec_employees', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('team_id')->nullable();
+            $table->unsignedBigInteger('rec_person_id')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('portal_v2_since')->nullable();
+        });
+
         self::$kontoId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
             'uuid' => 'acc-themen', 'phone_number' => '+49 160 5559001',
             'title' => 'HR', 'active' => true, 'user_id' => 1,
@@ -156,9 +166,12 @@ final class ThemenAuswahlHandlerTest extends TestCase
     {
         self::bindeContainer();
         foreach (['rec_conversation_topics', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'comms_thread_contexts',
-                  'comms_logs', 'crm_contacts', 'crm_phone_numbers'] as $t) {
+                  'comms_logs', 'crm_contacts', 'crm_phone_numbers', 'rec_employees'] as $t) {
             Capsule::table($t)->delete();
         }
+        // Vorgabe: der Mitarbeiter hinter der Resolver-Attrappe ist im Pilot
+        // (umgestellte Anstellung) — die Pilot-Sperre ist per Vorgabe an.
+        $this->anstellung(42, portal: true);
         $this->gesendet = new \ArrayObject();
         $this->sendStatus = 'sent';
         $this->mitarbeiterId = 42;
@@ -508,6 +521,83 @@ final class ThemenAuswahlHandlerTest extends TestCase
         [$thread, $msg] = $this->eingang(payload: ['type' => 'button', 'button' => ['text' => 'Ja']]);
 
         $this->assertSame('uebersprungen:button_klick', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    // ------------------------------------------------ Pilot-Sperre (19.10.2026)
+
+    public function test_nicht_im_pilot_bekommt_keine_frage(): void
+    {
+        Capsule::table('rec_employees')->where('id', 42)->update(['portal_v2_since' => null]);
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:nicht_im_pilot', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(0, RecConversationTopic::query()->count());
+    }
+
+    public function test_sperre_aus_dann_bekommt_auch_wer_nicht_im_pilot_ist_die_frage(): void
+    {
+        Capsule::table('rec_employees')->where('id', 42)->update(['portal_v2_since' => null]);
+        $this->einstellungen(['comms_topic_enabled' => true, 'comms_topic_nur_pilot' => false]);
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('gesendet', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+        $this->assertCount(1, $this->gesendet);
+    }
+
+    public function test_sperre_ausdruecklich_an_wirkt_wie_die_vorgabe(): void
+    {
+        Capsule::table('rec_employees')->where('id', 42)->update(['portal_v2_since' => null]);
+        $this->einstellungen(['comms_topic_enabled' => true, 'comms_topic_nur_pilot' => true]);
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:nicht_im_pilot', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    public function test_rg_und_ma_nur_ma_umgestellt_nachricht_ueber_die_rg_nummer_ist_im_pilot(): void
+    {
+        // Pilotumstellung je Zeile: nur die MA-Anstellung hat das neue Portal,
+        // der Mensch schreibt aber von der Nummer, die an der RG-Zeile haengt.
+        Capsule::table('rec_employees')->delete();
+        $this->anstellung(50, portal: false, person: 7);
+        $this->anstellung(51, portal: true, person: 7);
+        $this->mitarbeiterId = 50;
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('gesendet', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    public function test_umgestellte_schwester_zaehlt_nur_wenn_sie_aktiv_ist(): void
+    {
+        // Gegenprobe zum Test darueber: eine beendete umgestellte Anstellung
+        // macht den Menschen nicht zum Piloten — und eine fremde Person auch nicht.
+        Capsule::table('rec_employees')->delete();
+        $this->anstellung(50, portal: false, person: 7);
+        $this->anstellung(51, portal: true, person: 7, aktiv: false);
+        $this->anstellung(52, portal: true, person: 8);
+        $this->mitarbeiterId = 50;
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:nicht_im_pilot', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    public function test_ohne_personen_zeile_zaehlt_nur_die_eigene_anstellung(): void
+    {
+        Capsule::table('rec_employees')->delete();
+        $this->anstellung(50, portal: false);
+        $this->anstellung(51, portal: true);
+        $this->mitarbeiterId = 50;
+        [$thread, $msg] = $this->eingang();
+
+        $this->assertSame('uebersprungen:nicht_im_pilot', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    private function anstellung(int $id, bool $portal, ?int $person = null, bool $aktiv = true): void
+    {
+        Capsule::table('rec_employees')->insert([
+            'id' => $id, 'team_id' => self::TEAM, 'rec_person_id' => $person, 'is_active' => $aktiv,
+            'portal_v2_since' => $portal ? '2026-10-01 00:00:00' : null,
+        ]);
     }
 
     /** Ablauf wie im Listener: erst Themen-Auswahl, OOO nur, wenn die Abwesenheit noch nicht mitgeteilt ist. */

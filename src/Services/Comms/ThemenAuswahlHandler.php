@@ -13,6 +13,7 @@ use Platform\Recruiting\Models\RecConversationTopic;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\Comms\ThemenAusloeser;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\PublicAddressStyle;
 
 /**
@@ -36,7 +37,7 @@ final class ThemenAuswahlHandler
      * Pruefungen davor bestanden sind.
      */
     private const NEUTRAL = [
-        'enabled' => true, 'hr_kanal' => true, 'fremder_kontext' => false, 'aktiver_ma' => true,
+        'enabled' => true, 'hr_kanal' => true, 'fremder_kontext' => false, 'aktiver_ma' => true, 'pilot' => true,
         'quick_reply' => false, 'message_type' => 'text',
         'letzte_aktivitaet_ts' => null, 'jetzt_ts' => 0, 'ruhe_stunden' => 1,
     ];
@@ -130,9 +131,19 @@ final class ThemenAuswahlHandler
         }
 
         // 8. Zuletzt die teure Personen-Suche (laedt alle aktiven MA mit Nummer).
-        $aktiverMa = $phone !== ''
-            && ($this->empfaenger ?? app(ThemenAuswahlEmpfaenger::class))->aktiverMitarbeiter($phone, $teamId) !== null;
-        if ($grund = $pruefe(['aktiver_ma' => $aktiverMa])) {
+        $mitarbeiterId = $phone !== ''
+            ? ($this->empfaenger ?? app(ThemenAuswahlEmpfaenger::class))->aktiverMitarbeiter($phone, $teamId)
+            : null;
+        if ($grund = $pruefe(['aktiver_ma' => $mitarbeiterId !== null])) {
+            return 'uebersprungen:' . $grund;
+        }
+
+        // 9. Pilot-Sperre (Sebastian 19.10.2026: neue Features nur fuer die
+        //    Pilotgruppe). Vorgabe an; der Personen-Schnitt steht in PilotKreis —
+        //    ein RG+MA, dessen MA-Zeile umgestellt ist, schreibt auch ueber die
+        //    RG-Nummer als Pilot.
+        $nurPilot = (bool) $settings->getSetting('comms_topic_nur_pilot', true);
+        if ($grund = $pruefe(['pilot' => !$nurPilot || PilotKreis::istImPilot((int) $mitarbeiterId)])) {
             return 'uebersprungen:' . $grund;
         }
 
