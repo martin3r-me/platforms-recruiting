@@ -44,13 +44,14 @@ class SettingsModalPortalVorlagenTest extends TestCase
 
     private const BLADE = 'resources/views/livewire/applicant/applicant-settings-modal.blade.php';
 
-    /** Die acht Vorlagen-Schluessel in der Reihenfolge der Sektion. */
+    /** Die neun Vorlagen-Schluessel in der Reihenfolge der Sektion (seit 19.10.2026 mit der Einladung zum Konto). */
     private const SCHLUESSEL = [
         PortalVorlagen::CODE_PASSWORT,
         PortalVorlagen::CODE_NUMMERNWECHSEL,
         PortalVorlagen::CODE_NOTFALL,
         PortalVorlagen::HINWEIS_ALTE_NUMMER,
         PortalVorlagen::AUFGABEN_NEU,
+        PortalVorlagen::EINLADUNG,
         'proof_reminder_wa_template_id',
         'document_wa_template_id',
         'employee_contract_wa_template_id',
@@ -233,7 +234,10 @@ class SettingsModalPortalVorlagenTest extends TestCase
 
         $sektion = substr($html, (int) strpos($html, '>Mitarbeiterportal<'));
         $this->assertSame(1, substr_count($sektion, 'nullLabel="– wie Dokumente –"'));
-        $this->assertSame(7, substr_count($sektion, 'nullLabel="– Template wählen –"'), 'Sieben Felder mit „– Template wählen –"');
+        $this->assertSame(8, substr_count($sektion, 'nullLabel="– Template wählen –"'), 'Acht Felder mit „– Template wählen –"');
+        // Einladung zum Konto (19.10.2026): Knopf auf die Konto-Anlage, Rueckfall ohne Vorlage.
+        $this->assertStringContainsString('Genau ein URL-Knopf mit Variable auf …/recruiting/konto/anlegen/&#123;&#123;1&#125;&#125;', $html);
+        $this->assertStringContainsString('Leer gelassen zeigt HR Link und Code wie bisher nur an.', $html);
         // Seit 14.10.2026: AUTHENTICATION „Code kopieren" zuerst, UTILITY mit {{code}} als Altform.
         $this->assertStringContainsString('Vorlage der Kategorie AUTHENTICATION mit Knopf „Code kopieren"', $html);
         $this->assertStringContainsString('UTILITY-Vorlagen mit &#123;&#123;code&#125;&#125; (Pflicht), optional Vorname, ohne Knopf mit Variable funktionieren weiter.', $html);

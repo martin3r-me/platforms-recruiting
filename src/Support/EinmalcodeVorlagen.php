@@ -57,6 +57,17 @@ use Platform\Recruiting\Models\RecApplicantSettings;
  * ohnehin, solange sie eingestellt ist. geschwaerzt() schwaerzt bereits
  * ALLE Werte aller Komponenten, also auch den Knopf-Parameter und den
  * positionellen Body-Wert.
+ *
+ * NEUER STAND 19.10.2026 — AUCH DIE EINLADUNG ZUM KONTO. EinladungSender
+ * schickt den Einladungscode (8 Zeichen, sieben Tage gueltig) als Parameter
+ * des URL-Knopfs. Er ist laenger gueltig als ein Einmalcode und gehoert
+ * genauso wenig in den Verlauf. Erkannt auf denselben Wegen: STRUKTUR =
+ * ein URL-Knopf auf /konto/anlegen/{{..}} (PortalVorlagen::
+ * einladungsKnopfPositionen), EINSTELLUNG = Feld PortalVorlagen::EINLADUNG
+ * (GEHEIM_SCHLUESSEL). Geschwaerzt wird wie oben: alle Werte, also auch der
+ * Knopf-Parameter. Der Sender schwaerzt zusaetzlich die GESPEICHERTEN Zeilen
+ * gleich nach dem Versand (EinladungSender::schwaerzeGespeichertes) — diese
+ * Klasse ist die zweite Linie fuer alles, was dort nicht ankam.
  */
 final class EinmalcodeVorlagen
 {
@@ -79,6 +90,17 @@ final class EinmalcodeVorlagen
 
     /** Was statt des Codes in der Chat-Blase steht. */
     public const MASKE = '••••••';
+
+    /**
+     * Die Einstellungsfelder, deren Vorlagen ein Geheimnis tragen: die drei
+     * Code-Felder und die Einladung zum Konto (19.10.2026).
+     */
+    public const GEHEIM_SCHLUESSEL = [
+        PortalVorlagen::CODE_PASSWORT,
+        PortalVorlagen::CODE_NUMMERNWECHSEL,
+        PortalVorlagen::CODE_NOTFALL,
+        PortalVorlagen::EINLADUNG,
+    ];
 
     /**
      * Weg 2, gemerkt je Prozess (eine Anfrage, ein Chat): klein geschriebene
@@ -167,6 +189,12 @@ final class EinmalcodeVorlagen
             return true;
         }
 
+        // Einladung zum Konto (19.10.2026): der Knopf fuehrt auf die
+        // Konto-Anlage, seine Variable ist der Einladungscode.
+        if (PortalVorlagen::einladungsKnopfPositionen($definition) !== []) {
+            return true;
+        }
+
         foreach ($definition as $teil) {
             if (is_array($teil)
                 && strtoupper((string) ($teil['type'] ?? '')) === 'BODY'
@@ -180,7 +208,8 @@ final class EinmalcodeVorlagen
     }
 
     /**
-     * Weg 2: Template-IDs aus den drei Code-Feldern ALLER Teams → Namen.
+     * Weg 2: Template-IDs aus den Geheimnis-Feldern (GEHEIM_SCHLUESSEL: drei
+     * Code-Felder + Einladung) ALLER Teams → Namen.
      *
      * Zwei Abfragen je Prozess (alle Einstellungszeilen, dann die Namen zu den
      * IDs). Der Chat darf daran NICHT kippen: fehlt das Integrations-Paket
@@ -211,7 +240,7 @@ final class EinmalcodeVorlagen
                 if (!is_array($settings)) {
                     continue;
                 }
-                foreach (PortalVorlagen::CODE_SCHLUESSEL as $schluessel) {
+                foreach (self::GEHEIM_SCHLUESSEL as $schluessel) {
                     $id = $settings[$schluessel] ?? null;
                     if (is_numeric($id) && (int) $id > 0) {
                         $ids[(int) $id] = true;

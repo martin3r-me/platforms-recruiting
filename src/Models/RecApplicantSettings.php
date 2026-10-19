@@ -138,6 +138,9 @@ class RecApplicantSettings extends Model
         'konto_code_notfall_wa_template_id' => null,
         'konto_hinweis_alte_nummer_wa_template_id' => null,
         'aufgaben_neu_wa_template_id' => null,
+        // Einladung zum Konto (EinladungSender): leer = HR gibt Link + Code
+        // von Hand weiter, wie vor dem 19.10.2026.
+        'konto_einladung_wa_template_id' => null,
         // aufgaben_erinnerung_wa_template_id entfallen (Markus 12.10.2026: keine
         // Erinnerung vor dem Einsatz, HR-Erinnerung nutzt aufgaben_neu). Ein
         // gespeicherter Altwert bleibt in der DB stehen und wird nicht gelesen.

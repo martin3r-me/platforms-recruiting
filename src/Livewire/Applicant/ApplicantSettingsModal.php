@@ -402,6 +402,11 @@ class ApplicantSettingsModal extends Component
             PortalVorlagen::CODE_NOTFALL        => $code . ' Geht nur raus, wenn der Notfall-Weg freigeschaltet ist.',
             PortalVorlagen::HINWEIS_ALTE_NUMMER => 'Ohne Platzhalter oder nur mit Vorname. Nennt die neue Nummer bewusst nicht.',
             PortalVorlagen::AUFGABEN_NEU        => '&#123;&#123;anzahl&#125;&#125;, optional Vorname, und ein URL-Knopf, dessen Variable am Ende steht.',
+            // Anforderungen aus EinladungSender: nur Vorname oder kein
+            // Platzhalter, genau ein URL-Knopf auf die Konto-Anlage.
+            PortalVorlagen::EINLADUNG           => 'Geht raus bei „Einladung neu“ und „Konto zurücksetzen“ im Konto-Kasten und bei recruiting:konto-einladen --senden (z. B. ma_portal_einladung, UTILITY). '
+                . 'Optional Vorname, sonst kein Platzhalter. Genau ein URL-Knopf mit Variable auf …/recruiting/konto/anlegen/&#123;&#123;1&#125;&#125; (die Variable ist der 8-stellige Einladungscode). '
+                . 'Leer gelassen zeigt HR Link und Code wie bisher nur an.',
             // Anforderungen aus ProofReminderSender::send(): nur diese Platzhalter
             // sind befuellbar, und buildTokenComponents verlangt genau einen
             // dynamischen URL-Knopf. Seit Markus 12.10.2026 gebuendelt: eine
@@ -418,7 +423,7 @@ class ApplicantSettingsModal extends Component
         $kopf = ' Keine Kopfzeile mit Variable oder Bild.';
         $mitKopfHinweis = [
             PortalVorlagen::CODE_PASSWORT, PortalVorlagen::CODE_NUMMERNWECHSEL, PortalVorlagen::CODE_NOTFALL,
-            PortalVorlagen::HINWEIS_ALTE_NUMMER, PortalVorlagen::AUFGABEN_NEU,
+            PortalVorlagen::HINWEIS_ALTE_NUMMER, PortalVorlagen::AUFGABEN_NEU, PortalVorlagen::EINLADUNG,
         ];
 
         $felder = [];

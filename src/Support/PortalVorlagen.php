@@ -16,6 +16,12 @@ final class PortalVorlagen
     public const CODE_NOTFALL           = 'konto_code_notfall_wa_template_id';
     public const HINWEIS_ALTE_NUMMER    = 'konto_hinweis_alte_nummer_wa_template_id';
     public const AUFGABEN_NEU           = 'aufgaben_neu_wa_template_id';
+    /**
+     * Einladung zum Konto (EinladungSender, Sebastian 19.10.2026): HR kann den
+     * Link ausserhalb des 24-h-Fensters nicht frei schicken, also per Vorlage.
+     * Leer = wie bisher nur anzeigen, HR gibt von Hand weiter.
+     */
+    public const EINLADUNG              = 'konto_einladung_wa_template_id';
     public const EINSATZ_PRUEFUNG_AKTIV = 'einsatz_pruefung_aktiv';
     /** HR-Faelle der Einsatz-Pruefung nur fuer die Pilotgruppe (PilotKreis), Vorgabe an. */
     public const EINSATZ_PRUEFUNG_NUR_PILOT = 'einsatz_pruefung_nur_pilot';
@@ -46,6 +52,7 @@ final class PortalVorlagen
         'konto_code_notfall_wa_template_id'        => 'Code: Notfall-Weg',
         'konto_hinweis_alte_nummer_wa_template_id' => 'Hinweis an die alte Nummer',
         'aufgaben_neu_wa_template_id'              => 'Offene Aufgaben — neu',
+        'konto_einladung_wa_template_id'           => 'Einladung zum Konto',
         'proof_reminder_wa_template_id'            => 'Nachweis läuft ab (Fristenlauf)',
         'document_wa_template_id'                  => 'Dokument liegt im Portal',
         'employee_contract_wa_template_id'         => 'Vertrag zur Unterschrift',
@@ -77,6 +84,48 @@ final class PortalVorlagen
         }
 
         return $namen;
+    }
+
+    /**
+     * Der Pfad, auf den der Einladungs-Knopf zeigen muss — Route
+     * recruiting.public.konto-anlegen (/recruiting/konto/anlegen/{token}).
+     * Ohne Host: der steht bei Meta und ist je Umgebung ein anderer.
+     */
+    public const EINLADUNG_PFAD = '/konto/anlegen/{{';
+
+    /**
+     * Positionen der dynamischen URL-Knoepfe, die auf die Konto-Anlage zeigen
+     * (gezaehlt wie WhatsAppTemplateUrlButtons::dynamicIndexes, ueber ALLE
+     * Knoepfe). Zwei Nutzer: EinladungSender prueft, dass der eine
+     * dynamische Knopf wirklich dorthin fuehrt (sonst landete der Code z. B.
+     * im Dokumente-Link und der Knopf liefe ins Leere), und die
+     * Chat-Schwaerzung (EinmalcodeVorlagen) erkennt daran eine
+     * Einladungs-Nachricht auch ohne Einstellung.
+     *
+     * @param  array<int, mixed>  $components
+     * @return list<int>
+     */
+    public static function einladungsKnopfPositionen(array $components): array
+    {
+        $positionen = [];
+        $position = 0;
+
+        foreach ($components as $teil) {
+            if (!is_array($teil) || strtoupper((string) ($teil['type'] ?? '')) !== 'BUTTONS' || !is_array($teil['buttons'] ?? null)) {
+                continue;
+            }
+            foreach ($teil['buttons'] as $knopf) {
+                if (is_array($knopf)
+                    && strtoupper((string) ($knopf['type'] ?? '')) === 'URL'
+                    && str_contains((string) ($knopf['url'] ?? ''), self::EINLADUNG_PFAD)
+                ) {
+                    $positionen[] = $position;
+                }
+                $position++;
+            }
+        }
+
+        return $positionen;
     }
 
     /** Meldung, wenn eine Vorlage eine Kopfzeile mit Variable oder Medium hat — die befuellen wir nicht. */
