@@ -153,4 +153,41 @@ final class PersonalisierungAnstellungTest extends TestCase
         $this->assertSame('<p>Max Düsseldorf</p>', $t->personalizeFuerAnstellung($ma, $v),
             'CRM-Kontakt gewinnt (Max statt Mia); Adresse fehlt dort → Anstellung');
     }
+
+    /**
+     * lohn.eg1 (19.10.2026): MA-Grundlohn zum Vertragsbeginn, nicht der
+     * RG-Mindestlohn aus settings.minimum_wage_hourly. Probe: Beginn ignorieren
+     * → 15,33 statt 15,87 im zweiten Fall, rot.
+     */
+    public function test_quelle_lohn_eg1_folgt_dem_vertragsbeginn(): void
+    {
+        $ma = $this->anstellung();
+        $t = $this->vorlage('AV-MA-EG1', 'MA', ['content' => '<p>{{stundenlohn}}</p>', 'field_mappings' => ['stundenlohn' => 'lohn.eg1']]);
+
+        $v = $this->vertragAn($ma, $t, ['status' => 'pending', 'sent_at' => null], ['vertragsbeginn' => '2026-10-20']);
+        $this->assertSame('<p>15,33</p>', $t->personalizeFuerAnstellung($ma, $v));
+
+        $v2 = $this->vertragAn($ma, $t, ['status' => 'pending', 'sent_at' => null], ['vertragsbeginn' => '2027-04-01']);
+        $this->assertSame('<p>15,87</p>', $t->personalizeFuerAnstellung($ma, $v2), 'neue Tarifstufe ab 01.04.2027');
+    }
+
+    public function test_quelle_lohn_eg1_ohne_vertrag_oder_beginn_gilt_heute(): void
+    {
+        $b = $this->bewerberMitKontakt('Max', 'Muster', 1.5);
+        $t = $this->vorlage('AV-MA-EG1', 'MA', ['content' => '<p>{{stundenlohn}}</p>', 'field_mappings' => ['stundenlohn' => 'lohn.eg1']]);
+
+        // Harness-Heute 09.10.2026 → Stufe ab 01.09.2026.
+        $this->assertSame('<p>15,33</p>', $t->personalizeContent($b, null));
+
+        // „heute" ist wirklich heute, keine feste Stufe.
+        \Illuminate\Support\Carbon::setTestNow('2027-05-01 10:00:00');
+        try {
+            $this->assertSame('<p>15,87</p>', $t->personalizeContent($b, null));
+            $ma = $this->anstellung();
+            $ohneBeginn = $this->vertragAn($ma, $t, ['status' => 'pending', 'sent_at' => null]);
+            $this->assertSame('<p>15,87</p>', $t->personalizeFuerAnstellung($ma, $ohneBeginn), 'Vertrag ohne Beginn → heute');
+        } finally {
+            \Illuminate\Support\Carbon::setTestNow('2026-10-09 10:00:00');
+        }
+    }
 }

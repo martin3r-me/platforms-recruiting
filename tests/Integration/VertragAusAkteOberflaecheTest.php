@@ -323,6 +323,97 @@ final class VertragAusAkteOberflaecheTest extends TestCase
         $this->assertSame('AV-060', $zeile['code']);
     }
 
+    // ---- Zuschlag-Vorbelegung aus der Lohnlogik (Spec Lohn MA §16, Nachtrag C)
+
+    /** MA mit aktiver RG-Schwester derselben Person; RG-Zuschlag von HR eingetragen. */
+    private function maMitRgSchwester(?string $steuerklasseMa, ?string $steuerklasseRg, float $rgZuschlag = 2.00): RecEmployee
+    {
+        \Platform\Recruiting\Services\LohnMaErmittlung::vergessen();
+        $rg = $this->anstellung(['company' => 'RG', 'personnel_number' => 'RG4711', 'tax_class' => $steuerklasseRg, 'zuschlag_manuell' => $rgZuschlag]);
+        $ma = $this->anstellung(['personnel_number' => 'MA4711', 'tax_class' => $steuerklasseMa]);
+        $this->personVerbinden($rg, $ma);
+
+        return $ma->fresh();
+    }
+
+    public function test_ma_akte_mit_rg_schwester_bekommt_den_berechneten_zuschlag(): void
+    {
+        $this->maVorlage();
+        $ma = $this->maMitRgSchwester('6', '1');
+        $akte = $this->akte($ma);
+
+        // Stichtag = Vorbelegung 01.10.2026 → EG 1 15,33. RG 13,90 + 2,00 = 15,90
+        // → Angleich 0,57, Klasse 6 bei RG 1 → +1,00 = 1,57.
+        $akte->openVertragModal('2026-10-20');
+        $this->assertSame('1,57', $akte->vertragZuschlag);
+        $this->assertNull($akte->vertragZuschlagHinweis);
+
+        // Stichtag folgt der Vorbelegung, nicht heute: ab 01.04.2027 EG 1 15,87 → 0,03 + 1,00.
+        $akte->openVertragModal('2027-04-15');
+        $this->assertSame('1,03', $akte->vertragZuschlag);
+
+        // HR kann ueberschreiben — die Eingabe gewinnt beim Erstellen.
+        $akte->openVertragModal('2026-10-20');
+        $akte->vertragZuschlag = '0,90';
+        $akte->vertragErstellen();
+        $this->assertNull($akte->flashError);
+        $vertrag = RecContract::query()->where('rec_employee_id', $ma->id)->latest('id')->first();
+        $this->assertSame('0,90', \Platform\Recruiting\Support\ZuschlagWert::format(\Platform\Recruiting\Support\ZuschlagWert::lesen($vertrag->getExtraField('zuschlag'))));
+    }
+
+    public function test_ma_akte_ohne_steuerklasse_bleibt_leer_mit_hinweis(): void
+    {
+        $this->maVorlage();
+        $akte = $this->akte($this->maMitRgSchwester(null, '1'));
+
+        $akte->openVertragModal('2026-10-20');
+
+        $this->assertSame('', $akte->vertragZuschlag);
+        $this->assertStringStartsWith('Zuschlag nicht berechenbar: ', (string) $akte->vertragZuschlagHinweis);
+        $this->assertStringContainsString('Steuerklasse fehlt (MA)', (string) $akte->vertragZuschlagHinweis);
+        $this->assertStringEndsWith(' — bitte eintragen', (string) $akte->vertragZuschlagHinweis);
+
+        $html = $this->renderPartial('_vertrag-erstellen', [
+            'vertragVorlagen' => $akte->vertragsVorlagen(), 'vertragFirma' => 'MA', 'fehler' => null,
+            'zuschlagHinweis' => $akte->vertragZuschlagHinweis,
+        ]);
+        $this->assertStringContainsString(e($akte->vertragZuschlagHinweis), $html);
+
+        $akte->closeVertragModal();
+        $this->assertNull($akte->vertragZuschlagHinweis, 'Hinweis gehoert zum Fenster');
+    }
+
+    public function test_ma_akte_ohne_personen_zuordnung_bleibt_leer_mit_hinweis(): void
+    {
+        $this->maVorlage();
+        $akte = $this->akte($this->anstellung(['tax_class' => '1']));
+
+        $akte->openVertragModal('2026-10-20');
+
+        $this->assertSame('', $akte->vertragZuschlag);
+        $this->assertStringContainsString('keine Personen-Zuordnung', (string) $akte->vertragZuschlagHinweis);
+    }
+
+    public function test_rg_akte_bleibt_leer_ohne_hinweis(): void
+    {
+        $this->vorlage('AV-RG-LOG', 'RG');
+        $rg = $this->anstellung(['company' => 'RG', 'personnel_number' => 'RG4711', 'tax_class' => '1', 'zuschlag_manuell' => 2.00]);
+        $akte = $this->akte($rg);
+
+        $akte->openVertragModal('2026-10-20');
+
+        $this->assertSame('', $akte->vertragZuschlag);
+        $this->assertNull($akte->vertragZuschlagHinweis);
+        $html = $this->renderPartial('_vertrag-erstellen', ['vertragVorlagen' => $akte->vertragsVorlagen(), 'vertragFirma' => 'RG', 'fehler' => null]);
+        $this->assertStringNotContainsString('nicht berechenbar', $html, 'ohne Hinweis-Variable rendert das Fenster wie bisher');
+    }
+
+    public function test_akte_reicht_den_hinweis_ans_fenster_durch(): void
+    {
+        $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/show.blade.php');
+        $this->assertStringContainsString("'zuschlagHinweis' => \$vertragZuschlagHinweis", $quelle);
+    }
+
     private function renderPartial(string $name, array $daten): string
     {
         $cache = sys_get_temp_dir() . '/vertrag-akte-render-' . getmypid() . '-' . uniqid();

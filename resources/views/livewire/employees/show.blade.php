@@ -853,7 +853,7 @@
                     $vertragFirma = trim((string) ($employee?->company ?? ''));
                 @endphp
                 @if($vertragModalShow)
-                    @include('recruiting::livewire.employees._vertrag-erstellen', ['vertragVorlagen' => $vertragVorlagen, 'vertragFirma' => $vertragFirma, 'fehler' => $flashError])
+                    @include('recruiting::livewire.employees._vertrag-erstellen', ['vertragVorlagen' => $vertragVorlagen, 'vertragFirma' => $vertragFirma, 'fehler' => $flashError, 'zuschlagHinweis' => $vertragZuschlagHinweis])
                 @endif
                 <x-slot name="footer">
                     <div class="flex items-center justify-end gap-2">

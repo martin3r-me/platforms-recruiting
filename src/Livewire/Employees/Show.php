@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Employees;
 
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -30,6 +31,7 @@ use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\EntgeltgruppeEins;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
+use Platform\Recruiting\Support\LohnMa;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\VertragsAnzeige;
 use Platform\Recruiting\Support\VertragsDeckung;
@@ -89,6 +91,13 @@ class Show extends Component
     public ?string $vertragBeginn = '';
     public ?string $vertragEnde = '';
     public ?string $vertragZuschlag = '';
+    /**
+     * Hinweis im Fenster, wenn die Lohnlogik den MA-Zuschlag nicht berechnen
+     * kann (unbekannt / Steuerklasse fehlt). Nur Anzeige; Locked, weil er
+     * allein vom Server kommt.
+     */
+    #[Locked]
+    public ?string $vertragZuschlagHinweis = null;
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -798,8 +807,34 @@ class Show extends Component
         $this->vertragVorlageId = count($vorlagen) === 1 ? (string) $vorlagen[0]['id'] : '';
         $this->vertragBeginn = $vorbelegung['beginn'] ?? '';
         $this->vertragEnde = $vorbelegung['ende'] ?? '';
-        $this->vertragZuschlag = '';
+        [$this->vertragZuschlag, $this->vertragZuschlagHinweis] = $this->zuschlagVorbelegung($emp, $vorbelegung['beginn'] ?? null);
         $this->vertragModalShow = true;
+    }
+
+    /**
+     * Zuschlag-Vorbelegung (Spec Lohn MA §16, Nachtrag C): bei einer MA-Akte
+     * derselbe Wert, den der ZAS-Export rechnet (LohnMaErmittlung, Stichtag
+     * = Vertragsbeginn der Vorbelegung, sonst heute) — sonst tippt HR einen
+     * Betrag, der vom exportierten Lohn abweicht. Unbekannt oder
+     * Steuerklasse fehlt: leer lassen und sagen warum; geraten wird nicht.
+     * RG-Akten bleiben leer wie bisher. HR kann jeden Wert ueberschreiben.
+     *
+     * @return array{0: string, 1: ?string}
+     */
+    private function zuschlagVorbelegung(RecEmployee $emp, ?string $stichtag): array
+    {
+        if (!LohnMaErmittlung::istMa($emp->company)) {
+            return ['', null];
+        }
+
+        $ermittlung = new LohnMaErmittlung();
+        $lohn = $ermittlung->ermittelnMitSchwester($emp, $ermittlung->rgSchwester($emp), $stichtag);
+
+        if ($lohn->zuschlag === null || in_array($lohn->fall, [LohnMa::UNBEKANNT, LohnMa::STEUERKLASSE_FEHLT], true)) {
+            return ['', 'Zuschlag nicht berechenbar: ' . $lohn->begruendung . ' — bitte eintragen'];
+        }
+
+        return [ZuschlagWert::format($lohn->zuschlag), null];
     }
 
     public function closeVertragModal(): void
@@ -811,6 +846,7 @@ class Show extends Component
         $this->vertragBeginn = '';
         $this->vertragEnde = '';
         $this->vertragZuschlag = '';
+        $this->vertragZuschlagHinweis = null;
     }
 
     /** "Erstellen und senden" — die Arbeit macht VertragAusAkte, hier nur Eingabe und Rueckmeldung. */

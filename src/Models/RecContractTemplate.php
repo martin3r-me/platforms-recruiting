@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 use Platform\Recruiting\Support\AnstellungsZuordnung;
+use Platform\Recruiting\Support\EntgeltgruppeEins;
+use Platform\Recruiting\Support\VertragsDeckung;
 use Platform\Recruiting\Support\ZuschlagWert;
 use Symfony\Component\Uid\UuidV7;
 
@@ -474,6 +476,18 @@ class RecContractTemplate extends Model
         if (str_starts_with($source, 'contract.extra_field.') && $contract) {
             $efName = substr($source, strlen('contract.extra_field.'));
             return (string) ($contract->getExtraField($efName) ?? '');
+        }
+
+        // lohn.eg1: der MA-Grundlohn (Entgeltgruppe 1, datiert) zum
+        // Vertragsbeginn. MA-Vorlagen duerfen NICHT settings.minimum_wage_hourly
+        // nutzen — das ist der RG-Mindestlohn. Ein fest getippter Betrag waere
+        // ab der naechsten Tarifstufe (01.04.2027) still falsch; hier wandert
+        // er mit dem Beginn des Vertrags. Ohne Vertrag/Beginn: heute.
+        if ($source === 'lohn.eg1') {
+            $beginn = VertragsDeckung::datum($contract?->getExtraField('vertragsbeginn'))
+                ?? Carbon::now()->toDateString();
+
+            return number_format(EntgeltgruppeEins::satz($beginn), 2, ',', '.');
         }
 
         if (str_starts_with($source, 'settings.')) {

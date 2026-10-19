@@ -1,4 +1,4 @@
-{{-- Rumpf des Fensters "Vertrag erstellen" (Spec 2026-10-09 §2.1). Ohne $this: erwartet $vertragVorlagen, $vertragFirma, $fehler. --}}
+{{-- Rumpf des Fensters "Vertrag erstellen" (Spec 2026-10-09 §2.1). Ohne $this: erwartet $vertragVorlagen, $vertragFirma, $fehler; optional $zuschlagHinweis. --}}
 <div class="p-4 space-y-4">
     @include('recruiting::livewire.employees._modal-fehler', ['fehler' => $fehler])
     @if(empty($vertragVorlagen))
@@ -33,6 +33,9 @@
             <input type="text" wire:model="vertragZuschlag" placeholder="0,60"
                    class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
             <p class="text-xs text-[var(--ui-muted)] mt-1">0 ist erlaubt.</p>
+            @if(!empty($zuschlagHinweis))
+                <p class="text-xs text-amber-700 dark:text-amber-400 mt-1">{{ $zuschlagHinweis }}</p>
+            @endif
         </div>
     @endif
 </div>
