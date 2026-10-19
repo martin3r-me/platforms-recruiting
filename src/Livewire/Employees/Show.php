@@ -18,6 +18,7 @@ use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Services\LohnMaErmittlung;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ReissueContractService;
@@ -27,6 +28,7 @@ use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\EntgeltgruppeEins;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\VertragsAnzeige;
@@ -1039,6 +1041,63 @@ class Show extends Component
     }
 
     /**
+     * Feld "RG-Zuschlag" nur an einer RG-Akte ohne Bewerbung UND ohne brauchbaren
+     * ZAS-Wert (Spec Lohn MA §5): mit Bewerbung gewinnt die Bewerbung, mit
+     * ZAS-Wert gewinnt ZAS — die Handeingabe waere dort tot und irrefuehrend.
+     * Brauchbar = zas_grundlohn > 0 und zas_zuschlag gesetzt (0 heisst "nicht gepflegt").
+     */
+    public static function zeigtZuschlagManuell(RecEmployee $emp, ?LohnMaErmittlung $e = null): bool
+    {
+        if (LohnMaErmittlung::istMa($emp->company) || $emp->rec_applicant_id !== null) {
+            return false;
+        }
+        $e ??= new LohnMaErmittlung();
+        $rg = $e->rgZeile((int) $emp->id);
+        $zasBrauchbar = $rg !== null && (float) ($rg->zas_grundlohn ?? 0) > 0 && $rg->zas_zuschlag !== null;
+
+        return !$zasBrauchbar;
+    }
+
+    /** @return float|null|'ungueltig' null = Feld leeren */
+    public static function zuschlagManuellAusEingabe(string $roh): float|string|null
+    {
+        $roh = trim($roh);
+        if ($roh === '') {
+            return null;
+        }
+        $z = ZuschlagWert::ausEingabe($roh);
+
+        return $z === null ? 'ungueltig' : $z;
+    }
+
+    /** @return array{fall:string, grundlohn:string, zuschlag:?string, begruendung:string, eg1_ab:string, rg_employee_id:?int}|null */
+    public static function lohnBlock(RecEmployee $emp, ?LohnMaErmittlung $e = null): ?array
+    {
+        if (!LohnMaErmittlung::istMa($emp->company)) {
+            return null;
+        }
+        $e ??= new LohnMaErmittlung();
+        $heute = now()->toDateString();
+        $l = $e->ermitteln($emp, $heute);
+        $rg = $e->rgSchwester($emp);
+
+        return [
+            'fall' => $l->fall, 'grundlohn' => $l->grundlohnText(), 'zuschlag' => $l->zuschlagText(),
+            'begruendung' => $l->begruendung,
+            'eg1_ab' => \Carbon\Carbon::parse(EntgeltgruppeEins::gueltigAb($heute))->format('d.m.Y'),
+            'rg_employee_id' => $rg !== null ? (int) $rg->id : null,
+        ];
+    }
+
+    #[Computed]
+    public function lohnMa(): ?array
+    {
+        $emp = $this->employee();
+
+        return $emp === null ? null : self::lohnBlock($emp);
+    }
+
+    /**
      * Field-Definition aller editierbaren MA-Felder im HR-Backend.
      * Erweitert die MA-Portal-Sicht um Identity- + Lifecycle- +
      * Legal-Status-Felder die im Portal verboten sind.
@@ -1067,6 +1126,19 @@ class Show extends Component
             $legalStatusFields['fiktionsbescheinigung_back_file_id']  = ['type' => 'file', 'label' => 'Fiktionsbescheinigung Rueckseite'];
             $legalStatusFields['residence_permit_valid_until']   = ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'];
             $legalStatusFields['work_permit_valid_until']        = ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'];
+        }
+
+        $zasAbrechnung = [
+            'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
+            // Steckt normalerweise im Praefix der Personalnummer und wird
+            // beim Import daraus gesetzt. Aenderbar bleibt es fuer eigene
+            // Neuanlagen, die noch keine Nummer von ZAS haben.
+            'company'          => ['type' => 'inline_select', 'label' => 'Firma', 'options' => ['RG', 'MA']],
+            'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
+        ];
+        // Feld nur an RG-Akten ohne Bewerbung und ohne brauchbaren ZAS-Wert (Spec Lohn MA §5).
+        if ($emp !== null && self::zeigtZuschlagManuell($emp)) {
+            $zasAbrechnung['zuschlag_manuell'] = ['type' => 'text', 'label' => 'RG-Zuschlag (fehlt bei ZAS, €/h, z. B. 1,10)'];
         }
 
         return [
@@ -1154,14 +1226,7 @@ class Show extends Component
             ],
             // Liegen auf rec_employees (nicht hr_data), werden aber als HR-only
             // gerendert (gelb) — speisen Lohn-/ZAS-Export. MA-Portal sieht sie NIE.
-            'ZAS / Abrechnung (HR-only)' => [
-                'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
-                // Steckt normalerweise im Praefix der Personalnummer und wird
-                // beim Import daraus gesetzt. Aenderbar bleibt es fuer eigene
-                // Neuanlagen, die noch keine Nummer von ZAS haben.
-                'company'          => ['type' => 'inline_select', 'label' => 'Firma', 'options' => ['RG', 'MA']],
-                'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
-            ],
+            'ZAS / Abrechnung (HR-only)' => $zasAbrechnung,
             // Seit 2026-09-01 pflegt der MA diese drei Felder selbst im Portal
             // (RecEmployee::editableFieldGroups), deshalb ohne "(HR-only)" —
             // die gelbe Markierung im Blade haengt an genau diesem Substring
@@ -1238,8 +1303,8 @@ class Show extends Component
             // eigener Grundlohn bleibt davon unberuehrt; 0 heisst "bei ZAS
             // nicht gepflegt", nicht "0 Euro".
             'Lohn laut ZAS (HR-only)' => [
-                'zas_grundlohn' => ['type' => 'text', 'label' => 'Grundlohn laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
-                'zas_zuschlag'  => ['type' => 'text', 'label' => 'Zuschlag laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
+                'zas_grundlohn' => ['type' => 'text', 'label' => 'Grundlohn laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true, 'format' => 'euro'],
+                'zas_zuschlag'  => ['type' => 'text', 'label' => 'Zuschlag laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true, 'format' => 'euro'],
             ],
             'Ausstattung' => [
                 'linen_package_items' => ['type' => 'multi_lookup', 'label' => 'Waeschepaket erhalten', 'lookup' => 'waeschepaket'],
@@ -1352,6 +1417,19 @@ class Show extends Component
         }
         $this->flashError = null;
 
+        // RG-Zuschlag von HR: Text auf einer Zahlenspalte — pruefen, sonst
+        // SQLSTATE-Abbruch bei "ca. 1" (Spec Lohn MA §5).
+        $zuschlagManuell = null;
+        $zuschlagGesetzt = array_key_exists('zuschlag_manuell', $this->fieldValues) && array_key_exists('zuschlag_manuell', $this->fieldsFlat());
+        if ($zuschlagGesetzt) {
+            $zuschlagManuell = self::zuschlagManuellAusEingabe((string) $this->fieldValues['zuschlag_manuell']);
+            if ($zuschlagManuell === 'ungueltig') {
+                $this->flashError = 'RG-Zuschlag: bitte einen Betrag wie 1,10 eintragen.';
+                $this->flash = null;
+                return;
+            }
+        }
+
         // rec_employees Updates
         $allowed = $this->fieldsFlat();
         $updates = [];
@@ -1380,6 +1458,8 @@ class Show extends Component
                 };
             } elseif ($type === 'position') {
                 $updates[$field] = is_numeric($value) && (int) $value > 0 ? (int) $value : null;
+            } elseif ($field === 'zuschlag_manuell') {
+                $updates[$field] = $zuschlagManuell;
             } else {
                 $updates[$field] = ($value === '' || $value === null) ? null : $value;
             }

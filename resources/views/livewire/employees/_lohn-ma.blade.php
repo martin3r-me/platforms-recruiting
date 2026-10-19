@@ -1,0 +1,28 @@
+{{-- Lohn an ZAS (Spec Lohn MA 2026-10-19 §11) — nur MA-Akten, nur lesen. Vertrag: $lohn (Array|null). --}}
+@if ($lohn !== null)
+    @php
+        $zuschlagText = $lohn['zuschlag'] ?? null;
+        $istUnbekannt = $lohn['fall'] === 'unbekannt';
+        $rgLink = $lohn['rg_employee_id'] !== null ? route('recruiting.employees.show', ['employee' => $lohn['rg_employee_id']]) : null;
+    @endphp
+    <div id="lohn-zas" class="mt-4 rounded-lg border border-[var(--ui-border)] bg-white p-4">
+        <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">Lohn an ZAS</h3>
+            <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-700">EG 1 gilt seit {{ $lohn['eg1_ab'] }}</span>
+        </div>
+        <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+            <dt class="text-[var(--ui-muted)]">Grundlohn</dt>
+            <dd class="font-semibold text-gray-900">{{ $lohn['grundlohn'] }} €</dd>
+            <dt class="text-[var(--ui-muted)]">Zuschlag</dt>
+            @if ($zuschlagText === null)
+                <dd class="font-semibold text-red-700">leer</dd>
+            @else
+                <dd class="font-semibold text-gray-900">{{ $zuschlagText }} €</dd>
+            @endif
+        </dl>
+        <p class="mt-2 text-xs text-[var(--ui-muted)]">{{ $lohn['begruendung'] }}</p>
+        @if ($istUnbekannt && $rgLink !== null)
+            <a href="{{ $rgLink }}" class="mt-2 inline-block text-xs font-medium text-blue-700 hover:underline">RG-Zuschlag in der RG-Akte eintragen →</a>
+        @endif
+    </div>
+@endif

@@ -230,6 +230,9 @@
                 <livewire:recruiting.employees.konto-kasten :employee-id="$employee->id" :key="'konto-kasten-' . $employee->id" />
             </div>
 
+            {{-- Lohn an ZAS (nur MA-Akten) --}}
+            @include('recruiting::livewire.employees._lohn-ma', ['lohn' => $this->lohnMa])
+
             {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">
                 @foreach($this->fieldGroups() as $section => $fields)
@@ -363,6 +366,10 @@
                                 $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
                                 // Date-Casts wuerden als "2026-08-19 00:00:00" gerendert.
                                 $displayValue = $hrValue instanceof \DateTimeInterface ? $hrValue->format('d.m.Y') : $hrValue;
+                                // Betragsfelder (ZAS-Lohn) mit Komma wie ueberall im Modul; 0 bleibt eine Aussage.
+                                if (($meta['format'] ?? null) === 'euro' && is_numeric($displayValue)) {
+                                    $displayValue = number_format((float) $displayValue, 2, ',', '.') . ' €/Std';
+                                }
                             @endphp
                             <div>
                                 <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">{{ $label }}</label>
