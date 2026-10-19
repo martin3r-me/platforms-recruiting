@@ -235,18 +235,6 @@
                         </label>
                     </div>
 
-                    {{-- Mindestlohn --}}
-                    <x-ui-input-text
-                        name="settings.minimum_wage_hourly"
-                        label="Gesetzlicher Mindestlohn (€/h)"
-                        wire:model="settings.minimum_wage_hourly"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="13.90"
-                        hint="Wird in Verträgen als Stundenlohn-Platzhalter eingesetzt. Bei Gesetzesänderung hier anpassen."
-                    />
-
                     {{-- Mitarbeiterkonto & Erinnerungen (Spec HR-Bereich 2026-10-12 §6/§7.2).
                          Rohe Checkbox wie die Nachbarn (kein x-ui-input-checkbox, KEIN Select:
                          Select-Speicherfehler). Zahlen als x-ui-input-text type=number wie der Mindestlohn. --}}
@@ -935,6 +923,55 @@
                     <em>Lohnrelevante Aenderungen</em> gesammelt und koennen als CSV an die Lohnbuchhaltung
                     uebergeben werden. Initiale Befuellung (leer → Wert) wird nicht getrackt.
                 </p>
+
+                {{-- Lohn (Sebastian 19.10.2026): Mindestlohn RG editierbar, EG 1 nur lesend —
+                     der Tarif hat datierte Stufen und steht im Code (EntgeltgruppeEins),
+                     ein frei editierbarer Wert ohne Datum stuende im April 2027 falsch da. --}}
+                <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 space-y-4">
+                    <div class="text-sm font-medium text-[var(--ui-secondary)]">Lohn</div>
+
+                    {{-- Mindestlohn (hier unveraendert aus "Allgemein" verschoben) --}}
+                    <x-ui-input-text
+                        name="settings.minimum_wage_hourly"
+                        label="Gesetzlicher Mindestlohn RG (€/h)"
+                        wire:model="settings.minimum_wage_hourly"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="13.90"
+                        hint="Grundlohn der RG-Verträge und des RG-Exports; fließt in den Angleich-Zuschlag der MA-Zeilen ein. Nach einer Änderung: recruiting:lohn-ma-export --markieren (Olaf vorher ankündigen)."
+                    />
+
+                    @php
+                        $eg1Heute = \Platform\Recruiting\Support\EntgeltgruppeEins::gueltigAb(now()->toDateString());
+                    @endphp
+                    <div>
+                        <div class="text-xs font-semibold text-[var(--ui-secondary)] uppercase tracking-wider mb-2">Entgeltgruppe 1 (Tarif DGB/GVP) — Grundlohn MA, nur lesend</div>
+                        <table class="text-sm">
+                            <thead>
+                                <tr class="text-xs text-[var(--ui-muted)]">
+                                    <th class="pr-6 text-left font-medium">gilt ab</th>
+                                    <th class="text-left font-medium">€/h</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (\Platform\Recruiting\Support\EntgeltgruppeEins::STUFEN as $stufe)
+                                    @php
+                                        $aktiv = $stufe['ab'] === $eg1Heute;
+                                        $zeilenKlasse = $aktiv ? 'font-semibold text-[var(--ui-secondary)]' : 'text-[var(--ui-muted)]';
+                                        $abText = \Carbon\Carbon::parse($stufe['ab'])->format('d.m.Y');
+                                        $satzText = number_format($stufe['satz'], 2, ',', '.');
+                                    @endphp
+                                    <tr class="{{ $zeilenKlasse }}">
+                                        <td class="pr-6 py-0.5">{{ $abText }}</td>
+                                        <td class="py-0.5">{{ $satzText }}{!! $aktiv ? ' <span class="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800">gilt heute</span>' : '' !!}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                        <p class="text-xs text-[var(--ui-muted)] mt-2">Neue Tarifstufe = Code-Änderung (EntgeltgruppeEins) und danach <code>recruiting:lohn-ma-export --markieren</code>.</p>
+                    </div>
+                </div>
 
                 {{-- Schalter „Steuerklasse und Haupt-/Nebenarbeitgeber je Gesellschaft"
                      entfallen: Kundenentscheidung Markus 12.10.2026 (E7/E8) — die Felder
