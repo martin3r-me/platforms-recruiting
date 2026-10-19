@@ -26,8 +26,16 @@ final class LohnMaErmittlung
 
     public function ermitteln(RecEmployee $ma, ?string $datum = null): LohnMa
     {
+        return $this->ermittelnMitSchwester($ma, $this->rgSchwester($ma), $datum);
+    }
+
+    /**
+     * Wie ermitteln(), aber mit bereits gefundener RG-Schwester — Listen
+     * (HR-Lohn-Reiter) sparen sich so die zweite Suche je Zeile.
+     */
+    public function ermittelnMitSchwester(RecEmployee $ma, ?object $rg, ?string $datum = null): LohnMa
+    {
         $tag = $datum ?? now()->toDateString();
-        $rg = $this->rgSchwester($ma);
         $quelle = $rg === null ? ['wert' => null, 'quelle' => null] : $this->rgZuschlag($rg);
 
         return LohnMa::rechne(
@@ -130,11 +138,23 @@ final class LohnMaErmittlung
         return $q->orderBy('id')->pluck('id')->map(fn ($v) => (int) $v)->all();
     }
 
+    /** @var array<int,float> Mindestlohn je Team — je Prozess/Request gemerkt, er gilt fuer jede Zeile gleich. */
+    private static array $mindestlohnCache = [];
+
     public static function mindestlohn(int $teamId): float
     {
+        if (isset(self::$mindestlohnCache[$teamId])) {
+            return self::$mindestlohnCache[$teamId];
+        }
         $wage = RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting('minimum_wage_hourly');
 
-        return $wage !== null ? (float) $wage : 13.90;
+        return self::$mindestlohnCache[$teamId] = $wage !== null ? (float) $wage : 13.90;
+    }
+
+    /** Merker leeren (Tests, lange Queue-Worker nach Einstellungsaenderung). */
+    public static function vergessen(): void
+    {
+        self::$mindestlohnCache = [];
     }
 
     public static function istMa(?string $company): bool

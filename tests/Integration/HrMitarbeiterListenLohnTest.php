@@ -98,4 +98,51 @@ final class HrMitarbeiterListenLohnTest extends TestCase
         $this->assertSame(HrAktionErgebnis::FEHLER, $c->meldungStufe);
         $this->assertNull(DB::table('rec_employees')->where('id', $rg->id)->value('zuschlag_manuell'));
     }
+
+    public function test_array_als_eingabe_ist_ein_fehler_und_schreibt_nichts(): void
+    {
+        $this->authAls($this->team);
+        $this->person([], $rg = $this->akte(['company' => 'RG', 'rec_applicant_id' => null]), $this->akte(['company' => 'MA']));
+        $c = new Mitarbeiter();
+        $c->zuschlagEingabe[$rg->id] = ['a' => 1];
+        $c->speichereZuschlag($rg->id);
+
+        $this->assertSame(HrAktionErgebnis::FEHLER, $c->meldungStufe);
+        $this->assertNull(DB::table('rec_employees')->where('id', $rg->id)->value('zuschlag_manuell'));
+    }
+
+    public function test_ma_id_und_muell_id_sind_nicht_gefunden(): void
+    {
+        $this->authAls($this->team);
+        $ma = $this->akte(['company' => 'MA']);
+        $c = new Mitarbeiter();
+        foreach ([$ma->id, 'abc', null, [1]] as $roh) {
+            $c->meldungStufe = '';
+            $c->zuschlagEingabe[(int) $ma->id] = '1,10';
+            $c->speichereZuschlag($roh);
+            $this->assertSame(HrAktionErgebnis::FEHLER, $c->meldungStufe);
+        }
+        $this->assertNull(DB::table('rec_employees')->where('id', $ma->id)->value('zuschlag_manuell'));
+    }
+
+    public function test_liste_im_cache_und_nach_speichern_sofort_aktuell(): void
+    {
+        $this->authAls($this->team);
+        $this->person([], $rg = $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'last_name' => 'Cache']), $this->akte(['company' => 'MA']));
+        $c = new Mitarbeiter();
+
+        $this->assertSame(1, $c->grundZahlen()['lohn']);
+        $this->assertCount(1, $c->lohn());
+        $c->suche = 'zzz';
+        unset($c->lohn);
+        $this->assertSame([], $c->lohn());
+        $c->suche = '';
+        unset($c->lohn);
+
+        $c->zuschlagEingabe[$rg->id] = '1,10';
+        $c->speichereZuschlag($rg->id);
+
+        $this->assertSame(0, $c->grundZahlen()['lohn']);
+        $this->assertSame([], $c->lohn());
+    }
 }

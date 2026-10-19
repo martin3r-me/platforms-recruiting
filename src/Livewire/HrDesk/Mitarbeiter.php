@@ -60,6 +60,7 @@ class Mitarbeiter extends Component
     /** Cache-Schluessel (+ Team-Id) und Lebensdauer der Zaehler. */
     public const CACHE_ZAHLEN = 'recruiting:hr-mitarbeiter:zahlen:';
     public const CACHE_ABZEICHEN = 'recruiting:hr-mitarbeiter:abzeichen:';
+    public const CACHE_LOHN = 'recruiting:hr-mitarbeiter:lohn:';
     public const ZAEHLER_SEKUNDEN = 60;
 
     #[Url] public string $liste = 'antraege';
@@ -174,7 +175,24 @@ class Mitarbeiter extends Component
     #[Computed]
     public function lohn(): array
     {
-        return $this->listen()->lohn($this->teamId(), $this->suche);
+        $suche = mb_strtolower(trim($this->suche));
+        $alle = $this->lohnUngefiltert();
+
+        return $suche === '' ? $alle : array_values(array_filter($alle, fn (array $z) => str_contains(mb_strtolower($z['name']), $suche)));
+    }
+
+    /**
+     * Die teure Liste (mehrere Abfragen je MA-Zeile) ungefiltert je Team kurz
+     * im Cache; die Namenssuche laeuft danach. speichereZuschlag() und jede
+     * andere Aktion leeren ihn ueber zaehlerVergessen().
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function lohnUngefiltert(): array
+    {
+        $teamId = $this->teamId();
+
+        return Cache::remember(self::CACHE_LOHN . $teamId, self::ZAEHLER_SEKUNDEN, fn () => $this->listen()->lohn($teamId));
     }
 
     #[Computed]
@@ -203,7 +221,7 @@ class Mitarbeiter extends Component
                 'gesperrt' => count($l->gesperrt($teamId, '', false)),
                 'erinnert' => count($l->erinnert($teamId)),
                 'pilot'    => $l->pilot($teamId)['zahlen']['alle'],
-                'lohn'     => count($l->lohn($teamId)),
+                'lohn'     => count($this->lohnUngefiltert()),
             ];
         });
     }
@@ -223,7 +241,10 @@ class Mitarbeiter extends Component
 
             return;
         }
-        $roh = trim((string) ($this->zuschlagEingabe[$id] ?? ''));
+        // Der Wert kommt per $wire.set und kann ein Array sein: nur Skalare zaehlen.
+        $v = $this->zuschlagEingabe[$id] ?? '';
+        // Nicht-Skalar zaehlt als ungueltige Eingabe (nie still als "leeren").
+        $roh = is_scalar($v) ? trim((string) $v) : '?';
         $wert = $roh === '' ? null : ZuschlagWert::ausEingabe($roh);
         if ($roh !== '' && $wert === null) {
             $this->meldung = 'RG-Zuschlag: bitte einen Betrag wie 1,10 eintragen.';
@@ -247,6 +268,7 @@ class Mitarbeiter extends Component
     {
         Cache::forget(self::CACHE_ZAHLEN . $teamId);
         Cache::forget(self::CACHE_ABZEICHEN . $teamId);
+        Cache::forget(self::CACHE_LOHN . $teamId);
     }
 
     /**

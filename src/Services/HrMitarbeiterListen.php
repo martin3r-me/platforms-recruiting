@@ -734,12 +734,9 @@ final class HrMitarbeiterListen
         $maAkten = RecEmployee::query()->where('team_id', $teamId)->where('is_active', 1)
             ->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->orderBy('id')->get();
         foreach ($maAkten as $ma) {
-            $l = $e->ermitteln($ma, $heute);
-            if ($l->fall !== LohnMa::UNBEKANNT) {
-                continue;
-            }
             $rg = $e->rgSchwester($ma);
-            if ($rg === null) {
+            $l = $e->ermittelnMitSchwester($ma, $rg, $heute);
+            if ($l->fall !== LohnMa::UNBEKANNT || $rg === null) {
                 continue;
             }
             $treffer[(int) $ma->id] = ['rg' => (int) $rg->id, 'begruendung' => $l->begruendung];
