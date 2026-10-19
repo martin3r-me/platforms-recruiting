@@ -11,10 +11,13 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\HrKontoAktionen;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\HrMitarbeiterListen;
+use Platform\Recruiting\Services\LohnMaErmittlung;
 use Platform\Recruiting\Support\HrAktionErgebnis;
 use Platform\Recruiting\Support\KontoStatus;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\ZuschlagWert;
 
 /**
  * Reiter "Mitarbeiter" am HR-Schreibtisch (Spec HR-Bereich 2026-10-12 §3).
@@ -34,6 +37,7 @@ class Mitarbeiter extends Component
         'gesperrt' => 'Gesperrt',
         'erinnert' => 'Erinnert, aber keine Reaktion',
         'pilot'    => 'Pilot-Überblick',
+        'lohn'     => 'Lohn: RG-Zuschlag fehlt',
     ];
 
     /** Geschlossene Liste: Aktion => Modal-Titel. */
@@ -61,6 +65,9 @@ class Mitarbeiter extends Component
     #[Url] public string $liste = 'antraege';
     #[Url] public string $pilotFilter = 'alle';
     public string $suche = '';
+
+    /** Eingabefelder der Lohn-Liste, je RG-Akte (Id => Text). */
+    public array $zuschlagEingabe = [];
     public bool $ruhendeZeigen = false;
     public bool $gestoppteZeigen = false;
     public int $seite = 1;
@@ -165,6 +172,12 @@ class Mitarbeiter extends Component
     }
 
     #[Computed]
+    public function lohn(): array
+    {
+        return $this->listen()->lohn($this->teamId(), $this->suche);
+    }
+
+    #[Computed]
     public function pilot(): array
     {
         return $this->listen()->pilot($this->teamId(), $this->suche, $this->pilotFilter);
@@ -176,7 +189,7 @@ class Mitarbeiter extends Component
      * Benutzer des Teams) geleert. Gesperrt hier ohne Drossel: deren
      * Cache-Abfrage nur bei offenem Reiter (Spec §3.2).
      *
-     * @return array{antraege:int, gesperrt:int, erinnert:int, pilot:int}
+     * @return array{antraege:int, gesperrt:int, erinnert:int, pilot:int, lohn:int}
      */
     public function grundZahlen(): array
     {
@@ -190,8 +203,43 @@ class Mitarbeiter extends Component
                 'gesperrt' => count($l->gesperrt($teamId, '', false)),
                 'erinnert' => count($l->erinnert($teamId)),
                 'pilot'    => $l->pilot($teamId)['zahlen']['alle'],
+                'lohn'     => count($l->lohn($teamId)),
             ];
         });
+    }
+
+    /**
+     * RG-Zuschlag aus der Lohn-Liste speichern (Spec Lohn MA §10). Eingabe
+     * kommt aus dem Browser: Id normalisieren, Akte gegen das Team pruefen,
+     * Betrag pruefen — nichts davon darf ein 500 werden.
+     */
+    public function speichereZuschlag(mixed $rgEmployeeId): void
+    {
+        $id = is_numeric($rgEmployeeId) ? (int) $rgEmployeeId : 0;
+        $akte = $id > 0 ? RecEmployee::query()->where('team_id', $this->teamId())->whereKey($id)->first() : null;
+        if ($akte === null || LohnMaErmittlung::istMa($akte->company)) {
+            $this->meldung = HrKontoAktionen::NICHT_GEFUNDEN;
+            $this->meldungStufe = HrAktionErgebnis::FEHLER;
+
+            return;
+        }
+        $roh = trim((string) ($this->zuschlagEingabe[$id] ?? ''));
+        $wert = $roh === '' ? null : ZuschlagWert::ausEingabe($roh);
+        if ($roh !== '' && $wert === null) {
+            $this->meldung = 'RG-Zuschlag: bitte einen Betrag wie 1,10 eintragen.';
+            $this->meldungStufe = HrAktionErgebnis::FEHLER;
+
+            return;
+        }
+        $akte->update(['zuschlag_manuell' => $wert]);   // Observer setzt die Marker (RG + MA)
+        unset($this->zuschlagEingabe[$id]);
+        self::zaehlerVergessen($this->teamId());
+        unset($this->lohn, $this->zahlen);
+        $this->dispatch(self::EVENT_GEAENDERT);
+        $this->meldung = $wert === null
+            ? 'RG-Zuschlag geleert — die MA-Zeile geht wieder ohne Zuschlag an ZAS.'
+            : sprintf('Gespeichert: %s € — RG- und MA-Zeile gehen an ZAS.', ZuschlagWert::format($wert));
+        $this->meldungStufe = HrAktionErgebnis::OK;
     }
 
     /** Leert die zwischengespeicherten Zaehler des Teams (Reiter-Zahlen + Abzeichen). */

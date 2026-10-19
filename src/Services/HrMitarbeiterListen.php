@@ -16,6 +16,7 @@ use Platform\Recruiting\Support\DokumentStatus;
 use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\KontoStatus;
+use Platform\Recruiting\Support\LohnMa;
 use Platform\Recruiting\Support\NummernwechselTafel;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
@@ -49,6 +50,7 @@ final class HrMitarbeiterListen
         private readonly ?PortalAuth $auth = null,
         private readonly ?OffenePunkte $offenePunkte = null,
         private readonly ?\Closure $nachrichtGescheitert = null,
+        private readonly ?LohnMaErmittlung $lohnErmittlung = null,
     ) {
     }
 
@@ -712,6 +714,63 @@ final class HrMitarbeiterListen
 
         return CommsWhatsAppMessage::query()->whereKey($ids)->where('status', 'failed')->pluck('id')
             ->mapWithKeys(fn ($id) => [(int) $id => true])->all();
+    }
+
+    // ---- 3.5 Lohn --------------------------------------------------------
+
+    /**
+     * Eine Zeile je Person, deren aktive MA-Anstellung keinen Zuschlag
+     * bekommen kann, weil der RG-Zuschlag unbekannt ist (Spec Lohn MA §10,
+     * Fall 2). Nur dieser Fall — angleichbar, manuell und "nur MA" sind
+     * erledigt und stehen in der Akte.
+     *
+     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:int, ma_employee_id:int, begruendung:string}>
+     */
+    public function lohn(int $teamId, string $suche = ''): array
+    {
+        $e = $this->lohnErmittlung ?? new LohnMaErmittlung();
+        $heute = now()->toDateString();
+        $treffer = [];
+        $maAkten = RecEmployee::query()->where('team_id', $teamId)->where('is_active', 1)
+            ->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->orderBy('id')->get();
+        foreach ($maAkten as $ma) {
+            $l = $e->ermitteln($ma, $heute);
+            if ($l->fall !== LohnMa::UNBEKANNT) {
+                continue;
+            }
+            $rg = $e->rgSchwester($ma);
+            if ($rg === null) {
+                continue;
+            }
+            $treffer[(int) $ma->id] = ['rg' => (int) $rg->id, 'begruendung' => $l->begruendung];
+        }
+        if ($treffer === []) {
+            return [];
+        }
+        $akten = $this->aktenMitSchwestern($teamId, array_keys($treffer), []);
+        $zeilen = [];
+        foreach (self::menschen($akten) as $m) {
+            $maId = null;
+            foreach ($m['employee_ids'] as $id) {
+                if (isset($treffer[$id])) {
+                    $maId = $id;
+                    break;
+                }
+            }
+            if ($maId === null || !self::passtSuche($m['name'], $suche)) {
+                continue;
+            }
+            $zeilen[] = $m + ['rg_employee_id' => $treffer[$maId]['rg'], 'ma_employee_id' => $maId, 'begruendung' => $treffer[$maId]['begruendung']];
+        }
+
+        return $zeilen;
+    }
+
+    private static function passtSuche(string $name, string $suche): bool
+    {
+        $suche = mb_strtolower(trim($suche));
+
+        return $suche === '' || str_contains(mb_strtolower($name), $suche);
     }
 
     private static function gefiltert(array $zeilen, string $suche): array

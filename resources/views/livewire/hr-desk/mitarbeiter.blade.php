@@ -217,6 +217,39 @@
         @endif
     @endif
 
+    @if ($liste === 'lohn')
+        @php
+            $alle = $this->lohn;
+            $zeilen = $this->seitenZeilen($alle);
+        @endphp
+        <p class="mb-3 text-sm text-[var(--ui-secondary)]">Diese Menschen haben eine MA-Anstellung, aber wir kennen ihren RG-Zuschlag nicht (keine Bewerbung bei uns). Bis er eingetragen ist, geht die MA-Zeile ohne Zuschlag an ZAS.</p>
+        @if ($zeilen === [])
+            <div class="rounded-lg border border-dashed border-[var(--ui-border)]/40 py-12 text-center text-sm text-[var(--ui-muted)]">Alle RG-Zuschläge sind bekannt.</div>
+        @else
+            <div class="divide-y divide-gray-100 rounded-lg border border-[var(--ui-border)] bg-white">
+                @foreach ($zeilen as $z)
+                    @php
+                        $rgId = $z['rg_employee_id'];
+                    @endphp
+                    <div wire:key="lohn-{{ $z['schluessel'] }}" class="flex flex-wrap items-start gap-3 px-4 py-3">
+                        <div class="min-w-[14rem]">
+                            @include('recruiting::livewire.hr-desk.partials.mensch', ['z' => $z])
+                            <div class="mt-0.5 text-xs text-[var(--ui-muted)]">{{ $z['begruendung'] }}</div>
+                        </div>
+                        <div class="flex flex-1 flex-wrap items-center gap-2">
+                            <label class="text-xs text-[var(--ui-muted)]" for="zuschlag-{{ $rgId }}">RG-Zuschlag €/h</label>
+                            <input id="zuschlag-{{ $rgId }}" type="text" inputmode="decimal" placeholder="1,10"
+                                   wire:model="zuschlagEingabe.{{ $rgId }}"
+                                   class="w-24 rounded-md border border-[var(--ui-border)] px-2 py-1 text-sm">
+                            <button type="button" class="{{ $knopf }}" wire:click="speichereZuschlag({{ $rgId }})" wire:loading.attr="disabled" wire:target="speichereZuschlag">Speichern</button>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+            @include('recruiting::livewire.hr-desk.partials.seiten', ['anzahl' => $this->seitenAnzahl($alle)])
+        @endif
+    @endif
+
     {{-- Aktions-Modal: Pflichtnotiz (ausser Erneut erinnern) --}}
     @php
         $titel = \Platform\Recruiting\Livewire\HrDesk\Mitarbeiter::AKTIONEN[$aktion] ?? '';

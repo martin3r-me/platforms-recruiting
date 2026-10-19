@@ -312,7 +312,7 @@ final class HrDeskMitarbeiterTest extends TestCase
         $this->person(['locked_at' => now()], $this->akte());
         $c = new Mitarbeiter();
         $index = new Index();
-        $this->assertSame(['antraege' => 1, 'gesperrt' => 1, 'erinnert' => 0, 'pilot' => $c->grundZahlen()['pilot']], $c->grundZahlen());
+        $this->assertSame(['antraege' => 1, 'gesperrt' => 1, 'erinnert' => 0, 'pilot' => $c->grundZahlen()['pilot'], 'lohn' => 0], $c->grundZahlen());
         $this->assertSame(2, $index->mitarbeiterAbzeichen());
 
         // Neue Sperre: zwischengespeichert, die Zahl bleibt (60 s) stehen ...
