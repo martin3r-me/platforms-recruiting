@@ -1352,6 +1352,22 @@ class Show extends Component
         return $flat;
     }
 
+    /**
+     * Textwert, mit dem ein Feld der Akte vorbelegt wird. Betraege stehen in der
+     * Akte mit Komma (Entscheidung 19.10.2026); die decimal:2-Spalte lieferte "1.10".
+     */
+    public static function feldVorbelegung(string $field, mixed $raw): string
+    {
+        if ($raw === null) {
+            return '';
+        }
+        if ($field === 'zuschlag_manuell') {
+            return ZuschlagWert::format((float) $raw);
+        }
+
+        return (string) $raw;
+    }
+
     private function loadFieldValues(RecEmployee $employee): void
     {
         $values = [];
@@ -1370,7 +1386,7 @@ class Show extends Component
             } elseif (is_bool($raw)) {
                 $raw = $raw ? '1' : '0';
             }
-            $values[$field] = $raw === null ? '' : (string) $raw;
+            $values[$field] = self::feldVorbelegung($field, $raw);
         }
         $this->fieldValues = $values;
 

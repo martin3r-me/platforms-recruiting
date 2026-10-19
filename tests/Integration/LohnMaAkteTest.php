@@ -85,4 +85,18 @@ final class LohnMaAkteTest extends TestCase
         $this->assertStringContainsString("(\$meta['format'] ?? null) === 'euro'", $blade);
         $this->assertStringContainsString("number_format((float) \$displayValue, 2, ',', '.')", $blade);
     }
+
+    public function test_vorbelegung_zuschlag_manuell_mit_komma(): void
+    {
+        $this->assertSame('1,10', Show::feldVorbelegung('zuschlag_manuell', '1.10'));
+        $this->assertSame('0,00', Show::feldVorbelegung('zuschlag_manuell', '0.00'));
+        $this->assertSame('', Show::feldVorbelegung('zuschlag_manuell', null));
+        $this->assertSame('12.5', Show::feldVorbelegung('cost_center', '12.5'));
+
+        // Rundlauf ueber die echte Spalte (decimal:2-Cast) — und die Eingabe liest das Komma wieder.
+        $rg = $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.1]);
+        $text = Show::feldVorbelegung('zuschlag_manuell', $rg->fresh()->getAttribute('zuschlag_manuell'));
+        $this->assertSame('1,10', $text);
+        $this->assertSame(1.10, Show::zuschlagManuellAusEingabe($text));
+    }
 }
