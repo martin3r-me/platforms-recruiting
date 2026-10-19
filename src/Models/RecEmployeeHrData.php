@@ -46,6 +46,9 @@ class RecEmployeeHrData extends Model
         'short_term_days_allowed_year',
         'short_term_days_worked',
         'short_term_days_remaining',
+        // Lohn laut ZAS (19.10.2026) — reine Lesewerte, gehen nie zurueck.
+        'zas_grundlohn',
+        'zas_zuschlag',
     ];
 
     protected $casts = [
@@ -62,6 +65,8 @@ class RecEmployeeHrData extends Model
         'short_term_days_allowed_year' => 'integer',
         'short_term_days_worked'    => 'integer',
         'short_term_days_remaining' => 'integer',
+        'zas_grundlohn'             => 'decimal:2',
+        'zas_zuschlag'              => 'decimal:2',
         'rating_erscheinungsbild' => 'integer',
         'rating_fachkompetenz'    => 'integer',
         'rating_auffassungsgabe'  => 'integer',

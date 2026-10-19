@@ -311,7 +311,11 @@ class ZasInboundEmployeeImporter
      * Felder, die bei einem Treffer ueberhaupt angefasst werden duerfen.
      * Bewusst kurz: alles andere gehoert HR, nicht ZAS.
      */
-    protected const STATUS_SYNC_FIELDS = ['export_status', 'status_ma_since'];
+    // zas_grundlohn/zas_zuschlag (19.10.2026): Lohn laut ZAS gehoert ZAS und
+    // wird deshalb bei JEDEM Treffer uebernommen — mit und ohne Bewerbung,
+    // unabhaengig von isZasOwned und dem Overwrite-Schalter. Kein Echo: das
+    // Schreiben laeuft ueber syncMatchedFields mit Marker-Wiederherstellung.
+    protected const STATUS_SYNC_FIELDS = ['export_status', 'status_ma_since', 'zas_grundlohn', 'zas_zuschlag'];
 
     /**
      * Ermittelt die tatsaechlichen Aenderungen an den Statusfeldern.

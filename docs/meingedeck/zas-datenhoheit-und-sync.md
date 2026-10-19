@@ -168,6 +168,14 @@ Praktische Folgen:
 - Die Bewertungsfelder (Qualifikation, Wäschepaket, Sterne) sind bei allen ZAS-Mitarbeitern
   leer und können es strukturell nur sein: der einzige Schreibpfad ist das Bewertungs-Modal
   am Schulungstermin, und das hängt an einer Buchung, die diese Leute nie hatten.
+- **`Grundlohn`/`Zuschlag` kommen gefüllt** (Abgleich 19.10.2026, neueste Lieferung 57/57
+  Zeilen, RG und MA, auch für ZAS-Bestand ohne Bewerbung) und werden **seit 19.10.2026
+  gelesen**: in `rec_employee_hr_data.zas_grundlohn`/`zas_zuschlag`, bei jedem Treffer,
+  unabhängig von Bewerbung, `isZasOwned` und Überschreib-Schalter. Reine Lesewerte wie das
+  Tagekonto — kein Export-Marker, nie zurück an ZAS, in der HR-Akte schreibgeschützt.
+  Vergleichbar ist nur die Summe: viele Grundlöhne bei ZAS sind veraltet (RG 12,82; MA
+  14,53/14,00 …), der Zuschlag gleicht auf den Gesamtlohn aus. `0` heißt „bei ZAS nicht
+  gepflegt“, nicht 0 €.
 - Dokumente/Bilder liefert ZAS nicht. Anfrage an Hr. Michel läuft (Zugriff auf seinen
   FTP bzw. Dateiverweise in den `Upl*`-Spalten).
 

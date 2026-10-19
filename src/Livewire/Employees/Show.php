@@ -1233,6 +1233,14 @@ class Show extends Component
                 'short_term_days_worked'    => ['type' => 'text', 'label' => 'Tage gearbeitet im Jahr (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
                 'short_term_days_remaining' => ['type' => 'text', 'label' => 'Arbeitstage Rest (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
             ],
+            // Lohn laut ZAS (19.10.2026): readonly aus demselben Grund wie das
+            // Tagekonto — die Werte gehoeren ZAS und gehen nie zurueck. Unser
+            // eigener Grundlohn bleibt davon unberuehrt; 0 heisst "bei ZAS
+            // nicht gepflegt", nicht "0 Euro".
+            'Lohn laut ZAS (HR-only)' => [
+                'zas_grundlohn' => ['type' => 'text', 'label' => 'Grundlohn laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
+                'zas_zuschlag'  => ['type' => 'text', 'label' => 'Zuschlag laut ZAS (€/Std.)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
+            ],
             'Ausstattung' => [
                 'linen_package_items' => ['type' => 'multi_lookup', 'label' => 'Waeschepaket erhalten', 'lookup' => 'waeschepaket'],
             ],

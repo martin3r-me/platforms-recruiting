@@ -130,6 +130,23 @@ class ZasInboundRowMapper
     ];
 
     /**
+     * CSV-Spalte → rec_employee_hr_data-Dezimalspalte (decimal(6,2)).
+     *
+     * Lohn laut ZAS — reine Lesewerte wie das Tagekonto (Abgleich 19.10.2026:
+     * beide Spalten kommen gefuellt, wurden bis dahin verworfen). Wandern nie
+     * zurueck, stehen deshalb NICHT in RELEVANT_HR_FIELDS. Unser eigener
+     * Grundlohn bleibt unserer; zas_grundlohn ist Anzeige und Plausibilitaet
+     * (0 = Zeile bei ZAS nicht gepflegt).
+     *
+     * ZAS liefert Komma ohne Auffuell-Nullen ("13,9"). Mehr als zwei
+     * Nachkommastellen wuerde die Spalte still runden — dann lieber Warnung.
+     */
+    private const HR_DECIMALS = [
+        'Grundlohn' => 'zas_grundlohn',
+        'Zuschlag'  => 'zas_zuschlag',
+    ];
+
+    /**
      * ZAS-Spalten, die map() von Hand liest — Default, Sonderregel oder
      * Schluessel, jedenfalls nicht ueber eine der Tabellen oben.
      */
@@ -155,6 +172,7 @@ class ZasInboundRowMapper
             array_keys(self::LOOKUPS),
             array_keys(self::HR_DATES),
             array_keys(self::HR_INTS),
+            array_keys(self::HR_DECIMALS),
             self::HANDLED_SEPARATELY,
         );
 
@@ -284,6 +302,17 @@ class ZasInboundRowMapper
                 continue;
             }
             $hr[$field] = (int) $v;
+        }
+        foreach (self::HR_DECIMALS as $col => $field) {
+            $v = $get($col);
+            if ($v === '') {
+                continue; // leer = kein Stand geliefert, vorhandenen Wert stehen lassen
+            }
+            if (preg_match('/^\d{1,4}([.,]\d{1,2})?$/', $v) !== 1) {
+                $warnings[] = "{$col}: '{$v}' ist kein Betrag (z. B. 13,9) — Feld nicht uebernommen";
+                continue;
+            }
+            $hr[$field] = number_format((float) str_replace(',', '.', $v), 2, '.', '');
         }
         foreach (self::HR_DATES as $col => $field) {
             $v = $get($col);
