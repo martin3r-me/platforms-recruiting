@@ -361,6 +361,67 @@ final class VertragAusAkteOberflaecheTest extends TestCase
         $this->assertSame('0,90', \Platform\Recruiting\Support\ZuschlagWert::format(\Platform\Recruiting\Support\ZuschlagWert::lesen($vertrag->getExtraField('zuschlag'))));
     }
 
+    /** Review Fix-Runde 1: lohn.eg1 druckt den GESPEICHERTEN Beginn — der Zuschlag muss mitwandern. */
+    public function test_neuer_beginn_zieht_die_vorbelegung_nach(): void
+    {
+        $this->maVorlage();
+        $akte = $this->akte($this->maMitRgSchwester('6', '1'));
+        $akte->openVertragModal('2026-10-20');
+        $this->assertSame('1,57', $akte->vertragZuschlag, 'Vorflug');
+
+        $akte->vertragBeginn = '2027-04-15';
+        $akte->updatedVertragBeginn();
+
+        $this->assertSame('1,03', $akte->vertragZuschlag, 'EG 1 ab 01.04.2027: 15,87 + 1,03 = 16,90 wie vorher 15,33 + 1,57');
+    }
+
+    public function test_neuer_beginn_ohne_hook_wird_beim_erstellen_nachgezogen(): void
+    {
+        $this->maVorlage();
+        $ma = $this->maMitRgSchwester('6', '1');
+        $akte = $this->akte($ma);
+        $akte->openVertragModal('2026-10-20');
+
+        // Deferred Binding / $wire.set: der updated-Hook lief nicht.
+        $akte->vertragBeginn = '2027-04-15';
+        $akte->vertragEnde = '2027-04-30';
+        $akte->vertragErstellen();
+
+        $this->assertNull($akte->flashError);
+        $vertrag = RecContract::query()->where('rec_employee_id', $ma->id)->latest('id')->first();
+        $this->assertSame(1.03, \Platform\Recruiting\Support\ZuschlagWert::lesen($vertrag->getExtraField('zuschlag')));
+    }
+
+    public function test_von_hr_ueberschriebener_zuschlag_bleibt_beim_neuen_beginn(): void
+    {
+        $this->maVorlage();
+        $ma = $this->maMitRgSchwester('6', '1');
+        $akte = $this->akte($ma);
+        $akte->openVertragModal('2026-10-20');
+        $akte->vertragZuschlag = '0,90';
+
+        $akte->vertragBeginn = '2027-04-15';
+        $akte->updatedVertragBeginn();
+        $this->assertSame('0,90', $akte->vertragZuschlag);
+
+        $akte->vertragEnde = '2027-04-30';
+        $akte->vertragErstellen();
+        $vertrag = RecContract::query()->where('rec_employee_id', $ma->id)->latest('id')->first();
+        $this->assertSame(0.9, \Platform\Recruiting\Support\ZuschlagWert::lesen($vertrag->getExtraField('zuschlag')));
+    }
+
+    public function test_rg_akte_bekommt_auch_beim_neuen_beginn_keine_vorbelegung(): void
+    {
+        $rg = $this->anstellung(['company' => 'RG', 'personnel_number' => 'RG4711', 'tax_class' => '1', 'zuschlag_manuell' => 2.00]);
+        $akte = $this->akte($rg);
+        $akte->openVertragModal('2026-10-20');
+        $akte->vertragBeginn = '2027-04-15';
+        $akte->updatedVertragBeginn();
+
+        $this->assertSame('', $akte->vertragZuschlag);
+        $this->assertNull($akte->vertragZuschlagVorbelegt);
+    }
+
     public function test_ma_akte_ohne_steuerklasse_bleibt_leer_mit_hinweis(): void
     {
         $this->maVorlage();

@@ -98,6 +98,14 @@ class Show extends Component
      */
     #[Locked]
     public ?string $vertragZuschlagHinweis = null;
+    /**
+     * Der zuletzt VORBELEGTE Zuschlag (null = keine Vorbelegung, RG-Akte).
+     * Solange das Feld noch genau diesen Wert traegt, hat HR nichts
+     * ueberschrieben — dann zieht ein neuer Beginn die Vorbelegung nach
+     * (Tarifstufe, Review Fix-Runde 1). Locked: nur der Server setzt ihn.
+     */
+    #[Locked]
+    public ?string $vertragZuschlagVorbelegt = null;
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -808,7 +816,33 @@ class Show extends Component
         $this->vertragBeginn = $vorbelegung['beginn'] ?? '';
         $this->vertragEnde = $vorbelegung['ende'] ?? '';
         [$this->vertragZuschlag, $this->vertragZuschlagHinweis] = $this->zuschlagVorbelegung($emp, $vorbelegung['beginn'] ?? null);
+        $this->vertragZuschlagVorbelegt = LohnMaErmittlung::istMa($emp->company) ? $this->vertragZuschlag : null;
         $this->vertragModalShow = true;
+    }
+
+    /**
+     * Neuer Beginn → Vorbelegung nachziehen. Die Vorlage druckt lohn.eg1 zum
+     * GESPEICHERTEN Beginn; ein Zuschlag zum alten Beginn ergaebe ueber eine
+     * Tarifstufe hinweg (01.04.2027) einen falschen Gesamtlohn. Hat HR den
+     * Zuschlag selbst eingetragen, bleibt er unangetastet.
+     */
+    public function updatedVertragBeginn(): void
+    {
+        $emp = $this->employee();
+        if ($emp) {
+            $this->vorbelegungNachziehen($emp, trim((string) $this->vertragBeginn));
+        }
+    }
+
+    private function vorbelegungNachziehen(RecEmployee $emp, string $beginn): void
+    {
+        if ($this->vertragZuschlagVorbelegt === null || !YmdDate::isValid($beginn)
+            || trim((string) $this->vertragZuschlag) !== $this->vertragZuschlagVorbelegt) {
+            return;
+        }
+
+        [$this->vertragZuschlag, $this->vertragZuschlagHinweis] = $this->zuschlagVorbelegung($emp, $beginn);
+        $this->vertragZuschlagVorbelegt = $this->vertragZuschlag;
     }
 
     /**
@@ -847,6 +881,7 @@ class Show extends Component
         $this->vertragEnde = '';
         $this->vertragZuschlag = '';
         $this->vertragZuschlagHinweis = null;
+        $this->vertragZuschlagVorbelegt = null;
     }
 
     /** "Erstellen und senden" — die Arbeit macht VertragAusAkte, hier nur Eingabe und Rueckmeldung. */
@@ -878,6 +913,11 @@ class Show extends Component
             return;
         }
         $ende = trim((string) $this->vertragEnde);
+
+        // Noch einmal vor dem Speichern: der Beginn kann ohne updated-Hook
+        // gesetzt worden sein (deferred Binding, $wire.set) — der Zuschlag
+        // muss zum Beginn passen, den lohn.eg1 druckt.
+        $this->vorbelegungNachziehen($emp, $beginn);
 
         $zuschlag = ZuschlagWert::ausEingabe($this->vertragZuschlag);
         if ($zuschlag === null) {

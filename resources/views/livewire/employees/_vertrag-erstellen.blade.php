@@ -17,7 +17,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Beginn</label>
-            <input type="date" wire:model="vertragBeginn"
+            <input type="date" wire:model.blur="vertragBeginn"
                    class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
         </div>
         <div>
