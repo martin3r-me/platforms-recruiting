@@ -162,7 +162,7 @@ class AnstellungsRegelnTest extends TestCase
         [$rg, $ma] = $this->paar(['tax_class' => '1'], ['tax_class' => '3']);
         RecEmployee::find($rg)->update(['tax_class' => '6']);
         $this->assertSame('3', (string) $this->zeile($ma)->tax_class);
-        $this->assertNull($this->zeile($ma)->zas_changed_at);
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'RG-Klasse ist Eingang des MA-Zuschlags: Re-Export (Lohn MA 19.10.)');
     }
 
     public function test_leere_klasse_aendert_nichts(): void
@@ -170,7 +170,7 @@ class AnstellungsRegelnTest extends TestCase
         [$rg, $ma] = $this->paar(['tax_class' => '1'], ['tax_class' => '3']);
         RecEmployee::find($rg)->update(['tax_class' => null]);
         $this->assertSame('3', (string) $this->zeile($ma)->tax_class);
-        $this->assertNull($this->zeile($ma)->zas_changed_at);
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'RG-Klasse ist Eingang des MA-Zuschlags: Re-Export (Lohn MA 19.10.)');
     }
 
     // ---- Krankenkasse ---------------------------------------------------------

@@ -154,19 +154,22 @@ class LohnMaExportCommandTest extends TestCase
         $this->zeile(['company' => 'MA', 'is_active' => 0, 'personnel_number' => 'MA5']);   // ausgeschieden: nicht im Lauf
         $this->zeile(['company' => 'RG', 'rec_person_id' => 5, 'zuschlag_manuell' => 2.50]);
         $this->zeile(['company' => 'MA', 'rec_person_id' => 5, 'personnel_number' => 'MA6']);   // Klasse an der MA leer
+        $this->zeile(['company' => 'RG', 'rec_person_id' => 6, 'zuschlag_manuell' => 2.50, 'tax_class' => '6']);
+        $this->zeile(['company' => 'MA', 'rec_person_id' => 6, 'tax_class' => '6', 'personnel_number' => 'MA7']);   // RG 6 + MA 6: kein Euro
+        $this->zeile(['company' => 'MA', 'rec_person_id' => 8, 'tax_class' => '6', 'personnel_number' => 'MA8']);   // nur MA + 6: kein Euro
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
-        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 1, 'nur_ma' => 1, 'steuerklasse_fehlt' => 1], $r['zahlen']);
-        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 5], $r['vergleich']);
-        $this->assertSame(5, $r['gesamt']);
-        $this->assertSame(1, $r['sechs']);
+        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 2, 'nur_ma' => 2, 'steuerklasse_fehlt' => 1], $r['zahlen']);
+        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 7], $r['vergleich']);
+        $this->assertSame(7, $r['gesamt']);
+        $this->assertSame(1, $r['sechs'], 'nur Zeilen mit +1 EUR: RG 1-5 + MA 6, Zuschlag bekannt');
         $this->assertSame(0, $r['markiert']);
         $this->assertSame(0, Capsule::table('rec_employees')->whereNotNull('zas_changed_at')->count(), 'ohne --markieren kein Marker');
 
         $zeilen = array_map('str_getcsv', file($this->csv, FILE_IGNORE_NEW_LINES));
         $this->assertSame(['employee_id', 'personnel_number', 'name', 'person_id', 'rg_employee_id', 'fall', 'grundlohn', 'zuschlag', 'steuerklasse', 'zas_grundlohn', 'zas_zuschlag', 'vergleich', 'begruendung'], $zeilen[0]);
-        $this->assertCount(6, $zeilen);
+        $this->assertCount(8, $zeilen);
         $ma2Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA2'))[0];
         $this->assertSame('unbekannt', $ma2Zeile[5]);
         $this->assertSame('15,33', $ma2Zeile[6]);

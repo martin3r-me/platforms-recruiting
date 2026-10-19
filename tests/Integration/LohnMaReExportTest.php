@@ -73,6 +73,12 @@ class LohnMaReExportTest extends TestCase
             (require $own . '/' . $relative)->up();
         }
 
+        Capsule::schema()->table('rec_employees', function ($t) {
+            if (!Capsule::schema()->hasColumn('rec_employees', 'tax_class')) {
+                $t->string('tax_class', 1)->nullable();
+            }
+        });
+
         // Das Lohn-Tracking des Observers liest die Team-Einstellungen; ohne
         // die Tabelle liefe der Lauf in den stillen Fehlerzweig und der Test
         // pruefte den Marker, ohne den Produktionspfad gelaufen zu sein.
@@ -177,6 +183,43 @@ class LohnMaReExportTest extends TestCase
         $this->assertTrue($this->markiert($ma));
         $this->assertFalse($this->markiert($rg));
     }
+    /** Steuerklasse der RG-Schwester ist Eingang des +1-Euro: leer -> '1' muss die MA mitnehmen. */
+    public function test_rg_steuerklasse_von_leer_auf_1_markiert_ma(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9, 'tax_class' => null]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9, 'tax_class' => '6']);
+        $fremd = $this->zeile(['company' => 'MA', 'rec_person_id' => 10]);
+
+        RecEmployee::query()->findOrFail($rg)->update(['tax_class' => '1']);
+
+        $this->assertTrue($this->markiert($ma));
+        $this->assertTrue($this->markiert($rg));
+        $this->assertFalse($this->markiert($fremd));
+    }
+
+    public function test_rg_steuerklasse_von_1_auf_6_markiert_ma(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9, 'tax_class' => '1']);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9, 'tax_class' => '6']);
+
+        RecEmployee::query()->findOrFail($rg)->update(['tax_class' => '6']);
+
+        $this->assertTrue($this->markiert($ma));
+    }
+
+    public function test_ma_steuerklasse_markiert_keine_andere_ma_zeile(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9, 'tax_class' => '1']);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9, 'tax_class' => '1']);
+        $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 9, 'tax_class' => '1']);
+
+        RecEmployee::query()->findOrFail($ma)->update(['tax_class' => '6']);
+
+        $this->assertTrue($this->markiert($ma));
+        $this->assertFalse($this->markiert($ma2));
+        $this->assertFalse($this->markiert($rg));
+    }
+
     /** Final-Review F1: RG hat schon eine Person, die MA-Zeile nur den person_key — sie rechnet mit diesem RG-Zuschlag, also muss sie mit. */
     public function test_rg_mit_person_markiert_ma_mit_nur_person_key(): void
     {

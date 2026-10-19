@@ -158,12 +158,14 @@ class ZasInboundSpiegelTest extends TestCase
     }
 
     /**
-     * Kundenentscheidung Markus 12.10.2026 (E7): die Folgeaenderung aus
-     * AnstellungsRegeln (MA -> Klasse 6) ist auf dem Weg zu ZAS; eine
-     * Lieferung mit dem alten Stand dreht sie nicht zurueck — derselbe Schutz
-     * wie fuer Personenfelder (PersonenFelder::MARKER_GESCHUETZT).
+     * Seit 19.10.2026 ist tax_class beim Import geschuetzt (OVERWRITE_PROTECTED):
+     * eine Lieferung nimmt die Steuerklasse bestehender Akten nie auf, auch nicht
+     * mit dem alten Stand. Damit kann die Je-Gesellschaft-Regel (MA -> Klasse 6,
+     * Markus 12.10. E7) vom Inbound nicht ausgeloest oder zurueckgedreht werden;
+     * die RG-Seite wird nicht gespiegelt. (Der Marker-Schutz der Personenfelder,
+     * PersonenFelder::MARKER_GESCHUETZT, ist durch den Feldschutz hier verdeckt.)
      */
-    public function test_veraltete_zas_lieferung_dreht_die_steuerklassen_regel_nicht_zurueck(): void
+    public function test_inbound_nimmt_steuerklasse_bestehender_akten_nie_auf_und_loest_die_je_gesellschaft_regel_nicht_aus(): void
     {
         $p = $this->person();
         $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => '6', 'personnel_number' => 'RG1', 'company' => 'RG']);
@@ -183,11 +185,11 @@ class ZasInboundSpiegelTest extends TestCase
     /**
      * Seit 19.10.2026 (Sebastian/Olaf): tax_class ist beim Import geschuetzt
      * (OVERWRITE_PROTECTED) — ZAS liefert die Steuerklasse nicht, der
-     * Mitarbeiter pflegt sie selbst. Auch ohne offenen Marker ueberschreibt
-     * die Lieferung sie nicht, und die Regel zwischen den Anstellungen
-     * wird nicht angewendet.
+     * Mitarbeiter pflegt sie selbst. Auch ohne offenen Marker nimmt die
+     * Lieferung sie nicht auf, und die Je-Gesellschaft-Regel zwischen den
+     * Anstellungen wird vom Inbound nicht angewendet.
      */
-    public function test_zas_lieferung_ohne_offenen_marker_wendet_die_regel_nicht_an(): void
+    public function test_inbound_ohne_offenen_marker_laesst_steuerklasse_und_regel_unberuehrt(): void
     {
         $p = $this->person();
         $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => '1', 'personnel_number' => 'RG1', 'company' => 'RG']);

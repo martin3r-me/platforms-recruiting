@@ -54,7 +54,7 @@ class LohnMaExport extends Command
         foreach ($r['zahlen'] as $fall => $n) {
             $this->line(sprintf('%-10s %5d', $fall, $n));
         }
-        $this->info(sprintf('%d MA-Zeilen, davon Steuerklasse 6: %d — CSV: %s', $r['gesamt'], $r['sechs'], $r['csv']));
+        $this->info(sprintf('%d MA-Zeilen, davon +1 € (RG 1–5, MA 6): %d — CSV: %s', $r['gesamt'], $r['sechs'], $r['csv']));
         $this->line(sprintf('Vergleich mit ZAS-Stand: gleich %d, abweichend %d, bei ZAS leer %d', $r['vergleich']['gleich'], $r['vergleich']['abweichend'], $r['vergleich']['zas_leer']));
         $this->info($markieren ? sprintf('MARKIERT: %d Zeilen gehen in die naechste updates.csv.', $r['markiert']) : 'Keine Marker gesetzt (ohne --markieren).');
 
@@ -89,7 +89,10 @@ class LohnMaExport extends Command
             $rg = $e->rgSchwester($ma);
             $l = $e->ermittelnMitSchwester($ma, $rg, $tag);
             $zahlen[$l->fall]++;
-            if (trim((string) $ma->tax_class) === '6') {
+            // Nur Zeilen, die den Euro wirklich bekommen: bekannter Zuschlag,
+            // RG 1-5 und MA 6 (nicht jede MA mit Klasse 6).
+            if ($rg !== null && $l->zuschlag !== null && $l->fall !== LohnMa::NUR_MA
+                && trim((string) $ma->tax_class) === '6' && in_array(trim((string) ($rg->tax_class ?? '')), ['1', '2', '3', '4', '5'], true)) {
                 $sechs++;
             }
             // Vergleich mit dem ZAS-Stand DIESER MA-Zeile (Inbound seit 19.10.2026):

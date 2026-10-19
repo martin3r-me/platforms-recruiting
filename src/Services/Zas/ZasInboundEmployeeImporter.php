@@ -545,7 +545,9 @@ class ZasInboundEmployeeImporter
      *    es nie) — ueberschreiben setzte jeden auf Deutschland zurueck
      *  - tax_class: pflegt der Mitarbeiter selbst im Portal; ZAS liefert sie
      *    nicht, ein spaeterer ZAS-Wert darf die eigene Angabe nicht
-     *    ueberschreiben (Sebastian/Olaf 19.10.2026)
+     *    ueberschreiben (Sebastian/Olaf 19.10.2026). Sie wird bei
+     *    bestehenden Zeilen NIE aus ZAS uebernommen, auch nicht in ein leeres
+     *    Feld; nur Mitarbeiter, die neu aus ZAS angelegt werden, bekommen sie
      *  - personnel_number, company: nur Nachtrag in leere Felder (siehe oben)
      */
     public const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company', 'tax_class'];

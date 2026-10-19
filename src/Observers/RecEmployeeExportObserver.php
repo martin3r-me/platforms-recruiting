@@ -161,6 +161,19 @@ class RecEmployeeExportObserver
                 }
             }, 'rec_employee.updated.lohn_ma', $employee->id);
 
+            // Steuerklasse der RG-Zeile geaendert: sie ist Eingang des
+            // MA-Zuschlags (+1 EUR nur bei RG 1-5 und MA 6) — die MA-Schwestern
+            // muessen mit. Eine Aenderung an einer MA-Zeile markiert nur diese; eine
+            // ausgeschiedene RG-Zeile ist keine Schwester mehr.
+            self::safelyRun(function () use ($employee): void {
+                if (!array_key_exists('tax_class', $employee->getChanges()) || LohnMaErmittlung::istMa($employee->company) || !$employee->is_active) {
+                    return;
+                }
+                foreach (LohnMaErmittlung::maSchwesternIds((int) $employee->id, $employee->rec_person_id !== null ? (int) $employee->rec_person_id : null, $employee->person_key) as $id) {
+                    self::markEmployeeId($id);
+                }
+            }, 'rec_employee.updated.lohn_ma_steuerklasse', $employee->id);
+
             // RG-Anstellung endet, lebt wieder auf oder wechselt die Firma
             // (Final-Review F3): Nur eine AKTIVE RG-Anstellung ist RG-Schwester —
             // der MA-Zuschlag der Person faellt damit auf "nur MA" oder kommt
