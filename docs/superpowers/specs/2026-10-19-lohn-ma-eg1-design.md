@@ -72,7 +72,7 @@ bzw. `EG 1 15,33 € · nur MA, kein Angleich · Zuschlag 0,00 €`.
 
 1. `rec_person_id` gesetzt → aktive (`is_active = 1`) Anstellungen derselben Person mit `company = 'RG'` oder leer, außer der MA-Anstellung selbst; bei mehreren die jüngste (`id` max).
 2. sonst `person_key` → gleiche Suche über `PersonScopeResolver::forEmployee()`-IDs (nur `ids`, nicht `abweichend`).
-3. nichts → Fall 4.
+3. nichts → Fall 4 — außer (Ruling R4) eine aktive RG-Anstellung im selben Team trägt denselben `person_key` (andere Person: Fall 2 mit Begründung „RG-Zuordnung unklar (gleiche Kennung, andere Person)") oder die MA-Zeile hat weder `rec_person_id` noch `person_key` (Fall 2, „keine Personen-Zuordnung").
 
 Eine **inaktive** RG-Anstellung zählt nicht: Wer bei RG ausgeschieden ist, ist „nur MA".
 
@@ -164,4 +164,4 @@ Gebaut auf `feat/ma-konto`. Dateien und Entscheidungen:
 - `resources/views/livewire/applicant/applicant-settings-modal.blade.php` — Lohnbuchhaltung: Mindestlohn RG, EG 1 lesend.
 - Ruling R3' (ersetzt R3, Final-Review 19.10.): Bewerbung ohne Zuschlag und ohne lesbaren AV-Code → RG-Export bleibt leer (wie heute, Pfad mit Bewerbung unverändert); der MA-Angleich läuft weiter durch die Kette: `zas_zuschlag` (bei `zas_grundlohn` > 0, Quelle zas) → `zuschlag_manuell` (Quelle manuell) → erst dann 0,00 mit Quelle Bewerbung. Bekannte, bewusst belassene Abweichung: die AV-Code-Regex im RG-Resolverpfad trimmt nicht, `ZuschlagWert::ausAvCode` schon (Kommentar am Resolver).
 - Abhängigkeit auf main: ZAS-Lohn-Inbound `fff2ad69` (Migration `2026_10_19_000001_add_zas_lohn_to_hr_data`) muss deployt sein.
-- Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Aktive MA ohne `rec_person_id` und `person_key` rechnen als „nur MA" (0,00) — vor `--markieren` zählen (Checkliste 4.4 Schritt 4b).
+- Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Ruling R4 (Final-Review 19.10.): Aktive MA ohne `rec_person_id` und `person_key` sowie MA, deren `person_key` nur bei einer RG-Anstellung einer anderen Person (gleiches Team) vorkommt, rechnen als `unbekannt` (Zuschlag leer, HR-Liste) — nie 0,00 aus fehlenden Daten; vor `--markieren` zählen (Checkliste 4.4 Schritt 4b). Marker: `maSchwesternIds` sucht Person ODER person_key; Ende/Firmenwechsel der RG-Anstellung (Eloquent und ZAS-Inbound) markiert die MA-Schwestern; Personen-Verknüpfung nicht — danach `--markieren` (Checkliste 4.14).
