@@ -39,7 +39,7 @@ final class HrMitarbeiterListenLohnTest extends TestCase
         $this->person([], $rgU = $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'first_name' => 'Uwe', 'last_name' => 'Unbekannt']), $maU = $this->akte(['company' => 'MA']));
         $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10]), $this->akte(['company' => 'MA']));   // manuell
         $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => 500]), $this->akte(['company' => 'MA']));                            // angleich
-        $this->akte(['company' => 'MA']);                                                                                                           // nur MA
+        $this->person([], $this->akte(['company' => 'MA']));                                                                                        // nur MA (Person ohne RG, R4)
 
         $zeilen = $this->listen()->lohn($this->team);
 
@@ -49,6 +49,39 @@ final class HrMitarbeiterListenLohnTest extends TestCase
         $this->assertStringContainsString('unbekannt', $zeilen[0]['begruendung']);
         $this->assertSame([], $this->listen()->lohn($this->team, 'Zzz'));
         $this->assertCount(1, $this->listen()->lohn($this->team, 'unbek'));
+    }
+
+    /** Ruling R4 Fall A: gleiche Kennung, andere Person — in der Liste, mit der RG-Zeile als Anker. */
+    public function test_gleiche_kennung_andere_person_steht_mit_rg_id_in_der_liste(): void
+    {
+        $this->person([], $rg = $this->akte(['company' => 'RG', 'rec_applicant_id' => 500]));
+        $this->person([], $ma = $this->akte(['company' => 'MA']));
+        // person_key setzt sonst nur die Paarung — direkt wie in Produktion.
+        DB::table('rec_employees')->whereIn('id', [$rg->id, $ma->id])->update(['person_key' => 'k-a']);
+
+        $zeilen = $this->listen()->lohn($this->team);
+
+        $this->assertCount(1, $zeilen);
+        $this->assertSame((int) $rg->id, $zeilen[0]['rg_employee_id']);
+        $this->assertSame((int) $ma->id, $zeilen[0]['ma_employee_id']);
+        $this->assertStringContainsString('RG-Zuordnung unklar (gleiche Kennung, andere Person)', $zeilen[0]['begruendung']);
+    }
+
+    /** Ruling R4 Fall B: weder Person noch Kennung — in der Liste, ohne RG-Id und ohne Eingabefeld. */
+    public function test_ohne_personen_zuordnung_steht_ohne_rg_id_in_der_liste(): void
+    {
+        $ma = $this->akte(['company' => 'MA', 'first_name' => 'Ohne', 'last_name' => 'Zuordnung']);
+
+        $zeilen = $this->listen()->lohn($this->team);
+
+        $this->assertCount(1, $zeilen);
+        $this->assertNull($zeilen[0]['rg_employee_id']);
+        $this->assertSame((int) $ma->id, $zeilen[0]['ma_employee_id']);
+        $this->assertStringContainsString('keine Personen-Zuordnung', $zeilen[0]['begruendung']);
+
+        // Die Liste zeigt dann Hinweis statt Eingabefeld (Blade-Zweig ueber rg_employee_id === null).
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/hr-desk/mitarbeiter.blade.php');
+        $this->assertMatchesRegularExpression('/@if \(\$rgId === null\)\s*<div[^>]*>keine Personen-Zuordnung — RG-Anstellung in der Akte prüfen<\/div>\s*@else/u', $blade);
     }
 
     public function test_zas_wert_ohne_bewerbung_gilt_als_bekannt(): void

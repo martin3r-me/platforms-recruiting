@@ -236,13 +236,18 @@
                             @include('recruiting::livewire.hr-desk.partials.mensch', ['z' => $z])
                             <div class="mt-0.5 text-xs text-[var(--ui-muted)]">{{ $z['begruendung'] }}</div>
                         </div>
-                        <div class="flex flex-1 flex-wrap items-center gap-2">
-                            <label class="text-xs text-[var(--ui-muted)]" for="zuschlag-{{ $rgId }}">RG-Zuschlag €/h</label>
-                            <input id="zuschlag-{{ $rgId }}" type="text" inputmode="decimal" placeholder="1,10"
-                                   wire:model="zuschlagEingabe.{{ $rgId }}"
-                                   class="w-24 rounded-md border border-[var(--ui-border)] px-2 py-1 text-sm">
-                            <button type="button" class="{{ $knopf }}" wire:click="speichereZuschlag({{ $rgId }})" wire:loading.attr="disabled" wire:target="speichereZuschlag">Speichern</button>
-                        </div>
+                        {{-- Ruling R4 Fall B: ohne Personen-Zuordnung gibt es keine RG-Zeile, an der ein Zuschlag stehen koennte — Hinweis statt Eingabefeld. --}}
+                        @if ($rgId === null)
+                            <div class="flex flex-1 flex-wrap items-center gap-2 text-xs text-[var(--ui-secondary)]">keine Personen-Zuordnung — RG-Anstellung in der Akte prüfen</div>
+                        @else
+                            <div class="flex flex-1 flex-wrap items-center gap-2">
+                                <label class="text-xs text-[var(--ui-muted)]" for="zuschlag-{{ $rgId }}">RG-Zuschlag €/h</label>
+                                <input id="zuschlag-{{ $rgId }}" type="text" inputmode="decimal" placeholder="1,10"
+                                       wire:model="zuschlagEingabe.{{ $rgId }}"
+                                       class="w-24 rounded-md border border-[var(--ui-border)] px-2 py-1 text-sm">
+                                <button type="button" class="{{ $knopf }}" wire:click="speichereZuschlag({{ $rgId }})" wire:loading.attr="disabled" wire:target="speichereZuschlag">Speichern</button>
+                            </div>
+                        @endif
                     </div>
                 @endforeach
             </div>

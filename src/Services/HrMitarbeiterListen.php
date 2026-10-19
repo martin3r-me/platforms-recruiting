@@ -722,9 +722,11 @@ final class HrMitarbeiterListen
      * Eine Zeile je Person, deren aktive MA-Anstellung keinen Zuschlag
      * bekommen kann, weil der RG-Zuschlag unbekannt ist (Spec Lohn MA §10,
      * Fall 2). Nur dieser Fall — angleichbar, manuell und "nur MA" sind
-     * erledigt und stehen in der Akte.
+     * erledigt und stehen in der Akte. Dazu (Ruling R4) MA-Anstellungen mit
+     * fehlender oder unklarer Personen-Zuordnung; rg_employee_id ist dann die
+     * RG-Zeile mit gleicher Kennung bzw. null (keine RG-Zeile bekannt).
      *
-     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:int, ma_employee_id:int, begruendung:string}>
+     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:?int, ma_employee_id:int, begruendung:string}>
      */
     public function lohn(int $teamId, string $suche = ''): array
     {
@@ -736,10 +738,13 @@ final class HrMitarbeiterListen
         foreach ($maAkten as $ma) {
             $rg = $e->rgSchwester($ma);
             $l = $e->ermittelnMitSchwester($ma, $rg, $heute);
-            if ($l->fall !== LohnMa::UNBEKANNT || $rg === null) {
+            if ($l->fall !== LohnMa::UNBEKANNT) {
                 continue;
             }
-            $treffer[(int) $ma->id] = ['rg' => (int) $rg->id, 'begruendung' => $l->begruendung];
+            // Ohne RG-Id (Ruling R4 Fall B: keine Personen-Zuordnung) zeigt die
+            // Liste die Zeile mit Hinweis, aber ohne Eingabefeld — es gibt
+            // keine RG-Anstellung, an der ein Zuschlag stehen koennte.
+            $treffer[(int) $ma->id] = ['rg' => $rg !== null ? (int) $rg->id : null, 'begruendung' => $l->begruendung];
         }
         if ($treffer === []) {
             return [];

@@ -3,6 +3,7 @@
     @php
         $zuschlagText = $lohn['zuschlag'] ?? null;
         $istUnbekannt = $lohn['fall'] === 'unbekannt';
+        $rgUnklar = (bool) ($lohn['rg_unklar'] ?? false);
         $rgLink = $lohn['rg_employee_id'] !== null ? route('recruiting.employees.show', ['employee' => $lohn['rg_employee_id']]) : null;
     @endphp
     <div id="lohn-zas" class="mt-4 rounded-lg border border-[var(--ui-border)] bg-white p-4">
@@ -21,7 +22,9 @@
             @endif
         </dl>
         <p class="mt-2 text-xs text-[var(--ui-muted)]">{{ $lohn['begruendung'] }}</p>
-        @if ($istUnbekannt && $rgLink !== null)
+        @if ($istUnbekannt && $rgLink !== null && $rgUnklar)
+            <a href="{{ $rgLink }}" class="mt-2 inline-block text-xs font-medium text-blue-700 hover:underline">RG-Anstellung mit gleicher Kennung prüfen (Personen-Zuordnung) →</a>
+        @elseif ($istUnbekannt && $rgLink !== null)
             <a href="{{ $rgLink }}" class="mt-2 inline-block text-xs font-medium text-blue-700 hover:underline">RG-Zuschlag in der RG-Akte eintragen →</a>
         @endif
     </div>

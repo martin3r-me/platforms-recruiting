@@ -73,6 +73,7 @@ final class LohnMaAkteTest extends TestCase
         $this->assertSame('unbekannt', $b['fall']);
         $this->assertNull($b['zuschlag']);
         $this->assertSame((int) $rg->id, $b['rg_employee_id']);
+        $this->assertFalse($b['rg_unklar']);
         $this->assertMatchesRegularExpression('~^\d{2}\.\d{2}\.\d{4}$~', $b['eg1_ab']);
     }
 
@@ -98,5 +99,21 @@ final class LohnMaAkteTest extends TestCase
         $text = Show::feldVorbelegung('zuschlag_manuell', $rg->fresh()->getAttribute('zuschlag_manuell'));
         $this->assertSame('1,10', $text);
         $this->assertSame(1.10, Show::zuschlagManuellAusEingabe($text));
+    }
+
+    /** Ruling R4 Fall A in der Akte: Zuschlag leer, Link auf die RG-Zeile mit gleicher Kennung (dieselbe Zeile wie in der Rechnung). */
+    public function test_lohnblock_gleiche_kennung_andere_person(): void
+    {
+        $this->person([], $rg = $this->akte(['company' => 'RG', 'rec_applicant_id' => 500]));
+        $this->person([], $ma = $this->akte(['company' => 'MA']));
+        DB::table('rec_employees')->whereIn('id', [$rg->id, $ma->id])->update(['person_key' => 'k-b']);
+
+        $b = Show::lohnBlock($ma->fresh());
+
+        $this->assertSame('unbekannt', $b['fall']);
+        $this->assertNull($b['zuschlag']);
+        $this->assertSame((int) $rg->id, $b['rg_employee_id']);
+        $this->assertStringContainsString('RG-Zuordnung unklar', $b['begruendung']);
+        $this->assertTrue($b['rg_unklar']);
     }
 }

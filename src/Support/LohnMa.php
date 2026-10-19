@@ -87,6 +87,17 @@ final class LohnMa
         return new self($fall, $eg1, $zuschlag, implode(' · ', $teile));
     }
 
+    /**
+     * Fall "unbekannt" aus einem anderen Grund als dem fehlenden RG-Zuschlag
+     * (Ruling R4: Personen-Zuordnung fehlt oder ist unklar). Eigener
+     * Einstieg, damit rechne() unveraendert bleibt; Zuschlag leer, kein
+     * Klasse-6-Euro — ohne Zuschlag gibt es nichts aufzuschlagen.
+     */
+    public static function unbekanntWeil(float $eg1, string $grund): self
+    {
+        return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, 'Zuschlag leer']));
+    }
+
     public function grundlohnText(): string
     {
         return self::zahl($this->grundlohn);

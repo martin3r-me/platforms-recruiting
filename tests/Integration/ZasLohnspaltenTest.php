@@ -151,10 +151,48 @@ final class ZasLohnspaltenTest extends TestCase
     /** Review Focus 3: nur person_key, keine Personen-Zeile. */
     public function test_ma_fall_1_ueber_person_key(): void
     {
-        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'person_key' => 'k-1', 'phone' => '+491511']);
-        $ma = $this->zeile(['company' => 'MA', 'person_key' => 'k-1', 'phone' => '+491511', 'tax_class' => '1']);
+        // Volle Nummer: erst sie bestaetigt die Kennung (PersonProofScope). Mit
+        // '+491511' lief der Test bisher still als "nur MA" durch (auch 0,00).
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'person_key' => 'k-1', 'phone' => '+4915112345678']);
+        $ma = $this->zeile(['company' => 'MA', 'person_key' => 'k-1', 'phone' => '+4915112345678', 'tax_class' => '1']);
 
         $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::ANGLEICH, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
+    }
+
+    /** Ruling R4 Fall A: gleiche Kennung, aber die RG-Zeile gehoert einer anderen Person — kein geratenes 0,00, sondern leer. */
+    public function test_ma_gleiche_kennung_andere_person_ist_unbekannt(): void
+    {
+        Capsule::table('rec_persons')->insert([['id' => 21, 'team_id' => self::TEAM], ['id' => 22, 'team_id' => self::TEAM]]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 21, 'person_key' => 'k-21']);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 22, 'person_key' => 'k-21', 'tax_class' => '1']);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $e = new \Platform\Recruiting\Services\LohnMaErmittlung();
+        $l = $e->ermitteln($ma);
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::UNBEKANNT, $l->fall);
+        $this->assertStringContainsString('RG-Zuordnung unklar (gleiche Kennung, andere Person)', $l->begruendung);
+        $this->assertSame((int) $rg->id, (int) $e->rgSchwester($ma)->id);
+    }
+
+    /** Gegenprobe Fall A: dieselbe Kennung in einem fremden Team zaehlt nicht — die Person bleibt "nur MA". */
+    public function test_gleiche_kennung_im_fremden_team_bleibt_nur_ma(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 23, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'team_id' => self::TEAM + 1, 'rec_applicant_id' => 500, 'person_key' => 'k-23']);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 23, 'person_key' => 'k-23', 'tax_class' => '1']);
+
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** Ruling R4 Fall B: weder Person noch Kennung — wir wissen nicht, ob es eine RG-Anstellung gibt. */
+    public function test_ma_ohne_personen_zuordnung_ist_unbekannt(): void
+    {
+        $ma = $this->zeile(['company' => 'MA', 'tax_class' => '1']);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertSame('15,33', \Platform\Recruiting\Support\LohnMa::zahl((new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma, '2026-10-19')->grundlohn));
+        $this->assertStringContainsString('keine Personen-Zuordnung', (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->begruendung);
     }
 
     public function test_ma_fall_1b_zas_zuschlag_der_rg_schwester(): void
@@ -216,7 +254,9 @@ final class ZasLohnspaltenTest extends TestCase
 
     public function test_ma_fall_4_nur_ma(): void
     {
-        $ma = $this->zeile(['company' => 'MA', 'tax_class' => '1']);
+        // Echte nur-MA-Person: Person bekannt, keine RG-Anstellung, keine fremde Kennung (Ruling R4).
+        Capsule::table('rec_persons')->insert(['id' => 24, 'team_id' => self::TEAM]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 24, 'tax_class' => '1']);
 
         $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
     }

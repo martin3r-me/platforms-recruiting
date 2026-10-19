@@ -110,4 +110,16 @@ final class LohnMaTest extends TestCase
         $this->assertSame(0.01, $l->zuschlag);
         $this->assertSame('0,01', $l->zuschlagText());
     }
+
+    /** Ruling R4: eigener Grund, Zuschlag leer, kein Klasse-6-Euro. */
+    public function test_unbekannt_weil_traegt_den_grund(): void
+    {
+        $l = LohnMa::unbekanntWeil(15.33, 'keine Personen-Zuordnung');
+
+        $this->assertSame(LohnMa::UNBEKANNT, $l->fall);
+        $this->assertNull($l->zuschlag);
+        $this->assertNull($l->zuschlagText());
+        $this->assertSame('15,33', $l->grundlohnText());
+        $this->assertSame('EG 1 15,33 € · keine Personen-Zuordnung · Zuschlag leer', $l->begruendung);
+    }
 }

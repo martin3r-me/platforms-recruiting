@@ -149,7 +149,7 @@ class LohnMaExportCommandTest extends TestCase
         $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'personnel_number' => 'MA2']);
         $this->zeile(['company' => 'RG', 'rec_person_id' => 3, 'zuschlag_manuell' => 2.50]);
         $ma3 = $this->zeile(['company' => 'MA', 'rec_person_id' => 3, 'personnel_number' => 'MA3']);
-        $ma4 = $this->zeile(['company' => 'MA', 'personnel_number' => 'MA4']);
+        $ma4 = $this->zeile(['company' => 'MA', 'rec_person_id' => 4, 'personnel_number' => 'MA4']);   // Person ohne RG = nur MA (R4)
         $this->zeile(['company' => 'MA', 'is_active' => 0, 'personnel_number' => 'MA5']);   // ausgeschieden: nicht im Lauf
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);

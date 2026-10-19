@@ -36,6 +36,19 @@ final class LohnMaErmittlung
     public function ermittelnMitSchwester(RecEmployee $ma, ?object $rg, ?string $datum = null): LohnMa
     {
         $tag = $datum ?? now()->toDateString();
+
+        // Ruling R4 (Final-Review F2): "nur MA" (0,00) nur, wenn wir die Person
+        // wirklich kennen und sie bei RG nicht aktiv ist. Fehlt die Zuordnung
+        // oder zeigt die Kennung auf eine RG-Anstellung einer anderen Person,
+        // waere 0,00 ein Wert aus fehlenden Daten — dann bleibt der Zuschlag
+        // leer und die Person landet bei HR.
+        if ($rg !== null && ($rg->zuordnung_unklar ?? false)) {
+            return LohnMa::unbekanntWeil(EntgeltgruppeEins::satz($tag), self::GRUND_GLEICHE_KENNUNG);
+        }
+        if ($rg === null && $ma->rec_person_id === null && trim((string) $ma->person_key) === '') {
+            return LohnMa::unbekanntWeil(EntgeltgruppeEins::satz($tag), self::GRUND_OHNE_PERSON);
+        }
+
         $quelle = $rg === null ? ['wert' => null, 'quelle' => null] : $this->rgZuschlag($rg);
 
         return LohnMa::rechne(
@@ -48,8 +61,43 @@ final class LohnMaErmittlung
         );
     }
 
-    /** @return object|null Zeile mit id, rec_applicant_id, zuschlag_manuell, zas_grundlohn, zas_zuschlag */
+    public const GRUND_GLEICHE_KENNUNG = 'RG-Zuordnung unklar (gleiche Kennung, andere Person)';
+    public const GRUND_OHNE_PERSON     = 'keine Personen-Zuordnung';
+
+    /**
+     * RG-Schwester derselben Person; findet die Personen-Suche keine, aber
+     * eine aktive RG-Anstellung im selben Team traegt denselben person_key
+     * (andere oder keine Person — Audit-Gruppen, neue RG-Anstellung aus einer
+     * Bewerbung mit eigener Person), kommt DIESE Zeile mit
+     * zuordnung_unklar = true zurueck (Ruling R4, Fall A): Ihr Zuschlag wird
+     * nicht verwendet, die HR-Liste braucht aber ihre Id.
+     *
+     * @return object|null Zeile mit id, rec_applicant_id, zuschlag_manuell, zas_grundlohn, zas_zuschlag[, zuordnung_unklar]
+     */
     public function rgSchwester(RecEmployee $ma): ?object
+    {
+        $rg = $this->rgSchwesterDerPerson($ma);
+        if ($rg !== null) {
+            return $rg;
+        }
+        $key = trim((string) $ma->person_key);
+        if ($key === '') {
+            return null;
+        }
+        $fremd = $this->rgAbfrage()
+            ->where('e.id', '!=', (int) $ma->id)
+            ->where('e.team_id', (int) $ma->team_id)
+            ->where('e.person_key', $key)
+            ->orderByDesc('e.id')
+            ->first();
+        if ($fremd !== null) {
+            $fremd->zuordnung_unklar = true;
+        }
+
+        return $fremd;
+    }
+
+    private function rgSchwesterDerPerson(RecEmployee $ma): ?object
     {
         $q = $this->rgAbfrage()
             ->where('e.id', '!=', (int) $ma->id);

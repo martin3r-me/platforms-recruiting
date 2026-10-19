@@ -1070,7 +1070,7 @@ class Show extends Component
         return $z === null ? 'ungueltig' : $z;
     }
 
-    /** @return array{fall:string, grundlohn:string, zuschlag:?string, begruendung:string, eg1_ab:string, rg_employee_id:?int}|null */
+    /** @return array{fall:string, grundlohn:string, zuschlag:?string, begruendung:string, eg1_ab:string, rg_employee_id:?int, rg_unklar:bool}|null */
     public static function lohnBlock(RecEmployee $emp, ?LohnMaErmittlung $e = null): ?array
     {
         if (!LohnMaErmittlung::istMa($emp->company)) {
@@ -1078,14 +1078,17 @@ class Show extends Component
         }
         $e ??= new LohnMaErmittlung();
         $heute = now()->toDateString();
-        $l = $e->ermitteln($emp, $heute);
         $rg = $e->rgSchwester($emp);
+        $l = $e->ermittelnMitSchwester($emp, $rg, $heute);
 
         return [
             'fall' => $l->fall, 'grundlohn' => $l->grundlohnText(), 'zuschlag' => $l->zuschlagText(),
             'begruendung' => $l->begruendung,
             'eg1_ab' => \Carbon\Carbon::parse(EntgeltgruppeEins::gueltigAb($heute))->format('d.m.Y'),
             'rg_employee_id' => $rg !== null ? (int) $rg->id : null,
+            // Ruling R4 Fall A: die verlinkte RG-Zeile gehoert evtl. einer anderen
+            // Person — dort einen Zuschlag einzutragen, loest den Fall nicht.
+            'rg_unklar' => $rg !== null && ($rg->zuordnung_unklar ?? false),
         ];
     }
 
