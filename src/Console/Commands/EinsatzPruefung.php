@@ -18,7 +18,6 @@ use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\VertragsPruefung;
 use Platform\Recruiting\Support\Arbeitserlaubnis;
 use Platform\Recruiting\Support\Bote;
-use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\EinsatzBezug;
 use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\TriggerRegeln;
@@ -412,13 +411,20 @@ class EinsatzPruefung extends Command
                     $z['abweichend']++;
                 }
 
+                // ---- F4: WER TRAEGT DIE NACHRICHT? (Begruendung unten beim
+                // Versand.) Schon hier ermittelt, weil auch die Pilot-Sperre
+                // daran haengt.
+                $bote = Bote::fuer($umfang['ids']);
+
                 // ---- Pilot-Sperre der HR-Faelle (Sebastian 19.10.2026: neue
-                // Features nur fuer die Pilotgruppe). Wer keine umgestellte
-                // Anstellung hat, bekaeme ohnehin keine Nachricht (Bote) — ein
-                // HR-Fall fuer ihn waere Arbeit am alten Bestand, die niemand
-                // bestellt hat. Es wird NUR das Anlegen zurueckgehalten:
-                // bestehende offene Faelle bleiben stehen (kein Aufraeumen).
-                $darfFallAnlegen = !$this->nurPilot((int) $rep->team_id) || PilotKreis::istImPilot((int) $rep->id);
+                // Features nur fuer die Pilotgruppe). Pilot heisst hier: es
+                // gibt einen Boten. DERSELBE Personen-Schnitt wie fuer die
+                // Nachricht (ganzer Umfang, auch person_key-Zweig und
+                // beendete Zeilen) — sonst bekaeme jemand die Nachricht, aber
+                // keinen HR-Fall, oder umgekehrt (Review Fix-Runde 1). Es wird
+                // NUR das Anlegen zurueckgehalten: bestehende offene Faelle
+                // bleiben stehen (kein Aufraeumen).
+                $darfFallAnlegen = !$this->nurPilot((int) $rep->team_id) || $bote !== null;
                 $pilotGesperrt = false;
 
                 // ---- Die harte Sperre. Sie haengt am MITARBEITER und
@@ -482,7 +488,7 @@ class EinsatzPruefung extends Command
                 // entschied die kleinste Kennung UNTER DEN KANDIDATEN, also
                 // der Zufall, wo gerade gebucht ist: derselbe Mensch bekam je
                 // nach Reihenfolge alles oder gar nichts.
-                $bote = Bote::fuer($umfang['ids']);
+                // $bote steht schon oben (Pilot-Sperre).
                 $amAltenPortal = $bote === null;
 
                 // ---- F2: NICHT NUR DER NAECHSTE EINSATZ. OffenePunkte

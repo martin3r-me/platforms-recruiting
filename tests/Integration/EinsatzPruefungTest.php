@@ -1308,6 +1308,52 @@ final class EinsatzPruefungTest extends TestCase
         $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
     }
 
+    /**
+     * Review Fix-Runde 1: Fall und Nachricht haengen am SELBEN Schnitt (Bote).
+     * Ist die einzige umgestellte Anstellung beendet, bekommt der Mensch die
+     * Nachricht ueber sie — dann auch den HR-Fall.
+     */
+    public function test_pilot_sperre_umgestellte_anstellung_beendet_zaehlt_wie_beim_boten(): void
+    {
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false, 'is_active' => false]);
+        $this->einbuchung($rg, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $rg->id)->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_schwester_nur_ueber_person_key_zaehlt_wie_beim_boten(): void
+    {
+        // Ohne Personen-Zeile, gleiche Kennung + gleiche Nummer: Zweig 2 des
+        // PersonScopeResolver sieht die umgestellte Schwester — der Bote auch.
+        $ma = $this->mitarbeiterOhneNachweise(['rec_person_id' => null, 'person_key' => 'p-pilot', 'phone' => '+4915133333333', 'is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->mitarbeiterOhneNachweise(['rec_person_id' => null, 'person_key' => 'p-pilot', 'phone' => '+4915133333333', 'is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $ma->id)->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 0 ', $this->letzteAusgabe);
+    }
+
+    public function test_pilot_sperre_ohne_jede_umgestellte_anstellung_im_umfang_kein_fall(): void
+    {
+        // Gegenprobe zu den beiden darueber: zwei Zeilen, keine umgestellt.
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false, 'portal_v2_since' => null]);
+        $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'is_eu_citizen' => false, 'portal_v2_since' => null, 'is_active' => false]);
+        $this->einbuchung($rg, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame(0, RecHrDeskCase::query()->count());
+        $this->assertStringContainsString('Nicht im Pilot, übersprungen: 1 ', $this->letzteAusgabe);
+    }
+
     public function test_pilot_sperre_laesst_bestehende_offene_faelle_stehen(): void
     {
         $alt = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false, 'portal_v2_since' => null]);

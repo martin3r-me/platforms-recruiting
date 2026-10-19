@@ -21,6 +21,11 @@ use Illuminate\Support\Facades\DB;
  * selbst: der Telefon-Zweig des PersonScopeResolver ist eine Uebergangs-
  * vermutung, und eine Vermutung soll niemanden in den Pilot ziehen.
  *
+ * Genutzt von der Themen-Auswahl (Eingang ueber EINE Nummer). Die
+ * Einsatz-Pruefung entscheidet dagegen ueber Bote::fuer() auf dem ganzen
+ * Personen-Umfang — dort muss die Pilot-Sperre der HR-Faelle genau dem
+ * Schnitt der Nachricht folgen (Review Fix-Runde 1).
+ *
  * Query Builder, zwei kleine indizierte Abfragen — laeuft je Eingang bzw.
  * je Mensch im Lauf, nie als Massenleser.
  */
