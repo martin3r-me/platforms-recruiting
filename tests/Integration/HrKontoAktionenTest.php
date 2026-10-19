@@ -6,6 +6,7 @@ use Illuminate\Container\Container;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Services\Comms\EinladungSender;
 use Platform\Recruiting\Services\HrKontoAktionen;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
@@ -29,6 +30,7 @@ final class HrKontoAktionenTest extends TestCase
     protected function tearDown(): void
     {
         Container::getInstance()->forgetInstance(DispoIdentityResolver::class);
+        Container::getInstance()->forgetInstance(EinladungSender::class);
         $this->hrWeltAbbauen();
         parent::tearDown();
     }
@@ -253,6 +255,110 @@ final class HrKontoAktionenTest extends TestCase
         $nichtRegistriert = $this->akte(['phone' => '+4915144444444', 'birth_date' => '1990-05-17']);
         $this->person([], $nichtRegistriert);
         $this->assertStringContainsString('Einladung neu', $this->aktionen()->setzeKontoZurueck($nichtRegistriert->id, self::NOTIZ)->meldung);
+        $this->assertCount(0, $this->vermerke());
+    }
+
+    // ------------------------------------------------------------ Einladung per WhatsApp (19.10.2026)
+
+    /** Sender-Attrappe mit festem Status; merkt sich Person und Code. */
+    private function einladungSender(string $status): object
+    {
+        $sender = new class($status) extends EinladungSender {
+            /** @var list<array{person:int, code:string}> */
+            public array $aufrufe = [];
+            public function __construct(private string $status) {}
+            public function sende(int $personId, string $klartext): string
+            {
+                $this->aufrufe[] = ['person' => $personId, 'code' => $klartext];
+
+                return $this->status;
+            }
+        };
+        Container::getInstance()->instance(EinladungSender::class, $sender);
+
+        return $sender;
+    }
+
+    public function test_einladung_mit_vorlage_wird_verschickt_und_link_bleibt_als_rueckfall(): void
+    {
+        $sender = $this->einladungSender(EinladungSender::STATUS_GESENDET);
+        $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);
+        $id = $this->person([], $ma);
+
+        $e = $this->aktionen()->ladeNeuEin($ma->id, self::NOTIZ);
+
+        $this->assertSame(HrAktionErgebnis::OK, $e->stufe);
+        $this->assertStringContainsString(HrKontoAktionen::EINLADUNG_GESENDET, $e->meldung);
+        $this->assertSame('Einladung per WhatsApp verschickt (gilt 7 Tage).', HrKontoAktionen::EINLADUNG_GESENDET);
+        $this->assertSame([['person' => $id, 'code' => (string) $e->einladungsCode]], $sender->aufrufe, 'der angezeigte Code ist der verschickte');
+        $this->assertNotNull($e->einladungsLink, 'Link/Code weiterhin angezeigt');
+        $this->assertSame($id, KontoWriter::personFuerEinladung((string) $e->einladungsCode));
+    }
+
+    /** Ohne Vorlage wie bisher — echter Sender, kein Feld gesetzt. */
+    public function test_einladung_ohne_vorlage_zeigt_nur_an_und_sagt_es(): void
+    {
+        $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);
+        $this->person([], $ma);
+
+        $e = $this->aktionen()->ladeNeuEin($ma->id, self::NOTIZ);
+
+        $this->assertSame(HrAktionErgebnis::OK, $e->stufe);
+        $this->assertStringContainsString('Keine Vorlage eingestellt — bitte selbst weitergeben.', $e->meldung);
+        $this->assertNotNull($e->einladungsCode);
+        $this->assertSame(EinladungSender::STATUS_NICHT_KONFIGURIERT, $this->logZeilen('recruiting.konto.einladung_versand')[0]['daten']['status']);
+    }
+
+    public function test_einladung_fehlschlag_ist_gelb_mit_grund_und_code(): void
+    {
+        $this->einladungSender(EinladungSender::STATUS_VORLAGE_UNTAUGLICH);
+        $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);
+        $this->person([], $ma);
+
+        $e = $this->aktionen()->ladeNeuEin($ma->id, self::NOTIZ);
+
+        $this->assertSame(HrAktionErgebnis::HINWEIS, $e->stufe);
+        $this->assertStringContainsString('Nicht per WhatsApp verschickt: Vorlage passt nicht', $e->meldung);
+        $this->assertStringContainsString('bitte selbst weitergeben', $e->meldung);
+        $this->assertNotNull($e->einladungsCode);
+        $this->assertSame('einladung_neu', $this->vermerke()->sole()->art, 'Einladung ist trotzdem erstellt');
+    }
+
+    public function test_zuruecksetzen_verschickt_die_neue_einladung_ebenfalls(): void
+    {
+        $sender = $this->einladungSender(EinladungSender::STATUS_GESENDET);
+        $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);
+        $id = $this->person(['password_hash' => Hash::make('ganz-geheim-2026'), 'registered_at' => '2026-10-01 10:00:00'], $ma);
+
+        $e = $this->aktionen()->setzeKontoZurueck($ma->id, self::NOTIZ);
+
+        $this->assertTrue($e->istOk());
+        $this->assertStringContainsString(HrKontoAktionen::EINLADUNG_GESENDET, $e->meldung);
+        $this->assertSame([['person' => $id, 'code' => (string) $e->einladungsCode]], $sender->aufrufe);
+    }
+
+    /**
+     * Pilot-Sperre am Konto-Kasten (Sebastian 19.10.2026): ohne neues Portal
+     * keine Einladung und kein Zuruecksetzen — nichts erzeugt, nichts
+     * verschickt, kein Vermerk.
+     */
+    public function test_ohne_neues_portal_keine_einladung_und_kein_zuruecksetzen(): void
+    {
+        $sender = $this->einladungSender(EinladungSender::STATUS_GESENDET);
+        $neu = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17', 'portal_v2_since' => null]);
+        $idNeu = $this->person([], $neu);
+        $reg = $this->akte(['phone' => self::NEU, 'birth_date' => '1990-05-17', 'portal_v2_since' => null]);
+        $idReg = $this->person(['password_hash' => Hash::make('ganz-geheim-2026'), 'registered_at' => '2026-10-01 10:00:00'], $reg);
+
+        foreach ([$this->aktionen()->ladeNeuEin($neu->id, self::NOTIZ), $this->aktionen()->setzeKontoZurueck($reg->id, self::NOTIZ)] as $e) {
+            $this->assertSame(HrAktionErgebnis::FEHLER, $e->stufe);
+            $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $e->meldung);
+            $this->assertStringContainsString('kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', $e->meldung, 'Wortlaut wie im Kommando');
+            $this->assertNull($e->einladungsCode);
+        }
+        $this->assertNull($this->personZeile($idNeu)->invite_token_hash);
+        $this->assertNotNull($this->personZeile($idReg)->password_hash, 'Passwort bleibt');
+        $this->assertSame([], $sender->aufrufe);
         $this->assertCount(0, $this->vermerke());
     }
 

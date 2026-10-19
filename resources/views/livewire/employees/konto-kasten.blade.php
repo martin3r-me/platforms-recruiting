@@ -68,6 +68,10 @@
                 <button type="button" class="{{ $knopfRot }}" wire:click="oeffne('konto_zuruecksetzen')" wire:loading.attr="disabled" wire:target="oeffne">Konto zurücksetzen</button>
             @endif
         </div>
+        {{-- Pilot-Sperre: statt „Einladung neu“ / „Konto zurücksetzen“ steht der Grund da (HrMitarbeiterListen::kasten). --}}
+        @if ($k['einladung_riegel'] !== null)
+            <p class="mt-2 text-sm text-amber-900">{{ $k['einladung_riegel'] }}</p>
+        @endif
     @endif
 
     @if ($verlauf !== [])
@@ -109,6 +113,10 @@
         <x-slot name="header">Einladung — nur jetzt sichtbar</x-slot>
         <div class="space-y-3 p-4 text-sm">
             @if ($einladungsCode !== null)
+                {{-- Ob die WhatsApp rausging (EinladungSender) — dieselbe Meldung wie im Kasten dahinter. --}}
+                @if ($meldung !== '')
+                    <div class="rounded-lg border px-3 py-2 {{ $meldungKlasse }}">{{ $meldung }}</div>
+                @endif
                 <div><span class="text-[var(--ui-muted)]">Link:</span> <code class="break-all">{{ $einladungsLink }}</code></div>
                 <div><span class="text-[var(--ui-muted)]">Code:</span> <code class="text-lg font-semibold tracking-widest">{{ $einladungsCode }}</code></div>
                 <p class="text-amber-900">Der Code ist ein Geheimnis: nur an den Menschen selbst, nicht in eine Gruppen-Unterhaltung. Er gilt sieben Tage und wird nicht noch einmal angezeigt.</p>
@@ -117,7 +125,7 @@
             @endif
         </div>
         <x-slot name="footer">
-            <x-ui-button variant="primary" wire:click="schliesseEinladung">Weitergegeben — schließen</x-ui-button>
+            <x-ui-button variant="primary" wire:click="schliesseEinladung">Schließen</x-ui-button>
         </x-slot>
     </x-ui-modal>
 </div>

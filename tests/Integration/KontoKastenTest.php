@@ -13,6 +13,7 @@ use Platform\Recruiting\Livewire\Employees\Show;
 use Platform\Recruiting\Livewire\HrDesk\Mitarbeiter;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrVermerk;
+use Platform\Recruiting\Services\Comms\EinladungSender;
 use Platform\Recruiting\Services\HrKontoAktionen;
 use Platform\Recruiting\Services\HrMitarbeiterListen;
 use Platform\Recruiting\Services\KontoWriter;
@@ -42,7 +43,7 @@ final class KontoKastenTest extends TestCase
     protected function tearDown(): void
     {
         $c = Container::getInstance();
-        foreach ([HrKontoAktionen::class, HrMitarbeiterListen::class, DispoIdentityResolver::class, \Livewire\Mechanisms\DataStore::class] as $n) {
+        foreach ([HrKontoAktionen::class, HrMitarbeiterListen::class, DispoIdentityResolver::class, \Livewire\Mechanisms\DataStore::class, EinladungSender::class] as $n) {
             $c->forgetInstance($n);
         }
         $this->hrWeltAbbauen();
@@ -321,6 +322,89 @@ final class KontoKastenTest extends TestCase
         $this->assertTrue($daten['knoepfe_aus']);
         $this->assertFalse($daten['kann_einladen']);
         $this->assertFalse($daten['kann_zuruecksetzen']);
+    }
+
+    // ------------------------------------------------------------ Einladung per WhatsApp + Pilot-Sperre (19.10.2026)
+
+    public function test_kasten_mit_vorlage_meldet_den_versand_und_zeigt_link_und_code(): void
+    {
+        $sender = new class extends EinladungSender {
+            public array $aufrufe = [];
+            public function sende(int $personId, string $klartext): string
+            {
+                $this->aufrufe[] = [$personId, $klartext];
+
+                return self::STATUS_GESENDET;
+            }
+        };
+        Container::getInstance()->instance(EinladungSender::class, $sender);
+        $akte = $this->akte(['birth_date' => '1990-05-17']);
+        $personId = $this->person([], $akte);
+        $k = $this->kasten($akte->id);
+
+        $k->oeffne('einladung_neu');
+        $k->notiz = 'Einladung per Telefon angekündigt.';
+        $k->bestaetige();
+
+        $code = (string) $this->geheim($k, 'einladungsCode');
+        $this->assertSame([[$personId, $code]], $sender->aufrufe);
+        $this->assertStringContainsString(HrKontoAktionen::EINLADUNG_GESENDET, $k->meldung);
+        $this->assertSame(HrAktionErgebnis::OK, $k->meldungStufe);
+        $this->assertTrue($k->einladungOffen, 'Link und Code bleiben als Rueckfall');
+        $this->assertStringNotContainsString($code, $k->meldung);
+    }
+
+    public function test_kasten_ohne_vorlage_zeigt_an_wie_bisher_mit_hinweis(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17']);
+        $this->person([], $akte);
+        $k = $this->kasten($akte->id);
+
+        $k->oeffne('einladung_neu');
+        $k->notiz = 'Einladung per Telefon angekündigt.';
+        $k->bestaetige();
+
+        $this->assertStringContainsString(HrKontoAktionen::EINLADUNG_OHNE_VORLAGE, $k->meldung);
+        $this->assertTrue($k->einladungOffen);
+        $this->assertNotNull($this->geheim($k, 'einladungsCode'));
+    }
+
+    /** Pilot-Sperre: der Kasten zeigt den Grund statt der Knoepfe, und die Aktion verweigert trotzdem selbst. */
+    public function test_kasten_ohne_neues_portal_zeigt_grund_statt_knopf_und_lehnt_ab(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17', 'portal_v2_since' => null]);
+        $personId = $this->person([], $akte);
+        $k = $this->kasten($akte->id);
+
+        $daten = $k->kasten();
+        $this->assertFalse($daten['kann_einladen']);
+        $this->assertFalse($daten['kann_zuruecksetzen']);
+        $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $daten['einladung_riegel']);
+
+        // Der Knopf fehlt — wer die Aktion trotzdem ausloest, bekommt den Grund.
+        $k->oeffne('einladung_neu');
+        $k->notiz = 'Einladung per Telefon angekündigt.';
+        $k->bestaetige();
+        $this->assertSame(HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT, $k->modalFehler);
+        $this->assertNull($this->geheim($k, 'einladungsCode'));
+        $this->assertNull($this->personZeile($personId)->invite_token_hash);
+        $this->assertCount(0, $this->vermerke());
+
+        // Im Pilot ist der Grund weg.
+        $imPilot = $this->akte(['birth_date' => '1990-05-17']);
+        $this->person([], $imPilot);
+        $this->assertNull($this->kasten($imPilot->id)->kasten()['einladung_riegel']);
+    }
+
+    public function test_blade_zeigt_den_riegel_im_knopf_bereich(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/konto-kasten.blade.php');
+        $start = strpos($blade, "@if (\$knoepfeAn)\n        <div class=\"mt-3 flex flex-wrap gap-2\">");
+        $this->assertNotFalse($start, 'Knopf-Bereich nicht gefunden');
+        $knopfBereich = substr($blade, (int) $start, (int) strpos($blade, '@if ($verlauf', (int) $start) - (int) $start);
+
+        $this->assertStringContainsString("@if (\$k['einladung_riegel'] !== null)", $knopfBereich);
+        $this->assertStringContainsString("{{ \$k['einladung_riegel'] }}", $knopfBereich);
     }
 
     // ------------------------------------------------------------ EinladungsRiegel::fuerPerson

@@ -14,6 +14,11 @@ final class EinladungsRiegelTest extends TestCase
         $this->assertSame('kein Geburtsdatum', EinladungsRiegel::grund('+4915111111111', true, true));
         $this->assertSame('kein WhatsApp', EinladungsRiegel::grund('+4915111111111', false, true));
         $this->assertNull(EinladungsRiegel::grund('+4915111111111', false, false));
-        $this->assertSame(['keine Nummer', 'kein Geburtsdatum', 'kein WhatsApp'], EinladungsRiegel::GRUENDE);
+        // Pilot-Sperre (19.10.2026): nach "keine Nummer", vor allem anderen.
+        $this->assertSame(EinladungsRiegel::KEIN_NEUES_PORTAL, EinladungsRiegel::grund('+4915111111111', true, true, true));
+        $this->assertSame('keine Nummer', EinladungsRiegel::grund(null, false, false, true));
+        $this->assertNull(EinladungsRiegel::grund('+4915111111111', false, false, false));
+        $this->assertSame('kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)', EinladungsRiegel::KEIN_NEUES_PORTAL);
+        $this->assertSame(['keine Nummer', EinladungsRiegel::KEIN_NEUES_PORTAL, 'kein Geburtsdatum', 'kein WhatsApp'], EinladungsRiegel::GRUENDE);
     }
 }

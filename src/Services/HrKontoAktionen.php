@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrVermerk;
 use Platform\Recruiting\Services\Comms\AufgabenSender;
+use Platform\Recruiting\Services\Comms\EinladungSender;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\Comms\VertragHinweisSender;
 use Platform\Recruiting\Support\Bote;
@@ -89,7 +90,20 @@ final class HrKontoAktionen
         'ohne_whatsapp'                => 'ohne WhatsApp bereitgestellt',
     ];
 
+    /**
+     * Pilot-Sperre (Sebastian 19.10.2026): Wortlaut des Kommandos plus der
+     * Grund, warum HR-Bewusstsein nicht reicht. Auch der Konto-Kasten zeigt
+     * ihn statt der Knoepfe (HrMitarbeiterListen::kasten).
+     */
+    public const KEIN_NEUES_PORTAL_TEXT = 'Kein neues Portal — ' . EinladungsRiegel::KEIN_NEUES_PORTAL
+        . '. Ohne neues Portal landet der Mensch nach der Anmeldung im Leeren.';
+
+    /** Zusatz zur Einladungs-Meldung je Versand-Status (EinladungSender). */
+    public const EINLADUNG_GESENDET = 'Einladung per WhatsApp verschickt (gilt 7 Tage).';
+    public const EINLADUNG_OHNE_VORLAGE = 'Keine Vorlage eingestellt — bitte selbst weitergeben.';
+
     private const RIEGEL_TEXT = [
+        EinladungsRiegel::KEIN_NEUES_PORTAL => self::KEIN_NEUES_PORTAL_TEXT,
         EinladungsRiegel::KEINE_NUMMER      => 'Keine Handynummer hinterlegt — ohne Nummer gibt es keinen Weg ins Konto.',
         EinladungsRiegel::KEIN_GEBURTSDATUM => 'Kein Geburtsdatum hinterlegt — ohne Geburtsdatum scheitert die Registrierung. Bitte erst in der Akte nachtragen.',
         EinladungsRiegel::KEIN_WHATSAPP     => 'Die Nummer ist als „kein WhatsApp“ bekannt — die Einladung käme nicht an.',
@@ -430,7 +444,19 @@ final class HrKontoAktionen
             $meldung = 'Neue Einladung erstellt. Frühere Einladungen gelten nicht mehr.';
         }
 
-        return HrAktionErgebnis::einladung($meldung, route('recruiting.public.konto-anlegen', ['token' => $token]), $token);
+        // Versand per Vorlage (19.10.2026). Link und Code bleiben in JEDEM
+        // Fall in der Einmal-Anzeige — als Rueckfall von Hand, falls die
+        // Nachricht nicht ankommt. Gelb, wenn sie nicht rausging, obwohl
+        // eine Vorlage eingestellt ist: dann muss HR handeln.
+        $status = app(EinladungSender::class)->sende($personId, $token);
+        [$zusatz, $stufe] = match ($status) {
+            EinladungSender::STATUS_GESENDET           => [self::EINLADUNG_GESENDET, HrAktionErgebnis::OK],
+            EinladungSender::STATUS_NICHT_KONFIGURIERT => [self::EINLADUNG_OHNE_VORLAGE, HrAktionErgebnis::OK],
+            default                                    => ['Nicht per WhatsApp verschickt: ' . EinladungSender::statusText($status)
+                . ' (Näheres im Log recruiting.konto.einladung_versand) — bitte selbst weitergeben.', HrAktionErgebnis::HINWEIS],
+        };
+
+        return HrAktionErgebnis::einladung($meldung . ' ' . $zusatz, route('recruiting.public.konto-anlegen', ['token' => $token]), $token, $stufe);
     }
 
     // ------------------------------------------------------------ Erinnert, aber keine Reaktion

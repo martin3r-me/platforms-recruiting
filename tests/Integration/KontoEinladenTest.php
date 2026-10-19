@@ -19,6 +19,7 @@ use Platform\Recruiting\Console\Commands\KontoEinladen;
 use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
+use Platform\Recruiting\Services\Comms\EinladungSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -1819,6 +1820,136 @@ final class KontoEinladenTest extends TestCase
         }
 
         $this->fail("Keine Tabellenzeile fuer Kennung {$kennung} in der Ausgabe:\n{$ausgabe}");
+    }
+
+    // ------------------------------------------------------------ --senden (19.10.2026)
+
+    /**
+     * Sender-Attrappe: Status je Person (Vorgabe gesendet), merkt sich Person
+     * und Code. Gebunden im Container des Tests — das Kommando holt den
+     * Sender ueber app().
+     *
+     * @param  array<int, string>  $statusJePerson
+     */
+    private function senderAttrappe(array $statusJePerson = []): object
+    {
+        $sender = new class($statusJePerson) extends EinladungSender {
+            /** @var array<int, string> */
+            public array $aufrufe = [];
+            public function __construct(private array $statusJePerson) {}
+            public function sende(int $personId, string $klartext): string
+            {
+                $this->aufrufe[$personId] = $klartext;
+
+                return $this->statusJePerson[$personId] ?? self::STATUS_GESENDET;
+            }
+        };
+        $this->container->instance(EinladungSender::class, $sender);
+
+        return $sender;
+    }
+
+    public function test_mit_senden_geht_je_person_die_vorlage_raus_mit_dem_angezeigten_code(): void
+    {
+        $sender = $this->senderAttrappe();
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--senden' => true]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame([$a, $b], array_keys($sender->aufrufe));
+        foreach ([$a, $b] as $id) {
+            $this->assertSame($id, KontoWriter::personFuerEinladung($sender->aufrufe[$id]), 'verschickt wird der gueltige Code');
+            $zeile = $this->tabellenZeile($ausgabe, $id);
+            $this->assertStringContainsString($sender->aufrufe[$id], $zeile, 'Code bleibt als Rueckfall sichtbar');
+            $this->assertStringContainsString('per WhatsApp verschickt', $zeile);
+        }
+        $this->assertStringContainsString('WhatsApp: 2 verschickt, 0 nicht verschickt', $ausgabe);
+        $this->assertStringNotContainsString('Verschickt wird ohne --senden nichts', $ausgabe);
+    }
+
+    public function test_mit_senden_steht_ein_fehlschlag_in_der_zeile_und_im_rueckgabewert(): void
+    {
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+        $this->senderAttrappe([$b => EinladungSender::STATUS_NICHT_KONFIGURIERT]);
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--senden' => true]);
+
+        $this->assertSame(1, $code, $ausgabe);
+        $this->assertStringContainsString('keine Vorlage eingestellt', $this->tabellenZeile($ausgabe, $b));
+        $this->assertStringContainsString('WhatsApp: 1 verschickt, 1 nicht verschickt', $ausgabe);
+        $this->assertStringContainsString('Wo die WhatsApp nicht rausging: Link oder Code gibt HR selbst weiter.', $ausgabe);
+        $this->assertNotNull($this->zeile($b)->invite_token_hash, 'eingeladen ist trotzdem');
+    }
+
+    public function test_ohne_senden_wird_nichts_verschickt(): void
+    {
+        $sender = $this->senderAttrappe();
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10']);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertNotNull($this->zeile($a)->invite_token_hash);
+        $this->assertSame([], $sender->aufrufe);
+        $this->assertStringContainsString('Verschickt wird ohne --senden nichts', $ausgabe);
+    }
+
+    public function test_probelauf_und_bericht_senden_nie(): void
+    {
+        $sender = $this->senderAttrappe();
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+
+        [, $probe] = $this->kommando(['--dry-run' => true, '--senden' => true]);
+        [, $bericht] = $this->kommando(['--bericht' => true, '--senden' => true]);
+
+        $this->assertSame([], $sender->aufrufe);
+        $this->assertNull($this->zeile($a)->invite_token_hash);
+        $this->assertStringContainsString('wuerde eingeladen und per WhatsApp verschickt', $probe);
+        $this->assertStringContainsString('nichts verschickt', $probe);
+        $this->assertStringContainsString('noch nicht eingeladen', $bericht);
+    }
+
+    /**
+     * Zweimal dieselbe Welle mit --senden schickt NICHT zweimal: wer eine
+     * laufende Einladung hat, wird uebersprungen. Gezielt ueber --ids geht
+     * es trotzdem.
+     */
+    public function test_mit_senden_ueberspringt_die_welle_laufende_einladungen(): void
+    {
+        $sender = $this->senderAttrappe();
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        $this->kommando(['--welle' => '1', '--senden' => true]);
+        $this->assertSame([$a], array_keys($sender->aufrufe));
+        $ersterCode = $sender->aufrufe[$a];
+
+        [, $zweite] = $this->kommando(['--welle' => '1', '--senden' => true]);
+        $this->assertSame([$a, $b], array_keys($sender->aufrufe), 'die zweite Welle nimmt den naechsten, nicht wieder den ersten');
+        $this->assertSame($a, KontoWriter::personFuerEinladung($ersterCode), 'die erste Einladung gilt weiter');
+        $this->assertStringContainsString('1 mit laufender Einladung uebersprungen', $zweite);
+
+        // Abgelaufen zaehlt nicht als laufend.
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addDays(8));
+        $sender->aufrufe = [];
+        $this->kommando(['--welle' => '10', '--senden' => true]);
+        $this->assertSame([$a, $b], array_keys($sender->aufrufe));
+
+        // Gezielt erneut: --ids.
+        $sender->aufrufe = [];
+        $this->kommando(['--ids' => (string) $a, '--senden' => true]);
+        $this->assertSame([$a], array_keys($sender->aufrufe));
     }
 
     /**

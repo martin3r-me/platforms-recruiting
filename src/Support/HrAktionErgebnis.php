@@ -37,9 +37,14 @@ final class HrAktionErgebnis
         return new self(self::FEHLER, $meldung);
     }
 
-    public static function einladung(string $meldung, string $link, string $code): self
+    /**
+     * Gruen, oder gelb, wenn die Einladung zwar erstellt, aber nicht per
+     * WhatsApp verschickt wurde (EinladungSender) — Link und Code reisen in
+     * beiden Faellen mit.
+     */
+    public static function einladung(string $meldung, string $link, string $code, string $stufe = self::OK): self
     {
-        return new self(self::OK, $meldung, $link, $code);
+        return new self($stufe === self::HINWEIS ? self::HINWEIS : self::OK, $meldung, $link, $code);
     }
 
     public function istOk(): bool

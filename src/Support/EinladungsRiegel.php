@@ -17,17 +17,31 @@ final class EinladungsRiegel
     public const KEIN_WHATSAPP = 'kein WhatsApp';
 
     /**
+     * Pilot-Sperre (Sebastian 19.10.2026): ohne aktive Anstellung mit neuem
+     * Portal (portal_v2_since) landet der Mensch nach dem Login auf
+     * 'ohne-ziel' — HR-Bewusstsein reicht nicht, die Einladung selbst muss
+     * verweigert werden. Wortlaut ist zugleich der Grund im Kommando
+     * recruiting:konto-einladen (frueher nur dort, seit 19.10. auch im
+     * Konto-Kasten).
+     */
+    public const KEIN_NEUES_PORTAL = 'kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)';
+
+    /**
      * Pruefreihenfolge — der erste zutreffende gewinnt; "keine Nummer" macht
-     * alle anderen erst gar nicht zur Frage.
+     * alle anderen erst gar nicht zur Frage, danach entscheidet das Portal
+     * (wer nicht im Pilot ist, braucht kein Geburtsdatum nachzutragen).
      *
      * @var list<string>
      */
-    public const GRUENDE = [self::KEINE_NUMMER, self::KEIN_GEBURTSDATUM, self::KEIN_WHATSAPP];
+    public const GRUENDE = [self::KEINE_NUMMER, self::KEIN_NEUES_PORTAL, self::KEIN_GEBURTSDATUM, self::KEIN_WHATSAPP];
 
-    public static function grund(?string $nummer, bool $ohneGeburtsdatum, bool $ohneWhatsapp): ?string
+    public static function grund(?string $nummer, bool $ohneGeburtsdatum, bool $ohneWhatsapp, bool $ohneNeuesPortal = false): ?string
     {
         if (trim((string) $nummer) === '') {
             return self::KEINE_NUMMER;
+        }
+        if ($ohneNeuesPortal) {
+            return self::KEIN_NEUES_PORTAL;
         }
         if ($ohneGeburtsdatum) {
             return self::KEIN_GEBURTSDATUM;
@@ -51,6 +65,7 @@ final class EinladungsRiegel
             $person->phone,
             KontoWriter::personenOhneGeburtsdatum([$personId]) !== [],
             self::ohneWhatsapp([$person]) !== [],
+            !PilotKreis::personHatNeuesPortal($personId),
         );
     }
 

@@ -18,6 +18,7 @@ use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\KontoStatus;
 use Platform\Recruiting\Support\LohnMa;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\SperrGruende;
@@ -495,6 +496,11 @@ final class HrMitarbeiterListen
         $gesperrt = $person !== null && $person->locked_at !== null;
         $registriert = $person !== null && $person->password_hash !== null;
         $knoepfeAus = $person === null || $stillgelegt !== null;
+        // Pilot-Sperre (Sebastian 19.10.2026): ohne neues Portal keine
+        // Einladung und kein Zuruecksetzen — der Kasten zeigt den Grund statt
+        // der Knoepfe; HrKontoAktionen prueft beim Klick erneut.
+        $ohneNeuesPortal = $person !== null && !PilotKreis::personHatNeuesPortal((int) $person->id);
+        $einladungMoeglich = !$knoepfeAus && !$gesperrt;
 
         return [
             'ohne_person'        => $person === null,
@@ -509,8 +515,9 @@ final class HrMitarbeiterListen
             'gruende'            => $gruende,
             'antrag_offen'       => $person !== null && $person->wechsel_wirksam_ab !== null,
             'verlauf'            => $verlauf,
-            'kann_einladen'      => !$knoepfeAus && !$gesperrt && !$registriert,
-            'kann_zuruecksetzen' => !$knoepfeAus && !$gesperrt && $registriert,
+            'kann_einladen'      => $einladungMoeglich && !$ohneNeuesPortal && !$registriert,
+            'kann_zuruecksetzen' => $einladungMoeglich && !$ohneNeuesPortal && $registriert,
+            'einladung_riegel'   => $einladungMoeglich && $ohneNeuesPortal ? HrKontoAktionen::KEIN_NEUES_PORTAL_TEXT : null,
             'knoepfe_aus'        => $knoepfeAus,
         ];
     }

@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Platform\Recruiting\Services\Comms\EinladungSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\EinladungsRiegel;
 use Platform\Recruiting\Support\PilotKreis;
@@ -16,12 +17,19 @@ use Throwable;
  * Der Knopf, mit dem HR einlaedt — und der Stand, an dem HR die Umstellung
  * abliest (Spec §3, Canvas 68).
  *
- * ER VERSCHICKT NICHTS. Die Meta-Vorlage fuer die Einladung ist nicht
- * genehmigt (Gate E). Dieses Kommando ERZEUGT die Einladung und ZEIGT sie;
- * weitergegeben wird sie von Hand. Daraus folgt eine Eigenheit, die unten
- * bei der Wiederholbarkeit noch einmal auftaucht: der Klartext des Codes
- * existiert ausschliesslich auf diesem Bildschirm — gespeichert ist nur sein
- * Hash.
+ * OHNE --senden VERSCHICKT ES NICHTS (Vorgabe, wie bis 19.10.2026). Dann
+ * ERZEUGT es die Einladung und ZEIGT sie; weitergegeben wird sie von Hand.
+ * Daraus folgt eine Eigenheit, die unten bei der Wiederholbarkeit noch einmal
+ * auftaucht: der Klartext des Codes existiert ausschliesslich auf diesem
+ * Bildschirm — gespeichert ist nur sein Hash.
+ *
+ * MIT --senden (Sebastian 19.10.2026, Gate E) geht je Person zusaetzlich die
+ * WhatsApp-Vorlage „Einladung zum Konto" raus (EinladungSender, Feld unter
+ * Einstellungen → Kommunikation → Mitarbeiterportal). Jede Zeile nennt den
+ * Versand-Status; Link und Code stehen weiter da (Rueckfall von Hand). Ist
+ * keine Vorlage eingestellt, heisst der Status "keine Vorlage eingestellt"
+ * und die Einladung ist trotzdem erzeugt. Der Probelauf (--dry-run) und
+ * --bericht verschicken NIE etwas.
  *
  * DER EINLADUNGSCODE IST DER LINK UND DER ABTIPPBARE CODE ZUGLEICH (Canvas
  * 68, Eintrag 1740, Ruling GD-4). Darum stehen in der Ausgabe beide Formen
@@ -58,8 +66,15 @@ use Throwable;
  * Bildschirm, den HR gerade liest. Wuerde ein zweiter Lauf offene
  * Einladungen ueberspringen, waere eine verlorene Ausgabe unwiederbringlich:
  * HR saehe die Person als "eingeladen" und kaeme nie wieder an ihren Code,
- * weil die Datenbank nur den Hash kennt. Sobald bei Gate E wirklich
- * verschickt wird, ist diese Abwaegung neu zu treffen.
+ * weil die Datenbank nur den Hash kennt.
+ *
+ * MIT --senden IST DIE ABWAEGUNG NEU GETROFFEN (19.10.2026): eine Welle
+ * ueberspringt Personen mit einer LAUFENDEN Einladung (Hash da, Frist nicht
+ * abgelaufen) und nennt ihre Zahl. Sonst bekaeme bei "--welle=50 --senden"
+ * zweimal hintereinander dieselben fuenfzig eine zweite WhatsApp (die
+ * Welle zaehlt nach Kennung), und die erste waere entwertet. Wer gezielt
+ * erneut schicken will, tippt --ids — eine getippte Kennung wird immer
+ * eingeladen.
  *
  * OHNE --welle KEIN VERSAND AN ALLE. Eine Welle ist eine bewusste Handlung;
  * ein versehentliches "recruiting:konto-einladen" darf nicht den ganzen
@@ -81,7 +96,8 @@ final class KontoEinladen extends Command
         {--ids= : Bestimmte Personen, komma-getrennt}
         {--welle= : Hoechstens so viele auf einmal}
         {--dry-run : Nur zeigen, was passieren wuerde}
-        {--bericht : Nur den Stand ausgeben, nichts verschicken}';
+        {--bericht : Nur den Stand ausgeben, nichts verschicken}
+        {--senden : Einladung zusaetzlich per WhatsApp-Vorlage verschicken (Einladung zum Konto)}';
 
     protected $description = 'Konto-Einladungen erzeugen und den Stand der Umstellung zeigen (eingeladen, registriert, nicht erreichbar)';
 
@@ -92,21 +108,14 @@ final class KontoEinladen extends Command
     private const GRUND_KEIN_WHATSAPP = EinladungsRiegel::KEIN_WHATSAPP;
 
     /**
-     * Pilot-Sperre (Sebastian 19.10.2026, Review Fix-Runde 1): ohne aktive
-     * Anstellung mit neuem Portal (portal_v2_since) fuehrt das Konto ins
-     * Leere — die Anmeldung endet in 'ohne-ziel', ein Passwort-Code ginge
-     * nicht raus. Solche Menschen werden nicht eingeladen und mit diesem
-     * Grund benannt. Nur hier im Kommando, nicht im EinladungsRiegel.
+     * Pilot-Sperre (Sebastian 19.10.2026): Wortlaut und Pruefreihenfolge
+     * liegen seit 19.10. in EinladungsRiegel, damit Kommando und
+     * Konto-Kasten dieselbe Regel und denselben Satz haben.
      */
-    private const GRUND_KEIN_NEUES_PORTAL = 'kein neues Portal (portal_v2_since fehlt — erst recruiting:portal-umstellen)';
+    private const GRUND_KEIN_NEUES_PORTAL = EinladungsRiegel::KEIN_NEUES_PORTAL;
 
-    /** Pruefreihenfolge: keine Nummer, dann kein neues Portal, dann EinladungsRiegel::GRUENDE. */
-    private const GRUENDE = [
-        EinladungsRiegel::KEINE_NUMMER,
-        self::GRUND_KEIN_NEUES_PORTAL,
-        EinladungsRiegel::KEIN_GEBURTSDATUM,
-        EinladungsRiegel::KEIN_WHATSAPP,
-    ];
+    /** Pruefreihenfolge: wie EinladungsRiegel::GRUENDE. */
+    private const GRUENDE = EinladungsRiegel::GRUENDE;
 
     public function handle(): int
     {
@@ -167,6 +176,10 @@ final class KontoEinladen extends Command
         // weil ihn sonst nichts mehr bemerkt. Dann ist diese Stelle neu zu
         // entscheiden — zusammen mit der Wiederholbarkeit, die aus demselben
         // Grund am selben Tag faellig wird (s. Klassen-Docblock).
+        // Entschieden 19.10.2026 (--senden): ein Versand-Ausfall geht in den
+        // Rueckgabewert, die Wiederholbarkeit ist neu geregelt (laufende
+        // Einladungen werden uebersprungen). Dieser Teilausfall bleibt eine
+        // Bildschirmzeile — er verengt nur und verschickt nichts zu viel.
         if ($getippt['unbrauchbar'] !== []) {
             $this->line(sprintf(
                 'Keine Kennung, uebergangen: %s',
@@ -190,6 +203,7 @@ final class KontoEinladen extends Command
     {
         $rohWelle  = $this->option('welle');
         $probelauf = (bool) $this->option('dry-run');
+        $senden    = (bool) $this->option('senden');
 
         // EINE WELLE IST EINE POSITIVE ZAHL, SONST IST SIE KEINE.
         //
@@ -250,14 +264,26 @@ final class KontoEinladen extends Command
         // andere Menge.
         usort($einladbar, static fn (object $a, object $b): int => (int) $a->id <=> (int) $b->id);
 
+        // Mit --senden ohne --ids: wer eine laufende Einladung hat, bekommt
+        // keine zweite WhatsApp (s. Klassen-Docblock). VOR dem Wellenschnitt,
+        // sonst fuellten die Uebersprungenen die Welle auf.
+        $laufend = 0;
+        if ($senden && $ids === []) {
+            $vorher    = count($einladbar);
+            $einladbar = array_values(array_filter($einladbar, fn (object $p): bool => !$this->hatLaufendeEinladung($p)));
+            $laufend   = $vorher - count($einladbar);
+        }
+
         $wartende = 0;
         if ($welle !== null && count($einladbar) > $welle) {
             $wartende  = count($einladbar) - $welle;
             $einladbar = array_slice($einladbar, 0, $welle);
         }
 
-        $zeilen      = [];
-        $gescheitert = 0;
+        $zeilen        = [];
+        $gescheitert   = 0;
+        $verschickt    = 0;
+        $nichtVerschickt = 0;
 
         foreach ($einladbar as $person) {
             $personId = (int) $person->id;
@@ -267,7 +293,7 @@ final class KontoEinladen extends Command
                     $personId,
                     (string) ($person->team_id ?? ''),
                     '...' . NummernwechselTafel::kurz((string) $person->phone),
-                    'wuerde eingeladen',
+                    $senden ? 'wuerde eingeladen und per WhatsApp verschickt' : 'wuerde eingeladen',
                     '',
                 ];
 
@@ -299,31 +325,44 @@ final class KontoEinladen extends Command
                 continue;
             }
 
-            $zeilen[] = [
+            $zeile = [
                 $personId,
                 (string) ($person->team_id ?? ''),
                 '...' . NummernwechselTafel::kurz((string) $person->phone),
                 $token,
                 '/recruiting/konto/anlegen/' . $token,
             ];
+
+            if ($senden) {
+                // Der Sender faengt Meta-Ausfaelle selbst; ein Status je Zeile.
+                $status = app(EinladungSender::class)->sende($personId, $token);
+                $status === EinladungSender::STATUS_GESENDET ? $verschickt++ : $nichtVerschickt++;
+                $zeile[] = EinladungSender::statusText($status);
+            }
+
+            $zeilen[] = $zeile;
         }
 
         if ($zeilen !== []) {
-            $this->table(
-                ['Person', 'Team', 'Nummer', 'Einladungscode', 'Link'],
-                $zeilen,
-            );
+            $kopf = ['Person', 'Team', 'Nummer', 'Einladungscode', 'Link'];
+            if ($senden && !$probelauf) {
+                $kopf[] = 'WhatsApp';
+            }
+            $this->table($kopf, $zeilen);
         }
 
         $this->zeigeNichtErreichbare($stand['nicht_erreichbar'], $ids !== []);
 
         if ($probelauf) {
             $this->line(sprintf(
-                'Probelauf: %d wuerden eingeladen, %d haben schon ein Konto, %d sind nicht erreichbar. Nichts geaendert.',
+                'Probelauf: %d wuerden eingeladen, %d haben schon ein Konto, %d sind nicht erreichbar. Nichts geaendert, nichts verschickt.',
                 count($zeilen),
                 count($stand['registriert']),
                 count($stand['nicht_erreichbar']),
             ));
+            if ($laufend > 0) {
+                $this->line("{$laufend} mit laufender Einladung wuerden uebersprungen (gezielt erneut: --ids).");
+            }
 
             return self::SUCCESS;
         }
@@ -340,14 +379,28 @@ final class KontoEinladen extends Command
             $this->line("{$wartende} warten auf die naechste Welle.");
         }
 
+        if ($laufend > 0) {
+            $this->line("{$laufend} mit laufender Einladung uebersprungen — keine zweite WhatsApp (gezielt erneut: --ids).");
+        }
+
+        if ($senden) {
+            $this->line(sprintf('WhatsApp: %d verschickt, %d nicht verschickt (Grund je Zeile, Naeheres im Log recruiting.konto.einladung_versand).', $verschickt, $nichtVerschickt));
+        }
+
         if ($zeilen !== []) {
             $this->line('Der Code ist ein Geheimnis: nur an den Menschen selbst, nicht in eine Gruppen-Unterhaltung.');
-            $this->line('Verschickt wird hier noch nichts — Link oder Code gibt HR selbst weiter.');
+            if (!$senden) {
+                $this->line('Verschickt wird ohne --senden nichts — Link oder Code gibt HR selbst weiter.');
+            } elseif ($nichtVerschickt > 0) {
+                $this->line('Wo die WhatsApp nicht rausging: Link oder Code gibt HR selbst weiter.');
+            }
             $this->line('Der Code steht NUR hier: gespeichert ist bloss sein Hash. '
                 . 'Ein weiterer Lauf erzeugt einen neuen und entwertet diesen.');
         }
 
-        return $gescheitert > 0 ? self::FAILURE : self::SUCCESS;
+        // Mit --senden ist das Kommando skriptfaehig — ein Teilausfall
+        // gehoert dann in den Rueckgabewert, weil ihn sonst niemand bemerkt.
+        return $gescheitert > 0 || $nichtVerschickt > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     // ----------------------------------------------------------------- Bericht
@@ -611,18 +664,14 @@ final class KontoEinladen extends Command
      */
     private function grund(object $person, array $ohneGeburtsdatum, array $ohneWhatsapp, array $mitNeuemPortal = []): ?string
     {
-        $grund = EinladungsRiegel::grund(
+        // "keine Nummer" sticht weiter alles; danach entscheidet das Portal
+        // (Reihenfolge in EinladungsRiegel::grund).
+        return EinladungsRiegel::grund(
             (string) $person->phone,
             isset($ohneGeburtsdatum[(int) $person->id]),
             isset($ohneWhatsapp[(int) $person->id]),
+            !isset($mitNeuemPortal[(int) $person->id]),
         );
-
-        // "keine Nummer" sticht weiter alles; danach entscheidet das Portal.
-        if ($grund !== EinladungsRiegel::KEINE_NUMMER && !isset($mitNeuemPortal[(int) $person->id])) {
-            return self::GRUND_KEIN_NEUES_PORTAL;
-        }
-
-        return $grund;
     }
 
     /**
@@ -699,6 +748,17 @@ final class KontoEinladen extends Command
             'Ohne Wirkung (gibt es nicht, gesperrt, stillgelegt oder ohne aktive Anstellung): %s',
             implode(', ', $fehlend),
         ));
+    }
+
+    /** Hash da und Frist noch nicht um — gemessen an now(), wie einladungsstand(). */
+    private function hatLaufendeEinladung(object $person): bool
+    {
+        if ($person->invite_token_hash === null || $person->invite_expires_at === null) {
+            return false;
+        }
+        $zeitpunkt = strtotime((string) $person->invite_expires_at);
+
+        return $zeitpunkt !== false && $zeitpunkt > now()->getTimestamp();
     }
 
     /**
