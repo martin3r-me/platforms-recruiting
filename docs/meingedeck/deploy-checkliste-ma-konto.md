@@ -93,7 +93,16 @@ Allgemeine Regeln, aus dem Code abgeleitet:
 | — | Portal-Benachrichtigung (bestehend) | `RecEmployee::sendPortalNotification` | `employee_portal_wa_template_id` (unverändert) | unverändert | unverändert | — | — | Altfehler: meldet Meta-`failed` als Erfolg (M:project_ma_portal_locked_fix) — nicht im Zweig geändert |
 | — | Konto-Einladung | **kein Sender** | — | — | — | — | — | HR gibt Link + Code von Hand weiter [`KontoEinladen.php`, S-HR §12.1] |
 
-**Eine Vorlage für alles (Sebastian 13.10.):** Eine universelle Meta-Vorlage „Hallo {{vorname}}, in deinem Mitarbeiterportal ist etwas für dich offen — schau bitte über den Knopf unten rein." + 1 URL-Knopf mit Variable passt in #6, #8, #9 und #10 (alle Platzhalter dort optional). Für #6 darf sie **kein `{{datum}}`** enthalten (wird seit dem Wegfall der Erinnerung vor dem Einsatz nicht mehr befüllt → kein Versand). #6 bedient auch den HR-Knopf „Erneut erinnern", der Text darf also keinen bestimmten Einsatz voraussetzen.
+**Zwei Vorlagen statt einer (Markus-Mail, Sebastian 19.10.2026)** — ersetzt „Eine Vorlage für alles" vom 13.10.:
+
+| Einstellungsfeld | Anlass | Vorlage (Vorschlagsname) | Text |
+|---|---|---|---|
+| #6 Offene Aufgaben — neu (Einsatz-Prüfung + HR-Knopf „Erneut erinnern") | Akte unvollständig | **Personalakte unvollständig** (`ma_portal_akte_unvollstaendig`) | „Hallo {{name}}, deine Personalakte ist unvollständig. Bitte reiche die Angaben / Unterlagen zeitnah ein, damit wir deinen Lohn ordnungsgemäß abrechnen dürfen." (Markus' Wortlaut, „dass" → „damit") |
+| #8 Nachweis läuft ab (Fristenlauf) | Nachweis läuft ab / abgelaufen | **Personalakte unvollständig** | wie #6 |
+| #9 Dokument liegt im Portal | Dokument lesen/bestätigen/unterschreiben, **auch Infos** mit WhatsApp-Haken | **Offene Aufgabe** (`ma_portal_hinweis`) | „Hallo {{name}}, in deinem Mitarbeiterportal von RheinGedeck liegt eine offene Aufgabe für dich vor. Bitte bearbeite diese über den Button unten. Viele Grüße Personalabteilung RheinGedeck" — Hinweis: passt nicht ganz zu reinen Infos (keine Aufgabe); neutraler wäre „… liegt etwas Neues für dich bereit. Du öffnest es über den Button unten." |
+| #10 Vertrag zur Unterschrift | Vertrag unterschreiben | **Offene Aufgabe** — oder leer lassen, dann nimmt der Sender #9 | wie #9 |
+
+Für beide: Kategorie UTILITY, Deutsch, `{{name}}` (= Vorname; erlaubt `name`/`vorname`/`1`, Beispiel „Max"), keine Kopfzeile mit Variable, **kein `{{datum}}`** (#6 befüllt es nicht → kein Versand), genau **ein** dynamischer Knopf „Website besuchen" mit URL `https://mitarbeiter.rheingedeck.de/recruiting/mitarbeiter/{{1}}` (Kurzform: leitet Umgestellte ins neue Portal, nach `--zurueck` keine 404), Beispielwert `{{1}}` = `0192f4a3-7c1e-7b2d-9a4f-3e8c5d6b1a20` (Portal-Token ist eine UUID v7, 36 Zeichen). Host vor dem Einreichen gegen die bestehende Vorlage abgleichen (Meta prüft die Basis-URL nicht). Klick → angemeldet: direkt ins Portal der Anstellung; sonst Konto-Anmeldung und zurück; dort Kasten „Noch zu erledigen". #6 bedient auch „Erneut erinnern" — der Text darf keinen bestimmten Einsatz voraussetzen.
 
 Name und Sprache kommen aus der gewählten Vorlage; die Sprach-Schlüssel `RECRUITING_*_VORLAGE_SPRACHE` gibt es nicht mehr. Die Sprache der Meta-Vorlage muss deutsch sein, weil die Texte deutsch sind — die Sender lesen sie aus der Vorlage. [Spec §3]
 
