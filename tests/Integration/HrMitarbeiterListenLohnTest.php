@@ -65,6 +65,28 @@ final class HrMitarbeiterListenLohnTest extends TestCase
         $this->assertSame((int) $rg->id, $zeilen[0]['rg_employee_id']);
         $this->assertSame((int) $ma->id, $zeilen[0]['ma_employee_id']);
         $this->assertStringContainsString('RG-Zuordnung unklar (gleiche Kennung, andere Person)', $zeilen[0]['begruendung']);
+        $this->assertTrue($zeilen[0]['zuordnung_unklar']);
+
+        // Kein Eingabefeld (Blade-Zweig) und Speichern an der Oberflaeche vorbei schreibt nichts.
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/hr-desk/mitarbeiter.blade.php');
+        $this->assertMatchesRegularExpression('/@elseif \(\$unklar\)\s*<div[^>]*>Zuordnung unklar: gleiche Kennung, andere Person — Personen in der Akte zusammenführen oder klären<\/div>\s*@else/u', $blade);
+        $this->authAls($this->team);
+        $c = new Mitarbeiter();
+        $c->zuschlagEingabe[$rg->id] = '1,10';
+        $c->speichereZuschlag($rg->id);
+        $this->assertSame(HrAktionErgebnis::FEHLER, $c->meldungStufe);
+        $this->assertStringContainsString('Zuordnung unklar', $c->meldung);
+        $this->assertNull(DB::table('rec_employees')->where('id', $rg->id)->value('zuschlag_manuell'));
+        $this->assertCount(1, $this->listen()->lohn($this->team));
+    }
+
+    /** Gegenprobe: normale Zeile ist nicht "unklar" und bleibt bearbeitbar. */
+    public function test_normale_zeile_ist_bearbeitbar(): void
+    {
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null]), $this->akte(['company' => 'MA']));
+
+        $zeilen = $this->listen()->lohn($this->team);
+        $this->assertFalse($zeilen[0]['zuordnung_unklar']);
     }
 
     /** Ruling R4 Fall B: weder Person noch Kennung — in der Liste, ohne RG-Id und ohne Eingabefeld. */

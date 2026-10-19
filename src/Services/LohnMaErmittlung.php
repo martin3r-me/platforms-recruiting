@@ -97,6 +97,30 @@ final class LohnMaErmittlung
         return $fremd;
     }
 
+    /**
+     * Ist diese RG-Zeile fuer eine aktive MA-Anstellung nur der Fall-A-Anker
+     * (gleiche Kennung, keine bestaetigte Person)? Dann darf HR dort keinen
+     * Zuschlag aus der Lohn-Liste eintragen: er loeste den Fall nicht und
+     * landete evtl. an der RG-Zeile einer anderen Person (Ruling zu R4).
+     */
+    public function istUnklarerAnker(RecEmployee $rg): bool
+    {
+        $key = trim((string) $rg->person_key);
+        if ($key === '') {
+            return false;
+        }
+        $mas = RecEmployee::query()->where('team_id', (int) $rg->team_id)->where('is_active', 1)
+            ->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->where('person_key', $key)->get();
+        foreach ($mas as $ma) {
+            $s = $this->rgSchwester($ma);
+            if ($s !== null && (int) $s->id === (int) $rg->id && ($s->zuordnung_unklar ?? false)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function rgSchwesterDerPerson(RecEmployee $ma): ?object
     {
         $q = $this->rgAbfrage()

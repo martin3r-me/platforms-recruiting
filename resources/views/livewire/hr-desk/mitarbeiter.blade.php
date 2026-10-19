@@ -230,15 +230,18 @@
                 @foreach ($zeilen as $z)
                     @php
                         $rgId = $z['rg_employee_id'];
+                        $unklar = (bool) ($z['zuordnung_unklar'] ?? false);
                     @endphp
                     <div wire:key="lohn-{{ $z['schluessel'] }}" class="flex flex-wrap items-start gap-3 px-4 py-3">
                         <div class="min-w-[14rem]">
                             @include('recruiting::livewire.hr-desk.partials.mensch', ['z' => $z])
                             <div class="mt-0.5 text-xs text-[var(--ui-muted)]">{{ $z['begruendung'] }}</div>
                         </div>
-                        {{-- Ruling R4 Fall B: ohne Personen-Zuordnung gibt es keine RG-Zeile, an der ein Zuschlag stehen koennte — Hinweis statt Eingabefeld. --}}
+                        {{-- Ruling R4: Fall B (keine Personen-Zuordnung) hat keine RG-Zeile, Fall A (gleiche Kennung, andere Person) nur einen Anker — ein Zuschlag dort loeste den Fall nicht. Hinweis statt Eingabefeld. --}}
                         @if ($rgId === null)
                             <div class="flex flex-1 flex-wrap items-center gap-2 text-xs text-[var(--ui-secondary)]">keine Personen-Zuordnung — RG-Anstellung in der Akte prüfen</div>
+                        @elseif ($unklar)
+                            <div class="flex flex-1 flex-wrap items-center gap-2 text-xs text-[var(--ui-secondary)]">Zuordnung unklar: gleiche Kennung, andere Person — Personen in der Akte zusammenführen oder klären</div>
                         @else
                             <div class="flex flex-1 flex-wrap items-center gap-2">
                                 <label class="text-xs text-[var(--ui-muted)]" for="zuschlag-{{ $rgId }}">RG-Zuschlag €/h</label>

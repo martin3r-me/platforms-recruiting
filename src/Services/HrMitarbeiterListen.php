@@ -726,7 +726,7 @@ final class HrMitarbeiterListen
      * fehlender oder unklarer Personen-Zuordnung; rg_employee_id ist dann die
      * RG-Zeile mit gleicher Kennung bzw. null (keine RG-Zeile bekannt).
      *
-     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:?int, ma_employee_id:int, begruendung:string}>
+     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:?int, ma_employee_id:int, zuordnung_unklar:bool, begruendung:string}>
      */
     public function lohn(int $teamId, string $suche = ''): array
     {
@@ -744,7 +744,13 @@ final class HrMitarbeiterListen
             // Ohne RG-Id (Ruling R4 Fall B: keine Personen-Zuordnung) zeigt die
             // Liste die Zeile mit Hinweis, aber ohne Eingabefeld — es gibt
             // keine RG-Anstellung, an der ein Zuschlag stehen koennte.
-            $treffer[(int) $ma->id] = ['rg' => $rg !== null ? (int) $rg->id : null, 'begruendung' => $l->begruendung];
+            // Fall A (gleiche Kennung, andere Person): RG-Id als Anker, aber nicht
+            // bearbeitbar — ein Zuschlag dort loeste den Fall nicht (Ruling zu R4).
+            $treffer[(int) $ma->id] = [
+                'rg' => $rg !== null ? (int) $rg->id : null,
+                'unklar' => $rg !== null && ($rg->zuordnung_unklar ?? false),
+                'begruendung' => $l->begruendung,
+            ];
         }
         if ($treffer === []) {
             return [];
@@ -762,7 +768,7 @@ final class HrMitarbeiterListen
             if ($maId === null || !self::passtSuche($m['name'], $suche)) {
                 continue;
             }
-            $zeilen[] = $m + ['rg_employee_id' => $treffer[$maId]['rg'], 'ma_employee_id' => $maId, 'begruendung' => $treffer[$maId]['begruendung']];
+            $zeilen[] = $m + ['rg_employee_id' => $treffer[$maId]['rg'], 'ma_employee_id' => $maId, 'zuordnung_unklar' => $treffer[$maId]['unklar'], 'begruendung' => $treffer[$maId]['begruendung']];
         }
 
         return $zeilen;

@@ -241,6 +241,14 @@ class Mitarbeiter extends Component
 
             return;
         }
+        // Fall-A-Anker (gleiche Kennung, andere Person) ist nicht bearbeitbar —
+        // auch nicht per $wire-Aufruf an der Oberflaeche vorbei (Ruling zu R4).
+        if ((new LohnMaErmittlung())->istUnklarerAnker($akte)) {
+            $this->meldung = 'Zuordnung unklar: diese RG-Anstellung gehört evtl. einer anderen Person — erst die Personen in der Akte zusammenführen oder klären.';
+            $this->meldungStufe = HrAktionErgebnis::FEHLER;
+
+            return;
+        }
         // Der Wert kommt per $wire.set und kann ein Array sein: nur Skalare zaehlen.
         $v = $this->zuschlagEingabe[$id] ?? '';
         // Nicht-Skalar zaehlt als ungueltige Eingabe (nie still als "leeren").
