@@ -13,6 +13,8 @@ final class DeployChecklisteInfosTest extends TestCase
 {
     private const MIGRATION = '2026_10_16_000001_add_info_fields_to_rec_documents';
 
+    private const MIGRATION_LOHN = '2026_10_19_000002_add_zuschlag_manuell_to_rec_employees';
+
     private function liste(): string
     {
         return (string) file_get_contents(dirname(__DIR__, 2) . '/docs/meingedeck/deploy-checkliste-ma-konto.md');
@@ -24,11 +26,12 @@ final class DeployChecklisteInfosTest extends TestCase
         $this->assertSame(1, preg_match('~### 4\.3 .*?(?=\n### 4\.4)~s', $liste, $abschnitt));
         preg_match_all('~^\| `(\d{4}_\d{2}_\d{2}_\d{6}_[a-z0-9_]+)` \|~m', $abschnitt[0], $m);
         $this->assertContains(self::MIGRATION, $m[1]);
+        $this->assertContains(self::MIGRATION_LOHN, $m[1]);
         foreach ($m[1] as $name) {
             $this->assertFileExists(dirname(__DIR__, 2) . "/database/migrations/{$name}.php");
         }
         $zahl = count($m[1]);
-        $this->assertSame(23, $zahl);
+        $this->assertSame(24, $zahl);
         $this->assertStringContainsString("alle {$zahl} „Ran\"", $abschnitt[0]);
         $this->assertStringContainsString("Keine der {$zahl} ist", $abschnitt[0]);
         $this->assertStringContainsString("`migrate`: {$zahl} Migrationen des Zweigs", $liste);

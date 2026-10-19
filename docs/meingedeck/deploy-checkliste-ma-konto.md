@@ -181,7 +181,7 @@ Ziel: denselben Ausgangszustand wie prod herstellen (Schema von `main`, echter B
 5. [ ] **Pin auf den Zweig**: aktueller Kopf von `feat/ma-konto` (Stand 12.10.: `edb12d57`, main eingemergt; vorher prüfen mit `git rev-parse --short origin/feat/ma-konto`), wie Schritt 1 mit `--ref <kopf>`, Forge-Deploy Demo.
 5a. [ ] **Sichttest im Browser (harter Schritt, VOR dem Einschalten der Einsatz-Prüfung):** Einstellungen → Kommunikation → Mitarbeiterportal: eine Vorlage wählen, Speichern, Fenster neu öffnen — Wahl steht noch da; zusätzlich Wert in `rec_applicant_settings.settings` prüfen. Bekannter Fehler: Selects verlieren beim Speichern die Auswahl. [M:project_settings_modal_select_save_bug]
 6. [ ] **Abschnitt 4.4–4.9 exakt wie auf prod fahren** (alle `--dry-run` zuerst). Erwartungswerte zum Vergleichen:
-   - `migrate`: 23 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
+   - `migrate`: 24 Migrationen des Zweigs (Liste 4.3), keine Fehler; zusätzlich `migrate:rollback --step=1` + `migrate` für `2026_10_09_000003` (S-Vertrag §8 verlangt MySQL migrate + rollback + migrate auf der Demo).
    - `nachweise-umziehen`: Demo 29.09. erzeugte **1759 Nachweise bei 1603 Datensätzen**. [M:project_personen_klammer_stufe1]
    - `personen-anlegen --dry-run`: vier Zahlen (Personen angelegt, Anstellungen verbunden, Nummern uneinig, Nummer nicht gesetzt) + Kennungen der HR-Sorten; prod-Vorflug erwartete **~1213 Personen-Zeilen**. [P-Klammer Z. 1127, M:project_personen_klammer_stufe1]
    - `seed-rec-contract-extra-fields`: falls in Schritt 4 schon gelaufen, meldet er nur „existiert bereits".
@@ -226,7 +226,7 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 
 - [ ] Zeitpunkt frei wählbar: Der Stundenlauf `einsatz-pruefung` ist durch den ausgeschalteten Schalter (Vorgabe) wirkungslos. [Spec §5]
 - [ ] Forge-Deploy starten. Skript: git pull, composer, FPM-Reload, vite build, `migrate --force`, `optimize:clear`. **Reißt der Deploy im npm-Teil, ist der PHP-Code schon live, aber `migrate`/`view:clear` fehlen** — dann sofort von Hand `php artisan migrate --force` und `php artisan view:clear`. Ohne migrate knallen: HR-Desk-Liste, MA-Akte, ZAS-Dispo-Import (Lieferung bleibt unverarbeitet → Reprocess), beide Stunden-Jobs. [M:reference_forge_deploy_skript_npm, M:project_ma_konto_merge_risiken]
-- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12|2026_10_13_00000[23]|2026_10_16|2026_10_17'` — alle 23 „Ran":
+- [ ] `php artisan migrate:status | grep -E '2026_09_2|2026_10_0|2026_10_12|2026_10_13_00000[23]|2026_10_16|2026_10_17|2026_10_19'` — alle 24 „Ran" (plus die main-Migration `2026_10_19_000001`, die der grep ebenfalls trifft):
 
 | Migration | Art | Hinweis |
 |---|---|---|
@@ -253,8 +253,9 @@ Wenn ein Schritt scheitert: **nicht auf prod gehen**. Häufige Ursachen laut Mem
 | `2026_10_16_000003_create_rec_document_events_table` | neue Tabelle `rec_document_events` — Verlauf je Dokument (wer hat was wann getan), nur anfügen, kein FK | down = drop (**Verlauf weg**) |
 | `2026_10_17_000001_create_rec_conversation_topics_table` | neue Tabelle `rec_conversation_topics` — Themen-Auswahl je Thread (Frage, Klick, Zweig, `routed_dispo`-Stempel) | down = drop |
 | `2026_10_17_000002_create_rec_conversation_followups_table` | neue Tabelle `rec_conversation_followups` — Nachfass-Marker „Offen lassen" | down = drop |
+| `2026_10_19_000002_add_zuschlag_manuell_to_rec_employees` | Spalte `zuschlag_manuell` an `rec_employees` (RG-Zuschlag von HR, Paket Lohn MA 4.14) | additiv |
 
-Keine der 23 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen.
+Keine der 24 ist eine Daten-Migration; die Datenschritte sind Kommandos (4.4). Auf main liegt zusätzlich `2026_10_12_000001_create_rec_delivery_failure_acks_table` („Nicht zugestellt") — läuft mit, falls noch nicht geschehen. Ebenso `2026_10_19_000001_add_zas_lohn_to_hr_data` (ZAS-Lohn-Inbound, main fff2ad69).
 
 ### 4.4 Einmal-Kommandos, in dieser Reihenfolge
 
@@ -343,7 +344,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 - [ ] `updates.csv`-Volumen nach dem ersten ZAS-Abruf (Spiegel → beide Gesellschaften). [S-Spiegel §9, M:project_zas_update_export_vorfall]
 
 ### 4.12 Paket Infos (fährt mit `feat/ma-konto`)
-- [ ] Kein eigener Merge/Deploy: das Paket liegt auf `feat/ma-konto` und geht mit 4.1–4.3 live. Die Migration `2026_10_16_000001_add_info_fields_to_rec_documents` ist in 4.3 enthalten (zum Zeitpunkt des Pakets 21 Migrationen, mit der Themen-Auswahl 4.13 jetzt 23; dabei `2026_10_16_000002_add_notify_mode_to_rec_documents` für den Haken „WhatsApp-Hinweis senden“ und `2026_10_16_000003_create_rec_document_events_table` für den Verlauf je Dokument), ihr `--pretend` in 2.4. `view:clear` aus 4.5 reicht. Kein neuer Zeitplan, keine neue Einstellung.
+- [ ] Kein eigener Merge/Deploy: das Paket liegt auf `feat/ma-konto` und geht mit 4.1–4.3 live. Die Migration `2026_10_16_000001_add_info_fields_to_rec_documents` ist in 4.3 enthalten (zum Zeitpunkt des Pakets 21 Migrationen, mit der Themen-Auswahl 4.13 und Lohn MA 4.14 jetzt 24; dabei `2026_10_16_000002_add_notify_mode_to_rec_documents` für den Haken „WhatsApp-Hinweis senden“ und `2026_10_16_000003_create_rec_document_events_table` für den Verlauf je Dokument), ihr `--pretend` in 2.4. `view:clear` aus 4.5 reicht. Kein neuer Zeitplan, keine neue Einstellung.
 - [ ] Automatik „an neue Mitarbeiter" greift nur für Anstellungen aus einer Bewerbung, deren Person erst nach der Veröffentlichung angelegt wurde (ZAS-Lieferungen ohne Bewerbung nie). Wer vorher angelegt wurde, das Portal aber noch nie geöffnet hat (z. B. frisch Geschulte zum Go-live), bekommt die Willkommensinfo NICHT automatisch → HR wählt diese einmalig als Empfänger (dann mit WhatsApp).
 - [ ] Sichttest: Dokumente → Umschalter „Info" → Text im Editor (fällt der Editor aus: Textfeld) → Vorschau → Haken „automatisch an neue Mitarbeiter" → Bereitstellen ohne Empfänger → neue Test-Anstellung umstellen → Portal öffnen: Kasten „Neu für dich" oben, Text mit Knöpfen (kein Klick nötig, Anzeigen zählt als gesehen) → Schließen → neu anmelden: kein Kasten → Reiter „Dokumente & Infos": Info mit „Gesehen".
 - [ ] Sichttest HR: Überblick zeigt „gesehen 1 von 1" und Abzeichen „automatisch an Neue seit …" (Info bleibt unter „Nur offene", solange der Haken sitzt); „Automatik beenden" nimmt nur den Haken (Info bleibt bei allen), Zurückziehen nimmt den Haken und die Info allen weg.
@@ -373,7 +374,7 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 | Versand | Vorlagen-Felder in den Einstellungen leeren (Mitarbeiterportal) bzw. Schalter „Einsatz-Prüfung läuft" aus | Kein `config:cache` nötig; bereits verschickte Nachrichten bleiben |
 | Notfallweg | `RECRUITING_KONTO_WEG4_AKTIV=false` (Not-Aus für alle Teams) oder Team-Haken aus | laufende Anträge: `konto-zuruecksetzen --offen` / `--stopp=<id>` |
 | Vertragscheck | Haken aus | offene Fälle schließt HR |
-| Schema | `migrate:rollback` möglich (alle 23 haben `down()`; Infos-Migration lässt die Datei-Spalten nullable) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
+| Schema | `migrate:rollback` möglich (alle 24 haben `down()`; Infos-Migration lässt die Datei-Spalten nullable) — **nicht empfohlen** | `rec_contracts`-down scheitert, sobald Verträge ohne Bewerbung existieren; `hr_desk_cases`-down lässt nullable stehen, wenn Fälle ohne Bewerber da sind; Drop von `rec_persons` löscht Konten + Passwörter; Drop `rec_documents*` verliert Zustellungen/Unterschriften |
 
 **Nicht rückholbar:** verschickte WhatsApps; vom Spiegel geschriebene Geschwister-Felder (kein Undo, nur `personendaten-abgleich --nach`); von ZAS bereits abgeholte `updates.csv`-Zeilen; angelegte HR-Fälle (HR schließt); verbrauchte `rec_persons`-Kennungen; Unterschriften im Portal.
 

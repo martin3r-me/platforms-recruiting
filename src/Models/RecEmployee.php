@@ -96,6 +96,7 @@ class RecEmployee extends Model
 
         // Iteration 3 — vollstaendiges HR-Field-Set
         'tax_class',
+        'zuschlag_manuell',
         'number_of_children',
         'account_holder',
         'religion',
@@ -168,6 +169,7 @@ class RecEmployee extends Model
 
     protected $casts = [
         'birth_date'                => 'date',
+        'zuschlag_manuell'          => 'decimal:2',
         'identity_card_valid_until' => 'date',
         'is_eu_citizen'             => 'boolean',
         'is_active'                 => 'boolean',
