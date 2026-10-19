@@ -89,9 +89,10 @@ final class PortalVorlagen
     /**
      * Der Pfad, auf den der Einladungs-Knopf zeigen muss — Route
      * recruiting.public.konto-anlegen (/recruiting/konto/anlegen/{token}).
-     * Ohne Host: der steht bei Meta und ist je Umgebung ein anderer.
+     * Ohne Host (der steht bei Meta und ist je Umgebung ein anderer), aber
+     * mit /recruiting davor — ein fremdes /x/konto/anlegen/ zaehlt nicht.
      */
-    public const EINLADUNG_PFAD = '/konto/anlegen/{{';
+    public const EINLADUNG_PFAD = '/recruiting/konto/anlegen/{{';
 
     /**
      * Positionen der dynamischen URL-Knoepfe, die auf die Konto-Anlage zeigen

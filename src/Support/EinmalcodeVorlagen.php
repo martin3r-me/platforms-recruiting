@@ -62,7 +62,7 @@ use Platform\Recruiting\Models\RecApplicantSettings;
  * schickt den Einladungscode (8 Zeichen, sieben Tage gueltig) als Parameter
  * des URL-Knopfs. Er ist laenger gueltig als ein Einmalcode und gehoert
  * genauso wenig in den Verlauf. Erkannt auf denselben Wegen: STRUKTUR =
- * ein URL-Knopf auf /konto/anlegen/{{..}} (PortalVorlagen::
+ * ein URL-Knopf auf /recruiting/konto/anlegen/{{..}} (PortalVorlagen::
  * einladungsKnopfPositionen), EINSTELLUNG = Feld PortalVorlagen::EINLADUNG
  * (GEHEIM_SCHLUESSEL). Geschwaerzt wird wie oben: alle Werte, also auch der
  * Knopf-Parameter. Der Sender schwaerzt zusaetzlich die GESPEICHERTEN Zeilen

@@ -45,6 +45,7 @@ final class EinladungSenderTest extends TestCase
     private int $kontoId;
     private int $vorlageId;
     private int $personId;
+    private int $threadId;
 
     protected function setUp(): void
     {
@@ -90,22 +91,14 @@ final class EinladungSenderTest extends TestCase
             $t->boolean('is_active')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
         });
-        // Die beiden CRM-Tabellen, in die handleSendResponse() schreibt — nur
-        // die Spalten, um die es hier geht.
-        $schema->create('comms_whatsapp_messages', function ($t) {
-            $t->increments('id');
-            $t->string('template_name')->nullable();
-            $t->text('template_params')->nullable();
-            $t->text('meta_payload')->nullable();
-            $t->string('status')->nullable();
-        });
-        $schema->create('comms_logs', function ($t) {
-            $t->increments('id');
-            $t->integer('message_id')->nullable();
-            $t->text('details')->nullable();
-        });
         $this->echteMigrationen();
         $this->kontoUndKanal();
+        $this->threadId = (int) DB::table('comms_whatsapp_threads')->insertGetId([
+            'team_id' => self::TEAM, 'comms_channel_id' => (int) DB::table('comms_channels')->value('id'),
+            'token' => 'thr-einl', 'remote_phone_number' => self::NUMMER,
+            'created_at' => self::JETZT, 'updated_at' => self::JETZT,
+        ]);
+        $this->meta->threadId = $this->threadId;
         $this->vorlageId = $this->vorlageAnlegen();
         $this->einstellungen([PortalVorlagen::EINLADUNG => $this->vorlageId]);
 
@@ -230,6 +223,10 @@ final class EinladungSenderTest extends TestCase
                 $body,
                 ['type' => 'BUTTONS', 'buttons' => [$knopf(self::URL)]],
             ]],
+            'konto/anlegen ohne /recruiting davor' => [[
+                $body,
+                ['type' => 'BUTTONS', 'buttons' => [$knopf('https://mitarbeiter.rheingedeck.de/fremd/konto/anlegen/{{1}}')]],
+            ]],
             'Knopf fuehrt woanders hin' => [[
                 $body,
                 ['type' => 'BUTTONS', 'buttons' => [$knopf('https://meingedeck.de/recruiting/mitarbeiter/neu/{{1}}')]],
@@ -326,6 +323,59 @@ final class EinladungSenderTest extends TestCase
         $this->assertStringNotContainsString(self::CODE, json_encode($this->log->zeilen), 'nie der Code im Log');
     }
 
+    /** Fix-Runde 1: nur die eigene Zeile wird nachgeschwaerzt — eine andere Nachricht/Protokollzeile bleibt, wie sie ist. */
+    public function test_fremde_nachricht_und_protokollzeile_bleiben_unberuehrt(): void
+    {
+        $fremdParams = json_encode([['type' => 'body', 'parameters' => [['type' => 'text', 'text' => self::CODE]]]]);
+        $fremdId = (int) DB::table('comms_whatsapp_messages')->insertGetId([
+            'comms_whatsapp_thread_id' => $this->threadId, 'direction' => 'outbound', 'template_name' => 'andere',
+            'template_params' => $fremdParams, 'meta_payload' => '{"x":"' . self::CODE . '"}', 'status' => 'sent',
+        ]);
+        DB::table('comms_logs')->insert([
+            'team_id' => self::TEAM, 'channel_type' => 'whatsapp', 'event' => 'template_sent', 'summary' => 'fremd',
+            'message_id' => $fremdId, 'details' => $fremdParams,
+        ]);
+
+        $this->assertSame(EinladungSender::STATUS_GESENDET, (new EinladungSender())->sende($this->personId, self::CODE));
+
+        $fremd = DB::table('comms_whatsapp_messages')->where('id', $fremdId)->first();
+        $this->assertSame($fremdParams, $fremd->template_params);
+        $this->assertSame('{"x":"' . self::CODE . '"}', $fremd->meta_payload);
+        $this->assertSame($fremdParams, DB::table('comms_logs')->where('message_id', $fremdId)->value('details'));
+        $eigen = DB::table('comms_whatsapp_messages')->where('id', '!=', $fremdId)->first();
+        $this->assertStringNotContainsString(self::CODE, (string) $eigen->template_params, 'die eigene ist geschwaerzt');
+    }
+
+    // ------------------------------------------------------------ Vorabpruefung / keine Ausnahme
+
+    public function test_vorabpruefung_nennt_den_grund_oder_null(): void
+    {
+        $sender = new EinladungSender();
+        $this->assertNull($sender->vorabPruefung(self::TEAM));
+
+        $this->komponenten([['type' => 'BODY', 'text' => 'Hallo {{name}}']]);
+        $this->assertStringContainsString('Vorlage passt nicht', (string) $sender->vorabPruefung(self::TEAM));
+
+        DB::table('comms_channels')->update(['is_active' => false]);
+        $this->komponenten([['type' => 'BODY', 'text' => 'x'], ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'url' => self::URL]]]]);
+        $this->assertStringContainsString('kein WhatsApp-Kanal', (string) $sender->vorabPruefung(self::TEAM));
+
+        $this->einstellungen([]);
+        $this->assertStringContainsString('keine Vorlage eingestellt', (string) $sender->vorabPruefung(self::TEAM));
+        $this->assertCount(0, $this->meta->calls, 'die Vorabpruefung verschickt nie');
+    }
+
+    /** Fix-Runde 1: ein Datenbankfehler (hier fehlt die Tabelle fuer die Pilot-Pruefung) verlaesst sende() nicht. */
+    public function test_ein_datenbankfehler_ist_fehlgeschlagen_statt_ausnahme(): void
+    {
+        $this->capsule->schema()->drop('rec_employees');
+
+        $this->assertSame(EinladungSender::STATUS_FEHLGESCHLAGEN, (new EinladungSender())->sende($this->personId, self::CODE));
+        $this->assertCount(0, $this->meta->calls);
+        $this->assertSame(EinladungSender::STATUS_FEHLGESCHLAGEN, $this->logZeilen()[0]['daten']['status']);
+        $this->assertStringNotContainsString(self::CODE, json_encode($this->log->zeilen));
+    }
+
     /** Zweite Linie: die Chat-Anzeige erkennt die Einladung auch selbst (Struktur und Einstellung). */
     public function test_die_chat_schwaerzung_erkennt_die_einladungs_vorlage(): void
     {
@@ -373,6 +423,7 @@ final class EinladungSenderTest extends TestCase
     {
         return new class {
             public array $calls = [];
+            public int $threadId = 0;
             private bool $lehntAb = false;
             private ?\Throwable $wirft = null;
             public function lehntAb(): void { $this->lehntAb = true; }
@@ -390,10 +441,13 @@ final class EinladungSenderTest extends TestCase
                     : ['messages' => [['id' => 'wamid.1']]];
                 $status = $this->lehntAb ? 'failed' : 'sent';
                 $id = (int) DB::table('comms_whatsapp_messages')->insertGetId([
+                    'comms_whatsapp_thread_id' => $this->threadId, 'direction' => 'outbound',
+                    'body' => "Template: {$templateName}", 'message_type' => 'template',
                     'template_name' => $templateName, 'template_params' => json_encode($components),
                     'meta_payload' => json_encode($payload), 'status' => $status,
                 ]);
                 DB::table('comms_logs')->insert([
+                    'team_id' => 3, 'channel_type' => 'whatsapp', 'event' => 'template_sent', 'summary' => "Template '{$templateName}'",
                     'message_id' => $id,
                     'details' => json_encode(['template_name' => $templateName, 'template_params' => $components, 'meta_response' => $payload]),
                 ]);
@@ -411,6 +465,10 @@ final class EinladungSenderTest extends TestCase
         foreach ([
             [$eigen, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
+            // Die beiden CRM-Tabellen, in die handleSendResponse() schreibt — echt (Fix-Runde 1).
+            [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
+            [$crm, 'database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php'],
+            [$crm, 'database/migrations/2026_03_23_000001_create_comms_logs_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ] as [$wurzel, $relativ]) {

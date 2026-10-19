@@ -1831,15 +1831,26 @@ final class KontoEinladenTest extends TestCase
      *
      * @param  array<int, string>  $statusJePerson
      */
-    private function senderAttrappe(array $statusJePerson = []): object
+    private function senderAttrappe(array $statusJePerson = [], ?string $vorabGrund = null, ?\Throwable $wirft = null): object
     {
-        $sender = new class($statusJePerson) extends EinladungSender {
+        $sender = new class($statusJePerson, $vorabGrund, $wirft) extends EinladungSender {
             /** @var array<int, string> */
             public array $aufrufe = [];
-            public function __construct(private array $statusJePerson) {}
+            /** @var list<int> */
+            public array $vorab = [];
+            public function __construct(private array $statusJePerson, private ?string $vorabGrund, private ?\Throwable $wirft) {}
+            public function vorabPruefung(int $teamId): ?string
+            {
+                $this->vorab[] = $teamId;
+
+                return $this->vorabGrund;
+            }
             public function sende(int $personId, string $klartext): string
             {
                 $this->aufrufe[$personId] = $klartext;
+                if ($this->wirft !== null) {
+                    throw $this->wirft;
+                }
 
                 return $this->statusJePerson[$personId] ?? self::STATUS_GESENDET;
             }
@@ -1916,6 +1927,52 @@ final class KontoEinladenTest extends TestCase
         $this->assertStringContainsString('wuerde eingeladen und per WhatsApp verschickt', $probe);
         $this->assertStringContainsString('nichts verschickt', $probe);
         $this->assertStringContainsString('noch nicht eingeladen', $bericht);
+    }
+
+    /**
+     * Fix-Runde 1: taugt die Vorlage nicht, bricht --senden ab, BEVOR jemand
+     * eingeladen ist — sonst uebersprange die naechste Welle alle sieben Tage
+     * lang. Auch der Probelauf nennt den Grund.
+     */
+    public function test_mit_senden_bricht_eine_untaugliche_vorlage_vor_der_ersten_einladung_ab(): void
+    {
+        $sender = $this->senderAttrappe([], 'keine Vorlage eingestellt — Keine Vorlage gewählt unter …');
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+
+        [$probeCode, $probe] = $this->kommando(['--dry-run' => true, '--senden' => true]);
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--senden' => true]);
+
+        foreach ([[$probeCode, $probe], [$code, $ausgabe]] as [$c, $text]) {
+            $this->assertSame(1, $c, $text);
+            $this->assertStringContainsString('Team ' . self::TEAM . ': keine Vorlage eingestellt', $text);
+            $this->assertStringContainsString('--senden abgebrochen, bevor jemand eingeladen wurde', $text);
+        }
+        $this->assertSame([self::TEAM, self::TEAM], $sender->vorab);
+        $this->assertNull($this->zeile($a)->invite_token_hash, 'niemand eingeladen');
+        $this->assertSame([], $sender->aufrufe);
+
+        // Ohne --senden laedt dieselbe Lage weiter ein (Anzeige von Hand).
+        $this->kommando(['--welle' => '10']);
+        $this->assertNotNull($this->zeile($a)->invite_token_hash);
+    }
+
+    /** Fix-Runde 1: wirft der Versand doch einmal, stehen die schon erzeugten Codes trotzdem in der Tabelle. */
+    public function test_eine_ausnahme_beim_senden_laesst_die_tabelle_stehen(): void
+    {
+        $this->senderAttrappe([], null, new \RuntimeException('kaputt'));
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--senden' => true]);
+
+        $this->assertSame(1, $code, $ausgabe);
+        foreach ([$a, $b] as $id) {
+            $this->assertStringContainsString('Versand fehlgeschlagen', $this->tabellenZeile($ausgabe, $id));
+        }
+        $this->assertStringContainsString('WhatsApp: 0 verschickt, 2 nicht verschickt', $ausgabe);
     }
 
     /**

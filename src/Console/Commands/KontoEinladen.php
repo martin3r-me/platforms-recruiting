@@ -76,6 +76,14 @@ use Throwable;
  * erneut schicken will, tippt --ids — eine getippte Kennung wird immer
  * eingeladen.
  *
+ * DAMIT DAS UEBERSPRINGEN NIEMANDEN STRANDEN LAESST (Fix-Runde 1): eine
+ * Welle mit --senden prueft VOR der ersten Einladung je Team die Vorlage
+ * (EinladungSender::vorabPruefung) und bricht bei einem Grund ab — auch im
+ * Probelauf. "Laufend" heisst deshalb praktisch "mit Vorlage eingeladen".
+ * Einen gespeicherten Versand-Status je Einladung gibt es nicht; wer trotz
+ * guter Vorlage einzeln scheitert (Meta lehnt ab), steht mit Grund in der
+ * Tabelle, der Lauf endet rot, und --ids holt ihn gezielt nach.
+ *
  * OHNE --welle KEIN VERSAND AN ALLE. Eine Welle ist eine bewusste Handlung;
  * ein versehentliches "recruiting:konto-einladen" darf nicht den ganzen
  * Bestand umstellen. Der Probelauf (--dry-run) bleibt frei — er schreibt
@@ -280,6 +288,32 @@ final class KontoEinladen extends Command
             $einladbar = array_slice($einladbar, 0, $welle);
         }
 
+        // Fix-Runde 1: mit --senden VOR jeder Einladung pruefen, ob die
+        // Vorlage jedes beteiligten Teams ueberhaupt verschickt werden kann
+        // (EinladungSender::vorabPruefung — dieselben Pruefungen wie beim
+        // Senden). Sonst luede die Welle alle ein, verschickte nichts, und die
+        // naechste Welle uebersprange sie sieben Tage lang als "laufend".
+        // Auch im Probelauf, damit er die Antwort vorwegnimmt.
+        if ($senden && $einladbar !== []) {
+            $sender = app(EinladungSender::class);
+            $gruende = [];
+            foreach (array_unique(array_map(static fn (object $p): int => (int) $p->team_id, $einladbar)) as $team) {
+                $grund = $sender->vorabPruefung($team);
+                if ($grund !== null) {
+                    $gruende[] = "Team {$team}: {$grund}";
+                }
+            }
+            if ($gruende !== []) {
+                foreach ($gruende as $zeile) {
+                    $this->error($zeile);
+                }
+                $this->error('--senden abgebrochen, bevor jemand eingeladen wurde: die Vorlage „Einladung zum Konto" kann so nicht verschickt werden. '
+                    . 'Erst die Einstellung richten (Einstellungen → Kommunikation → Mitarbeiterportal) oder ohne --senden einladen und von Hand weitergeben.');
+
+                return self::FAILURE;
+            }
+        }
+
         $zeilen        = [];
         $gescheitert   = 0;
         $verschickt    = 0;
@@ -334,8 +368,18 @@ final class KontoEinladen extends Command
             ];
 
             if ($senden) {
-                // Der Sender faengt Meta-Ausfaelle selbst; ein Status je Zeile.
-                $status = app(EinladungSender::class)->sende($personId, $token);
+                // Der Sender faengt alles selbst; der Riegel hier haelt die
+                // Tabelle mit den schon erzeugten Codes auch dann am Leben,
+                // wenn sich daran einmal etwas aendert.
+                try {
+                    $status = app(EinladungSender::class)->sende($personId, $token);
+                } catch (Throwable $e) {
+                    $status = EinladungSender::STATUS_FEHLGESCHLAGEN;
+                    Log::warning('recruiting.konto.einladung_versand_ausnahme', [
+                        'person_id' => $personId,
+                        'fehler'    => str_replace($token, '******', NummernSchwaerzung::anwenden($e->getMessage())),
+                    ]);
+                }
                 $status === EinladungSender::STATUS_GESENDET ? $verschickt++ : $nichtVerschickt++;
                 $zeile[] = EinladungSender::statusText($status);
             }

@@ -124,6 +124,39 @@ class EinladungSender
      */
     public function sende(int $personId, string $klartext): string
     {
+        // Fix-Runde 1: KEINE Ausnahme verlaesst diese Methode. Ein
+        // Datenbankfehler in resolveTarget, PilotKreis oder beim Vornamen
+        // risse sonst die Welle des Kommandos (und die Tabelle mit den Codes)
+        // mit — die Einladungen davor waeren erzeugt und nie angezeigt.
+        try {
+            return $this->sendeGeprueft($personId, $klartext);
+        } catch (\Throwable $e) {
+            return $this->fertig($personId, null, self::STATUS_FEHLGESCHLAGEN, $this->ohneCode($e->getMessage(), $klartext), 'warning');
+        }
+    }
+
+    /**
+     * Taugt die Einstellung des Teams fuer einen Versand? null = ja, sonst der
+     * Grund — dieselben Pruefungen wie in sende() (Feld gewaehlt, Vorlage
+     * genehmigt, Kanal da, Vorlage tauglich), ohne Person und ohne Versand.
+     *
+     * Fuer recruiting:konto-einladen --senden: ohne diese Vorabfrage luede
+     * eine Welle bei kaputter Einstellung alle ein, verschickte nichts, und
+     * die naechste Welle uebersprange sie sieben Tage lang als "laufend".
+     */
+    public function vorabPruefung(int $teamId): ?string
+    {
+        try {
+            $vorlage = $this->vorlageFuer($teamId);
+        } catch (\Throwable $e) {
+            return 'Pruefung der Vorlage gescheitert: ' . $e->getMessage();
+        }
+
+        return $vorlage['status'] === null ? null : self::statusText($vorlage['status']) . ' — ' . $vorlage['grund'];
+    }
+
+    private function sendeGeprueft(int $personId, string $klartext): string
+    {
         $person = DB::table('rec_persons')->where('id', $personId)->first(['id', 'team_id', 'phone']);
         if ($person === null || trim($klartext) === '') {
             return $this->fertig($personId, null, self::STATUS_FEHLGESCHLAGEN, 'Person oder Einladungscode fehlt.');
@@ -135,31 +168,15 @@ class EinladungSender
             return $this->fertig($personId, null, self::STATUS_NICHT_IM_PILOT, null);
         }
 
-        $teamId = (int) $person->team_id;
-
-        // Ohne Wahl gar nicht erst aufloesen (resolveTarget meldete sonst den
-        // irrefuehrenden Text der Eingangsbestaetigung).
-        $keineWahl = PortalVorlagen::meldungWennKeineWahl($teamId, PortalVorlagen::EINLADUNG);
-        if ($keineWahl !== null) {
-            return $this->fertig($personId, null, self::STATUS_NICHT_KONFIGURIERT, $keineWahl);
+        $geprueft = $this->vorlageFuer((int) $person->team_id);
+        if ($geprueft['status'] !== null) {
+            return $this->fertig($personId, null, $geprueft['status'], $geprueft['grund'], $geprueft['stufe']);
         }
 
-        $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, PortalVorlagen::EINLADUNG);
-        if ($ziel['error'] !== null) {
-            $feld = PortalVorlagen::FELDNAMEN[PortalVorlagen::EINLADUNG];
-            $status = $this->vorlageGenehmigt($teamId) ? self::STATUS_KEIN_KANAL : self::STATUS_NICHT_KONFIGURIERT;
-
-            return $this->fertig($personId, null, $status, PortalVorlagen::ORT . " → {$feld}: {$ziel['error']}", 'error');
-        }
-
+        $ziel = $geprueft['ziel'];
         $vorlage = $ziel['template'];
         $name = (string) $vorlage->name;
         $teile = (array) ($vorlage->components ?? []);
-
-        $untauglich = $this->untauglichWeil($teile);
-        if ($untauglich !== null) {
-            return $this->fertig($personId, null, self::STATUS_VORLAGE_UNTAUGLICH, "Vorlage \"{$name}\": {$untauglich}", 'error');
-        }
 
         $nummer = PhoneE164::normalize($person->phone);
         if ($nummer === null || $nummer === '') {
@@ -209,6 +226,41 @@ class EinladungSender
         }
 
         return $this->fertig($personId, $nummer, self::STATUS_GESENDET, null);
+    }
+
+    /**
+     * Einstellung → Vorlage → Kanal → Tauglichkeit, fuer sende() und
+     * vorabPruefung() dieselbe Kette. status null = alles in Ordnung, dann
+     * steht das Ergebnis von resolveTarget in 'ziel'.
+     *
+     * @return array{status: ?string, grund: ?string, stufe: string, ziel: ?array}
+     */
+    private function vorlageFuer(int $teamId): array
+    {
+        $nein = static fn (string $status, string $grund, string $stufe = 'error'): array => ['status' => $status, 'grund' => $grund, 'stufe' => $stufe, 'ziel' => null];
+
+        // Ohne Wahl gar nicht erst aufloesen (resolveTarget meldete sonst den
+        // irrefuehrenden Text der Eingangsbestaetigung).
+        $keineWahl = PortalVorlagen::meldungWennKeineWahl($teamId, PortalVorlagen::EINLADUNG);
+        if ($keineWahl !== null) {
+            return $nein(self::STATUS_NICHT_KONFIGURIERT, $keineWahl, 'info');
+        }
+
+        $ziel = app(HoldingTemplateSender::class)->resolveTarget($teamId, PortalVorlagen::EINLADUNG);
+        if ($ziel['error'] !== null) {
+            $feld = PortalVorlagen::FELDNAMEN[PortalVorlagen::EINLADUNG];
+            $status = $this->vorlageGenehmigt($teamId) ? self::STATUS_KEIN_KANAL : self::STATUS_NICHT_KONFIGURIERT;
+
+            return $nein($status, PortalVorlagen::ORT . " → {$feld}: {$ziel['error']}");
+        }
+
+        $name = (string) $ziel['template']->name;
+        $untauglich = $this->untauglichWeil((array) ($ziel['template']->components ?? []));
+        if ($untauglich !== null) {
+            return $nein(self::STATUS_VORLAGE_UNTAUGLICH, "Vorlage \"{$name}\": {$untauglich}");
+        }
+
+        return ['status' => null, 'grund' => null, 'stufe' => 'info', 'ziel' => $ziel];
     }
 
     /**
