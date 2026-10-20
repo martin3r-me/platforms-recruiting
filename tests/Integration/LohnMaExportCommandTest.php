@@ -161,7 +161,8 @@ class LohnMaExportCommandTest extends TestCase
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
         $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 2, 'nur_ma' => 2, 'steuerklasse_fehlt' => 1], $r['zahlen']);
-        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 7], $r['vergleich']);
+        // unbekannt (MA2) + steuerklasse_fehlt (MA6) liefern beide Zellen leer: wir_leer (I2).
+        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 5, 'wir_leer' => 2], $r['vergleich']);
         $this->assertSame(7, $r['gesamt']);
         $this->assertSame(1, $r['sechs'], 'nur Zeilen mit +1 EUR: RG 1-5 + MA 6, Zuschlag bekannt');
         $this->assertSame(0, $r['markiert']);
@@ -172,11 +173,16 @@ class LohnMaExportCommandTest extends TestCase
         $this->assertCount(8, $zeilen);
         $ma2Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA2'))[0];
         $this->assertSame('unbekannt', $ma2Zeile[5]);
-        $this->assertSame('15,33', $ma2Zeile[6]);
+        $this->assertSame('', $ma2Zeile[6], 'Pre-Merge-Review I2: Grundlohn leer, ZAS behaelt sein Paar');
         $this->assertSame('', $ma2Zeile[7]);
+        $this->assertSame('wir_leer', $ma2Zeile[11]);
         $ma6Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA6'))[0];
         $this->assertSame('steuerklasse_fehlt', $ma6Zeile[5]);
+        $this->assertSame('', $ma6Zeile[6], 'Pre-Merge-Review I2: auch der Grundlohn leer');
         $this->assertSame('', $ma6Zeile[7], 'leere Zelle statt falschem Wert');
+        $this->assertSame('wir_leer', $ma6Zeile[11]);
+        $ma3Zeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => $z[1] === 'MA3'))[0];
+        $this->assertSame('15,33', $ma3Zeile[6], 'bekannter Zuschlag: Grundlohn wie bisher');
     }
 
     public function test_vergleich_mit_dem_zas_stand_der_ma_zeile(): void
@@ -187,11 +193,18 @@ class LohnMaExportCommandTest extends TestCase
         $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 2]);
         $alt = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'tax_class' => '6']);
         $this->zasLohn($alt, 14.96, 1.37);                                                             // veralteter Stand
-        $this->zeile(['company' => 'MA']);                                                              // nichts geliefert
+        $this->zeile(['company' => 'MA', 'rec_person_id' => 3]);                                       // nur MA, nichts geliefert
+        // Pre-Merge-Review I2: unbekannt bzw. Steuerklasse fehlt — wir liefern
+        // beide Zellen leer, ZAS behaelt sein Paar; das ist nie "abweichend".
+        $unbekannt = $this->zeile(['company' => 'MA']);                                                // ohne Person = unbekannt
+        $this->zasLohn($unbekannt, 14.96, 1.37);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 4]);
+        $ohneKlasse = $this->zeile(['company' => 'MA', 'rec_person_id' => 4]);                        // MA-Klasse leer
+        $this->zasLohn($ohneKlasse, 14.53, 0.80);
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
-        $this->assertSame(['gleich' => 1, 'abweichend' => 1, 'zas_leer' => 1], $r['vergleich']);
+        $this->assertSame(['gleich' => 1, 'abweichend' => 1, 'zas_leer' => 1, 'wir_leer' => 2], $r['vergleich']);
     }
 
     public function test_markieren_setzt_genau_die_ma_zeilen_des_laufs(): void

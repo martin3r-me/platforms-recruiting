@@ -2,6 +2,8 @@
 @if ($lohn !== null)
     @php
         $zuschlagText = $lohn['zuschlag'] ?? null;
+        // Pre-Merge-Review I2: unbekannt/steuerklasse_fehlt — Grundlohn geht wie der Zuschlag leer raus.
+        $grundlohnText = $lohn['grundlohn'] ?? null;
         $istUnbekannt = $lohn['fall'] === 'unbekannt';
         $steuerklasseFehlt = $lohn['fall'] === 'steuerklasse_fehlt';
         $rgUnklar = (bool) ($lohn['rg_unklar'] ?? false);
@@ -14,7 +16,11 @@
         </div>
         <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
             <dt class="text-[var(--ui-muted)]">Grundlohn</dt>
-            <dd class="font-semibold text-gray-900">{{ $lohn['grundlohn'] }} €</dd>
+            @if ($grundlohnText === null)
+                <dd class="font-semibold text-red-700">leer</dd>
+            @else
+                <dd class="font-semibold text-gray-900">{{ $grundlohnText }} €</dd>
+            @endif
             <dt class="text-[var(--ui-muted)]">Zuschlag</dt>
             @if ($zuschlagText === null)
                 <dd class="font-semibold text-red-700">leer</dd>

@@ -55,7 +55,7 @@ class LohnMaExport extends Command
             $this->line(sprintf('%-10s %5d', $fall, $n));
         }
         $this->info(sprintf('%d MA-Zeilen, davon +1 € (RG 1–5, MA 6): %d — CSV: %s', $r['gesamt'], $r['sechs'], $r['csv']));
-        $this->line(sprintf('Vergleich mit ZAS-Stand: gleich %d, abweichend %d, bei ZAS leer %d', $r['vergleich']['gleich'], $r['vergleich']['abweichend'], $r['vergleich']['zas_leer']));
+        $this->line(sprintf('Vergleich mit ZAS-Stand: gleich %d, abweichend %d, bei ZAS leer %d, von uns leer (ZAS behaelt sein Paar) %d', $r['vergleich']['gleich'], $r['vergleich']['abweichend'], $r['vergleich']['zas_leer'], $r['vergleich']['wir_leer']));
         $this->info($markieren ? sprintf('MARKIERT: %d Zeilen gehen in die naechste updates.csv.', $r['markiert']) : 'Keine Marker gesetzt (ohne --markieren).');
 
         return self::SUCCESS;
@@ -70,7 +70,7 @@ class LohnMaExport extends Command
         $tag = $datum ?? now()->toDateString();
         $e = new LohnMaErmittlung();
         $zahlen = [LohnMa::ANGLEICH => 0, LohnMa::ZAS => 0, LohnMa::UNBEKANNT => 0, LohnMa::MANUELL => 0, LohnMa::NUR_MA => 0, LohnMa::STEUERKLASSE_FEHLT => 0];
-        $vergleich = ['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 0];
+        $vergleich = ['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 0, 'wir_leer' => 0];
         $sechs = 0;
         $ids = [];
 
@@ -97,10 +97,15 @@ class LohnMaExport extends Command
             }
             // Vergleich mit dem ZAS-Stand DIESER MA-Zeile (Inbound seit 19.10.2026):
             // nur eine Zahl fuer die Ankuendigung, keine Abarbeitungsliste.
+            // wir_leer (Pre-Merge-Review I2): wir liefern Grundlohn UND Zuschlag
+            // leer (unbekannt, steuerklasse_fehlt) — ZAS behaelt sein Paar, die
+            // Zeile ist weder gleich noch abweichend, egal was bei ZAS steht.
             $zas = DB::table('rec_employee_hr_data')->where('rec_employee_id', (int) $ma->id)->first(['zas_grundlohn', 'zas_zuschlag']);
             $zasGrund = $zas?->zas_grundlohn !== null ? (float) $zas->zas_grundlohn : null;
             $zasZu = $zas?->zas_zuschlag !== null ? (float) $zas->zas_zuschlag : null;
-            if ($zasGrund === null || $zasGrund <= 0) {
+            if ($l->paarLeer()) {
+                $v = 'wir_leer';
+            } elseif ($zasGrund === null || $zasGrund <= 0) {
                 $v = 'zas_leer';
             } elseif (abs($zasGrund - $l->grundlohn) < 0.005 && $l->zuschlag !== null && $zasZu !== null && abs($zasZu - $l->zuschlag) < 0.005) {
                 $v = 'gleich';
@@ -111,7 +116,7 @@ class LohnMaExport extends Command
             $ids[] = (int) $ma->id;
             fputcsv($fh, [
                 $ma->id, (string) $ma->personnel_number, trim($ma->first_name . ' ' . $ma->last_name),
-                $ma->rec_person_id, $rg?->id, $l->fall, $l->grundlohnText(), $l->zuschlagText() ?? '',
+                $ma->rec_person_id, $rg?->id, $l->fall, $l->grundlohnText() ?? '', $l->zuschlagText() ?? '',
                 (string) $ma->tax_class,
                 $zasGrund === null ? '' : LohnMa::zahl($zasGrund), $zasZu === null ? '' : LohnMa::zahl($zasZu), $v,
                 $l->begruendung,

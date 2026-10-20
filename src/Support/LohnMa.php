@@ -14,6 +14,13 @@ namespace Platform\Recruiting\Support;
  * unbekannt (Bestand ohne Bewerbung, nichts eingetragen), bleibt der
  * Zuschlag LEER — ein geratener Betrag landet im Lohn, ein leerer faellt auf.
  *
+ * In beiden Leer-Faellen (unbekannt, steuerklasse_fehlt) geht auch der
+ * Grundlohn LEER raus (Pre-Merge-Review I2, 20.10.2026): ZAS behaelt dann
+ * sein bisheriges, zueinander passendes Paar. Neuer Grundlohn 15,33 neben
+ * einem alten ZAS-Zuschlag, der auf 14,96 / 14,53 gerechnet war, ergaebe
+ * einen zu hohen Gesamtlohn. Der Wert $grundlohn bleibt intern EG 1 (Anzeige
+ * der Rechnung, Vertrag), nur der Exporttext grundlohnText() ist null.
+ *
  * Reine Wertklasse, kein Framework/DB.
  */
 final class LohnMa
@@ -64,7 +71,7 @@ final class LohnMa
         // Unbekannter RG-Zuschlag hat Vorrang vor der Steuerklasse.
         if ($rgZuschlag === null) {
             $teile[] = 'RG-Zuschlag unbekannt (keine Bewerbung, nichts eingetragen)';
-            $teile[] = 'Zuschlag leer';
+            $teile[] = self::PAAR_LEER;
 
             return new self(self::UNBEKANNT, $eg1, null, implode(' · ', $teile));
         }
@@ -80,13 +87,13 @@ final class LohnMa
             self::euro($gesamt), self::zahl($mindestlohn), self::zahl($rgZuschlag), $herkunft, self::euro($angleich));
 
         // Steuerklasse an MA oder RG leer: der +1-Euro-Vergleich ist nicht
-        // moeglich. Lieber leere Zelle (ZAS behaelt seinen Wert) als ein
-        // falscher Wert.
+        // moeglich. Lieber leere Zellen (ZAS behaelt sein Paar aus Grundlohn
+        // und Zuschlag) als ein falscher Wert.
         $ma = trim((string) $steuerklasseMa);
         $rg = trim((string) $steuerklasseRg);
         if ($ma === '' || $rg === '') {
             $fehlt = $ma === '' && $rg === '' ? 'MA und RG' : ($ma === '' ? 'MA' : 'RG');
-            $teile[] = 'Steuerklasse fehlt (' . $fehlt . ') — Zuschlag leer, ZAS behält seinen Wert';
+            $teile[] = 'Steuerklasse fehlt (' . $fehlt . ') — ' . self::PAAR_LEER;
 
             return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile));
         }
@@ -116,12 +123,31 @@ final class LohnMa
      */
     public static function unbekanntWeil(float $eg1, string $grund): self
     {
-        return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, 'Zuschlag leer']));
+        return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, self::PAAR_LEER]));
     }
 
-    public function grundlohnText(): string
+    /** Begruendungs-Schluss der beiden Leer-Faelle (Pre-Merge-Review I2). */
+    public const PAAR_LEER = 'Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar';
+
+    /**
+     * Grundlohn fuer den ZAS-Export. Null (leere Zelle) in den Faellen
+     * unbekannt und steuerklasse_fehlt: Grundlohn und Zuschlag gehen nur
+     * zusammen raus, sonst passt der neue Grundlohn nicht zum alten
+     * ZAS-Zuschlag (Pre-Merge-Review I2).
+     */
+    public function grundlohnText(): ?string
     {
+        if ($this->paarLeer()) {
+            return null;
+        }
+
         return self::zahl($this->grundlohn);
+    }
+
+    /** Geht in diesem Fall weder Grundlohn noch Zuschlag an ZAS? */
+    public function paarLeer(): bool
+    {
+        return $this->fall === self::UNBEKANNT || $this->fall === self::STEUERKLASSE_FEHLT;
     }
 
     public function zuschlagText(): ?string

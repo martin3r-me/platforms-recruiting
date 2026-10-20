@@ -534,6 +534,8 @@ class ZasEmployeeFieldResolver
      * Support\EntgeltgruppeEins) — der Mindestlohn ist nur fuer RG richtig
      * (Markus 14.10.2026, E14/E15). Zuschlag und Angleich: siehe
      * getZuschlag() und LohnMaErmittlung (Spec Lohn MA 2026-10-19).
+     * Kennen wir den Zuschlag nicht (unbekannt, steuerklasse_fehlt), bleibt
+     * auch der Grundlohn leer — ZAS behaelt sein Paar (Pre-Merge-Review I2).
      */
     protected function getGrundlohn(RecEmployee $employee): ?string
     {

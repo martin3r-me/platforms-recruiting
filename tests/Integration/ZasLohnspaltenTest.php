@@ -168,6 +168,7 @@ final class ZasLohnspaltenTest extends TestCase
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 22, 'person_key' => 'k-21', 'tax_class' => '1']);
 
         $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNull($this->resolver()->col($ma, 'Grundlohn'));
         $e = new \Platform\Recruiting\Services\LohnMaErmittlung();
         $l = $e->ermitteln($ma);
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::UNBEKANNT, $l->fall);
@@ -191,6 +192,7 @@ final class ZasLohnspaltenTest extends TestCase
         $ma = $this->zeile(['company' => 'MA', 'tax_class' => '1']);
 
         $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNull($this->resolver()->col($ma, 'Grundlohn'), 'Pre-Merge-Review I2');
         $this->assertSame('15,33', \Platform\Recruiting\Support\LohnMa::zahl((new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma, '2026-10-19')->grundlohn));
         $this->assertStringContainsString('keine Personen-Zuordnung', (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->begruendung);
     }
@@ -213,7 +215,7 @@ final class ZasLohnspaltenTest extends TestCase
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 17, 'tax_class' => '6']);
 
         $this->assertNull($this->resolver()->col($ma, 'Zuschlag'), 'leere Zelle statt falschem Wert');
-        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(\Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString())), $this->resolver()->col($ma, 'Grundlohn'));
+        $this->assertNull($this->resolver()->col($ma, 'Grundlohn'), 'Pre-Merge-Review I2: Grundlohn nur zusammen mit dem Zuschlag');
     }
 
     /** ZAS-Grundlohn 0 = Zeile bei ZAS nicht gepflegt, der Zuschlag daneben ist keine Angabe. */
@@ -243,14 +245,15 @@ final class ZasLohnspaltenTest extends TestCase
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()), 2)), $this->resolver()->col($ma2, 'Zuschlag'), 'ZAS vor manuell');
     }
 
-    public function test_ma_fall_2_unbekannt_liefert_zuschlag_leer_grundlohn_voll(): void
+    /** Pre-Merge-Review I2: ohne bekannten Zuschlag gehen BEIDE Zellen leer raus — ZAS behaelt sein Paar. */
+    public function test_ma_fall_2_unbekannt_liefert_grundlohn_und_zuschlag_leer(): void
     {
         Capsule::table('rec_persons')->insert(['id' => 10, 'team_id' => self::TEAM]);
         $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 10]);
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 10, 'tax_class' => '6']);
 
         $r = $this->resolver();
-        $this->assertNotNull($r->col($ma, 'Grundlohn'));
+        $this->assertNull($r->col($ma, 'Grundlohn'));
         $this->assertNull($r->col($ma, 'Zuschlag'));
     }
 

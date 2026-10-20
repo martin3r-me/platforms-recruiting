@@ -19,6 +19,7 @@ final class LohnMaTest extends TestCase
         $this->assertSame(1.07, $l->zuschlag);
         $this->assertSame('15,33', $l->grundlohnText());
         $this->assertSame('1,07', $l->zuschlagText());
+        $this->assertFalse($l->paarLeer());
         $this->assertStringContainsString('Angleich an RG 16,40 € (13,90 + 2,50) → 1,07 €', $l->begruendung);
     }
 
@@ -77,9 +78,12 @@ final class LohnMaTest extends TestCase
             $this->assertSame(LohnMa::STEUERKLASSE_FEHLT, $l->fall);
             $this->assertNull($l->zuschlag);
             $this->assertNull($l->zuschlagText());
-            $this->assertSame('15,33', $l->grundlohnText());
+            // Pre-Merge-Review I2: Grundlohn intern EG 1, Exporttext leer.
+            $this->assertSame(15.33, $l->grundlohn);
+            $this->assertNull($l->grundlohnText());
+            $this->assertTrue($l->paarLeer());
             $this->assertStringContainsString('Angleich an RG 16,40 €', $l->begruendung);
-            $this->assertStringContainsString('Steuerklasse fehlt (MA) — Zuschlag leer, ZAS behält seinen Wert', $l->begruendung);
+            $this->assertStringContainsString('Steuerklasse fehlt (MA) — Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
         }
     }
 
@@ -89,6 +93,7 @@ final class LohnMaTest extends TestCase
 
         $this->assertSame(LohnMa::STEUERKLASSE_FEHLT, $l->fall);
         $this->assertNull($l->zuschlag);
+        $this->assertNull($l->grundlohnText());
         $this->assertStringContainsString('Steuerklasse fehlt (RG)', $l->begruendung);
     }
 
@@ -107,6 +112,7 @@ final class LohnMaTest extends TestCase
         $l = LohnMa::rechne(self::EG1, self::MINDEST, true, null, null, null, null);
 
         $this->assertSame(LohnMa::UNBEKANNT, $l->fall);
+        $this->assertNull($l->grundlohnText());
         $this->assertStringNotContainsString('Steuerklasse', $l->begruendung);
     }
 
@@ -117,9 +123,10 @@ final class LohnMaTest extends TestCase
         $this->assertSame(LohnMa::UNBEKANNT, $l->fall);
         $this->assertNull($l->zuschlag);
         $this->assertNull($l->zuschlagText());
-        $this->assertSame('15,33', $l->grundlohnText(), 'Grundlohn ist immer bekannt');
+        $this->assertSame(15.33, $l->grundlohn, 'intern bleibt EG 1');
+        $this->assertNull($l->grundlohnText(), 'Pre-Merge-Review I2: Grundlohn nur zusammen mit dem Zuschlag');
         $this->assertStringContainsString('RG-Zuschlag unbekannt', $l->begruendung);
-        $this->assertStringContainsString('Zuschlag leer', $l->begruendung);
+        $this->assertStringContainsString('Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
     }
 
     public function test_fall_1b_zas_rechnet_wie_angleich(): void
@@ -128,6 +135,7 @@ final class LohnMaTest extends TestCase
 
         $this->assertSame(LohnMa::ZAS, $l->fall);
         $this->assertSame(2.07, $l->zuschlag);
+        $this->assertSame('15,33', $l->grundlohnText());
         $this->assertStringContainsString('laut ZAS', $l->begruendung);
     }
 
@@ -137,6 +145,7 @@ final class LohnMaTest extends TestCase
 
         $this->assertSame(LohnMa::MANUELL, $l->fall);
         $this->assertSame(2.07, $l->zuschlag);
+        $this->assertSame('15,33', $l->grundlohnText());
         $this->assertStringContainsString('von HR eingetragen', $l->begruendung);
     }
 
@@ -147,6 +156,7 @@ final class LohnMaTest extends TestCase
         $this->assertSame(LohnMa::NUR_MA, $ohne->fall);
         $this->assertSame(0.0, $ohne->zuschlag);
         $this->assertSame('0,00', $ohne->zuschlagText(), 'bekannter Wert wird ausdruecklich geschickt');
+        $this->assertSame('15,33', $ohne->grundlohnText());
         $this->assertSame('EG 1 15,33 € · nur MA, kein Angleich · Zuschlag 0,00 €', $ohne->begruendung);
     }
 
@@ -187,7 +197,7 @@ final class LohnMaTest extends TestCase
         $this->assertSame(LohnMa::UNBEKANNT, $l->fall);
         $this->assertNull($l->zuschlag);
         $this->assertNull($l->zuschlagText());
-        $this->assertSame('15,33', $l->grundlohnText());
-        $this->assertSame('EG 1 15,33 € · keine Personen-Zuordnung · Zuschlag leer', $l->begruendung);
+        $this->assertNull($l->grundlohnText());
+        $this->assertSame('EG 1 15,33 € · keine Personen-Zuordnung · Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
     }
 }

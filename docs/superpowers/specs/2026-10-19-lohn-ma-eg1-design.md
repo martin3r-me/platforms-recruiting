@@ -28,22 +28,22 @@ Für jede MA-Anstellung beim Export:
 |---|---|---|---|
 | 1 `angleich` | RG-Schwester mit Bewerbung, Steuerklasse an MA und RG gepflegt | EG 1 | max(0, RG-Gesamtlohn − EG 1) + Klasse-6-Euro |
 | 1b `zas` | RG-Schwester ohne Bewerbung, ZAS-Zuschlag geliefert (`zas_grundlohn` > 0) | EG 1 | wie Fall 1, RG-Zuschlag = `zas_zuschlag` |
-| 2 `unbekannt` | RG-Schwester ohne Bewerbung, kein ZAS-Wert, `zuschlag_manuell` leer | EG 1 | **leer** |
+| 2 `unbekannt` | RG-Schwester ohne Bewerbung, kein ZAS-Wert, `zuschlag_manuell` leer (ebenso Ruling R4: Personen-Zuordnung fehlt/unklar) | **leer** (I2, 20.10.) | **leer** |
 | 3 `manuell` | RG-Schwester ohne Bewerbung, kein ZAS-Wert, `zuschlag_manuell` gesetzt | EG 1 | wie Fall 1, RG-Zuschlag = `zuschlag_manuell` |
 | 4 `nur_ma` | keine aktive RG-Schwester | EG 1 | 0,00, nie ein Euro |
-| 5 `steuerklasse_fehlt` | RG-Zuschlag bekannt (Fall 1/1b/3), aber `tax_class` an MA ODER RG leer | EG 1 | **leer** (ZAS behält seinen Wert) |
+| 5 `steuerklasse_fehlt` | RG-Zuschlag bekannt (Fall 1/1b/3), aber `tax_class` an MA ODER RG leer | **leer** (I2, 20.10.) | **leer** (ZAS behält sein Paar) |
 
 - **Klasse-6-Euro** (Markus E14: „Wenn der Mitarbeiter in der RG Steuerklasse 1 - 5 hat, in der MA dann die 6 bekommt, bekommt er € 1,- mehr"): +1,00 € genau dann, wenn die `tax_class` der RG-Schwester ∈ {1,2,3,4,5} UND die der MA-Anstellung `'6'` ist. RG 6 + MA 6 oder RG 1 + MA 1: kein Euro. Ist eine der beiden Klassen leer, ist der Vergleich nicht möglich: Fall `steuerklasse_fehlt`, Zuschlag leer (lieber leere Zelle als falscher Wert). Vorrang: ein unbekannter RG-Zuschlag (Fall 2) schlägt die fehlende Steuerklasse. Nur MA (Fall 4) bekommt NIE den Euro, egal welche Klasse (Markus E15: „Nur MA immer EG 1 ohne Zuschlag").
 - Rundung auf 2 Nachkommastellen, Format wie heute `number_format(…, 2, ',', '.')`.
 - Fall 4 schickt ausdrücklich `0,00`, nicht leer: ein bekannter Wert ist kein unbekannter.
-- Fall 2 und Fall 5 sind die Fälle mit leerer Zelle. Eine leere Zelle in unserer `updates.csv` überschreibt bei ZAS nichts (Olaf 19.10.).
+- Fall 2 und Fall 5 sind die Fälle mit leeren Zellen — **Grundlohn UND Zuschlag** (Pre-Merge-Review I2, 20.10.): ZAS behält sein bisheriges, zueinander passendes Paar. Ein neuer Grundlohn 15,33 neben dem alten ZAS-Zuschlag (gerechnet auf 14,96 / 14,53) ergäbe einen zu hohen Gesamtlohn. Eine leere Zelle in unserer `updates.csv` überschreibt bei ZAS nichts (Olaf 19.10.). Intern bleibt der Grundlohn EG 1 (Begründung, Vertrag); nur der Exporttext `LohnMa::grundlohnText()` ist null.
 - RG-Zeilen: Grundlohn unverändert (Mindestlohn). Zuschlag: Bewerbung wie heute; ohne Bewerbung dieselbe Kette wie oben — `zas_zuschlag` (bei `zas_grundlohn` > 0), sonst `zuschlag_manuell`, sonst leer. Der ZAS-Wert geht damit als derselbe Wert zurück, den ZAS schon hat; die leere Zelle beim RG-Bestand verschwindet in fast allen Fällen von selbst. Eine Wahrheit für beide Zeilen der Person.
 
 **Begründung** (Text für Akte, Kachel, Vorflug-CSV), aus Teilen gebaut, z. B.
 `EG 1 15,33 € · Angleich an RG 15,00 € (13,90 + 1,10) → 0,00 € · Steuerklasse 6 +1,00 € · Zuschlag 1,00 €`
-bzw. `EG 1 15,33 € · RG-Zuschlag unbekannt (keine Bewerbung, nichts eingetragen) · Zuschlag leer`
+bzw. `EG 1 15,33 € · RG-Zuschlag unbekannt (keine Bewerbung, nichts eingetragen) · Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar`
 bzw. `EG 1 15,33 € · nur MA, kein Angleich · Zuschlag 0,00 €`
-bzw. `EG 1 15,33 € · Angleich an RG 15,00 € (13,90 + 1,10) → 0,00 € · Steuerklasse fehlt (MA|RG|MA und RG) — Zuschlag leer, ZAS behält seinen Wert`.
+bzw. `EG 1 15,33 € · Angleich an RG 15,00 € (13,90 + 1,10) → 0,00 € · Steuerklasse fehlt (MA|RG|MA und RG) — Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar`.
 
 ## 4. Entgeltgruppe 1, datiert
 
@@ -104,8 +104,8 @@ php artisan recruiting:lohn-ma-export --team=1 --datum=2027-04-01
 ```
 
 - Läuft über alle aktiven MA-Anstellungen (`company = 'MA'`, `is_active = 1`), optional je Team, Stichtag für EG 1 wählbar (Default heute).
-- Ausgabe Konsole: Zahlen je Fall (`angleich`, `zas`, `manuell`, `unbekannt`, `nur_ma`, `steuerklasse_fehlt`), Summe, davon +1 € (RG 1–5, MA 6), Vergleich mit dem ZAS-Stand der MA-Zeile (`gleich` / `abweichend` / `zas_leer`), Pfad der CSV.
-- CSV nach `storage/app/recruiting/lohn-ma-<datum>-<zeit>.csv`: `employee_id, personnel_number, name, person_id, rg_employee_id, fall, grundlohn, zuschlag, steuerklasse, zas_grundlohn, zas_zuschlag, vergleich, begruendung`. `vergleich`: `gleich`, wenn unser Grundlohn und Zuschlag den ZAS-Werten der MA-Zeile entsprechen; `zas_leer`, wenn ZAS nichts oder Grundlohn 0 liefert; sonst `abweichend`. Nur Zahl für die Ankündigung, keine Abarbeitungsliste (Sebastian 19.10.: veraltete ZAS-Stände interessieren nicht, die Rechnung muss stimmen). Personenbezogen → bleibt auf dem Server, nie in Chat/Mail.
+- Ausgabe Konsole: Zahlen je Fall (`angleich`, `zas`, `manuell`, `unbekannt`, `nur_ma`, `steuerklasse_fehlt`), Summe, davon +1 € (RG 1–5, MA 6), Vergleich mit dem ZAS-Stand der MA-Zeile (`gleich` / `abweichend` / `zas_leer` / `wir_leer`), Pfad der CSV.
+- CSV nach `storage/app/recruiting/lohn-ma-<datum>-<zeit>.csv`: `employee_id, personnel_number, name, person_id, rg_employee_id, fall, grundlohn, zuschlag, steuerklasse, zas_grundlohn, zas_zuschlag, vergleich, begruendung`. `vergleich`: `gleich`, wenn unser Grundlohn und Zuschlag den ZAS-Werten der MA-Zeile entsprechen; `wir_leer` (vorrangig, seit I2 20.10.), wenn wir Grundlohn und Zuschlag leer liefern (Fall 2/5) — ZAS behält sein Paar, egal was dort steht, also weder gleich noch abweichend; `zas_leer`, wenn ZAS nichts oder Grundlohn 0 liefert; sonst `abweichend`. Die Spalte `grundlohn` ist in den `wir_leer`-Zeilen leer. Nur Zahl für die Ankündigung, keine Abarbeitungsliste (Sebastian 19.10.: veraltete ZAS-Stände interessieren nicht, die Rechnung muss stimmen). Personenbezogen → bleibt auf dem Server, nie in Chat/Mail.
 - `--markieren`: setzt `zas_changed_at` auf alle Zeilen des Laufs (Query Builder, Zähler vorher/nachher ausgegeben). Vorher Olaf ankündigen (Abschnitt 12).
 - Gehört in den Zeitplan **nicht** (bewusst manuell, datiert in der Checkliste: 01.04.2027 Tarifstufe; 01.01.2027 Mindestlohn 14,60, falls die Einstellung geändert wird).
 
@@ -119,12 +119,12 @@ php artisan recruiting:lohn-ma-export --team=1 --datum=2027-04-01
 
 ## 11. Akte der MA-Anstellung: Block „Lohn an ZAS"
 
-Über den Feldgruppen, unter dem Konto-Kasten, nur bei `company = 'MA'`: Grundlohn, Zuschlag (oder „leer"), Begründung, Stand „EG 1 gilt seit 01.09.2026". Bei Fall 2 Link „RG-Zuschlag in der RG-Akte eintragen" auf die RG-Schwester (Anker auf die Gruppe). Kein eigener Livewire-Kasten: `#[Computed] lohnMa()` in `Employees\Show` + Partial `_lohn-ma.blade.php`. Nur lesen.
+Über den Feldgruppen, unter dem Konto-Kasten, nur bei `company = 'MA'`: Grundlohn und Zuschlag (je „leer", wenn er nicht an ZAS geht; Grundlohn seit I2 20.10. in Fall 2/5), Begründung, Stand „EG 1 gilt seit 01.09.2026". Bei Fall 2 Link „RG-Zuschlag in der RG-Akte eintragen" auf die RG-Schwester (Anker auf die Gruppe). Kein eigener Livewire-Kasten: `#[Computed] lohnMa()` in `Employees\Show` + Partial `_lohn-ma.blade.php`. Nur lesen.
 
 ## 12. Deploy, Ankündigung, Checkliste
 
 - Migration läuft mit 4.3 (Zahl 23 → 24, `migrate:status`-grep, Tabelle 4.3).
-- **2.4 Olaf**: Ankündigungstext ersetzen: „MA-Zeilen liefern ab dem Start Grundlohn = Tarif EG 1 (15,33) und einen berechneten Zuschlag; Zuschlag bleibt leer, wo wir den RG-Lohn nicht kennen (Zahl aus dem Vorflug). Keine neue Spalte." Dazu die drei Fragen: Prüfregeln HR-Controlling, Grundlohn/Zuschlag RG in der Lieferung zu uns, leere Zelle.
+- **2.4 Olaf**: Ankündigungstext ersetzen: „MA-Zeilen liefern ab dem Start Grundlohn = Tarif EG 1 (15,33) und einen berechneten Zuschlag; wo wir den Zuschlag nicht kennen, bleiben Grundlohn und Zuschlag leer (Zahl aus dem Vorflug; I2 20.10.). Keine neue Spalte." Dazu die drei Fragen: Prüfregeln HR-Controlling, Grundlohn/Zuschlag RG in der Lieferung zu uns, leere Zelle.
 - **4.4 neuer Schritt** vor dem Einschalten der Einsatz-Prüfung: `recruiting:lohn-ma-export` (ohne `--markieren`) → Zahlen lesen, CSV gegen Olafs Stand legen → Ankündigung → `--markieren` erst, wenn Olaf die Werte kennt. Hinweis: Marker-Zähler aus dem Vorspann von 4.4 bewegt sich hier bewusst.
 - **6. Nach dem Deploy**: Sichttest Akte-Block, Unterliste „Lohn", Eintrag speichern, Marker an RG- und MA-Zeile prüfen; datierte Punkte 01.01.2027 / 01.04.2027.
 - Memory `project_lohn_ma_eg1_paket` nachführen.
@@ -149,7 +149,7 @@ MA-Vertragstext und Vertrags-Automatik (E10/E13), Zahlungsstatus (Folie 14), Tau
 - „Nur MA ohne Zuschlag" als „keine RG-Anstellung" gelesen. Markus bekommt die Lesart als Feststellung; widerspricht er, ändert sich nur `LohnMa` (eine Klasse, ein Test).
 - Leere Zelle bei ZAS (Fall 2, Fall 5): beantwortet, Olaf 19.10.: überschreibt nichts.
 - **Befund CSV 19.10. (437 Personen mit RG+MA):** ZAS rechnet heute schon „Grundlohn EG 1, Zuschlag = RG-Gesamt − EG 1" (248 von 317 gepflegten Zeilen passen, Rest veraltete Stände); +1 € nur bei 79 Zeilen — die Steuerklasse an MA- UND RG-Zeile muss gepflegt sein, sonst geht der Zuschlag leer raus (Fall `steuerklasse_fehlt`, sichtbar in der Begründung). Veraltete ZAS-Stände (14,96 / 14,53 / Grundlohn 0) werden durch den Export korrigiert; Vorflug liefert die Zahl für die Ankündigung.
-- `tax_class` leer an MA oder RG → Zuschlag leer, Fall `steuerklasse_fehlt`, Begründung nennt, welche Seite fehlt. Die HR-Liste „Lohn" zeigt diesen Fall bewusst NICHT (sonst Hunderte ZAS-Bestandsleute, Sebastian); sichtbar in der Akte (Hinweis „Steuerklasse in der Akte bzw. im Portal pflegen"), in der CSV und in der Zahl des Vorflugs.
+- `tax_class` leer an MA oder RG → Grundlohn und Zuschlag leer (I2), Fall `steuerklasse_fehlt`, Begründung nennt, welche Seite fehlt. Die HR-Liste „Lohn" zeigt diesen Fall bewusst NICHT (sonst Hunderte ZAS-Bestandsleute, Sebastian); sichtbar in der Akte (Hinweis „Steuerklasse in der Akte bzw. im Portal pflegen"), in der CSV und in der Zahl des Vorflugs.
 
 ## 16. Umsetzung (19.10.2026)
 
@@ -162,11 +162,11 @@ Gebaut auf `feat/ma-konto`. Dateien und Entscheidungen:
 - `src/Observers/RecEmployeeExportObserver.php` — Marker bei Bewerbungs-Zuschlag, `zuschlag_manuell` und ZAS-Lohn an der RG-Zeile, jeweils auf die MA-Schwestern.
 - `src/Livewire/Employees/Show.php` + `resources/views/livewire/employees/_lohn-ma.blade.php` — Block „Lohn an ZAS"; das Feld RG-Zuschlag erscheint nur bei RG ohne Bewerbung UND ohne brauchbaren ZAS-Wert (Ruling R2); ZAS-Lohnfelder und Vorbelegung mit Komma.
 - `src/Services/HrMitarbeiterListen.php`, `src/Livewire/HrDesk/Mitarbeiter.php` + `mitarbeiter.blade.php` — Unterliste „Lohn: RG-Zuschlag fehlt", Liste 60 s je Team gecacht. Der rote Hauptreiter-Zähler enthält die Lohn-Liste nicht (Ruling §10).
-- `src/Console/Commands/LohnMaExport.php` — `recruiting:lohn-ma-export` mit Vergleich `gleich` / `abweichend` / `zas_leer`.
+- `src/Console/Commands/LohnMaExport.php` — `recruiting:lohn-ma-export` mit Vergleich `gleich` / `abweichend` / `zas_leer` (seit I2 20.10. dazu `wir_leer`).
 - `resources/views/livewire/applicant/applicant-settings-modal.blade.php` — Lohnbuchhaltung: Mindestlohn RG, EG 1 lesend.
 - Ruling R3' (ersetzt R3, Final-Review 19.10.): Bewerbung ohne Zuschlag und ohne lesbaren AV-Code → RG-Export bleibt leer (wie heute, Pfad mit Bewerbung unverändert); der MA-Angleich läuft weiter durch die Kette: `zas_zuschlag` (bei `zas_grundlohn` > 0, Quelle zas) → `zuschlag_manuell` (Quelle manuell) → erst dann 0,00 mit Quelle Bewerbung. Bekannte, bewusst belassene Abweichung: die AV-Code-Regex im RG-Resolverpfad trimmt nicht, `ZuschlagWert::ausAvCode` schon (Kommentar am Resolver).
 - Abhängigkeit auf main: ZAS-Lohn-Inbound `fff2ad69` (Migration `2026_10_19_000001_add_zas_lohn_to_hr_data`) muss deployt sein.
-- Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Ruling R4 (Final-Review 19.10.): Aktive MA ohne `rec_person_id` und `person_key` sowie MA, deren `person_key` nur bei einer RG-Anstellung einer anderen Person (gleiches Team) vorkommt, rechnen als `unbekannt` (Zuschlag leer, HR-Liste) — nie 0,00 aus fehlenden Daten; vor `--markieren` zählen (Checkliste 4.4 Schritt 4b). Marker: `maSchwesternIds` sucht Person ODER person_key; Ende/Firmenwechsel der RG-Anstellung (Eloquent und ZAS-Inbound) markiert die MA-Schwestern; Personen-Verknüpfung nicht — danach `--markieren` (Checkliste 4.14).
+- Hinweis Betrieb: Ein geänderter Mindestlohn wirkt in Web-Requests sofort; Queue-Worker erst nach `queue:restart`. Ruling R4 (Final-Review 19.10.): Aktive MA ohne `rec_person_id` und `person_key` sowie MA, deren `person_key` nur bei einer RG-Anstellung einer anderen Person (gleiches Team) vorkommt, rechnen als `unbekannt` (Zuschlag leer, seit I2 20.10. auch der Grundlohn; HR-Liste) — nie 0,00 aus fehlenden Daten; vor `--markieren` zählen (Checkliste 4.4 Schritt 4b). Marker: `maSchwesternIds` sucht Person ODER person_key; Ende/Firmenwechsel der RG-Anstellung (Eloquent und ZAS-Inbound) markiert die MA-Schwestern; Personen-Verknüpfung nicht — danach `--markieren` (Checkliste 4.14).
 
 **Nachtrag 19.10. (Olaf):** Eine leere Zelle in unserer `updates.csv` überschreibt bei ZAS nichts. Die Steuerklasse liefert ZAS nicht; die Mitarbeiter tragen sie selbst im Portal ein. Deshalb ist `tax_class` beim ZAS-Import geschützt (`ZasInboundEmployeeImporter::OVERWRITE_PROTECTED`; Seit 20.10. gilt Nachtrag in leere Felder, siehe unten; ~~auch nicht in ein leeres Feld~~ überholt). Ändert sich die Steuerklasse einer RG-Zeile, markiert der Observer die MA-Schwestern für den Re-Export. Der Klasse-6-Euro gilt nur für RG 1–5 + MA 6, nur MA bekommt nie einen Euro, fehlende Steuerklasse an MA oder RG ergibt eine leere Zelle (Fall `steuerklasse_fehlt`).
 
@@ -175,3 +175,8 @@ Gebaut auf `feat/ma-konto`. Dateien und Entscheidungen:
 **Nachtrag 19.10. (Teil C — MA-Vertrag):** Der Vertrag einer MA-Anstellung nimmt den Lohn aus derselben Logik wie der Export.
 - Vorlagen-Quelle `lohn.eg1` (`RecContractTemplate::resolveSource`): EG 1 zum Vertragsbeginn (`contract.extra_field.vertragsbeginn`, sonst heute), Format `15,33`. MA-Vorlagen mappen `stundenlohn → lohn.eg1` und `zuschlag → contract.extra_field.zuschlag` — NICHT `settings.minimum_wage_hourly` (das ist der RG-Mindestlohn); ein fest getippter Betrag wäre ab 01.04.2027 falsch. Im Vorlagen-Fenster in der Gruppe „Lohn“ wählbar (Grundlohn MA – Entgeltgruppe 1 zum Vertragsbeginn / Zuschlag aus dem Vertrag).
 - „Vertrag aus der Akte“ (`Employees\Show::openVertragModal`): an einer MA-Akte ist der Zuschlag mit `LohnMaErmittlung` (`rgSchwester` + `ermittelnMitSchwester`, Stichtag = Vorbelegungs-Beginn, sonst heute) vorbelegt. Bei `unbekannt`/`steuerklasse_fehlt` bleibt das Feld leer, das Fenster zeigt „Zuschlag nicht berechenbar: <Begründung> — bitte eintragen“. RG-Akten unverändert leer. HR kann jeden Wert überschreiben. Ändert HR danach den Beginn, zieht die Vorbelegung zum neuen Beginn nach (`updatedVertragBeginn`, und noch einmal in `vertragErstellen`) — aber nur, solange das Feld noch den vorbelegten Wert trägt; einen von HR eingetragenen Zuschlag fasst das nicht an. Sonst stimmte über die Tarifstufe 01.04.2027 der Gesamtlohn nicht (15,87 + 1,57 statt 15,87 + 1,03).
+
+**Nachtrag 20.10. Pre-Merge-Review I2 (Ruling Controller nach Sebastians Leitsatz „nie ein falscher Lohnwert an ZAS"):** In den Fällen `unbekannt` (inkl. Ruling R4) und `steuerklasse_fehlt` gehen **Grundlohn und Zuschlag** leer raus, damit ZAS sein bisheriges, zueinander passendes Paar behält — bisher ging der neue Grundlohn EG 1 allein raus und ergab mit dem alten ZAS-Zuschlag einen zu hohen Gesamtlohn.
+- `LohnMa::grundlohnText()` ist `?string` und in diesen beiden Fällen null (`paarLeer()`); `$grundlohn` bleibt intern EG 1. Begründung endet auf „Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar" (`LohnMa::PAAR_LEER`).
+- `ZasEmployeeFieldResolver::getGrundlohn` (MA-Zweig) → leere Zelle. Akte-Block „Lohn an ZAS" zeigt beim Grundlohn „leer" (rot) wie beim Zuschlag. `recruiting:lohn-ma-export`: Spalte `grundlohn` leer, Vergleich `wir_leer` (siehe §9). HR-Liste „Lohn" unverändert (zeigt nur die Begründung).
+- Vertrag (`lohn.eg1`, Vorbelegung) bleibt EG 1: der Vertrag ist nicht der Export.

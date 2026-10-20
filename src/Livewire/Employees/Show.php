@@ -1146,7 +1146,7 @@ class Show extends Component
         return $z === null ? 'ungueltig' : $z;
     }
 
-    /** @return array{fall:string, grundlohn:string, zuschlag:?string, begruendung:string, eg1_ab:string, rg_employee_id:?int, rg_unklar:bool}|null */
+    /** @return array{fall:string, grundlohn:?string, zuschlag:?string, begruendung:string, eg1_ab:string, rg_employee_id:?int, rg_unklar:bool}|null */
     public static function lohnBlock(RecEmployee $emp, ?LohnMaErmittlung $e = null): ?array
     {
         if (!LohnMaErmittlung::istMa($emp->company)) {

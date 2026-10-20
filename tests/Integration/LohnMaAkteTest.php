@@ -72,6 +72,7 @@ final class LohnMaAkteTest extends TestCase
         $b = Show::lohnBlock($ma);
         $this->assertSame('unbekannt', $b['fall']);
         $this->assertNull($b['zuschlag']);
+        $this->assertNull($b['grundlohn'], 'Pre-Merge-Review I2: Grundlohn leer wie der Zuschlag');
         $this->assertSame((int) $rg->id, $b['rg_employee_id']);
         $this->assertFalse($b['rg_unklar']);
         $this->assertMatchesRegularExpression('~^\d{2}\.\d{2}\.\d{4}$~', $b['eg1_ab']);
@@ -84,11 +85,14 @@ final class LohnMaAkteTest extends TestCase
         $b = Show::lohnBlock($ma->fresh());
         $this->assertSame('steuerklasse_fehlt', $b['fall']);
         $this->assertNull($b['zuschlag']);
+        $this->assertNull($b['grundlohn'], 'Pre-Merge-Review I2');
         $this->assertStringContainsString('Steuerklasse fehlt (MA)', $b['begruendung']);
 
         $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/_lohn-ma.blade.php');
         $this->assertStringContainsString("=== 'steuerklasse_fehlt'", $blade);
         $this->assertStringContainsString('Steuerklasse in der Akte bzw. im Portal pflegen', $blade);
+        // Grundlohn null zeigt "leer" statt " €" (Pre-Merge-Review I2).
+        $this->assertStringContainsString('@if ($grundlohnText === null)', $blade);
     }
 
     public function test_zas_lohnfelder_zeigen_euro_mit_komma(): void
@@ -126,6 +130,7 @@ final class LohnMaAkteTest extends TestCase
 
         $this->assertSame('unbekannt', $b['fall']);
         $this->assertNull($b['zuschlag']);
+        $this->assertNull($b['grundlohn'], 'Pre-Merge-Review I2: Grundlohn leer wie der Zuschlag');
         $this->assertSame((int) $rg->id, $b['rg_employee_id']);
         $this->assertStringContainsString('RG-Zuordnung unklar', $b['begruendung']);
         $this->assertTrue($b['rg_unklar']);
