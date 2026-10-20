@@ -315,7 +315,6 @@ class RecEmployeeExportObserver
         });
     }
 
-    /** Alle Anstellungen dieser Bewerbung plus deren aktive MA-Schwestern markieren. */
     /**
      * ZAS-Lohn einer hr_data-Zeile hat sich geaendert: MA-Schwestern markieren
      * — aber nur, wenn die Besitzer-Zeile eine AKTIVE Nicht-MA-Anstellung ist
@@ -339,6 +338,7 @@ class RecEmployeeExportObserver
         }
     }
 
+    /** Alle Anstellungen dieser Bewerbung plus deren aktive MA-Schwestern markieren. */
     public static function beiBewerbungsZuschlag(int $applicantId): void
     {
         $zeilen = DB::table('rec_employees')->where('rec_applicant_id', $applicantId)->get(['id', 'rec_person_id', 'person_key']);

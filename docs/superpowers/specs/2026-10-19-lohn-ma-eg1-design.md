@@ -148,7 +148,7 @@ MA-Vertragstext und Vertrags-Automatik (E10/E13), Zahlungsstatus (Folie 14), Tau
 
 - „Nur MA ohne Zuschlag" als „keine RG-Anstellung" gelesen. Markus bekommt die Lesart als Feststellung; widerspricht er, ändert sich nur `LohnMa` (eine Klasse, ein Test).
 - Leere Zelle bei ZAS (Fall 2, Fall 5): beantwortet, Olaf 19.10.: überschreibt nichts.
-- **Befund CSV 19.10. (437 Personen mit RG+MA):** ZAS rechnet heute schon „Grundlohn EG 1, Zuschlag = RG-Gesamt − EG 1" (248 von 317 gepflegten Zeilen passen, Rest veraltete Stände); +1 € nur bei 79 Zeilen — die Steuerklasse an MA- UND RG-Zeile muss gepflegt sein, sonst geht der Zuschlag leer raus (Fall `steuerklasse_fehlt`, sichtbar in der Begründung). Veraltete ZAS-Stände (14,96 / 14,53 / Grundlohn 0) werden durch den Export korrigiert; Vorflug liefert die Zahl für die Ankündigung.
+- **Befund CSV 19.10. (437 Personen mit RG+MA):** ZAS rechnet heute schon „Grundlohn EG 1, Zuschlag = RG-Gesamt − EG 1" (248 von 317 gepflegten Zeilen passen, Rest veraltete Stände); +1 € nur bei 79 Zeilen — die Steuerklasse an MA- UND RG-Zeile muss gepflegt sein, sonst bleiben Grundlohn und Zuschlag leer (Fall `steuerklasse_fehlt`, seit I2 20.10.; sichtbar in der Begründung). Veraltete ZAS-Stände (14,96 / 14,53 / Grundlohn 0) werden durch den Export korrigiert; Vorflug liefert die Zahl für die Ankündigung.
 - `tax_class` leer an MA oder RG → Grundlohn und Zuschlag leer (I2), Fall `steuerklasse_fehlt`, Begründung nennt, welche Seite fehlt. Die HR-Liste „Lohn" zeigt diesen Fall bewusst NICHT (sonst Hunderte ZAS-Bestandsleute, Sebastian); sichtbar in der Akte (Hinweis „Steuerklasse in der Akte bzw. im Portal pflegen"), in der CSV und in der Zahl des Vorflugs.
 
 ## 16. Umsetzung (19.10.2026)
