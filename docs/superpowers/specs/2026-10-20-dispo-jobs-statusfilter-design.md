@@ -14,9 +14,11 @@ Diese Spec deckt Punkt 1 und 2 ab. Punkt 3 ist unten als Stufe 2 beschrieben und
 
 Status kommt aus ZAS (`rec_employee_hr_data.export_status`, Spec 2026-10-14-zas-status-inaktiv): GO = aktiver Vertrag, MA = gerade kein Vertrag (braucht neuen), INAKTIV = gesperrt. Inaktive sind schon heute aus Jobs anbieten ausgeschlossen (`is_active = false`).
 
-Jobs anbieten rechnet je **Person** (Anker der Identitätsgruppe, `DispoJobKandidaten::laden`). Eine Person kann zwei aktive Anstellungen haben (RG + MA). Deshalb braucht der Filter einen Status je Person:
+**Status ≠ Gesellschaft.** Gefiltert wird ausschließlich nach dem ZAS-Status GO/MA. Die Gesellschaft, bei der jemand angestellt ist (RG oder MA, Feld `company` bzw. Präfix der Personalnummer), spielt für diesen Filter keine Rolle.
 
-| Stati der aktiven Datensätze der Person | Personen-Status |
+Jobs anbieten rechnet je **Person** (Anker der Identitätsgruppe, `DispoJobKandidaten::laden`). Eine Person kann zwei aktive Anstellungen haben, eine bei Gesellschaft RG und eine bei Gesellschaft MA, und jede trägt ihren eigenen Status. Angeschrieben wird die Person einmal, deshalb braucht der Filter einen Status je Person:
+
+| Status der aktiven Anstellungen der Person (egal welche Gesellschaft) | Personen-Status |
 |---|---|
 | mindestens ein GO | **GO** |
 | kein GO, mindestens ein MA | **MA** (= heutiges `ohne_vertrag`) |
