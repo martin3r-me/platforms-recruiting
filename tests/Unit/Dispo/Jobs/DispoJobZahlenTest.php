@@ -54,4 +54,27 @@ final class DispoJobZahlenTest extends TestCase
         $this->assertSame([], Show::naechsteGruppe(['alle']));
         $this->assertSame(['0'], Show::naechsteGruppe([]));
     }
+
+    public function testZahlJeStatusHaengtAnFilialeUndGruppeNichtAmEigenenHaekchen(): void
+    {
+        $daten = ['kandidaten' => [
+            self::k(1, 'Anna', ['status' => 'GO']),
+            self::k(2, 'Bert', ['status' => 'MA', 'phone' => null]),   // im Topf, zaehlt trotzdem in der Grundmenge
+            self::k(3, 'Cem', ['status' => 'GO', 'block' => 100]),     // andere Filiale
+            self::k(4, 'Dora'),                                          // ohne Status = GO
+        ], 'einsaetze' => [], 'gebucht' => []];
+        $schichten = [['id' => 1, 'datum' => '2026-10-24', 'taetigkeit' => 'Zapfer']];
+        $basis = ['gruppen' => ['0'], 'bloecke' => [200], 'nur_passend' => false];
+
+        $nurGo = DispoJobZahlen::ausDaten($daten, $schichten, [], $basis + ['stati' => ['GO']]);
+        $nurMa = DispoJobZahlen::ausDaten($daten, $schichten, [], $basis + ['stati' => ['MA']]);
+
+        $this->assertSame(['GO' => 2, 'MA' => 1], $nurGo['je_status']);
+        $this->assertSame($nurGo['je_status'], $nurMa['je_status'], 'eigenes Haekchen aendert die Zahl nicht');
+        $this->assertSame(2, $nurGo['empfaenger']);
+        $this->assertSame(0, $nurMa['empfaenger'], 'Bert hat keine Nummer');
+
+        $mitCem = DispoJobZahlen::ausDaten($daten, $schichten, [], ['bloecke' => [100, 200]] + $basis + ['stati' => ['GO']]);
+        $this->assertSame(['GO' => 3, 'MA' => 1], $mitCem['je_status'], 'Filiale aendert die Zahl');
+    }
 }

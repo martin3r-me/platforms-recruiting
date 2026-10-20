@@ -291,6 +291,7 @@ class SendDispoJobWaveJobTest extends TestCase
             [$own, 'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php'],
             [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
@@ -314,5 +315,20 @@ class SendDispoJobWaveJobTest extends TestCase
         }
 
         return $dir;
+    }
+
+    public function test_welle_mit_status_ma_schreibt_go_nicht_an_und_alte_welle_nimmt_beide(): void
+    {
+        [, $wave] = $this->anfrage(['stati' => ['MA']]);
+        $this->employee('Anna', '0176 12345678'); // ohne hrData = GO
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+        $this->assertSame(0, $this->stub->calls, 'nur MA gewaehlt: GO bleibt aussen vor');
+        $this->assertSame(0, array_sum($wave->fresh()->summary['skipped_toepfe']), 'Status ist Grundmenge, kein Topf');
+
+        [, $alt] = $this->anfrage();
+        $this->assertNull($alt->fresh()->stati);
+        (new SendDispoJobWave($alt->id, 3, 9))->handle($this->cache(), $this->sender());
+        $this->assertSame(1, $this->stub->calls, 'alte Welle ohne Status = GO + MA');
     }
 }
