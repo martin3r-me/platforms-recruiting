@@ -20,6 +20,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
@@ -73,6 +74,8 @@ class Create extends Component
     /** @var list<string> */
     public array $gruppen = ['0'];
     public bool $nurPassend = true;
+    /** @var list<string> ZAS-Status GO/MA (Spec 2026-10-20); Vorbelegung nur GO — „zuerst GO anschreiben“. */
+    public array $stati = ['GO'];
     public string $startModus = 'jetzt';
     public string $minuten = '30';
 
@@ -555,7 +558,7 @@ class Create extends Component
 
     public function updated(string $name): void
     {
-        if ($this->schritt === 3 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend'], true)) {
+        if ($this->schritt === 3 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend', 'stati'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -568,6 +571,7 @@ class Create extends Component
             'gruppen'     => DispoJobZahlen::gruppen($this->gruppen),
             'bloecke'     => DispoJobZahlen::bloecke(array_intersect($this->maBloecke, $erlaubt)),
             'nur_passend' => $this->nurPassend,
+            'stati'       => DispoJobRecipientPlanner::stati($this->stati),
         ];
     }
 
@@ -597,6 +601,7 @@ class Create extends Component
                 'vorlagen_problem' => $this->vorlagenProblem,
                 'gruppen'          => $auswahl['gruppen'],
                 'bloecke'          => $auswahl['bloecke'],
+                'stati'            => $auswahl['stati'],
                 'modus'            => $this->modus,
             ];
         }

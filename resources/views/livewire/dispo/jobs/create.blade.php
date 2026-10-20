@@ -313,6 +313,18 @@
                 </div>
 
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+                    <div class="font-medium text-gray-700">Status in ZAS</div>
+                    <p class="text-xs text-gray-500">Zählt Personen in der gewählten Filiale und Gruppe.</p>
+                    @foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner::STATI as $statusKey => $statusLabel)
+                        @php $statusAnzahl = (int) ($zahlen['je_status'][$statusKey] ?? 0); @endphp
+                        <label wire:key="status-{{ $statusKey }}" class="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" value="{{ $statusKey }}" wire:model.live="stati" class="rounded border-gray-300">
+                            <span>{{ $statusLabel }} <span class="text-gray-500">· {{ $statusAnzahl }} {{ $statusAnzahl === 1 ? 'Person' : 'Personen' }}</span></span>
+                        </label>
+                    @endforeach
+                </div>
+
+                <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
                     <div class="font-medium text-gray-700">Gruppen nach Einsätzen in diesem Monat</div>
                     @foreach ($baender as $bandKey => $bandLabel)
                         <label wire:key="band-{{ $bandKey }}" class="flex cursor-pointer items-center gap-2 text-sm">

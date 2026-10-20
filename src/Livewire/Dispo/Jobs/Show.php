@@ -48,6 +48,8 @@ class Show extends Component
     /** @var list<string> Blocknummer oder 'ohne' */
     public array $wBloecke = [];
     public bool $wNurPassend = true;
+    /** @var list<string> ZAS-Status GO/MA der neuen Welle — vorbelegt aus der letzten Welle. */
+    public array $wStati = ['GO'];
     public string $wStartModus = 'jetzt';
     public string $wMinuten = '30';
 
@@ -72,6 +74,8 @@ class Show extends Component
             $this->wBloecke = array_map(fn ($b) => $b === null ? DispoJobZahlen::OHNE : (string) $b, (array) $letzte->ma_bloecke);
             $this->wGruppen = self::naechsteGruppe((array) $letzte->gruppen);
             $this->wNurPassend = (bool) $letzte->nur_passende_taetigkeit;
+            // Alte Welle ohne Statusauswahl wurde an GO + MA geschickt.
+            $this->wStati = $letzte->stati === null ? array_keys(DispoJobRecipientPlanner::STATI) : DispoJobRecipientPlanner::stati((array) $letzte->stati);
         }
     }
 
@@ -196,6 +200,7 @@ class Show extends Component
                 'gruppen'     => array_map(fn ($g) => DispoEinsatzZaehler::BAENDER[(string) $g] ?? (string) $g, (array) $w->gruppen),
                 'bloecke'     => array_map(fn ($b) => DispoJobKandidaten::blockLabel($b === null ? null : (int) $b), (array) $w->ma_bloecke),
                 'nur_passend' => (bool) $w->nur_passende_taetigkeit,
+                'stati'       => DispoJobRecipientPlanner::statiLabel($w->stati),
                 'geplant'     => $w->scheduled_for,
                 'gestartet'   => $w->started_at,
                 'fertig'      => $w->finished_at,
@@ -226,6 +231,7 @@ class Show extends Component
             'gruppen'     => DispoJobZahlen::gruppen($this->wGruppen),
             'bloecke'     => DispoJobZahlen::bloecke(array_intersect($this->wBloecke, $erlaubt)),
             'nur_passend' => $this->wNurPassend,
+            'stati'       => DispoJobRecipientPlanner::stati($this->wStati),
         ];
     }
 
@@ -261,7 +267,7 @@ class Show extends Component
 
     public function updated(string $name): void
     {
-        if ($this->neueWelleOffen && in_array(explode('.', $name)[0], ['wGruppen', 'wBloecke', 'wNurPassend'], true)) {
+        if ($this->neueWelleOffen && in_array(explode('.', $name)[0], ['wGruppen', 'wBloecke', 'wNurPassend', 'wStati'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -284,6 +290,7 @@ class Show extends Component
         $fehler = match (true) {
             $auswahl['bloecke'] === [] => 'Bitte wähle mindestens eine Mitarbeiterfiliale.',
             $auswahl['gruppen'] === [] => 'Bitte wähle mindestens eine Gruppe.',
+            $auswahl['stati'] === [] => 'Bitte wähle mindestens einen Status.',
             $this->offeneSchichten($request) === [] => 'Alle Schichten dieser Anfrage liegen in der Vergangenheit.',
             $this->wStartModus === 'spaeter' && ($minuten < 1 || $minuten > 1440) => 'Bitte gib zwischen 1 und 1440 Minuten an.',
             default => null,

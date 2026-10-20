@@ -93,6 +93,7 @@
                         <span class="font-semibold">Welle {{ $w['nr'] }}</span>
                         <span class="text-gray-600">· {{ implode(', ', $w['gruppen']) }}</span>
                         <span class="text-gray-500">· {{ implode(', ', $w['bloecke']) }}</span>
+                        <span class="text-gray-500">· {{ $w['stati'] }}</span>
                         @if ($w['nur_passend'])
                             <span class="text-gray-500">· nur passende Tätigkeit</span>
                         @endif
@@ -166,6 +167,14 @@
                                         <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
                                     @endif
                                 </span>
+                            </label>
+                        @endforeach
+                        <div class="pt-2 font-medium text-gray-700">Status in ZAS</div>
+                        @foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner::STATI as $statusKey => $statusLabel)
+                            @php $statusAnzahl = (int) ($wz['je_status'][$statusKey] ?? 0); @endphp
+                            <label wire:key="wstatus-{{ $statusKey }}" class="flex cursor-pointer items-center gap-2">
+                                <input type="checkbox" value="{{ $statusKey }}" wire:model.live="wStati" class="rounded border-gray-300">
+                                <span>{{ $statusLabel }} <span class="text-gray-500">· {{ $statusAnzahl }}</span></span>
                             </label>
                         @endforeach
                     </div>
