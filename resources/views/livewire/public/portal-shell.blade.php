@@ -953,6 +953,9 @@
                                         ? 'Dieses Datum kommt vom Nachweis. Lade den Nachweis neu hoch, um es zu ändern.'
                                         : 'Dieses Datum kommt vom Nachweis. Laden Sie den Nachweis neu hoch, um es zu ändern.' }}</span>
 
+                                @elseif (!empty($feld['pauschal']))
+                                    <span class="fest">pauschal versteuert</span>
+
                                 @elseif ($feld['type'] === 'lookup')
                                     <select wire:model.defer="profilWerte.{{ $schluessel }}">
                                         <option value="">— bitte wählen —</option>

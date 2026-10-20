@@ -266,6 +266,30 @@ class PortalProfileWriterTest extends TestCase
     // Gruppenweises Speichern (Verschaerfung von R19)
     // -----------------------------------------------------------------
 
+    /** 20.10.2026: Steuerklasse 'P' (pauschal) ist im Portal nicht aenderbar — auch nicht per $wire.set. */
+    public function test_steuerklasse_p_bleibt_beim_speichern(): void
+    {
+        $ma = $this->mitarbeiter(['tax_class' => 'P', 'steuer_id' => '111']);
+
+        $ergebnis = (new PortalProfileWriter())->speichere($ma, ['tax_class' => '1', 'steuer_id' => '222'], 'Steuer & Versicherung');
+
+        $this->assertTrue($ergebnis['ok']);
+        $this->assertSame('P', $ma->fresh()->tax_class);
+        $this->assertSame('222', $ma->fresh()->steuer_id, 'der Rest des Blatts speichert weiter');
+
+        (new PortalProfileWriter())->speichere($ma->fresh(), ['tax_class' => ''], 'Steuer & Versicherung');
+        $this->assertSame('P', $ma->fresh()->tax_class, 'auch Leeren geht nicht');
+    }
+
+    public function test_steuerklasse_1_laesst_sich_weiter_auf_6_aendern(): void
+    {
+        $ma = $this->mitarbeiter(['tax_class' => '1']);
+
+        (new PortalProfileWriter())->speichere($ma, ['tax_class' => '6'], 'Steuer & Versicherung');
+
+        $this->assertSame('6', $ma->fresh()->tax_class);
+    }
+
     public function test_nur_die_offene_gruppe_wird_geschrieben(): void
     {
         // Aus dem Blatt "Arbeitskleidung" darf niemand die

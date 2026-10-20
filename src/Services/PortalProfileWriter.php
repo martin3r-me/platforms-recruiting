@@ -139,6 +139,13 @@ final class PortalProfileWriter
             }
         }
 
+        // Steuerklasse 'P' (pauschal versteuert, 20.10.2026) setzt HR/ZAS,
+        // nicht der Mensch: das Blatt zeigt sie nur an, und eine eingehende
+        // Aenderung (z. B. per $wire.set) wird hier verworfen.
+        if (strtoupper(trim((string) $employee->tax_class)) === 'P') {
+            unset($formwerte['tax_class']);
+        }
+
         // R15-R18: Endzustandspruefung in der bindenden Reihenfolge. Was das
         // Formular nicht mitbringt, kommt vom Datensatz — im neuen Portal ist
         // das der Normalfall, weil immer nur EINE Gruppe offen steht.

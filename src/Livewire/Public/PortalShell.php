@@ -1327,7 +1327,11 @@ class PortalShell extends Component
                 // Frage beantwortet, die der Mensch hier hat ("bis wann gilt
                 // mein Ausweis?"); nur geaendert wird es ueber den Nachweis.
                 $fest = ProofTypes::istAblaufSpalte($schluessel);
-                $fehlt = !$fest
+                // Steuerklasse 'P' (pauschal, 20.10.2026): nur anzeigen, keine
+                // Auswahl -- der Schreibweg verwirft eine Aenderung ohnehin.
+                $pauschal = $schluessel === 'tax_class'
+                    && strtoupper(trim((string) $employee->tax_class)) === 'P';
+                $fehlt = !$fest && !$pauschal
                     && PortalFieldRelevance::istRelevant($meta, $datensatzOffeneGruppe)
                     && trim((string) ($this->profilWerte[$schluessel] ?? '')) === '';
                 $profilFelder[$schluessel] = [
@@ -1339,6 +1343,7 @@ class PortalShell extends Component
                     'live'      => (bool) ($meta['live'] ?? false),
                     'fehlt'     => $fehlt,
                     'fest'      => $fest,
+                    'pauschal'  => $pauschal,
                     // Nur bei 'fest' belegt: das Blatt zeigt den gespeicherten
                     // Stand als Text, es gibt kein Eingabefeld dafuer.
                     'wert'      => $fest ? $this->anzeigewert($employee, $schluessel, $meta) : '',

@@ -333,6 +333,29 @@ final class PortalShellProfilDatenTest extends TestCase
     // Hinweistext, keine rohen Ids irgendwo im Rueckgabewert.
     // -----------------------------------------------------------------
 
+    /** 20.10.2026: Steuerklasse 'P' steht nur zur Anzeige im Blatt, ohne Auswahl und ohne roten Rand. */
+    public function test_steuerklasse_p_steht_nur_zur_anzeige(): void
+    {
+        $p = $this->mitarbeiter(['tax_class' => 'P']);
+        $shell = $this->shell($p);
+        $shell->oeffneGruppe('Steuer & Versicherung');
+        $feld = $this->profilDaten($shell, $p)['felder']['tax_class'];
+        $this->assertTrue($feld['pauschal']);
+        $this->assertFalse($feld['fehlt']);
+        $this->assertFalse($feld['fest'], "'fest' bleibt den Ablaufdaten vorbehalten");
+
+        $eins = $this->mitarbeiter(['tax_class' => '1']);
+        $shell = $this->shell($eins);
+        $shell->oeffneGruppe('Steuer & Versicherung');
+        $this->assertFalse($this->profilDaten($shell, $eins)['felder']['tax_class']['pauschal']);
+
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
+        $pauschalPos = strpos($blade, "!empty(\$feld['pauschal'])");
+        $this->assertNotFalse($pauschalPos);
+        $this->assertLessThan(strpos($blade, "\$feld['type'] === 'inline_select'"), $pauschalPos, 'vor dem Auswahl-Zweig, sonst faengt der ihn ab');
+        $this->assertStringContainsString('pauschal versteuert', $blade);
+    }
+
     public function test_hinweistext_gehoert_zur_offenen_gruppe(): void
     {
         $ma = $this->mitarbeiter();
