@@ -42,7 +42,7 @@ final class DispoJobRecipientPlanner
      */
     public static function stati(array $werte): array
     {
-        $gewaehlt = array_fill_keys(array_map('strval', $werte), true);
+        $gewaehlt = array_fill_keys(array_map('strval', array_filter($werte, 'is_scalar')), true);
 
         return array_values(array_filter(array_keys(self::STATI), fn ($s) => isset($gewaehlt[$s])));
     }

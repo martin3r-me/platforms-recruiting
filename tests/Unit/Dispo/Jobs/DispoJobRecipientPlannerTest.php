@@ -126,6 +126,7 @@ final class DispoJobRecipientPlannerTest extends TestCase
     {
         $this->assertSame(['GO', 'MA'], DispoJobRecipientPlanner::stati(['MA', 'XY', 'GO', 'GO']));
         $this->assertSame([], DispoJobRecipientPlanner::stati([]));
+        $this->assertSame(['GO'], DispoJobRecipientPlanner::stati([['x'], 'GO']), 'verschachtelte Werte vom Client fallen still heraus');
     }
 
     public function testStatiLabel(): void
