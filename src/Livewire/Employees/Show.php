@@ -1269,7 +1269,7 @@ class Show extends Component
                 'account_holder' => ['type' => 'text', 'label' => 'Kontoinhaber'],
             ],
             'Steuer & Versicherung' => [
-                'tax_class' => ['type' => 'inline_select', 'label' => 'Steuerklasse', 'options' => ['1','2','3','4','5','6']],
+                'tax_class' => ['type' => 'inline_select', 'label' => 'Steuerklasse', 'options' => ['1','2','3','4','5','6','P']],
                 'steuer_id' => ['type' => 'text', 'label' => 'Steuer-ID'],
                 'sozialversicherungsnummer' => ['type' => 'text', 'label' => 'Sozialversicherungsnummer'],
                 'health_insurance' => ['type' => 'lookup', 'label' => 'Krankenkasse', 'lookup' => 'krankenkasse'],

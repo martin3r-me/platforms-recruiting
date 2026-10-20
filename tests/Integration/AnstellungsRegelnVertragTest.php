@@ -70,6 +70,27 @@ final class AnstellungsRegelnVertragTest extends TestCase
         $this->assertSame('Aenderungen gespeichert. Anstellung MA wurde auf Steuerklasse 6 / Nebenarbeitgeber gesetzt.', $show->flash);
     }
 
+    /** 20.10.2026: HR kann 'P' (pauschal) waehlen; Akte mit 'P' ungeaendert speichern laesst 'P' stehen. */
+    public function test_hr_akte_steuerklasse_p_bleibt_beim_speichern(): void
+    {
+        $rg = $this->anstellung(['company' => 'RG', 'personnel_number' => 'RG4715', 'tax_class' => 'P']);
+        $ma = $this->anstellung(['company' => 'MA', 'personnel_number' => 'MA4715', 'tax_class' => '1']);
+        $this->personVerbinden($rg, $ma);
+
+        $show = new \Platform\Recruiting\Livewire\Employees\Show();
+        $show->employeeId = $rg->id;
+        $this->assertContains('P', $show->fieldGroups()['Steuer & Versicherung']['tax_class']['options']);
+        $load = new ReflectionMethod($show, 'loadFieldValues');
+        $load->setAccessible(true);
+        $load->invoke($show, $rg->fresh());
+        $this->assertSame('P', $show->fieldValues['tax_class']);
+
+        $show->saveAll();
+
+        $this->assertSame('P', (string) $rg->fresh()->tax_class);
+        $this->assertSame('1', (string) $ma->fresh()->tax_class, "'P' loest E7 nicht aus");
+    }
+
     /** Nachrunde 12.10. (Bedenken 6): das HR-Label nennt die Gesellschaft der Akte. */
     public function test_hr_akte_label_ist_gesellschaftsneutral(): void
     {
