@@ -397,6 +397,18 @@ MySQL-FOR-UPDATE-Check bestanden → HR-Leserhythmus für „Konto-Anträge" ver
 
 ---
 
+### 4.15 Rollout nach dem Pilot (alle aktiven Mitarbeiter)
+
+Erst wenn die Pilotgruppe zufrieden ist. Alle Kommandos erreichen nur **aktive** Anstellungen — aktiv heißt bei uns ZAS-Status GO oder MA (INAKTIV aus ZAS deaktiviert die Anstellung). Stand 20.10.2026: 1.510 aktive Anstellungen (GO 1.055, MA 455), keine aktive mit ZAS-Status INAKTIV. Die Kommandos arbeiten mit **Personen**: RG und MA derselben Person gehen immer gemeinsam.
+
+- [ ] **Daten glattziehen:** `personendaten-abgleich --je-gesellschaft` (Steuerklasse an beiden Anstellungen 1–5 → Lohn MA geht leer raus, bis HR klärt), Steuerklassen-Lücken nach Olafs Lieferung neu zählen, Akten ohne Nummer oder Geburtsdatum über `konto-einladen --bericht` auflisten.
+- [ ] **Kommunikation mit Markus klären:** der Bestand aus ZAS bringt keine Dokumente mit — viele sehen „Ausweis fehlt" (Generalprobe: ~1.320 von 1.603).
+- [ ] `php artisan recruiting:portal-umstellen --alle --dry-run --ich-habe-den-sichttest-gemacht` → Zahlen lesen → ohne `--dry-run`. Schickt nichts; ab dann führt der Portal-Link ins neue Portal.
+- [ ] Einladungen in Wellen: `php artisan recruiting:konto-einladen --welle=50 --senden` (Vorabprüfung der Vorlage bricht ab, bevor jemand eingeladen ist; laufende Einladungen und Registrierte werden übersprungen). Tempo nach HR-Rückfragen.
+- [ ] Pilot-Sperren öffnen, je erst Trockenlauf: „HR-Fälle nur für die Pilotgruppe" aus (`einsatz-pruefung --dry-run` zeigt, wie viele Fälle auf einmal entstehen), „Themen-Auswahl nur für die Pilotgruppe" aus.
+- [ ] Fristenlauf in Wellen (`nachweise-erinnern --ohne-stichtag --limit=…`), danach täglichen Zeitplan einschalten (eigener Commit, siehe 4.8).
+- [ ] Kosten im Blick: jede Einladung und jeder Hinweis ist eine Meta-Utility-Nachricht.
+
 ## 5. ROLLBACK
 
 | Was | Wie | Grenze |
