@@ -128,6 +128,7 @@ class ZasInboundController extends Controller
                 'failed'    => $import['failed'],
                 'warnings'  => $import['warnings'],
                 'suspected' => $import['suspected'],
+                'steuerklasse_abweichend' => $import['steuerklasse_abweichend'],
             ], JSON_UNESCAPED_UNICODE),
         ]);
 

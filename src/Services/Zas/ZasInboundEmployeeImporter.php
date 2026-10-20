@@ -24,6 +24,12 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *    vergeben und war bei 108 von 112 eigenen MA nie eingetragen, weil das
  *    Abtippen als Handarbeit gedacht war (Befund Massenimport 2026-08-25).
  *
+ *  - die Steuerklasse, ebenfalls NUR in ein leeres Feld (Sebastian 20.10.2026):
+ *    bei jedem Treffer, nie ueberschreibend. Abweichende Lieferung bei
+ *    gesetztem Wert: nichts geschrieben, Log + Zaehler steuerklasse_abweichend.
+ *    Der Nachtrag setzt keinen Export-Marker (weder an der Zeile noch an
+ *    MA-Schwestern) und kein Lohn-Tracking.
+ *
  * Ausnahme ZAS-BESTAND (RecEmployee::isZasOwned, Entscheidung 23.09.2026):
  * der wird in ZAS gepflegt, deshalb uebernimmt der Import dort jeden
  * gelieferten, abweichenden Wert — ausser den geschuetzten Feldern
@@ -62,6 +68,7 @@ class ZasInboundEmployeeImporter
         $deactivated = [];
         $reactivated = [];
         $created_inactive = 0;
+        $steuerklasse_abweichend = [];
 
         foreach ($rows as $index => $row) {
             try {
@@ -129,6 +136,29 @@ class ZasInboundEmployeeImporter
                     $companyFill = ($company !== null && trim((string) $existing->company) === '')
                         ? $company
                         : null;
+                    // Steuerklasse (Sebastian 20.10.2026): nur Nachtrag in ein
+                    // LEERES Feld, nie ueberschreiben — gilt fuer jeden Treffer,
+                    // unabhaengig von isZasOwned und dem Overwrite-Schalter.
+                    // Abweichung bei gesetztem Wert: eigene Angabe (Portal/HR)
+                    // gewinnt, der Fall wird nur gemeldet.
+                    $taxFill = null;
+                    $geliefert = trim((string) ($mapped['employee']['tax_class'] ?? ''));
+                    if (in_array($geliefert, ['1', '2', '3', '4', '5', '6'], true)) {
+                        $unser = trim((string) $existing->tax_class);
+                        if ($unser === '') {
+                            $taxFill = $geliefert;
+                        } elseif ($unser !== $geliefert) {
+                            $steuerklasse_abweichend[] = (int) $existing->id;
+                            if (!$dryRun) {
+                                // Keine Namen im Log, nur IDs und Klassen.
+                                Log::info('recruiting.zas_inbound.steuerklasse_abweichend', [
+                                    'employee_id' => (int) $existing->id,
+                                    'unser'       => $unser,
+                                    'zas'         => $geliefert,
+                                ]);
+                            }
+                        }
+                    }
 
                     // ZAS-Bestand: gelieferte, abweichende Werte uebernehmen.
                     $overwrite = ['employee' => [], 'hr' => []];
@@ -152,7 +182,7 @@ class ZasInboundEmployeeImporter
                         $aktivWechsel = true;
                     }
 
-                    if ($changes === [] && $overwrite['employee'] === [] && $pnrFill === null && $companyFill === null && $aktivWechsel === null) {
+                    if ($changes === [] && $overwrite['employee'] === [] && $pnrFill === null && $companyFill === null && $taxFill === null && $aktivWechsel === null) {
                         $skipped[] = [
                             'personnel_number' => $mapped['personnel_number'],
                             'employee_id'      => $existing->id,
@@ -168,6 +198,9 @@ class ZasInboundEmployeeImporter
                     }
                     if ($companyFill !== null) {
                         $changedFields[] = 'company';
+                    }
+                    if ($taxFill !== null) {
+                        $changedFields[] = 'tax_class';
                     }
                     if ($aktivWechsel !== null) {
                         $changedFields[] = 'is_active';
@@ -195,7 +228,7 @@ class ZasInboundEmployeeImporter
                         ];
                         continue;
                     }
-                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee'], $mapped['unmatched'] ?? [], $aktivWechsel);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee'], $mapped['unmatched'] ?? [], $aktivWechsel, $taxFill);
                     if ($aktivWechsel !== null) {
                         $eintrag = ['employee_id' => $existing->id, 'personnel_number' => $mapped['personnel_number']];
                         if ($aktivWechsel) {
@@ -304,7 +337,7 @@ class ZasInboundEmployeeImporter
         // verarbeitet worden, sie braucht nur menschlichen Blick.
         $status = $failed !== [] ? ($created !== [] || $updated !== [] || $skipped !== [] || $deactivated !== [] || $reactivated !== [] ? 'partial' : 'failed') : 'processed';
 
-        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings', 'suspected', 'deactivated', 'reactivated', 'created_inactive');
+        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings', 'suspected', 'deactivated', 'reactivated', 'created_inactive', 'steuerklasse_abweichend');
     }
 
     /**
@@ -433,10 +466,11 @@ class ZasInboundEmployeeImporter
      * @param list<string>        $unmatched   Rohwerte ohne Lookup-Treffer: gehen
      *                                         nur in leere Geschwisterfelder
      * @param bool|null           $aktiv       neuer is_active-Wert aus dem ZAS-Status, oder null
+     * @param string|null         $taxFill     nachzutragende Steuerklasse (nur in leeres Feld), oder null
      */
-    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = [], array $unmatched = [], ?bool $aktiv = null): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = [], array $unmatched = [], ?bool $aktiv = null, ?string $taxFill = null): void
     {
-        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields, $aktiv): void {
+        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields, $aktiv, $taxFill): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
 
             if ($changes !== []) {
@@ -455,6 +489,13 @@ class ZasInboundEmployeeImporter
             }
             if ($companyFill !== null) {
                 $employeeUpdate['company'] = $companyFill;
+            }
+            // Steuerklasse-Nachtrag ebenfalls in derselben direkten Anweisung:
+            // weder Export-Marker (kein Echo, keine MA-Schwestern-Markierung
+            // ueber den Observer-Block lohn_ma_steuerklasse) noch Lohn-Tracking.
+            if ($taxFill !== null) {
+                $employeeUpdate['tax_class'] = $taxFill;
+                $employeeUpdate['updated_at'] = now();
             }
             // Aktiv-Wechsel ebenfalls direkt: kein Echo nach ZAS. Dadurch
             // feuert aber auch der Kontaktlisten-Observer nicht — siehe unten.
@@ -543,11 +584,11 @@ class ZasInboundEmployeeImporter
      *    Aenderung sperrt den Mitarbeiter aus
      *  - country_code: der Mapper setzt bei leerem `Land` 'de' (ZAS liefert
      *    es nie) — ueberschreiben setzte jeden auf Deutschland zurueck
-     *  - tax_class: pflegt der Mitarbeiter selbst im Portal; ZAS liefert sie
-     *    nicht, ein spaeterer ZAS-Wert darf die eigene Angabe nicht
-     *    ueberschreiben (Sebastian/Olaf 19.10.2026). Sie wird bei
-     *    bestehenden Zeilen NIE aus ZAS uebernommen, auch nicht in ein leeres
-     *    Feld; nur Mitarbeiter, die neu aus ZAS angelegt werden, bekommen sie
+     *  - tax_class: pflegt der Mitarbeiter selbst im Portal; der Overwrite-Pfad
+     *    ersetzt sie nie (Sebastian/Olaf 19.10.2026). Seit 20.10.2026 nur
+     *    Nachtrag in ein leeres Feld ($taxFill in import(), bei JEDEM Treffer);
+     *    eine abweichende Lieferung wird nur gemeldet. Neu aus ZAS angelegte
+     *    Mitarbeiter bekommen den gelieferten Wert
      *  - personnel_number, company: nur Nachtrag in leere Felder (siehe oben)
      */
     public const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company', 'tax_class'];

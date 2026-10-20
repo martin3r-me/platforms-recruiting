@@ -28,7 +28,8 @@ use Platform\Recruiting\Services\Zas\ZasLookupReverseResolver;
  * + spaeter verknuepfte Bewerbung). Nie ueberschrieben: Telefon (wird fuer
  * ALLE bei uns gepflegt — Dispo/WhatsApp), Land (Default 'de'), Ausweisnummer
  * (Portal-Login), Personalnummer und Firma (nur Nachtrag), Steuerklasse
- * (pflegt der Mitarbeiter im Portal, ZAS liefert sie nicht — 19.10.2026).
+ * (pflegt der Mitarbeiter im Portal; nur Nachtrag in leeres Feld, nie
+ * ueberschreiben — 19./20.10.2026).
  * Eine leere Zelle loescht nichts. Keine Rueckkopplung: nichts davon markiert
  * den Mitarbeiter fuer den Rueck-Export an ZAS.
  */
@@ -267,6 +268,95 @@ class ZasInboundOverwriteTest extends TestCase
         $this->assertSame('1', $f->tax_class, 'eigene Angabe im Portal, ZAS-Wert darf sie nicht ersetzen');
         $this->assertSame('Neu', $f->first_name, 'andere Felder laufen weiter');
         $this->assertNotContains('tax_class', $report['updated'][0]['changed'] ?? []);
+        $this->assertSame([(int) $e->id], $report['steuerklasse_abweichend'], 'Abweichung wird gezaehlt');
+        $this->assertNull($this->zeile($e)->zas_changed_at);
+    }
+
+    private function zeile(RecEmployee $e): object
+    {
+        return Capsule::table('rec_employees')->find($e->id);
+    }
+
+    // (a) Nachtrag in leeres Feld, ZAS-Bestand: Marker der Zeile unveraendert.
+    public function test_steuerklasse_wird_in_leeres_feld_nachgetragen_ohne_marker(): void
+    {
+        $e = $this->makeEmployee('zas');
+        $this->assertNull($e->tax_class);
+
+        $report = $this->run_($this->row(['Steuerklasse' => '1']));
+
+        $this->assertSame('1', $e->fresh()->tax_class);
+        $this->assertNull($this->zeile($e)->zas_changed_at, 'kein Echo nach ZAS');
+        $this->assertContains('tax_class', $report['updated'][0]['changed']);
+        $this->assertSame([], $report['steuerklasse_abweichend']);
+    }
+
+    public function test_steuerklasse_nachtrag_laesst_gesetzten_marker_stehen(): void
+    {
+        $e = $this->makeEmployee('zas', [], [], '2026-10-01 10:00:00');
+
+        $this->run_($this->row(['Steuerklasse' => '3']));
+
+        $this->assertSame('3', $e->fresh()->tax_class);
+        $this->assertSame('2026-10-01 10:00:00', $this->zeile($e)->zas_changed_at, 'echter offener Marker bleibt, wird nicht neu gesetzt');
+    }
+
+    // (c) Akte mit Bewerbung (kein ZAS-Bestand), auch bei abgeschaltetem Schalter.
+    public function test_steuerklasse_nachtrag_gilt_auch_fuer_akten_mit_bewerbung_und_ohne_schalter(): void
+    {
+        self::$config->set('recruiting.zas.inbound_overwrite_zas_owned', false);
+        $e = $this->makeEmployee('hcm');
+
+        $this->run_($this->row(['Steuerklasse' => '4', 'Vorname' => 'Neu']));
+
+        $f = $e->fresh();
+        $this->assertSame('4', $f->tax_class);
+        $this->assertSame('Alt', $f->first_name, 'Bewerbungs-Akte: sonst nichts ueberschrieben');
+        $this->assertNull($this->zeile($e)->zas_changed_at);
+    }
+
+    // (d) siehe test_steuerklasse_wird_nie_ueberschrieben (Zaehler, kein Marker); hier das Log.
+    public function test_abweichende_steuerklasse_wird_geloggt(): void
+    {
+        $e = $this->makeEmployee('hcm', ['tax_class' => '1']);
+        $log = new class {
+            public array $calls = [];
+            public function __call(string $n, array $a): void
+            {
+                $this->calls[] = [$n, ...$a];
+            }
+        };
+        Container::getInstance()->instance('log', $log);
+        Facade::clearResolvedInstance('log');
+
+        $this->run_($this->row(['Steuerklasse' => '6']));
+
+        $treffer = array_values(array_filter($log->calls, fn ($c) => ($c[1] ?? null) === 'recruiting.zas_inbound.steuerklasse_abweichend'));
+        $this->assertCount(1, $treffer);
+        $this->assertSame(['employee_id' => (int) $e->id, 'unser' => '1', 'zas' => '6'], $treffer[0][2]);
+        $this->assertSame('1', $e->fresh()->tax_class);
+    }
+
+    // (e) gleicher Wert, (f) leere Lieferung, ungueltiger Wert.
+    public function test_gleiche_leere_oder_ungueltige_steuerklasse_tut_nichts(): void
+    {
+        $e = $this->makeEmployee('zas', ['tax_class' => '1']);
+
+        $r1 = $this->run_($this->row(['Steuerklasse' => '1']));
+        $this->assertSame([], $r1['steuerklasse_abweichend']);
+        $this->assertCount(1, $r1['skipped']);
+
+        $r2 = $this->run_($this->row(['Steuerklasse' => '']));
+        $this->assertSame([], $r2['steuerklasse_abweichend']);
+        $this->assertSame('1', $e->fresh()->tax_class);
+
+        $leer = $this->makeEmployee('zas', ['personnel_number' => 'RG9', 'uuid' => 'x-9']);
+        $r3 = $this->run_($this->row(['ZasPersonalNr' => 'RG9', 'Steuerklasse' => '']));
+        $this->assertNull($leer->fresh()->tax_class);
+        $r4 = $this->run_($this->row(['ZasPersonalNr' => 'RG9', 'Steuerklasse' => '7']));
+        $this->assertNull($leer->fresh()->tax_class, 'nur 1..6 werden uebernommen');
+        $this->assertSame([], $r4['steuerklasse_abweichend']);
+        $this->assertNull($this->zeile($e)->zas_changed_at);
     }
 
     public function test_funnel_mitarbeiter_werden_nicht_ueberschrieben(): void

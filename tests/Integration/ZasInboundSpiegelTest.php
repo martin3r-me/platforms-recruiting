@@ -158,14 +158,14 @@ class ZasInboundSpiegelTest extends TestCase
     }
 
     /**
-     * Seit 19.10.2026 ist tax_class beim Import geschuetzt (OVERWRITE_PROTECTED):
-     * eine Lieferung nimmt die Steuerklasse bestehender Akten nie auf, auch nicht
-     * mit dem alten Stand. Damit kann die Je-Gesellschaft-Regel (MA -> Klasse 6,
+     * Seit 19.10.2026 ist tax_class beim Import geschuetzt (OVERWRITE_PROTECTED),
+     * seit 20.10.2026 nur Nachtrag in leere Felder: eine Lieferung ueberschreibt
+     * die Steuerklasse bestehender Akten nie, auch nicht mit dem alten Stand. Damit kann die Je-Gesellschaft-Regel (MA -> Klasse 6,
      * Markus 12.10. E7) vom Inbound nicht ausgeloest oder zurueckgedreht werden;
      * die RG-Seite wird nicht gespiegelt. (Der Marker-Schutz der Personenfelder,
      * PersonenFelder::MARKER_GESCHUETZT, ist durch den Feldschutz hier verdeckt.)
      */
-    public function test_inbound_nimmt_steuerklasse_bestehender_akten_nie_auf_und_loest_die_je_gesellschaft_regel_nicht_aus(): void
+    public function test_inbound_ueberschreibt_steuerklasse_bestehender_akten_nie_und_loest_die_je_gesellschaft_regel_nicht_aus(): void
     {
         $p = $this->person();
         $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => '6', 'personnel_number' => 'RG1', 'company' => 'RG']);
@@ -199,6 +199,29 @@ class ZasInboundSpiegelTest extends TestCase
 
         $this->assertSame('6', (string) $this->zeile($ma)->tax_class, 'ZAS-Wert ueberschreibt die eigene Angabe nicht');
         $this->assertSame('1', (string) $this->zeile($rg)->tax_class);
+    }
+
+    /**
+     * Steuerklasse nur in leere Felder (Sebastian 20.10.2026), Export-Marker HART:
+     * der Nachtrag (b) setzt keinen Marker an der Zeile, (c) keinen an der
+     * MA-Schwester (der neue MA-Zuschlag geht per lohn-ma-export --markieren
+     * raus, nicht automatisch) und (g) loest kein Lohn-Tracking aus.
+     */
+    public function test_steuerklasse_nachtrag_setzt_keinen_marker_weder_an_zeile_noch_an_ma_schwester(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'rec_applicant_id' => 7, 'tax_class' => null, 'personnel_number' => 'RG1', 'company' => 'RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'rec_zas_inbound_file_id' => 5, 'tax_class' => null, 'personnel_number' => 'MA1', 'company' => 'MA']);
+
+        $report = $this->run_($this->row(['ZasPersonalNr' => 'RG1', 'Steuerklasse' => '1']));
+
+        $this->assertSame([], $report['failed']);
+        $this->assertSame('1', (string) $this->zeile($rg)->tax_class, 'Nachtrag in leeres Feld');
+        $this->assertNull($this->zeile($rg)->zas_changed_at, 'kein Echo an der Zeile');
+        $this->assertNull($this->zeile($ma)->zas_changed_at, 'keine Massenmarkierung der MA-Schwester');
+        $this->assertNull($this->zeile($ma)->tax_class, 'Steuerklasse wird nicht gespiegelt');
+        $this->assertSame([], $this->lohn($rg));
+        $this->assertSame([], $this->lohn($ma));
     }
 
     /**
