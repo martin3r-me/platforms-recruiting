@@ -183,6 +183,71 @@ class LohnMaReExportTest extends TestCase
         $this->assertTrue($this->markiert($ma));
         $this->assertFalse($this->markiert($rg));
     }
+
+    /** Pre-Merge-Review I1: ZAS-Zuschlag an einer MA-Zeile fliesst in keine MA-Rechnung — die andere MA bleibt unmarkiert. */
+    public function test_zas_zuschlag_an_ma_zeile_markiert_keine_ma_schwester(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $hr = RecEmployeeHrData::query()->create(['team_id' => self::TEAM, 'rec_employee_id' => $ma, 'zas_grundlohn' => 14.96, 'zas_zuschlag' => 0.50]);
+        $this->assertFalse($this->markiert($ma2), 'Erstlieferung an der MA-Zeile');
+
+        $hr->update(['zas_zuschlag' => 0.80]);
+
+        $this->assertFalse($this->markiert($ma2));
+        $this->assertFalse($this->markiert($rg));
+    }
+
+    /** Pre-Merge-Review I1: an der aktiven RG-Zeile nehmen beide MA-Schwestern teil. */
+    public function test_zas_zuschlag_an_rg_zeile_markiert_alle_ma_schwestern(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $hr = RecEmployeeHrData::query()->create(['team_id' => self::TEAM, 'rec_employee_id' => $rg, 'zas_grundlohn' => 13.90]);
+        $this->assertFalse($this->markiert($ma), 'ohne Zuschlag keine Angabe');
+
+        $hr->update(['zas_zuschlag' => 1.10]);
+
+        $this->assertTrue($this->markiert($ma));
+        $this->assertTrue($this->markiert($ma2));
+        $this->assertFalse($this->markiert($rg));
+    }
+
+    /** Pre-Merge-Review I1: eine ausgeschiedene RG-Zeile ist keine RG-Schwester — ihr ZAS-Zuschlag markiert nichts. */
+    public function test_zas_zuschlag_an_inaktiver_rg_zeile_markiert_nichts(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9, 'is_active' => 0]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+        $hr = RecEmployeeHrData::query()->create(['team_id' => self::TEAM, 'rec_employee_id' => $rg, 'zas_grundlohn' => 13.90, 'zas_zuschlag' => 1.10]);
+        $hr->update(['zas_zuschlag' => 2.10]);
+
+        $this->assertFalse($this->markiert($ma));
+        $this->assertFalse($this->markiert($rg));
+    }
+
+    /** Pre-Merge-Review M2: ein zweites save() derselben Instanz ohne Aenderung setzt keinen neuen Marker. */
+    public function test_zweites_save_ohne_aenderung_markiert_nicht_erneut(): void
+    {
+        $rg = $this->zeile(['rec_person_id' => 9]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 9]);
+
+        $hr = RecEmployeeHrData::query()->create(['team_id' => self::TEAM, 'rec_employee_id' => $rg, 'zas_grundlohn' => 13.90, 'zas_zuschlag' => 1.10]);
+        $this->assertTrue($this->markiert($ma));
+        Capsule::table('rec_employees')->update(['zas_changed_at' => null]);
+
+        $hr->save();
+        $this->assertFalse($this->markiert($ma), 'nach create()');
+
+        $hr->update(['zas_zuschlag' => 2.10]);
+        $this->assertTrue($this->markiert($ma));
+        Capsule::table('rec_employees')->update(['zas_changed_at' => null]);
+
+        $hr->save();
+        $this->assertFalse($this->markiert($ma), 'nach update() — getChanges() ist noch der alte Stand');
+    }
+
     /** Steuerklasse der RG-Schwester ist Eingang des +1-Euro: leer -> '1' muss die MA mitnehmen. */
     public function test_rg_steuerklasse_von_leer_auf_1_markiert_ma(): void
     {

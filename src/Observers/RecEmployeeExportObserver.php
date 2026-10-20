@@ -239,27 +239,34 @@ class RecEmployeeExportObserver
                     self::markEmployeeId((int) $hr->rec_employee_id);
                 }
             }, 'rec_employee_hr_data.saved', $hr->id);
+        });
 
-            // ZAS hat fuer diese (RG-)Zeile einen anderen Zuschlag geliefert
-            // (Spec Lohn MA §8): der MA-Zuschlag der Person rechnet daraus —
-            // die MA-Schwestern neu raus. Die Zeile selbst bleibt ohne Marker,
-            // der Inbound ist kein Echo (und der Importer stellt ihn ohnehin wieder her).
+        // ZAS hat fuer diese (RG-)Zeile einen anderen Zuschlag geliefert
+        // (Spec Lohn MA §8): der MA-Zuschlag der Person rechnet daraus —
+        // die MA-Schwestern neu raus. Die Zeile selbst bleibt ohne Marker,
+        // der Inbound ist kein Echo (und der Importer stellt ihn ohnehin wieder her).
+        //
+        // Bewusst an created/updated statt saved (Pre-Merge-Review M2): saved
+        // feuert auch bei einem zweiten save() ohne Aenderung, und dann ist
+        // wasRecentlyCreated weiter true bzw. getChanges() noch der Stand des
+        // vorigen Speicherns — der Marker kaeme erneut, ohne dass sich bei
+        // uns etwas geaendert hat. created feuert genau einmal beim Einfuegen,
+        // updated nur, wenn wirklich Spalten geschrieben wurden (getChanges()
+        // ist dann frisch).
+        RecEmployeeHrData::created(static function (RecEmployeeHrData $hr): void {
             self::safelyRun(function () use ($hr): void {
                 // Nach create() ist getChanges() leer — dort zaehlt, ob ein Zuschlag geliefert wurde.
-                $geaendert = $hr->wasRecentlyCreated
-                    ? $hr->zas_zuschlag !== null
-                    : array_intersect(['zas_zuschlag', 'zas_grundlohn'], array_keys($hr->getChanges())) !== [];
-                if (!$hr->rec_employee_id || !$geaendert) {
-                    return;
+                if ($hr->zas_zuschlag !== null) {
+                    self::beiZasLohnDerZeile($hr);
                 }
-                $z = DB::table('rec_employees')->where('id', (int) $hr->rec_employee_id)->first(['id', 'rec_person_id', 'person_key']);
-                if ($z === null) {
-                    return;
+            }, 'rec_employee_hr_data.created.lohn_ma', $hr->id);
+        });
+        RecEmployeeHrData::updated(static function (RecEmployeeHrData $hr): void {
+            self::safelyRun(function () use ($hr): void {
+                if (array_intersect(['zas_zuschlag', 'zas_grundlohn'], array_keys($hr->getChanges())) !== []) {
+                    self::beiZasLohnDerZeile($hr);
                 }
-                foreach (LohnMaErmittlung::maSchwesternIds((int) $z->id, ($z->rec_person_id ?? null) !== null ? (int) $z->rec_person_id : null, $z->person_key ?? null) as $id) {
-                    self::markEmployeeId($id);
-                }
-            }, 'rec_employee_hr_data.saved.lohn_ma', $hr->id);
+            }, 'rec_employee_hr_data.updated.lohn_ma', $hr->id);
         });
 
         RecContract::saved(static function (RecContract $contract): void {
@@ -309,6 +316,29 @@ class RecEmployeeExportObserver
     }
 
     /** Alle Anstellungen dieser Bewerbung plus deren aktive MA-Schwestern markieren. */
+    /**
+     * ZAS-Lohn einer hr_data-Zeile hat sich geaendert: MA-Schwestern markieren
+     * — aber nur, wenn die Besitzer-Zeile eine AKTIVE Nicht-MA-Anstellung ist
+     * (Pre-Merge-Review I1). In die MA-Rechnung fliessen nur die ZAS-Werte der
+     * aktiven RG-Schwester (LohnMaErmittlung::rgZuschlag); ZAS-Werte an einer
+     * MA-Zeile oder an einer ausgeschiedenen RG-Zeile aendern keinen
+     * exportierten Wert — ein Marker waere ein Echo der ZAS-Lieferung.
+     */
+    private static function beiZasLohnDerZeile(RecEmployeeHrData $hr): void
+    {
+        if (!$hr->rec_employee_id) {
+            return;
+        }
+        $z = DB::table('rec_employees')->where('id', (int) $hr->rec_employee_id)
+            ->first(['id', 'rec_person_id', 'person_key', 'company', 'is_active']);
+        if ($z === null || LohnMaErmittlung::istMa($z->company ?? null) || !(bool) $z->is_active) {
+            return;
+        }
+        foreach (LohnMaErmittlung::maSchwesternIds((int) $z->id, ($z->rec_person_id ?? null) !== null ? (int) $z->rec_person_id : null, $z->person_key ?? null) as $id) {
+            self::markEmployeeId($id);
+        }
+    }
+
     public static function beiBewerbungsZuschlag(int $applicantId): void
     {
         $zeilen = DB::table('rec_employees')->where('rec_applicant_id', $applicantId)->get(['id', 'rec_person_id', 'person_key']);
