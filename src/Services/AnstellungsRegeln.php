@@ -49,6 +49,12 @@ class AnstellungsRegeln
 {
     public const NEBEN_STEUERKLASSE = '6';
 
+    /**
+     * Klassen, die die Regel ausloesen bzw. als Verstoss zaehlen (20.10.2026):
+     * nur 1-5. 'P' (pauschal), 'S', '/' u. a. sind keine Hauptarbeitgeber-Klasse.
+     */
+    public const HAUPT_STEUERKLASSEN = ['1', '2', '3', '4', '5'];
+
     /** Felder, auf die die Regel reagiert. */
     public const AUSLOESER = ['tax_class', 'is_main_employer', 'other_employer'];
 
@@ -84,11 +90,11 @@ class AnstellungsRegeln
             $neu['other_employer'] = $x;
         }
 
-        // E7: Klasse != 6 hier -> Schwester bekommt 6. Leer und 6 aendern nichts.
+        // E7: Klasse 1-5 hier -> Schwester bekommt 6. Leer, 6, 'P' und
+        // Sonstiges aendern nichts.
         $klasse = $norm('tax_class', $quelle);
         if (in_array('tax_class', $geaendert, true)
-            && $klasse !== null
-            && $klasse !== self::NEBEN_STEUERKLASSE
+            && in_array($klasse, self::HAUPT_STEUERKLASSEN, true)
             && $norm('tax_class', $schwester) !== self::NEBEN_STEUERKLASSE) {
             $neu['tax_class'] = self::NEBEN_STEUERKLASSE;
         }
@@ -272,7 +278,7 @@ class AnstellungsRegeln
      * fuer die HR-Liste (recruiting:personendaten-abgleich --je-gesellschaft).
      *
      * @param  list<array<string,mixed>> $akten  je Akte mind. is_active, is_main_employer, tax_class
-     * @return list<string> 'haupt' (mehr als eine Haupt), 'steuerklasse' (mehr als eine != 6)
+     * @return list<string> 'haupt' (mehr als eine Haupt), 'steuerklasse' (mehr als eine mit 1-5)
      */
     public static function verstoesse(array $akten): array
     {
@@ -281,7 +287,7 @@ class AnstellungsRegeln
         $klasse = count(array_filter($aktiv, function (array $a) {
             $k = PersonenFelder::normalisiere('tax_class', $a['tax_class'] ?? null);
 
-            return $k !== null && $k !== self::NEBEN_STEUERKLASSE;
+            return in_array($k, self::HAUPT_STEUERKLASSEN, true);
         }));
 
         $aus = [];

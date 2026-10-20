@@ -165,6 +165,25 @@ class AnstellungsRegelnTest extends TestCase
         $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'RG-Klasse ist Eingang des MA-Zuschlags: Re-Export (Lohn MA 19.10.)');
     }
 
+    /** 20.10.2026: 'P' (pauschal) ist keine Hauptarbeitgeber-Klasse — die Schwester bleibt. */
+    public function test_klasse_p_an_rg_laesst_ma_unveraendert(): void
+    {
+        [$rg, $ma] = $this->paar(['tax_class' => '6'], ['tax_class' => '1']);
+        RecEmployee::find($rg)->update(['tax_class' => 'P']);
+        $this->assertSame('P', (string) $this->zeile($rg)->tax_class);
+        $this->assertSame('1', (string) $this->zeile($ma)->tax_class);
+    }
+
+    public function test_nur_klasse_1_bis_5_loest_e7_aus(): void
+    {
+        foreach (['1', '2', '3', '4', '5'] as $k) {
+            $this->assertSame(['tax_class' => '6'], AnstellungsRegeln::folgenFuerSchwester(['tax_class' => $k], ['tax_class'], ['tax_class' => '1']), $k);
+        }
+        foreach (['P', 'p', 'S', '/', '6', null] as $k) {
+            $this->assertSame([], AnstellungsRegeln::folgenFuerSchwester(['tax_class' => $k], ['tax_class'], ['tax_class' => '1']), (string) $k);
+        }
+    }
+
     public function test_leere_klasse_aendert_nichts(): void
     {
         [$rg, $ma] = $this->paar(['tax_class' => '1'], ['tax_class' => '3']);
@@ -365,6 +384,17 @@ class AnstellungsRegelnTest extends TestCase
         $this->assertSame([], AnstellungsRegeln::verstoesse([
             ['is_active' => 1, 'is_main_employer' => 1, 'tax_class' => '1'],
             ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => '6'],
+        ]));
+        // 20.10.2026: Verstoss = beide 1-5; 'P' und Sonstiges zaehlen nicht.
+        foreach (['P', 'S', '/'] as $k) {
+            $this->assertSame([], AnstellungsRegeln::verstoesse([
+                ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => '1'],
+                ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => $k],
+            ]), $k);
+        }
+        $this->assertSame(['steuerklasse'], AnstellungsRegeln::verstoesse([
+            ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => '2'],
+            ['is_active' => 1, 'is_main_employer' => 0, 'tax_class' => '2'],
         ]));
     }
 
