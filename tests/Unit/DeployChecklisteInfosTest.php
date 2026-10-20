@@ -33,7 +33,10 @@ final class DeployChecklisteInfosTest extends TestCase
         $zahl = count($m[1]);
         $this->assertSame(24, $zahl);
         $this->assertStringContainsString("alle {$zahl} „Ran\"", $abschnitt[0]);
-        $this->assertStringContainsString("Keine der {$zahl} ist", $abschnitt[0]);
+        // Pre-Merge-Review M3: die Infos-Migration setzt published_at im Bestand —
+        // der Satz nennt genau diese eine Ausnahme.
+        $this->assertStringContainsString("Bis auf eine ist keine der {$zahl} eine Daten-Migration: `2026_10_16_000001` setzt bei Bestandsdokumenten `published_at = created_at`", $abschnitt[0]);
+        $this->assertStringNotContainsString("Keine der {$zahl} ist", $abschnitt[0]);
         $this->assertStringContainsString("`migrate`: {$zahl} Migrationen des Zweigs", $liste);
 
         $this->assertSame(1, preg_match("~migrate:status \| grep -E '([^']+)'~", $abschnitt[0], $grep));
