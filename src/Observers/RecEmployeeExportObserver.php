@@ -217,7 +217,7 @@ class RecEmployeeExportObserver
             }, 'rec_employee.updated.spiegel', $employee->id);
 
             // Regeln zwischen den Anstellungen (Kundenentscheidung Markus
-            // 12.10.2026, E7/E8): Steuerklasse != 6 hier -> Schwester 6,
+            // 12.10.2026, E7/E8): Steuerklasse 1-5 hier -> Schwester 6,
             // Hauptarbeitgeber hier -> Schwester Nebenarbeitgeber. EINE
             // Stelle (AnstellungsRegeln) fuer alle Eloquent-Schreibwege
             // (Portal, HR-Akte, Erklaerung beim Vertrag unterschreiben, altes

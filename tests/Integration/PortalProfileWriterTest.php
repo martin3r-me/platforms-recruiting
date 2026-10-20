@@ -281,6 +281,19 @@ class PortalProfileWriterTest extends TestCase
         $this->assertSame('P', $ma->fresh()->tax_class, 'auch Leeren geht nicht');
     }
 
+    /** Controller-Ruling 20.10.: aus dem Browser nur 1-6 oder leer. */
+    public function test_steuerklasse_ausserhalb_1_bis_6_wird_ignoriert(): void
+    {
+        $ma = $this->mitarbeiter(['tax_class' => '1']);
+
+        foreach (['P', 'p', 'X', '9'] as $wert) {
+            (new PortalProfileWriter())->speichere($ma->fresh(), ['tax_class' => $wert], 'Steuer & Versicherung');
+            $this->assertSame('1', $ma->fresh()->tax_class, $wert);
+        }
+        (new PortalProfileWriter())->speichere($ma->fresh(), ['tax_class' => ''], 'Steuer & Versicherung');
+        $this->assertNull($ma->fresh()->tax_class, 'leer bleibt erlaubt wie bisher');
+    }
+
     public function test_steuerklasse_1_laesst_sich_weiter_auf_6_aendern(): void
     {
         $ma = $this->mitarbeiter(['tax_class' => '1']);

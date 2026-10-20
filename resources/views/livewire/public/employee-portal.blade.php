@@ -328,6 +328,9 @@
                                             style="color-scheme: light"
                                         />
 
+                                    @elseif(!empty($entry['pauschal']))
+                                        <p class="text-sm text-gray-900">pauschal versteuert</p>
+
                                     @elseif($type === 'inline_select')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"

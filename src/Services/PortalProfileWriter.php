@@ -40,6 +40,23 @@ use Platform\Recruiting\Support\ProofTypes;
 final class PortalProfileWriter
 {
     /**
+     * Darf eine Steuerklasse aus dem Portal geschrieben werden? (20.10.2026)
+     * Steuerklasse 'P' (pauschal versteuert) setzen HR/ZAS, nicht der
+     * Mensch: steht sie am Datensatz, wird jede eingehende Aenderung
+     * verworfen (auch per $wire.set). Sonst gilt nur 1-6 oder leer —
+     * 'P', 'X', '9' aus dem Browser werden ignoriert. Gilt fuer beide
+     * Portal-Schreibwege (auch EmployeePortal::saveAll).
+     */
+    public static function steuerklasseUebernehmen(mixed $gespeichert, mixed $eingang): bool
+    {
+        if (strtoupper(trim((string) $gespeichert)) === 'P') {
+            return false;
+        }
+
+        return in_array(trim((string) $eingang), ['', '1', '2', '3', '4', '5', '6'], true);
+    }
+
+    /**
      * @param  array<string,mixed> $formwerte  rohe wire:model-Werte
      * @param  ?string $nurGruppe  Name der offenen Gruppe; alles ausserhalb
      *                             wird verworfen (Verschaerfung von R19)
@@ -139,10 +156,10 @@ final class PortalProfileWriter
             }
         }
 
-        // Steuerklasse 'P' (pauschal versteuert, 20.10.2026) setzt HR/ZAS,
-        // nicht der Mensch: das Blatt zeigt sie nur an, und eine eingehende
-        // Aenderung (z. B. per $wire.set) wird hier verworfen.
-        if (strtoupper(trim((string) $employee->tax_class)) === 'P') {
+        // Steuerklasse aus dem Browser nur 1-6 oder leer; ein gespeichertes
+        // 'P' bleibt stehen (20.10.2026, siehe steuerklasseUebernehmen()).
+        if (array_key_exists('tax_class', $formwerte)
+            && !self::steuerklasseUebernehmen($employee->tax_class, $formwerte['tax_class'])) {
             unset($formwerte['tax_class']);
         }
 
@@ -224,7 +241,7 @@ final class PortalProfileWriter
         }
 
         // Kundenentscheidung Markus 12.10.2026 (E7/E8): Hauptarbeitgeber=ja
-        // bzw. Steuerklasse != 6 hier setzt die ANDERE Anstellung desselben
+        // bzw. Steuerklasse 1-5 hier setzt die ANDERE Anstellung desselben
         // Menschen auf Nebenarbeitgeber bzw. Klasse 6 (AnstellungsRegeln, im
         // Beobachter). Der Mensch sieht das — nicht still.
         $meldung = 'Gespeichert.';

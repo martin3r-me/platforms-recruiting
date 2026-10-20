@@ -26,7 +26,7 @@ use Platform\Recruiting\Support\PersonenFelder;
  * --je-gesellschaft (Nachrunde Markus 12.10.2026, E7/E8): rein lesende
  * HR-Liste der Verstoesse gegen die Je-Gesellschaft-Regel unter den AKTIVEN
  * Anstellungen eines Menschen — mehr als eine Hauptarbeitgeber, mehr als
- * eine Steuerklasse != 6. Kein automatisches Heilen: HR entscheidet je
+ * eine Steuerklasse 1-5 ('P' zaehlt nicht, 20.10.2026). Kein automatisches Heilen: HR entscheidet je
  * Person (in der Akte speichern, dann zieht AnstellungsRegeln die andere
  * Anstellung nach). Nicht kombinierbar mit --nach.
  */

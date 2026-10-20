@@ -12,6 +12,7 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Services\PortalProfileWriter;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\MainEmployerRequiredGuard;
 use Platform\Recruiting\Support\NationalityRequiredGuard;
@@ -366,6 +367,9 @@ class EmployeePortal extends Component
             if (!array_key_exists($field, $allowed)) {
                 continue; // Schutz gegen manipulated POST
             }
+            if ($field === 'tax_class' && !PortalProfileWriter::steuerklasseUebernehmen($employee->tax_class, $value)) {
+                continue; // nur 1-6/leer, gespeichertes 'P' bleibt (20.10.2026)
+            }
             $meta = $allowed[$field];
             $type = $meta['type'] ?? 'text';
             if ($type === 'file') {
@@ -564,6 +568,8 @@ class EmployeePortal extends Component
                     'value'      => $value,
                     'display'    => $display,
                     'is_missing' => $isMissing,
+                    // Steuerklasse 'P' (pauschal): nur Anzeige, keine Auswahl (20.10.2026).
+                    'pauschal'   => $key === 'tax_class' && strtoupper(trim((string) $value)) === 'P',
                     'maxlength'  => $meta['maxlength'] ?? null,
                     'live'       => (bool) ($meta['live'] ?? false),
                 ];

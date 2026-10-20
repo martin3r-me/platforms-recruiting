@@ -16,8 +16,9 @@ use Platform\Recruiting\Support\PersonenFelder;
  *
  * Kundenentscheidung Markus 12.10.2026:
  *   E7 Steuerklasse: „nein, muss abweichend sein, wenn 1 Vergeben, dann die
- *      zweite Karte 6" — hoechstens EINE Anstellung hat eine Klasse != 6.
- *      Klasse != 6 an einer Anstellung setzt die andere auf 6. Klasse 6
+ *      zweite Karte 6" — hoechstens EINE Anstellung hat eine Klasse 1-5.
+ *      Klasse 1-5 an einer Anstellung setzt die andere auf 6 ('P' und
+ *      Sonstiges nicht, 20.10.2026). Klasse 6
  *      setzen aendert die andere nicht, ein leerer Wert auch nicht.
  *   E8 Haupt-/Nebenarbeitgeber: „auch hier, immer nur 1 x moeglich, nicht
  *      den gleichen Status 2 x vergeben" — hoechstens EINE Anstellung ist
@@ -205,7 +206,7 @@ class AnstellungsRegeln
      * (ZasInboundEmployeeImporter nach uebernimmBeiPaarung) und Anlage aus
      * der Bewerbung (CreateEmployeeFromApplicantService nach linkPerson).
      * Die VORHANDENEN Anstellungen sind Quelle, die neue bekommt die Folgen:
-     * vorhandene Haupt -> neue Neben, vorhandene Klasse != 6 -> neue 6.
+     * vorhandene Haupt -> neue Neben, vorhandene Klasse 1-5 -> neue 6.
      * Der andere Arbeitgeber X wird nur in ein LEERES Feld der neuen
      * Anstellung getragen (eine von ZAS mitgelieferte Angabe bleibt).
      *

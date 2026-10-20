@@ -46,6 +46,10 @@ class PortalMainEmployerRequiredTest extends TestCase
         $own = dirname(__DIR__, 2);
         foreach ([
             'database/migrations/2026_05_20_000001_create_rec_employees_table.php',
+            // Steuerklasse-Tests (20.10.2026): tax_class kommt aus 000003,
+            // das auch die hr_data-Tabelle aus 000002 erweitert.
+            'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php',
+            'database/migrations/2026_05_21_000003_add_full_hr_field_set_to_rec_employees_and_hr_data.php',
             'database/migrations/2026_09_23_000001_add_nationality_to_rec_employees.php',
             'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
             // Vertrag an der Anstellung (07.10.2026): employee() laedt
@@ -248,6 +252,43 @@ class PortalMainEmployerRequiredTest extends TestCase
             ['is_main_employer', 'other_employer'],
             array_column($portal->editableGroups()['Arbeitgeber'], 'key'),
         );
+    }
+
+    // ---- Steuerklasse im alten Portal (20.10.2026) — haengt an derselben
+    // Arbeitgeber-Frage, deshalb hier mit demselben Pruefstand. --------------
+
+    public function test_altes_portal_steuerklasse_p_bleibt_beim_speichern(): void
+    {
+        $employee = $this->makeEmployee(['tax_class' => 'P', 'city' => 'Koeln']);
+
+        $portal = $this->portalFor($employee, ['tax_class' => '1', 'city' => 'Duesseldorf']);
+        $portal->saveAll();
+        $this->assertNull($portal->editError);
+        $this->assertSame('P', $employee->fresh()->tax_class);
+        $this->assertSame('Duesseldorf', $employee->fresh()->city, 'der Rest speichert weiter');
+
+        $this->portalFor($employee->fresh(), ['tax_class' => ''])->saveAll();
+        $this->assertSame('P', $employee->fresh()->tax_class, 'auch Leeren geht nicht');
+
+        $eintrag = collect($this->portalFor($employee->fresh(), [])->editableGroups()['Steuer & Versicherung'])->firstWhere('key', 'tax_class');
+        $this->assertTrue($eintrag['pauschal'], 'nur Anzeige, keine Auswahl');
+    }
+
+    public function test_altes_portal_steuerklasse_nur_1_bis_6_oder_leer(): void
+    {
+        $employee = $this->makeEmployee(['tax_class' => '1']);
+
+        foreach (['P', 'p', 'X', '9'] as $wert) {
+            $this->portalFor($employee->fresh(), ['tax_class' => $wert])->saveAll();
+            $this->assertSame('1', $employee->fresh()->tax_class, $wert);
+        }
+        $this->portalFor($employee->fresh(), ['tax_class' => '6'])->saveAll();
+        $this->assertSame('6', $employee->fresh()->tax_class);
+        $this->portalFor($employee->fresh(), ['tax_class' => ''])->saveAll();
+        $this->assertNull($employee->fresh()->tax_class, 'leer bleibt erlaubt wie bisher');
+
+        $eintrag = collect($this->portalFor($this->makeEmployee(['tax_class' => '1']), [])->editableGroups()['Steuer & Versicherung'])->firstWhere('key', 'tax_class');
+        $this->assertFalse($eintrag['pauschal']);
     }
 
     private function makeEmployee(array $attributes = []): RecEmployee

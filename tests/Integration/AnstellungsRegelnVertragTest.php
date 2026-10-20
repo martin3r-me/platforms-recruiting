@@ -88,7 +88,7 @@ final class AnstellungsRegelnVertragTest extends TestCase
         $show->saveAll();
 
         $this->assertSame('P', (string) $rg->fresh()->tax_class);
-        $this->assertSame('1', (string) $ma->fresh()->tax_class, "'P' loest E7 nicht aus");
+        $this->assertSame('1', (string) $ma->fresh()->tax_class, 'unveraendert speichern laesst MA stehen');
     }
 
     /** Nachrunde 12.10. (Bedenken 6): das HR-Label nennt die Gesellschaft der Akte. */
