@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
+use Platform\Recruiting\Services\Zas\ZasStatus;
+
 /**
  * Wer bekommt in dieser Welle ein Angebot — und welche Schichten stehen drin.
  * Rein rechnend (Muster DispoRecipientPlanner): nichts wird still uebersprungen,
@@ -26,6 +28,62 @@ final class DispoJobRecipientPlanner
         'schon_zugesagt'      => 'hat diese Schicht schon zugesagt',
     ];
 
+    /** Statusfilter (Spec 2026-10-20): ZAS-Status je Person, NICHT die Gesellschaft. */
+    public const STATI = [
+        ZasStatus::GO => 'GO – aktiver Vertrag',
+        ZasStatus::MA => 'MA – braucht neuen Vertrag',
+    ];
+
+    /**
+     * Nur bekannte Status-Schluessel, feste Reihenfolge GO, MA.
+     *
+     * @param array<int|string,mixed> $werte
+     * @return list<string>
+     */
+    public static function stati(array $werte): array
+    {
+        $gewaehlt = array_fill_keys(array_map('strval', $werte), true);
+
+        return array_values(array_filter(array_keys(self::STATI), fn ($s) => isset($gewaehlt[$s])));
+    }
+
+    /** Beschriftung einer Welle: null (alte Welle) = beide. */
+    public static function statiLabel(?array $stati): string
+    {
+        if ($stati === null) {
+            return 'GO + MA';
+        }
+        $stati = self::stati($stati);
+
+        return match (count($stati)) {
+            0 => 'kein Status',
+            1 => 'nur ' . $stati[0],
+            default => implode(' + ', $stati),
+        };
+    }
+
+    /**
+     * Grundmenge aus Filiale und Gruppe — OHNE Statusfilter und ohne Toepfe.
+     * Daraus zaehlt die Oberflaeche die Personen je Status, damit die Zahl am
+     * Haekchen nicht vom eigenen Haekchen abhaengt.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function grundmenge(array $kandidaten, array $einsaetze, array $auswahl): array
+    {
+        $bloecke = $auswahl['bloecke'] ?? [];
+        $gruppen = $auswahl['gruppen'] ?? [];
+        $ohneKostenstelle = in_array(null, $bloecke, true);
+        $blockSet = array_fill_keys(array_map('intval', array_filter($bloecke, fn ($b) => $b !== null)), true);
+
+        return array_values(array_filter($kandidaten, function ($k) use ($einsaetze, $gruppen, $ohneKostenstelle, $blockSet) {
+            $block = $k['block'];
+            $imBlock = $block === null ? $ohneKostenstelle : isset($blockSet[(int) $block]);
+
+            return $imBlock && DispoEinsatzZaehler::trifft((int) ($einsaetze[(int) $k['anchor']] ?? 0), $gruppen);
+        }));
+    }
+
     /** Gleiche Schicht ueber Anfragen hinweg: VA | Tag | Beginn | Taetigkeit (case-/trim-unempfindlich). */
     public static function schichtSchluessel(int|string|null $event, string $datum, ?string $von, ?string $taetigkeit): string
     {
@@ -38,7 +96,7 @@ final class DispoJobRecipientPlanner
      * @param array<int,int> $einsaetze Anker => Einsaetze im Monat
      * @param array<int,array<string,true>> $gebucht Anker => gebuchte Tage
      * @param array<int,true> $schonAngeschrieben Anker => true
-     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
+     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>} $auswahl
      * @param array<int,list<string>> $schonZugesagt Anker => schichtSchluessel() der anderswo zugesagten Schichten
      * @return array{recipients: list<array{anchor:int, employee_id:int, phone:string, first_name:string, portal_token:string, shift_ids:list<int>}>, skipped: array<string,int>, skipped_ids: array<string,list<int>>}
      */
@@ -48,17 +106,13 @@ final class DispoJobRecipientPlanner
         $skippedIds = array_fill_keys(array_keys(self::TOEPFE), []);
         $recipients = [];
 
-        $bloecke = $auswahl['bloecke'] ?? [];
-        $gruppen = $auswahl['gruppen'] ?? [];
         $nurPassend = (bool) ($auswahl['nur_passend'] ?? false);
-        $ohneKostenstelle = in_array(null, $bloecke, true);
-        $blockSet = array_fill_keys(array_map('intval', array_filter($bloecke, fn ($b) => $b !== null)), true);
+        // null/fehlend = alte Welle ohne Statusauswahl = GO + MA; [] = niemand.
+        $stati = ($auswahl['stati'] ?? null) === null ? null : array_fill_keys(self::stati((array) $auswahl['stati']), true);
 
-        foreach ($kandidaten as $k) {
+        foreach (self::grundmenge($kandidaten, $einsaetze, $auswahl) as $k) {
             $anchor = (int) $k['anchor'];
-            $block = $k['block'];
-            $imBlock = $block === null ? $ohneKostenstelle : isset($blockSet[(int) $block]);
-            if (!$imBlock || !DispoEinsatzZaehler::trifft((int) ($einsaetze[$anchor] ?? 0), $gruppen)) {
+            if ($stati !== null && !isset($stati[(string) ($k['status'] ?? ZasStatus::GO)])) {
                 continue;
             }
             if (isset($schonAngeschrieben[$anchor])) {

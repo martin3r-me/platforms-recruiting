@@ -69,6 +69,9 @@ final class DispoJobKandidaten
         }
         foreach ($byAnchor as &$row) {
             $row['ohne_vertrag'] = self::ohneVertrag($row['stati']);
+            // Personen-Status fuer den Statusfilter (Spec 2026-10-20): GO in einer
+            // Anstellung gewinnt, egal welche Gesellschaft; ohne Status = GO.
+            $row['status'] = $row['ohne_vertrag'] ? ZasStatus::MA : ZasStatus::GO;
             unset($row['stati']);
         }
         unset($row);

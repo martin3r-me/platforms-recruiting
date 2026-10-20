@@ -178,6 +178,9 @@ class DispoJobKandidatenTest extends TestCase
             $this->assertFalse($k[$rg]['ohne_vertrag'], 'Gruppe mit GO-Datensatz');
             $this->assertTrue($k[$nurMa]['ohne_vertrag']);
             $this->assertFalse($k[$keinHr]['ohne_vertrag'], 'ohne hrData zaehlt nicht');
+            $this->assertSame('GO', $k[$rg]['status'], 'GO in einer Anstellung gewinnt, egal welche Gesellschaft');
+            $this->assertSame('MA', $k[$nurMa]['status']);
+            $this->assertSame('GO', $k[$keinHr]['status'], 'ohne Status = GO, niemand faellt still raus');
         } finally {
             config(['recruiting.zas.inbound_team_id' => 0]);
         }
