@@ -359,6 +359,45 @@ class ZasInboundOverwriteTest extends TestCase
         $this->assertNull($this->zeile($e)->zas_changed_at);
     }
 
+    /** 20.10.2026: 'P'/'p' (pauschal) wird in ein leeres Feld als 'P' uebernommen, ohne Marker. */
+    public function test_steuerklasse_p_wird_als_grosses_p_nachgetragen(): void
+    {
+        $gross = $this->makeEmployee('zas');
+        $this->run_($this->row(['Steuerklasse' => 'P']));
+        $this->assertSame('P', $gross->fresh()->tax_class);
+        $this->assertNull($this->zeile($gross)->zas_changed_at, 'kein Echo nach ZAS');
+
+        $klein = $this->makeEmployee('zas', ['personnel_number' => 'RG8', 'uuid' => 'x-8']);
+        $report = $this->run_($this->row(['ZasPersonalNr' => 'RG8', 'Steuerklasse' => ' p ']));
+        $this->assertSame('P', $klein->fresh()->tax_class);
+        $this->assertSame([], $report['steuerklasse_abweichend']);
+    }
+
+    /** 'S', '/' und alles andere ausser 1-6/P wird nicht uebernommen und nicht als Abweichung gezaehlt. */
+    public function test_steuerklasse_s_und_schraegstrich_werden_nicht_uebernommen(): void
+    {
+        $e = $this->makeEmployee('zas');
+        foreach (['S', 's', '/', '1/1'] as $wert) {
+            $r = $this->run_($this->row(['Steuerklasse' => $wert]));
+            $this->assertNull($e->fresh()->tax_class, $wert);
+            $this->assertSame([], $r['steuerklasse_abweichend'], $wert);
+        }
+    }
+
+    /** Vergleich case-insensitive: gespeichertes 'P' gegen geliefertes 'p' ist keine Abweichung; '1' gegen 'P' schon. */
+    public function test_steuerklasse_p_gross_klein_ist_keine_abweichung(): void
+    {
+        $e = $this->makeEmployee('zas', ['tax_class' => 'P']);
+        $r = $this->run_($this->row(['Steuerklasse' => 'p']));
+        $this->assertSame([], $r['steuerklasse_abweichend']);
+        $this->assertSame('P', $e->fresh()->tax_class);
+
+        $eins = $this->makeEmployee('zas', ['tax_class' => '1', 'personnel_number' => 'RG7', 'uuid' => 'x-7']);
+        $r2 = $this->run_($this->row(['ZasPersonalNr' => 'RG7', 'Steuerklasse' => 'P']));
+        $this->assertSame([(int) $eins->id], $r2['steuerklasse_abweichend']);
+        $this->assertSame('1', $eins->fresh()->tax_class, 'nie ueberschreiben');
+    }
+
     public function test_funnel_mitarbeiter_werden_nicht_ueberschrieben(): void
     {
         $e = $this->makeEmployee('hcm');

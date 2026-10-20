@@ -25,7 +25,7 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *    Abtippen als Handarbeit gedacht war (Befund Massenimport 2026-08-25).
  *
  *  - die Steuerklasse, ebenfalls NUR in ein leeres Feld (Sebastian 20.10.2026):
- *    bei jedem Treffer, nie ueberschreibend. Abweichende Lieferung bei
+ *    bei jedem Treffer, nie ueberschreibend; 1-6 oder 'P' (pauschal). Abweichende Lieferung bei
  *    gesetztem Wert: nichts geschrieben, Log + Zaehler steuerklasse_abweichend.
  *    Der Nachtrag setzt keinen Export-Marker (weder an der Zeile noch an
  *    MA-Schwestern) und kein Lohn-Tracking.
@@ -141,13 +141,15 @@ class ZasInboundEmployeeImporter
                     // unabhaengig von isZasOwned und dem Overwrite-Schalter.
                     // Abweichung bei gesetztem Wert: eigene Angabe (Portal/HR)
                     // gewinnt, der Fall wird nur gemeldet.
+                    // Neben 1-6 auch 'P' (pauschal versteuert, 20.10.2026), als
+                    // 'P' gespeichert; 'S', '/' und alles andere nicht.
                     $taxFill = null;
-                    $geliefert = trim((string) ($mapped['employee']['tax_class'] ?? ''));
-                    if (in_array($geliefert, ['1', '2', '3', '4', '5', '6'], true)) {
+                    $geliefert = strtoupper(trim((string) ($mapped['employee']['tax_class'] ?? '')));
+                    if (in_array($geliefert, ['1', '2', '3', '4', '5', '6', 'P'], true)) {
                         $unser = trim((string) $existing->tax_class);
                         if ($unser === '') {
                             $taxFill = $geliefert;
-                        } elseif ($unser !== $geliefert) {
+                        } elseif (strtoupper($unser) !== $geliefert) {
                             $steuerklasse_abweichend[] = (int) $existing->id;
                             if (!$dryRun) {
                                 // Keine Namen im Log, nur IDs und Klassen.
