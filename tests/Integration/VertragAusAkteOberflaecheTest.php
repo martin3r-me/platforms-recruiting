@@ -433,6 +433,8 @@ final class VertragAusAkteOberflaecheTest extends TestCase
         $this->assertStringStartsWith('Zuschlag nicht berechenbar: ', (string) $akte->vertragZuschlagHinweis);
         $this->assertStringContainsString('Steuerklasse fehlt (MA)', (string) $akte->vertragZuschlagHinweis);
         $this->assertStringEndsWith(' — bitte eintragen', (string) $akte->vertragZuschlagHinweis);
+        // Ohne Rechnung und ohne ZAS-Wortlaut — der Vertrag ist nicht der Export.
+        $this->assertSame('Zuschlag nicht berechenbar: Steuerklasse fehlt (MA) — bitte eintragen', $akte->vertragZuschlagHinweis);
 
         $html = $this->renderPartial('_vertrag-erstellen', [
             'vertragVorlagen' => $akte->vertragsVorlagen(), 'vertragFirma' => 'MA', 'fehler' => null,
@@ -453,6 +455,7 @@ final class VertragAusAkteOberflaecheTest extends TestCase
 
         $this->assertSame('', $akte->vertragZuschlag);
         $this->assertStringContainsString('keine Personen-Zuordnung', (string) $akte->vertragZuschlagHinweis);
+        $this->assertStringNotContainsString('ZAS', (string) $akte->vertragZuschlagHinweis);
     }
 
     public function test_rg_akte_bleibt_leer_ohne_hinweis(): void

@@ -43,6 +43,7 @@ final class LohnMa
         public readonly float $grundlohn,
         public readonly ?float $zuschlag,
         public readonly string $begruendung,
+        private readonly ?string $grund = null,
     ) {
     }
 
@@ -73,7 +74,7 @@ final class LohnMa
             $teile[] = 'RG-Zuschlag unbekannt (keine Bewerbung, nichts eingetragen)';
             $teile[] = self::PAAR_LEER;
 
-            return new self(self::UNBEKANNT, $eg1, null, implode(' · ', $teile));
+            return new self(self::UNBEKANNT, $eg1, null, implode(' · ', $teile), 'RG-Zuschlag unbekannt');
         }
 
         $gesamt = $mindestlohn + $rgZuschlag;
@@ -95,7 +96,7 @@ final class LohnMa
             $fehlt = $ma === '' && $rg === '' ? 'MA und RG' : ($ma === '' ? 'MA' : 'RG');
             $teile[] = 'Steuerklasse fehlt (' . $fehlt . ') — ' . self::PAAR_LEER;
 
-            return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile));
+            return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile), 'Steuerklasse fehlt (' . $fehlt . ')');
         }
 
         // Markus 14.10.: RG 1-5 und in der MA die 6 → 1,00 EUR mehr.
@@ -123,7 +124,7 @@ final class LohnMa
      */
     public static function unbekanntWeil(float $eg1, string $grund): self
     {
-        return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, self::PAAR_LEER]));
+        return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, self::PAAR_LEER]), $grund);
     }
 
     /** Begruendungs-Schluss der beiden Leer-Faelle (Pre-Merge-Review I2). */
@@ -142,6 +143,16 @@ final class LohnMa
         }
 
         return self::zahl($this->grundlohn);
+    }
+
+    /**
+     * Nur der Grund, warum der Zuschlag nicht berechenbar ist — ohne Rechnung
+     * und ohne ZAS-Wortlaut (fuer den Hinweis "Vertrag aus der Akte": der
+     * Vertrag ist nicht der Export). Null in den berechenbaren Faellen.
+     */
+    public function grundKurz(): ?string
+    {
+        return $this->paarLeer() ? $this->grund : null;
     }
 
     /** Geht in diesem Fall weder Grundlohn noch Zuschlag an ZAS? */

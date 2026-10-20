@@ -865,7 +865,9 @@ class Show extends Component
         $lohn = $ermittlung->ermittelnMitSchwester($emp, $ermittlung->rgSchwester($emp), $stichtag);
 
         if ($lohn->zuschlag === null || in_array($lohn->fall, [LohnMa::UNBEKANNT, LohnMa::STEUERKLASSE_FEHLT], true)) {
-            return ['', 'Zuschlag nicht berechenbar: ' . $lohn->begruendung . ' — bitte eintragen'];
+            // Nur der Grund, nicht die Begruendung: deren Schluss spricht vom
+            // ZAS-Export ("ZAS behaelt sein Paar") — im Vertrag irrefuehrend.
+            return ['', 'Zuschlag nicht berechenbar: ' . ($lohn->grundKurz() ?? 'Grund unbekannt') . ' — bitte eintragen'];
         }
 
         return [ZuschlagWert::format($lohn->zuschlag), null];

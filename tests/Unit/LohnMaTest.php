@@ -20,6 +20,7 @@ final class LohnMaTest extends TestCase
         $this->assertSame('15,33', $l->grundlohnText());
         $this->assertSame('1,07', $l->zuschlagText());
         $this->assertFalse($l->paarLeer());
+        $this->assertNull($l->grundKurz());
         $this->assertStringContainsString('Angleich an RG 16,40 € (13,90 + 2,50) → 1,07 €', $l->begruendung);
     }
 
@@ -94,6 +95,7 @@ final class LohnMaTest extends TestCase
         $this->assertSame(LohnMa::STEUERKLASSE_FEHLT, $l->fall);
         $this->assertNull($l->zuschlag);
         $this->assertNull($l->grundlohnText());
+        $this->assertSame('Steuerklasse fehlt (RG)', $l->grundKurz());
         $this->assertStringContainsString('Steuerklasse fehlt (RG)', $l->begruendung);
     }
 
@@ -125,6 +127,7 @@ final class LohnMaTest extends TestCase
         $this->assertNull($l->zuschlagText());
         $this->assertSame(15.33, $l->grundlohn, 'intern bleibt EG 1');
         $this->assertNull($l->grundlohnText(), 'Pre-Merge-Review I2: Grundlohn nur zusammen mit dem Zuschlag');
+        $this->assertSame('RG-Zuschlag unbekannt', $l->grundKurz());
         $this->assertStringContainsString('RG-Zuschlag unbekannt', $l->begruendung);
         $this->assertStringContainsString('Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
     }
@@ -198,6 +201,7 @@ final class LohnMaTest extends TestCase
         $this->assertNull($l->zuschlag);
         $this->assertNull($l->zuschlagText());
         $this->assertNull($l->grundlohnText());
+        $this->assertSame('keine Personen-Zuordnung', $l->grundKurz());
         $this->assertSame('EG 1 15,33 € · keine Personen-Zuordnung · Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
     }
 }
