@@ -153,7 +153,7 @@ final class ZasLohnspaltenTest extends TestCase
     {
         // Volle Nummer: erst sie bestaetigt die Kennung (PersonProofScope). Mit
         // '+491511' lief der Test bisher still als "nur MA" durch (auch 0,00).
-        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'person_key' => 'k-1', 'phone' => '+4915112345678']);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'person_key' => 'k-1', 'phone' => '+4915112345678', 'tax_class' => '6']);
         $ma = $this->zeile(['company' => 'MA', 'person_key' => 'k-1', 'phone' => '+4915112345678', 'tax_class' => '1']);
 
         $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'));
@@ -218,6 +218,30 @@ final class ZasLohnspaltenTest extends TestCase
         $this->assertNull($this->resolver()->col($ma, 'Grundlohn'), 'Pre-Merge-Review I2: Grundlohn nur zusammen mit dem Zuschlag');
     }
 
+    /** 20.10.2026: RG 1 und MA 1 = zwei Hauptarbeitgeber — beide Zellen leer, bis HR klaert. */
+    public function test_beide_klasse_1_liefert_grundlohn_und_zuschlag_leer(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 18, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 18, 'tax_class' => '1']);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 18, 'tax_class' => '1']);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNull($this->resolver()->col($ma, 'Grundlohn'));
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::STEUERKLASSE_FEHLT, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
+    }
+
+    /** RG 'P' (pauschal) und MA 6: Zuschlag berechnet, aber kein Klasse-6-Euro. */
+    public function test_rg_pauschal_und_ma_6_ohne_euro(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 19, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 19, 'tax_class' => 'P']);
+        $this->zasLohn($rg->id, 13.90, 2.50);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 19, 'tax_class' => '6']);
+
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()), 2)), $this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNotNull($this->resolver()->col($ma, 'Grundlohn'));
+    }
+
     /** ZAS-Grundlohn 0 = Zeile bei ZAS nicht gepflegt, der Zuschlag daneben ist keine Angabe. */
     public function test_zas_wert_mit_grundlohn_null_zaehlt_nicht(): void
     {
@@ -233,13 +257,13 @@ final class ZasLohnspaltenTest extends TestCase
     public function test_bewerbung_schlaegt_zas_und_zas_schlaegt_manuell(): void
     {
         Capsule::table('rec_persons')->insert(['id' => 15, 'team_id' => self::TEAM]);
-        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 15, 'zuschlag_manuell' => 9.99]);  // Bewerbung 1,10
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 15, 'zuschlag_manuell' => 9.99, 'tax_class' => '6']);  // Bewerbung 1,10
         $this->zasLohn($rg->id, 13.90, 5.00);
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 15, 'tax_class' => '1']);
         $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'), 'Bewerbung 15,00 < EG 1');
 
         Capsule::table('rec_persons')->insert(['id' => 16, 'team_id' => self::TEAM]);
-        $rg2 = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 16, 'zuschlag_manuell' => 9.99]);
+        $rg2 = $this->zeile(['company' => 'RG', 'rec_applicant_id' => null, 'rec_person_id' => 16, 'zuschlag_manuell' => 9.99, 'tax_class' => '6']);
         $this->zasLohn($rg2->id, 13.90, 2.50);
         $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 16, 'tax_class' => '1']);
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(round(13.90 + 2.50 - \Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString()), 2)), $this->resolver()->col($ma2, 'Zuschlag'), 'ZAS vor manuell');
@@ -341,7 +365,7 @@ final class ZasLohnspaltenTest extends TestCase
     {
         Capsule::table('rec_applicants')->insert(['id' => 502, 'zuschlag' => null, 'contract_template_id' => null]);
         Capsule::table('rec_persons')->insert(['id' => 31, 'team_id' => self::TEAM]);
-        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 502, 'rec_person_id' => 31]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_applicant_id' => 502, 'rec_person_id' => 31, 'tax_class' => '6']);
         $this->zasLohn($rg->id, 13.90, 2.00);
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 31, 'tax_class' => '1']);
 
@@ -370,7 +394,7 @@ final class ZasLohnspaltenTest extends TestCase
     {
         Capsule::table('rec_applicants')->insert(['id' => 504, 'zuschlag' => null, 'contract_template_id' => null]);
         Capsule::table('rec_persons')->insert(['id' => 33, 'team_id' => self::TEAM]);
-        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 504, 'rec_person_id' => 33, 'zuschlag_manuell' => 2.50]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 504, 'rec_person_id' => 33, 'zuschlag_manuell' => 2.50, 'tax_class' => '6']);
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 33, 'tax_class' => '1']);
 
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::MANUELL, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);

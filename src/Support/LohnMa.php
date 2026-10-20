@@ -8,8 +8,9 @@ namespace Platform\Recruiting\Support;
  * Grundlohn = EG 1. Zuschlag gleicht an den RG-Gesamtlohn der Person an
  * (Markus 15.10.2026, E14: "mindestens den identischen Gesamtlohn"), dazu
  * +1,00 EUR, wenn die RG-Schwester Steuerklasse 1-5 und die MA die 6 hat
- * (Markus 14.10.2026). Fehlt eine der beiden Steuerklassen, bleibt der
- * Zuschlag leer (Fall steuerklasse_fehlt). Ohne RG-Anstellung gibt es nichts
+ * (Markus 14.10.2026). Fehlt eine der beiden Steuerklassen oder stehen
+ * beide auf 1-5 (widerspruechlich), bleibt der Zuschlag leer (Fall
+ * steuerklasse_fehlt). Ohne RG-Anstellung gibt es nichts
  * anzugleichen ("nur MA ohne Zuschlag", 16.10.2026). Ist der RG-Zuschlag
  * unbekannt (Bestand ohne Bewerbung, nichts eingetragen), bleibt der
  * Zuschlag LEER — ein geratener Betrag landet im Lohn, ein leerer faellt auf.
@@ -53,8 +54,8 @@ final class LohnMa
      * @param  bool         $hatRg          aktive RG-Anstellung derselben Person vorhanden
      * @param  float|null   $rgZuschlag     RG-Zuschlag; null = unbekannt
      * @param  string|null  $quelle         QUELLE_BEWERBUNG | QUELLE_ZAS | QUELLE_MANUELL | null
-     * @param  string|null  $steuerklasseMa tax_class der MA-Anstellung ('1'..'6' oder null)
-     * @param  string|null  $steuerklasseRg tax_class der RG-Schwester ('1'..'6' oder null)
+     * @param  string|null  $steuerklasseMa tax_class der MA-Anstellung ('1'..'6', 'P' oder null)
+     * @param  string|null  $steuerklasseRg tax_class der RG-Schwester ('1'..'6', 'P' oder null)
      */
     public static function rechne(float $eg1, float $mindestlohn, bool $hatRg, ?float $rgZuschlag, ?string $quelle, ?string $steuerklasseMa, ?string $steuerklasseRg = null): self
     {
@@ -99,8 +100,19 @@ final class LohnMa
             return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile), 'Steuerklasse fehlt (' . $fehlt . ')');
         }
 
-        // Markus 14.10.: RG 1-5 und in der MA die 6 → 1,00 EUR mehr.
-        $sechs = ($ma === '6' && in_array($rg, ['1', '2', '3', '4', '5'], true)) ? self::KLASSE_SECHS_EURO : 0.0;
+        // Beide Seiten 1-5 = zwei Hauptarbeitgeber, ein Datenfehler (20.10.2026,
+        // "1/1"/"2/2" bei ZAS). Welche Seite stimmt, wissen wir nicht — also
+        // wie fehlende Klasse: beide Zellen leer, bis HR klaert.
+        $haupt = ['1', '2', '3', '4', '5'];
+        if (in_array(strtoupper($ma), $haupt, true) && in_array(strtoupper($rg), $haupt, true)) {
+            $teile[] = 'Steuerklasse widersprüchlich (beide Hauptarbeitgeber) — ' . self::PAAR_LEER;
+
+            return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile), 'Steuerklasse widersprüchlich (beide Hauptarbeitgeber)');
+        }
+
+        // Markus 14.10.: RG 1-5 und in der MA die 6 → 1,00 EUR mehr. 'P'
+        // (pauschal), 'S', '/' sind gesetzt, aber weder 1-5 noch 6: kein Euro.
+        $sechs = ($ma === '6' && in_array($rg, $haupt, true)) ? self::KLASSE_SECHS_EURO : 0.0;
         if ($sechs > 0) {
             $teile[] = 'Steuerklasse 6 +' . self::euro($sechs);
         }

@@ -148,7 +148,7 @@ class LohnMaExportCommandTest extends TestCase
         $ma1 = $this->zeile(['company' => 'MA', 'rec_person_id' => 1, 'tax_class' => '6', 'personnel_number' => 'MA1']);
         $this->zeile(['company' => 'RG', 'rec_person_id' => 2]);
         $ma2 = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'personnel_number' => 'MA2']);
-        $this->zeile(['company' => 'RG', 'rec_person_id' => 3, 'zuschlag_manuell' => 2.50]);
+        $this->zeile(['company' => 'RG', 'rec_person_id' => 3, 'zuschlag_manuell' => 2.50, 'tax_class' => '6']);   // RG 6 + MA 1: nicht widerspruechlich
         $ma3 = $this->zeile(['company' => 'MA', 'rec_person_id' => 3, 'tax_class' => '1', 'personnel_number' => 'MA3']);
         $ma4 = $this->zeile(['company' => 'MA', 'rec_person_id' => 4, 'personnel_number' => 'MA4']);   // Person ohne RG = nur MA (R4)
         $this->zeile(['company' => 'MA', 'is_active' => 0, 'personnel_number' => 'MA5']);   // ausgeschieden: nicht im Lauf

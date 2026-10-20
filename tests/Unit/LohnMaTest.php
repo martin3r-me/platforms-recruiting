@@ -12,7 +12,7 @@ final class LohnMaTest extends TestCase
 
     public function test_fall_1_angleich_rg_lohn_ueber_eg1(): void
     {
-        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '1', '1');
+        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '1', '6');
 
         $this->assertSame(LohnMa::ANGLEICH, $l->fall);
         $this->assertSame(15.33, $l->grundlohn);
@@ -27,7 +27,7 @@ final class LohnMaTest extends TestCase
     /** Review Focus 1: RG-Lohn unter EG 1 → 0,00, nie negativ. */
     public function test_fall_1_rg_lohn_unter_eg1_ergibt_null_nicht_negativ(): void
     {
-        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '3', '1');
+        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '3', '6');
 
         $this->assertSame(0.0, $l->zuschlag);
         $this->assertSame('0,00', $l->zuschlagText());
@@ -35,7 +35,7 @@ final class LohnMaTest extends TestCase
 
     public function test_rg_1_und_ma_6_gibt_einen_euro_dazu(): void
     {
-        $ohne = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '1', '1');
+        $ohne = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '1', '6');
         $mit = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '6', '1');
         $mitAngleich = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '6', '3');
 
@@ -64,11 +64,39 @@ final class LohnMaTest extends TestCase
         $this->assertStringNotContainsString('Steuerklasse 6', $l->begruendung);
     }
 
-    public function test_rg_1_und_ma_1_kein_euro(): void
+    /** 20.10.2026: beide Seiten 1-5 = zwei Hauptarbeitgeber — beide Zellen leer. */
+    public function test_beide_seiten_1_bis_5_ist_widerspruechlich(): void
     {
-        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '1', '1');
+        foreach ([['1', '1'], ['2', '2'], ['1', '3'], ['5', '4']] as [$ma, $rg]) {
+            $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, $ma, $rg);
 
-        $this->assertSame(0.0, $l->zuschlag);
+            $this->assertSame(LohnMa::STEUERKLASSE_FEHLT, $l->fall, $ma . '/' . $rg);
+            $this->assertNull($l->zuschlag);
+            $this->assertNull($l->zuschlagText());
+            $this->assertNull($l->grundlohnText());
+            $this->assertTrue($l->paarLeer());
+            $this->assertSame('Steuerklasse widersprüchlich (beide Hauptarbeitgeber)', $l->grundKurz());
+            $this->assertStringContainsString('Steuerklasse widersprüchlich (beide Hauptarbeitgeber) — Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar', $l->begruendung);
+        }
+    }
+
+    /** 'P' (pauschal), 'S', '/' sind gesetzt, aber weder 1-5 noch 6: berechnet, kein Euro. */
+    public function test_steuerklasse_p_ist_bekannt_ohne_euro(): void
+    {
+        $rgP = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '6', 'P');
+        $maP = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, 'P', '1');
+        $klein = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, 'p', '1');
+
+        foreach ([$rgP, $maP, $klein] as $l) {
+            $this->assertSame(LohnMa::ANGLEICH, $l->fall);
+            $this->assertSame(1.07, $l->zuschlag);
+            $this->assertSame('15,33', $l->grundlohnText());
+            $this->assertStringNotContainsString('Steuerklasse', $l->begruendung);
+        }
+        foreach (['S', '/'] as $sonst) {
+            $this->assertSame(1.07, LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '6', $sonst)->zuschlag, $sonst);
+            $this->assertSame(1.07, LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, $sonst, '1')->zuschlag, $sonst);
+        }
     }
 
     public function test_ma_steuerklasse_leer_ist_steuerklasse_fehlt(): void
@@ -186,7 +214,7 @@ final class LohnMaTest extends TestCase
 
     public function test_rundung_auf_zwei_stellen(): void
     {
-        $l = LohnMa::rechne(15.33, 13.90, true, 1.436, LohnMa::QUELLE_BEWERBUNG, '1', '1');
+        $l = LohnMa::rechne(15.33, 13.90, true, 1.436, LohnMa::QUELLE_BEWERBUNG, '1', '6');
 
         $this->assertSame(0.01, $l->zuschlag);
         $this->assertSame('0,01', $l->zuschlagText());
