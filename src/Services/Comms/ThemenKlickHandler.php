@@ -86,18 +86,21 @@ final class ThemenKlickHandler
             return 'ignoriert:kein_themen_klick';
         }
 
-        // Quittung nach einem Lohn-Hinweis: nichts tun, nur nicht stempeln
-        // (der Stamper nimmt topic_* aus) — der Chat bleibt offen.
-        if ($id === self::ACK) {
-            return 'verarbeitet:' . self::ACK;
-        }
-
         $teamId = (int) $thread->team_id;
         $settings = RecApplicantSettings::query()->where('team_id', $teamId)->first();
         // Notaus (Schlussreview m2): bei AUS beantworten auch offene Knoepfe
         // nichts mehr — der Chat bleibt bei HR. Gelesen wird nur, nie angelegt.
+        // Gilt fuer ALLE topic_*-Knoepfe, auch die Quittung (Pre-Merge-Review
+        // M4): sonst meldete topic_ack "verarbeitet" und der Listener liesse
+        // die Abwesenheitsnotiz weg, obwohl die Themen-Auswahl aus ist.
         if ($settings === null || !(bool) $settings->getSetting('comms_topic_enabled', false)) {
             return 'ignoriert:schalter_aus';
+        }
+
+        // Quittung nach einem Lohn-Hinweis: nichts tun, nur nicht stempeln
+        // (der Stamper nimmt topic_* aus) — der Chat bleibt offen.
+        if ($id === self::ACK) {
+            return 'verarbeitet:' . self::ACK;
         }
         $ruheStunden = max(1, (int) ($settings?->getSetting('comms_topic_quiet_hours', 8) ?? 8));
 

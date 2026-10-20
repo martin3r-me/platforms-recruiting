@@ -547,8 +547,12 @@ final class ThemenKlickHandlerTest extends TestCase
 
         foreach ([['comms_topic_enabled' => false], []] as $settings) {
             $this->einstellungen($settings);
-            foreach (['dispo_7', 'topic_lohn', 'topic_hr', 'topic_dispo'] as $id) {
-                $this->assertSame('ignoriert:schalter_aus', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $id)), $id);
+            // Pre-Merge-Review M4: auch die Quittung — sonst unterdrueckte ihr
+            // "verarbeitet" bei AUS die Abwesenheitsnotiz (beantwortet()).
+            foreach (['dispo_7', 'topic_lohn', 'topic_hr', 'topic_dispo', 'topic_ack'] as $id) {
+                $status = $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $id));
+                $this->assertSame('ignoriert:schalter_aus', $status, $id);
+                $this->assertFalse(ThemenKlickHandler::beantwortet($status), $id);
             }
         }
         // Ganz ohne Einstellungszeile: auch aus — und es wird keine angelegt.
