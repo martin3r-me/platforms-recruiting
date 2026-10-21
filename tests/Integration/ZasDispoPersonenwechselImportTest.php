@@ -453,6 +453,7 @@ class ZasDispoPersonenwechselImportTest extends TestCase
 
         $files = [
             [$own,  'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own,  'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php'],
             [$own,  'database/migrations/2026_05_21_000005_add_zas_export_markers_to_rec_employees.php'],
             [$own,  'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own,  'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php'],

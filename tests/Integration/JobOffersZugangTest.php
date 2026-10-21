@@ -35,7 +35,7 @@ class JobOffersZugangTest extends TestCase
         Capsule::schema()->create('rec_employees', function ($t) {
             $t->increments('id');
             $t->integer('team_id')->default(1);
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->dateTime('portal_locked_at')->nullable();
             $t->timestamps();
         });

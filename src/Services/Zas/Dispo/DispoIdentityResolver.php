@@ -60,6 +60,7 @@ class DispoIdentityResolver
         $activeIds = RecEmployee::query()
             ->whereIn('id', $candidateIds)
             ->where('is_active', true)
+            ->where('is_test', false) // Test-MA nie Dispo-Ziel
             ->when($teamId > 0, fn ($q) => $q->where('team_id', $teamId))
             ->pluck('id')->map(fn ($v) => (int) $v)->all();
 
@@ -122,6 +123,7 @@ class DispoIdentityResolver
         $activeIds = RecEmployee::query()
             ->whereIn('id', $candidateIds)
             ->where('is_active', true)
+            ->where('is_test', false) // Test-MA nie Dispo-Ziel
             ->when($teamId > 0, fn ($q) => $q->where('team_id', $teamId))
             ->pluck('id')->map(fn ($v) => (int) $v)->all();
         $activeSet = array_flip($activeIds);

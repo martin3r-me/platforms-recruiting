@@ -213,6 +213,7 @@ class ZasEmployeeContactLinker
             ->whereIn('id', $linkedIds)
             ->where('team_id', $employee->team_id)
             ->where('is_active', true)
+            ->where('is_test', false)
             ->where('id', '!=', $employee->id)
             ->get(['first_name', 'last_name'])
             ->contains(fn ($e) => PersonNameMatch::plausible(

@@ -64,7 +64,7 @@ class BackfillNationalityCommandTest extends TestCase
             $t->integer('rec_zas_inbound_file_id')->nullable();
             $t->string('birth_country')->nullable();
             $t->string('nationality')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->dateTime('zas_changed_at')->nullable();
             $t->timestamps();
         });

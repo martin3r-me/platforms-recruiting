@@ -188,6 +188,7 @@ class RecEmployeeExportObserver
                 DB::table('rec_employees')
                     ->where('rec_position_id', $position->id)
                     ->where('is_active', true)
+                    ->where('is_test', false) // Test-MA nie markieren
                     ->update(['zas_changed_at' => now()]);
             }, 'rec_position.updated.cost_center', $position->id);
         });
@@ -213,6 +214,7 @@ class RecEmployeeExportObserver
     {
         DB::table('rec_employees')
             ->where('id', $employeeId)
+            ->where('is_test', false) // Test-MA nie markieren
             ->update(['zas_changed_at' => now()]);
     }
 

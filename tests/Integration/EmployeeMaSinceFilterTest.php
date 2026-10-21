@@ -41,7 +41,7 @@ final class EmployeeMaSinceFilterTest extends TestCase
             $t->integer('team_id');
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->timestamps();
         });
         $schema->create('rec_employee_hr_data', function ($t) {

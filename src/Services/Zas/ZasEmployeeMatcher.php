@@ -29,7 +29,9 @@ class ZasEmployeeMatcher
     public function match(?string $uuid, ?string $personnelNumber, $teamId, string $ownPrefix = ''): array
     {
         if ($uuid) {
-            $byUuid = RecEmployee::where('uuid', $uuid)->first();
+            $byUuid = RecEmployee::where('uuid', $uuid)
+                ->where('is_test', false) // Test-MA sind kein Inbound-Ziel
+                ->first();
             if ($byUuid) {
                 return ['employee' => $byUuid, 'via' => 'uuid'];
             }
@@ -54,6 +56,7 @@ class ZasEmployeeMatcher
         }
 
         $employee = RecEmployee::whereIn('personnel_number', array_values($candidates))
+            ->where('is_test', false) // Test-MA sind kein Inbound-Ziel
             ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
             // Liegen mehrere Formen vor, gewinnt die exakte.
             ->orderByRaw('personnel_number = ? DESC', [$personnelNumber])

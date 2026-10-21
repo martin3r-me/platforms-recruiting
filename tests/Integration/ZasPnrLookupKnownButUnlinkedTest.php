@@ -52,6 +52,7 @@ class ZasPnrLookupKnownButUnlinkedTest extends TestCase
             $table->string('personnel_number', 32)->nullable();
             $table->string('first_name', 120)->nullable();
             $table->string('last_name', 120)->nullable();
+            $table->boolean('is_test')->default(false);
         });
 
         Capsule::table('rec_employees')->insert([

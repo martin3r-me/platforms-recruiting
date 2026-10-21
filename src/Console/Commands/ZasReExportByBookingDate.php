@@ -78,12 +78,12 @@ class ZasReExportByBookingDate extends Command
         // 3. Pruefen: welche haben schon einen MA, welche nicht?
         $existingEmployees = DB::table('rec_employees')
             ->whereIn('rec_applicant_id', $attendedApplicantIds)
-            ->get(['id', 'rec_applicant_id', 'zas_initial_exported_at']);
+            ->get(['id', 'rec_applicant_id', 'zas_initial_exported_at', 'is_test']);
 
         $existingMap = $existingEmployees->keyBy('rec_applicant_id');
         $missingIds = $attendedApplicantIds->diff($existingMap->keys());
         $alreadyExportedIds = $existingEmployees
-            ->filter(fn ($e) => $e->zas_initial_exported_at !== null)
+            ->filter(fn ($e) => $e->zas_initial_exported_at !== null && !$e->is_test)
             ->pluck('id');
 
         $this->newLine();

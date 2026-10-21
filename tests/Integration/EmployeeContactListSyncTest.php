@@ -102,7 +102,7 @@ class EmployeeContactListSyncTest extends TestCase
             $t->string('last_name')->nullable();
             $t->string('email')->nullable();
             $t->string('phone')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->date('employment_ended_at')->nullable();
             $t->timestamps();
         });

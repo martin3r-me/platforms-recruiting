@@ -283,6 +283,7 @@ class ZasEmployeeContactLinkerTest extends TestCase
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$crm, 'database/migrations/2024_01_01_000014_create_crm_phone_numbers_table.php'],
             [$crm, 'database/migrations/2024_01_01_000015_create_crm_email_addresses_table.php'],

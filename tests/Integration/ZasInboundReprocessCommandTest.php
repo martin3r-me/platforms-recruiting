@@ -81,7 +81,7 @@ class ZasInboundReprocessCommandTest extends TestCase
             $t->string('country_code')->nullable();
             $t->string('personnel_number')->nullable();
             $t->integer('rec_applicant_id')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->dateTime('zas_changed_at')->nullable();
             $t->dateTime('zas_initial_exported_at')->nullable();
             $t->integer('rec_zas_inbound_file_id')->nullable();

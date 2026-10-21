@@ -42,6 +42,7 @@ class PersonPairLinker
         $kandidaten = RecEmployee::query()
             ->where('team_id', $employee->team_id)
             ->where('id', '!=', $employee->id)
+            ->where('is_test', false) // Test-MA nie als Paarungspartner
             ->whereDate('birth_date', $geburt)
             ->get(['id', 'first_name', 'last_name', 'birth_date', 'rec_applicant_id', 'person_key'])
             ->filter(fn ($k) => PersonPairing::isExactMatch(
