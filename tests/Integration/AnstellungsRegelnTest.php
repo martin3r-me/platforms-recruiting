@@ -410,4 +410,14 @@ class AnstellungsRegelnTest extends TestCase
             $config->set('recruiting.zas.company_labels', null);
         }
     }
+
+    public function test_test_ma_schwester_bekommt_weder_marker_noch_lohn_eintrag(): void
+    {
+        $this->setzeEinstellung(['employee_payroll_tracked_fields' => ['tax_class', 'is_main_employer']]);
+        [$rg, $ma] = $this->paar(['tax_class' => '6', 'is_main_employer' => 0], ['tax_class' => '1', 'is_main_employer' => 1, 'is_test' => 1]);
+
+        RecEmployee::find($rg)->update(['tax_class' => '1', 'is_main_employer' => true]);
+
+        $this->assertNull($this->zeile($ma)->zas_changed_at, 'Test-MA wird nie markiert');
+    }
 }

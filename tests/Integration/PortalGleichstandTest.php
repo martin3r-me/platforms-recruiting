@@ -213,6 +213,7 @@ final class PortalGleichstandTest extends TestCase
             'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php',
             'database/migrations/2026_05_21_000003_add_full_hr_field_set_to_rec_employees_and_hr_data.php',
             'database/migrations/2026_05_21_000005_add_zas_export_markers_to_rec_employees.php',
+            'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php',
             'database/migrations/2026_05_21_000007_add_fiktion_file_ids_to_rec_employees.php',
             'database/migrations/2026_05_21_000010_add_schulbescheinigung_file_id_to_rec_employees.php',
             'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php',

@@ -65,6 +65,7 @@ trait SpiegelHarness
             '2026_09_28_000001_create_rec_persons_table',
             '2026_09_28_000002_add_rec_person_id_to_rec_employees',
             '2026_10_19_000002_add_zuschlag_manuell_to_rec_employees',
+            '2026_10_21_000001_add_is_test_to_rec_employees',
         ];
         if ($zusatzMigrationen !== []) {
             $migrationen = array_values(array_unique(array_merge($migrationen, $zusatzMigrationen)));

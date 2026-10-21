@@ -189,7 +189,13 @@ class AnstellungsRegeln
                 if ($markerSetzen && array_intersect(array_keys($folge['aenderungen']), RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS) !== []) {
                     $update['zas_changed_at'] = now();
                 }
+                // Test-MA nie markieren: Marker nur ueber die is_test-Bedingung setzen.
+                $marker = $update['zas_changed_at'] ?? null;
+                unset($update['zas_changed_at']);
                 DB::table('rec_employees')->where('id', $folge['id'])->update($update);
+                if ($marker !== null) {
+                    DB::table('rec_employees')->where('id', $folge['id'])->where('is_test', false)->update(['zas_changed_at' => $marker]);
+                }
 
                 if ($lohnVerfolgen) {
                     RecEmployeeExportObserver::verfolgeLohn($folge['id'], $folge['team_id'], $folge['aenderungen']);
@@ -264,7 +270,13 @@ class AnstellungsRegeln
         if ($markerSetzen) {
             $update['zas_changed_at'] = now();
         }
+        // Test-MA nie markieren: Marker nur ueber die is_test-Bedingung setzen.
+        $marker = $update['zas_changed_at'] ?? null;
+        unset($update['zas_changed_at']);
         DB::table('rec_employees')->where('id', $neueId)->update($update);
+        if ($marker !== null) {
+            DB::table('rec_employees')->where('id', $neueId)->where('is_test', false)->update(['zas_changed_at' => $marker]);
+        }
 
         return [[
             'id'          => $neueId,

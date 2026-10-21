@@ -174,6 +174,7 @@ final class PortalAuthKontoTest extends TestCase
 
         $this->capsule->schema()->create('rec_employees', function ($t) {
             $t->increments('id');
+            $t->boolean('is_test')->default(false);
             $t->integer('team_id')->nullable();
             $t->string('uuid', 64)->nullable();
             $t->string('portal_token', 64)->nullable();

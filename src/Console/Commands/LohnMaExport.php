@@ -81,7 +81,7 @@ class LohnMaExport extends Command
         $fh = fopen($csvPfad, 'w');
         fputcsv($fh, ['employee_id', 'personnel_number', 'name', 'person_id', 'rg_employee_id', 'fall', 'grundlohn', 'zuschlag', 'steuerklasse', 'zas_grundlohn', 'zas_zuschlag', 'vergleich', 'begruendung']);
 
-        $q = RecEmployee::query()->where('is_active', 1)->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->orderBy('id');
+        $q = RecEmployee::query()->where('is_active', 1)->where('is_test', false)->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->orderBy('id');
         if ($teamId !== null) {
             $q->where('team_id', $teamId);
         }
@@ -128,7 +128,7 @@ class LohnMaExport extends Command
         if ($markieren && $ids !== []) {
             $vorher = DB::table('rec_employees')->whereNotNull('zas_changed_at')->count();
             foreach (array_chunk($ids, 500) as $block) {
-                $markiert += DB::table('rec_employees')->whereIn('id', $block)->update(['zas_changed_at' => now()]);
+                $markiert += DB::table('rec_employees')->whereIn('id', $block)->where('is_test', false)->update(['zas_changed_at' => now()]);
             }
             $out('line', sprintf('Marker vorher: %d, jetzt: %d', $vorher, DB::table('rec_employees')->whereNotNull('zas_changed_at')->count()));
         }

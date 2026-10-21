@@ -104,4 +104,16 @@ class PersonenSpiegelBeimSpeichernTest extends TestCase
         $this->assertSame('Aktuell 1', $this->zeile($ma)->street, 'nicht-leerer Wert bleibt');
         $this->assertSame('Koeln', $this->zeile($ma)->city, 'leeres Geschwisterfeld wird gefuellt');
     }
+
+    public function test_test_ma_geschwister_bekommt_den_wert_aber_keinen_marker(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'street' => 'Alt RG']);
+        $ma = $this->akte(['rec_person_id' => $p, 'street' => 'Alt MA', 'is_test' => 1]);
+
+        RecEmployee::find($rg)->update(['street' => 'Neu 5']);
+
+        $this->assertNotNull($this->zeile($rg)->zas_changed_at);
+        $this->assertNull($this->zeile($ma)->zas_changed_at, 'Test-MA wird nie markiert');
+    }
 }

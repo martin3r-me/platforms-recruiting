@@ -525,7 +525,8 @@ class ZasInboundEmployeeImporter
                     $existing->person_key,
                 );
                 if ($schwestern !== []) {
-                    DB::table('rec_employees')->whereIn('id', $schwestern)->update(['zas_changed_at' => now()]);
+                    // Test-MA nie markieren (landen sonst im ZAS-Export).
+                    DB::table('rec_employees')->whereIn('id', $schwestern)->where('is_test', false)->update(['zas_changed_at' => now()]);
                 }
             }
         });

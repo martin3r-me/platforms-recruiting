@@ -2527,6 +2527,7 @@ final class EinsatzPruefungTest extends TestCase
 
         $schema->create('rec_employees', function ($t) {
             $t->increments('id');
+            $t->boolean('is_test')->default(false);
             $t->string('uuid', 64)->nullable();
             $t->integer('team_id')->nullable();
             $t->integer('rec_person_id')->nullable();

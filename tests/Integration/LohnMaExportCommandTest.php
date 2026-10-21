@@ -55,6 +55,7 @@ class LohnMaExportCommandTest extends TestCase
             'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php',
             'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
             'database/migrations/2026_10_19_000002_add_zuschlag_manuell_to_rec_employees.php',
+            'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php',
             'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php',
             'database/migrations/2026_10_19_000001_add_zas_lohn_to_hr_data.php',
         ] as $relative) {
@@ -221,5 +222,18 @@ class LohnMaExportCommandTest extends TestCase
         foreach ([$rg, $inaktiv, $fremd] as $id) {
             $this->assertNull(Capsule::table('rec_employees')->where('id', $id)->value('zas_changed_at'));
         }
+    }
+
+    public function test_test_ma_wird_nicht_gezaehlt_und_nicht_markiert(): void
+    {
+        $echt = $this->zeile(['company' => 'MA', 'rec_person_id' => 1]);
+        $test = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'is_test' => 1]);
+
+        $r = (new LohnMaExport())->lauf(true, self::TEAM, null, $this->csv, fn ($t, $s) => null);
+
+        $this->assertSame(1, $r['gesamt'], 'Test-MA zaehlt nicht mit');
+        $this->assertSame(1, $r['markiert']);
+        $this->assertNotNull(Capsule::table('rec_employees')->where('id', $echt)->value('zas_changed_at'));
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $test)->value('zas_changed_at'), 'Test-MA bleibt unmarkiert');
     }
 }

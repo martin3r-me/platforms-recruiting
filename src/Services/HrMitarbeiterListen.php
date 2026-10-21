@@ -745,6 +745,7 @@ final class HrMitarbeiterListen
         $heute = now()->toDateString();
         $treffer = [];
         $maAkten = RecEmployee::query()->where('team_id', $teamId)->where('is_active', 1)
+            ->where('is_test', false) // Test-MA nie in die Lohnliste
             ->whereRaw('UPPER(TRIM(company)) = ?', ['MA'])->orderBy('id')->get();
         foreach ($maAkten as $ma) {
             $rg = $e->rgSchwester($ma);
