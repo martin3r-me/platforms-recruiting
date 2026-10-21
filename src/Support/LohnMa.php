@@ -32,6 +32,15 @@ final class LohnMa
     public const MANUELL   = 'manuell';
     public const NUR_MA    = 'nur_ma';
     public const STEUERKLASSE_FEHLT = 'steuerklasse_fehlt';
+    /**
+     * Hotfix 21.10.2026 (Fall 1568): ZAS fuehrt fuer DIESE MA-Anstellung schon
+     * einen Lohn (zas_grundlohn > 0). Dann senden wir Grundlohn und Zuschlag
+     * leer, ZAS behaelt seinen Wert — der kann vertraglich vereinbart sein und
+     * darf nicht still gesenkt werden ("lieber leer als falsch"). Die Regel
+     * gilt damit nur fuer MA-Anstellungen, die bei ZAS noch keinen Lohn haben.
+     * Die Rechnung nach der Regel bleibt in $regel zum Vergleich.
+     */
+    public const ZAS_BESTAND = 'zas_bestand';
 
     public const QUELLE_BEWERBUNG = 'bewerbung';
     public const QUELLE_ZAS       = 'zas';
@@ -45,6 +54,7 @@ final class LohnMa
         public readonly ?float $zuschlag,
         public readonly string $begruendung,
         private readonly ?string $grund = null,
+        public readonly ?self $regel = null,
     ) {
     }
 
@@ -139,6 +149,24 @@ final class LohnMa
         return new self(self::UNBEKANNT, $eg1, null, implode(' · ', ['EG 1 ' . self::euro($eg1), $grund, self::PAAR_LEER]), $grund);
     }
 
+    /**
+     * Fall zas_bestand (Hotfix 21.10.2026): ZAS fuehrt fuer die MA-Anstellung
+     * schon Grundlohn (> 0) und Zuschlag. Ein Fall, der ohnehin leer
+     * rausgeht, bleibt wie er ist. Grundlohn 0 heisst bei ZAS "nicht
+     * gepflegt" (Befund 19.10.2026) und zaehlt nicht als Lohn.
+     */
+    public function beiZasLohn(?float $zasGrundlohn, ?float $zasZuschlag): self
+    {
+        if ($this->paarLeer() || $zasGrundlohn === null || $zasGrundlohn <= 0) {
+            return $this;
+        }
+        $zas = self::euro($zasGrundlohn) . ' + ' . ($zasZuschlag === null ? 'kein Zuschlag' : self::euro($zasZuschlag));
+        $grund = 'ZAS führt eigenen MA-Lohn (' . $zas . ')';
+        $text = $grund . ' — wir senden nichts, ZAS behält ihn · Regel ergäbe: ' . $this->begruendung;
+
+        return new self(self::ZAS_BESTAND, $this->grundlohn, null, $text, $grund, $this);
+    }
+
     /** Begruendungs-Schluss der beiden Leer-Faelle (Pre-Merge-Review I2). */
     public const PAAR_LEER = 'Grundlohn und Zuschlag leer — ZAS behält sein bisheriges Paar';
 
@@ -170,7 +198,7 @@ final class LohnMa
     /** Geht in diesem Fall weder Grundlohn noch Zuschlag an ZAS? */
     public function paarLeer(): bool
     {
-        return $this->fall === self::UNBEKANNT || $this->fall === self::STEUERKLASSE_FEHLT;
+        return $this->fall === self::UNBEKANNT || $this->fall === self::STEUERKLASSE_FEHLT || $this->fall === self::ZAS_BESTAND;
     }
 
     public function zuschlagText(): ?string

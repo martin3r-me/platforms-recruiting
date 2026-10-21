@@ -161,9 +161,9 @@ class LohnMaExportCommandTest extends TestCase
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
-        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 2, 'nur_ma' => 2, 'steuerklasse_fehlt' => 1], $r['zahlen']);
+        $this->assertSame(['angleich' => 1, 'zas' => 0, 'unbekannt' => 1, 'manuell' => 2, 'nur_ma' => 2, 'steuerklasse_fehlt' => 1, 'zas_bestand' => 0], $r['zahlen']);
         // unbekannt (MA2) + steuerklasse_fehlt (MA6) liefern beide Zellen leer: wir_leer (I2).
-        $this->assertSame(['gleich' => 0, 'abweichend' => 0, 'zas_leer' => 5, 'wir_leer' => 2], $r['vergleich']);
+        $this->assertSame(['zas_leer' => 5, 'wir_leer' => 2, 'zas_behaelt_gleich' => 0, 'zas_behaelt_abweichend' => 0], $r['vergleich']);
         $this->assertSame(7, $r['gesamt']);
         $this->assertSame(1, $r['sechs'], 'nur Zeilen mit +1 EUR: RG 1-5 + MA 6, Zuschlag bekannt');
         $this->assertSame(0, $r['markiert']);
@@ -205,7 +205,13 @@ class LohnMaExportCommandTest extends TestCase
 
         $r = (new LohnMaExport())->lauf(false, null, '2026-10-19', $this->csv, fn ($t, $s) => null);
 
-        $this->assertSame(['gleich' => 1, 'abweichend' => 1, 'zas_leer' => 1, 'wir_leer' => 2], $r['vergleich']);
+        // Hotfix 21.10.2026: fuehrt ZAS einen MA-Lohn, senden wir nichts — gezaehlt
+        // wird nur noch, ob ZAS mit der Regel uebereinstimmt (Fall 1568).
+        $this->assertSame(['zas_leer' => 1, 'wir_leer' => 2, 'zas_behaelt_gleich' => 1, 'zas_behaelt_abweichend' => 1], $r['vergleich']);
+        $this->assertSame(2, $r['zahlen']['zas_bestand']);
+        $zeilen = array_map('str_getcsv', file($this->csv, FILE_IGNORE_NEW_LINES));
+        $altZeile = array_values(array_filter(array_slice($zeilen, 1), fn ($z) => (int) $z[0] === $alt))[0];
+        $this->assertSame(['zas_bestand', '', ''], [$altZeile[5], $altZeile[6], $altZeile[7]], 'veralteter ZAS-Stand wird nicht ueberschrieben');
     }
 
     public function test_markieren_setzt_genau_die_ma_zeilen_des_laufs(): void

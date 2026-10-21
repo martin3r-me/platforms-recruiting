@@ -864,6 +864,13 @@ class Show extends Component
         $ermittlung = new LohnMaErmittlung();
         $lohn = $ermittlung->ermittelnMitSchwester($emp, $ermittlung->rgSchwester($emp), $stichtag);
 
+        if ($lohn->fall === LohnMa::ZAS_BESTAND) {
+            // Hotfix 21.10.2026: bestehender ZAS-Lohn kann vereinbart sein —
+            // nicht still mit der Regel vorbelegen, HR entscheidet.
+            $regel = $lohn->regel?->zuschlag !== null ? ZuschlagWert::format($lohn->regel->zuschlag) . ' €' : 'nichts';
+
+            return ['', $lohn->grundKurz() . ', die Regel ergäbe ' . $regel . ' — bitte Zuschlag prüfen und eintragen'];
+        }
         if ($lohn->zuschlag === null || in_array($lohn->fall, [LohnMa::UNBEKANNT, LohnMa::STEUERKLASSE_FEHLT], true)) {
             // Nur der Grund, nicht die Begruendung: deren Schluss spricht vom
             // ZAS-Export ("ZAS behaelt sein Paar") — im Vertrag irrefuehrend.

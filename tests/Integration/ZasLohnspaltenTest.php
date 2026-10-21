@@ -399,4 +399,70 @@ final class ZasLohnspaltenTest extends TestCase
 
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::MANUELL, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
     }
+
+    /**
+     * Hotfix 21.10.2026, Fall 1568: ZAS fuehrt fuer die MA-Anstellung schon
+     * 15,33 + 1,17; die Regel ergaebe 15,33 + 1,00 (RG 13,90 + 0,82 laut ZAS,
+     * Klasse 6). Wir duerfen den Lohn nicht still senken: beide Zellen leer.
+     */
+    public function test_ma_mit_eigenem_zas_lohn_sendet_nichts(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 68, 'team_id' => self::TEAM]);
+        $rg = $this->zeile(['company' => 'RG', 'rec_person_id' => 68, 'tax_class' => '1']);
+        $this->zasLohn($rg->id, 13.90, 0.82);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 68, 'tax_class' => '6']);
+        $this->zasLohn($ma->id, 15.33, 1.17);
+
+        $r = $this->resolver();
+        $this->assertNull($r->col($ma, 'Grundlohn'), 'Grundlohn leer: ZAS behaelt seinen');
+        $this->assertNull($r->col($ma, 'Zuschlag'), 'Zuschlag leer: nie 1,00 statt 1,17');
+
+        $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma);
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::ZAS_BESTAND, $l->fall);
+        $this->assertNotNull($l->regel);
+        $this->assertSame(1.00, $l->regel->zuschlag, 'Rechnung nach der Regel bleibt zum Vergleich');
+        $this->assertStringContainsString('1,17', $l->begruendung);
+    }
+
+    /** Hotfix 21.10.2026: auch "nur MA" (0,00) ueberschreibt keinen ZAS-Lohn. */
+    public function test_nur_ma_mit_eigenem_zas_lohn_sendet_nichts(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 69, 'team_id' => self::TEAM]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 69, 'tax_class' => '1']);
+        $this->zasLohn($ma->id, 15.33, 1.17);
+
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNull($this->resolver()->col($ma, 'Grundlohn'));
+    }
+
+    /** Grundlohn 0 heisst bei ZAS "nicht gepflegt": dann gilt die Regel. */
+    public function test_ma_zas_grundlohn_null_zaehlt_nicht_als_lohn(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 70, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 70]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 70, 'tax_class' => '6']);
+        $this->zasLohn($ma->id, 0.0, 1.17);
+
+        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'));
+    }
+
+    /** Neue MA ohne ZAS-Lohn (keine hr_data-Zeile): die Regel liefert. */
+    public function test_neue_ma_ohne_zas_lohn_bekommt_die_regel(): void
+    {
+        Capsule::table('rec_persons')->insert(['id' => 71, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 71]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 71, 'tax_class' => '6']);
+
+        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertNotNull($this->resolver()->col($ma, 'Grundlohn'));
+    }
+
+    /** Ein Leer-Fall bleibt sein Leer-Fall, auch wenn ZAS einen Lohn fuehrt. */
+    public function test_unbekannt_bleibt_unbekannt_trotz_zas_lohn(): void
+    {
+        $ma = $this->zeile(['company' => 'MA', 'tax_class' => '6']);
+        $this->zasLohn($ma->id, 15.33, 1.17);
+
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::UNBEKANNT, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
+    }
 }

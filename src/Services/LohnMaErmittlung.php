@@ -51,7 +51,7 @@ final class LohnMaErmittlung
 
         $quelle = $rg === null ? ['wert' => null, 'quelle' => null] : $this->rgZuschlag($rg);
 
-        return LohnMa::rechne(
+        $lohn = LohnMa::rechne(
             EntgeltgruppeEins::satz($tag),
             self::mindestlohn((int) $ma->team_id),
             $rg !== null,
@@ -59,6 +59,15 @@ final class LohnMaErmittlung
             $quelle['quelle'],
             $ma->tax_class !== null ? (string) $ma->tax_class : null,
             ($rg->tax_class ?? null) !== null ? (string) $rg->tax_class : null,
+        );
+
+        // Hotfix 21.10.2026: fuehrt ZAS fuer diese MA-Anstellung schon einen
+        // Lohn, geht unser Wert nicht raus (LohnMa::ZAS_BESTAND).
+        $zas = DB::table('rec_employee_hr_data')->where('rec_employee_id', (int) $ma->id)->first(['zas_grundlohn', 'zas_zuschlag']);
+
+        return $lohn->beiZasLohn(
+            $zas?->zas_grundlohn !== null ? (float) $zas->zas_grundlohn : null,
+            $zas?->zas_zuschlag !== null ? (float) $zas->zas_zuschlag : null,
         );
     }
 
