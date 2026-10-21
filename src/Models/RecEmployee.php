@@ -120,6 +120,7 @@ class RecEmployee extends Model
         'portal_verified_at',
 
         'is_active',
+        'is_test',
         'employed_since',
         'employment_ended_at',
 
@@ -144,6 +145,7 @@ class RecEmployee extends Model
         'identity_card_valid_until' => 'date',
         'is_eu_citizen'             => 'boolean',
         'is_active'                 => 'boolean',
+        'is_test'                   => 'boolean',
         'has_car'                   => 'boolean',
         'employed_since'            => 'date',
         'employment_ended_at'       => 'datetime',
