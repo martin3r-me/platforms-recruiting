@@ -320,9 +320,12 @@ class RecEmployeeExportObserver
      * ZAS-Lohn einer hr_data-Zeile hat sich geaendert: MA-Schwestern markieren
      * — aber nur, wenn die Besitzer-Zeile eine AKTIVE Nicht-MA-Anstellung ist
      * (Pre-Merge-Review I1). In die MA-Rechnung fliessen nur die ZAS-Werte der
-     * aktiven RG-Schwester (LohnMaErmittlung::rgZuschlag); ZAS-Werte an einer
-     * MA-Zeile oder an einer ausgeschiedenen RG-Zeile aendern keinen
-     * exportierten Wert — ein Marker waere ein Echo der ZAS-Lieferung.
+     * aktiven RG-Schwester (LohnMaErmittlung::rgZuschlag). ZAS-Werte an einer
+     * MA-Zeile entscheiden seit dem Hotfix 21.10.2026 nur, OB wir senden
+     * (LohnMa::ZAS_BESTAND: ZAS fuehrt einen Lohn → beide Zellen leer); auch
+     * dafuer kein Marker — er waere ein Echo der ZAS-Lieferung, und in die
+     * Richtung "ZAS fuehrt keinen Lohn mehr" ist ein spaeterer Versand der
+     * Regel harmlos. Ausgeschiedene RG-Zeilen aendern keinen exportierten Wert.
      */
     private static function beiZasLohnDerZeile(RecEmployeeHrData $hr): void
     {

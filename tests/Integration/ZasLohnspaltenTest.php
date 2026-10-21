@@ -457,12 +457,20 @@ final class ZasLohnspaltenTest extends TestCase
         $this->assertNotNull($this->resolver()->col($ma, 'Grundlohn'));
     }
 
-    /** Ein Leer-Fall bleibt sein Leer-Fall, auch wenn ZAS einen Lohn fuehrt. */
-    public function test_unbekannt_bleibt_unbekannt_trotz_zas_lohn(): void
+    /**
+     * Ein Leer-Fall bleibt sein Leer-Fall, auch wenn ZAS einen Lohn fuehrt:
+     * RG-Schwester vorhanden, aber die MA-Steuerklasse fehlt (Review 21.10.:
+     * ohne RG-Schwester griff vorher schon der fruehe Ausstieg "ohne Person").
+     */
+    public function test_steuerklasse_fehlt_bleibt_trotz_zas_lohn(): void
     {
-        $ma = $this->zeile(['company' => 'MA', 'tax_class' => '6']);
+        Capsule::table('rec_persons')->insert(['id' => 72, 'team_id' => self::TEAM]);
+        $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 72]);
+        $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 72, 'tax_class' => null]);
         $this->zasLohn($ma->id, 15.33, 1.17);
 
-        $this->assertSame(\Platform\Recruiting\Support\LohnMa::UNBEKANNT, (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma)->fall);
+        $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma);
+        $this->assertSame(\Platform\Recruiting\Support\LohnMa::STEUERKLASSE_FEHLT, $l->fall);
+        $this->assertNull($this->resolver()->col($ma, 'Zuschlag'));
     }
 }
