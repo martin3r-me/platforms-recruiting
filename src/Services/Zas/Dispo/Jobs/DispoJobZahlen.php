@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
+use Platform\Recruiting\Services\Zas\ZasStatus;
+
 /**
  * „Sendet an N Personen“ VOR dem Senden — dieselbe Rechnung wie beim Start
  * der Welle (DispoJobKandidaten + DispoJobRecipientPlanner), nur ohne Versand.
@@ -15,13 +17,13 @@ final class DispoJobZahlen
     /**
      * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
      * @param array<int,true> $schonAngeschrieben
-     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool} $auswahl
-     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int, ohne_vertrag:int}
+     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>} $auswahl
+     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int, ohne_vertrag:int, je_status:array{GO:int, MA:int}}
      */
     public static function berechnen(int $teamId, array $schichten, array $schonAngeschrieben, array $auswahl): array
     {
         if ($schichten === []) {
-            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
+            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0, 'je_status' => ['GO' => 0, 'MA' => 0]];
         }
         $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
         $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
@@ -57,12 +59,23 @@ final class DispoJobZahlen
                 'namen' => self::sortiert(array_map(fn ($a) => $namen[(int) $a] ?? ('#' . $a), $plan['skipped_ids'][$key] ?? []))];
         }
 
+        // Zahl am Status-Haekchen: Personen der Grundmenge (Filiale + Gruppe),
+        // ohne Statusfilter und ohne Toepfe — haengt nie am eigenen Haekchen.
+        $jeStatus = array_fill_keys(array_keys(DispoJobRecipientPlanner::STATI), 0);
+        foreach (DispoJobRecipientPlanner::grundmenge($daten['kandidaten'], $daten['einsaetze'], $auswahl) as $k) {
+            $s = (string) ($k['status'] ?? ZasStatus::GO);
+            if (isset($jeStatus[$s])) {
+                $jeStatus[$s]++;
+            }
+        }
+
         return [
             'empfaenger'  => count($plan['recipients']),
             'namen'       => self::sortiert(array_map(fn ($r) => $namen[(int) $r['anchor']] ?? $r['first_name'], $plan['recipients'])),
             'toepfe'      => $toepfe,
             'mit_passend' => $mitPassend,
             'ohne_vertrag' => count(array_filter($plan['recipients'], fn ($r) => !empty($ohneVertrag[(int) $r['anchor']]))),
+            'je_status'   => $jeStatus,
         ];
     }
 

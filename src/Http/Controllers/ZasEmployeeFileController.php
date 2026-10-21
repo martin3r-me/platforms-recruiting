@@ -52,7 +52,8 @@ class ZasEmployeeFileController extends Controller
 
         // 2. Mitarbeiter holen
         $employee = RecEmployee::where('uuid', $employeeUuid)->first();
-        if (!$employee) {
+        // Test-MA existieren fuer ZAS nicht → wie unbekannt behandeln
+        if (!$employee || $employee->is_test) {
             return response('Not found', 404)->header('Cache-Control', 'no-store');
         }
 

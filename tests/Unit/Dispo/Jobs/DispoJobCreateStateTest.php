@@ -109,4 +109,10 @@ final class DispoJobCreateStateTest extends TestCase
         $this->assertSame([], DispoJobCreateState::hakenAngleichen(['5'], []));
         $this->assertSame([], DispoJobCreateState::hakenAngleichen([], [5]));
     }
+
+    public function testSchritt3BrauchtMindestensEinenStatus(): void
+    {
+        $this->assertSame('Bitte wähle mindestens einen Status.', DispoJobCreateState::kannWeiter(3, self::state(['stati' => []])));
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['stati' => ['GO']])));
+    }
 }

@@ -96,6 +96,7 @@ class ZasEmployeeInitialExportController extends Controller
         $query = RecEmployee::query()
             ->whereNull('zas_initial_exported_at')
             ->where('is_active', true)
+            ->where('is_test', false) // Test-MA gehen nie an ZAS
             ->orderBy('created_at', 'asc');
 
         if ($limit !== null && $limit > 0) {

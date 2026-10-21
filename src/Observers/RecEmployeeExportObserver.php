@@ -310,6 +310,7 @@ class RecEmployeeExportObserver
                 DB::table('rec_employees')
                     ->where('rec_position_id', $position->id)
                     ->where('is_active', true)
+                    ->where('is_test', false) // Test-MA nie markieren
                     ->update(['zas_changed_at' => now()]);
             }, 'rec_position.updated.cost_center', $position->id);
         });
@@ -370,6 +371,7 @@ class RecEmployeeExportObserver
     {
         DB::table('rec_employees')
             ->where('id', $employeeId)
+            ->where('is_test', false) // Test-MA nie markieren
             ->update(['zas_changed_at' => now()]);
     }
 
@@ -384,6 +386,11 @@ class RecEmployeeExportObserver
      */
     protected static function trackPayrollChanges(RecEmployee $employee): void
     {
+        // Test-MA nie in die Lohnliste — sonst taucht er in PayrollChanges und im Lohn-Export auf.
+        if ($employee->is_test) {
+            return;
+        }
+
         $aenderungen = [];
         foreach (array_keys($employee->getChanges()) as $feld) {
             $aenderungen[$feld] = ['old' => $employee->getOriginal($feld), 'new' => $employee->getAttribute($feld)];

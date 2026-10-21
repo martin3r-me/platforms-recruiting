@@ -102,7 +102,7 @@ class EmployeeContactListSyncTest extends TestCase
             $t->string('last_name')->nullable();
             $t->string('email')->nullable();
             $t->string('phone')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->date('employment_ended_at')->nullable();
             $t->timestamps();
         });
@@ -372,6 +372,22 @@ class EmployeeContactListSyncTest extends TestCase
 
         $this->assertSame(1, $report->removed);
         $this->assertSame(0, CrmContactListMember::where('contact_list_id', $list->id)->where('contact_id', $fremd->id)->count());
+        $this->assertListInvariant($list);
+    }
+
+    public function test_test_ma_kommt_nicht_in_die_liste(): void
+    {
+        $list = $this->makeList();
+        [, $echt] = $this->makeEmployeeWithContact();
+        [, $test] = $this->makeEmployeeWithContact(['first_name' => 'Test', 'is_test' => true]);
+        // Test-Kontakt war schon Mitglied -> muss beim Sync raus.
+        (new SubscriptionService())->subscribe($list, $test, 'manual_admin');
+
+        $this->service()->syncAll(self::TEAM, force: true);
+
+        $ids = CrmContactListMember::where('contact_list_id', $list->id)->pluck('contact_id')->all();
+        // Gegenprobe: der echte MA ist drin.
+        $this->assertSame([$echt->id], $ids);
         $this->assertListInvariant($list);
     }
 

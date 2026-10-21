@@ -132,6 +132,33 @@ class EmployeeCreationCompanyTest extends TestCase
         }
     }
 
+    /**
+     * Ein Test-Bewerber (is_test) darf nur einen Test-Mitarbeiter ergeben:
+     * spaetere Filter (ZAS-Export, Telefonbuch) haengen an diesem Flag.
+     */
+    public function testTestBewerberWirdTestMitarbeiter(): void
+    {
+        $applicant = $this->bewerber('Testmann', 'Tina');
+        $applicant->forceFill(['is_test' => true])->save();
+
+        $employee = (new CreateEmployeeFromApplicantService())->createOrUpdate($applicant->fresh());
+
+        $this->assertTrue($employee->is_test);
+        $this->assertTrue($employee->fresh()->is_test, 'Das Flag muss in der DB stehen.');
+    }
+
+    /** Gegenprobe: ein echter Bewerber bleibt ein echter Mitarbeiter. */
+    public function testEchterBewerberBleibtEchterMitarbeiter(): void
+    {
+        $applicant = $this->bewerber('Echt', 'Eva');
+        $applicant->forceFill(['is_test' => false])->save();
+
+        $employee = (new CreateEmployeeFromApplicantService())->createOrUpdate($applicant->fresh());
+
+        $this->assertFalse($employee->is_test);
+        $this->assertFalse($employee->fresh()->is_test);
+    }
+
     private function bewerber(string $nachname, string $vorname): RecApplicant
     {
         $applicant = RecApplicant::create([

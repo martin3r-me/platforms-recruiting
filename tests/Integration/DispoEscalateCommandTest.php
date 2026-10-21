@@ -783,6 +783,7 @@ class DispoEscalateCommandTest extends TestCase
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php'],
             // personnel_number/company: contacts() selektiert die Spalten — fehlen sie im Schema, liefert SQLite den Spaltennamen als String-Literal statt eines Fehlers (kein Test-Fail, falsche Daten).
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],

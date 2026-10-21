@@ -101,6 +101,8 @@ class CreateEmployeeFromApplicantService
 
                 // Lifecycle
                 'is_active'          => true,
+                // Test-Bewerber ergibt Test-MA (nie zu ZAS, nicht im Telefonbuch).
+                'is_test'            => (bool) $applicant->is_test,
                 'employed_since'     => now()->toDateString(),
                 'created_by_user_id' => $createdByUserId,
             ],

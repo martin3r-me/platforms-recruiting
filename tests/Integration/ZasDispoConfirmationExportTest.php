@@ -100,6 +100,9 @@ class ZasDispoConfirmationExportTest extends TestCase
         $own = dirname(__DIR__, 2);
 
         $files = [
+            // Der Test-MA-Filter der Bestaetigungen liest rec_employees.
+            'database/migrations/2026_05_20_000001_create_rec_employees_table.php',
+            'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php',
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php',

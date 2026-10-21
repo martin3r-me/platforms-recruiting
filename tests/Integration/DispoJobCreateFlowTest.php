@@ -42,6 +42,7 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
             'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
         ] as $rel) {
@@ -68,7 +69,7 @@ class DispoJobCreateFlowTest extends TestCase
     {
         return $o + [
             'filial_nr' => 200, 'von' => '2026-10-13', 'bis' => '2026-11-09', 'modus' => RecDispoJobRequest::MODUS_SAMMELN,
-            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'minuten' => 0,
+            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'stati' => ['GO'], 'minuten' => 0,
             'schichten' => [
                 ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
@@ -120,6 +121,7 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame([200, null], $waves[0]->ma_bloecke);
         $this->assertSame(['0', '1-4'], $waves[0]->gruppen);
         $this->assertTrue($waves[0]->nur_passende_taetigkeit);
+        $this->assertSame(['GO'], $waves[0]->stati, 'Statusauswahl wird je Welle gespeichert');
         $this->assertNull($waves[0]->scheduled_for, 'jetzt senden');
         $this->assertNull($waves[0]->started_at);
         $this->assertNotEmpty($waves[0]->job_uuid, 'Fortschritts-Schluessel steht vor dem Start fest');

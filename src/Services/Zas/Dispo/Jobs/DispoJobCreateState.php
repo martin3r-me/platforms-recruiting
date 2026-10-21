@@ -132,6 +132,9 @@ final class DispoJobCreateState
         if ((array) ($state['gruppen'] ?? []) === []) {
             return 'Bitte wähle mindestens eine Gruppe.';
         }
+        if (array_key_exists('stati', $state) && DispoJobRecipientPlanner::stati((array) $state['stati']) === []) {
+            return 'Bitte wähle mindestens einen Status.';
+        }
         if (!in_array($state['modus'] ?? '', [RecDispoJobRequest::MODUS_SAMMELN, RecDispoJobRequest::MODUS_ZUERST], true)) {
             return 'Bitte wähle, wie die Zusagen gezählt werden.';
         }

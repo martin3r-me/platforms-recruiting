@@ -85,6 +85,7 @@ class ZasInboundInaktivTest extends TestCase
             $t->integer('rec_person_id')->nullable();
             $t->string('person_key')->nullable();
             $t->boolean('is_active')->default(true);
+            $t->boolean('is_test')->default(false);
             $t->dateTime('zas_changed_at')->nullable();
             $t->dateTime('zas_initial_exported_at')->nullable();
             $t->integer('rec_zas_inbound_file_id')->nullable();

@@ -114,6 +114,7 @@ final class ZasInboundDuplicateFinder
     private function query(?int $teamId): \Illuminate\Database\Query\Builder
     {
         return DB::table('rec_employees')
+            ->where('is_test', false) // Test-MA sind keine Dublettenverdaechtigen
             ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId));
     }
 }

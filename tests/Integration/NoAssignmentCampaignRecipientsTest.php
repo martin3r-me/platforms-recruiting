@@ -58,7 +58,7 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
         $s->create('rec_employees', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id')->nullable();
             $t->integer('rec_applicant_id')->nullable(); $t->string('personnel_number')->nullable();
-            $t->string('person_key')->nullable(); $t->boolean('is_active')->default(true);
+            $t->string('person_key')->nullable(); $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->dateTime('employment_ended_at')->nullable(); $t->timestamps();
         });
         $s->create('rec_dispo_assignments', function ($t) {

@@ -97,6 +97,7 @@ class ZasEmployeeUpdateExportController extends Controller
             ->whereNotNull('zas_initial_exported_at')
             ->whereNotNull('zas_changed_at')
             ->where('is_active', true)
+            ->where('is_test', false) // Test-MA gehen nie an ZAS
             ->orderBy('zas_changed_at', 'asc');
 
         if ($limit !== null && $limit > 0) {

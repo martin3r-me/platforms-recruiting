@@ -82,7 +82,7 @@ class ZasInboundFailureLoggingTest extends TestCase
             $t->string('phone')->nullable();
             $t->string('iban')->nullable();
             $t->string('personnel_number')->nullable();
-            $t->boolean('is_active')->default(true);
+            $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->timestamps();
         });
     }

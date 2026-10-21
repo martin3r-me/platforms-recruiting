@@ -18,6 +18,7 @@ class DispoEmployeeDirectory
         return RecEmployee::query()
             ->whereNotNull('personnel_number')
             ->where('personnel_number', '!=', '')
+            ->where('is_test', false) // Test-MA nie Dispo-Ziel
             ->pluck('id', 'personnel_number')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -35,6 +36,7 @@ class DispoEmployeeDirectory
             ->whereNotNull('personnel_number')
             ->where('personnel_number', '!=', '')
             ->where('is_active', true)
+            ->where('is_test', false)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

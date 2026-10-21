@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Platform\Core\PlatformCore;
@@ -85,6 +84,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DispoEscalateCommand::class,
                 \Platform\Recruiting\Console\Commands\DispoResetCommand::class,
                 \Platform\Recruiting\Console\Commands\DispoTestVaCommand::class,
+                \Platform\Recruiting\Console\Commands\CreateTestEmployee::class,
                 \Platform\Recruiting\Console\Commands\DispoJobsTestCommand::class,
                 \Platform\Recruiting\Console\Commands\EnableManualBookingForPhases::class,
                 \Platform\Recruiting\Console\Commands\BackfillApplicantPosition::class,
@@ -168,7 +168,7 @@ class RecruitingServiceProvider extends ServiceProvider
         if (
             config()->has('recruiting.routing') &&
             config()->has('recruiting.navigation') &&
-            Schema::hasTable('modules')
+            PlatformCore::modulesTableExists()
         ) {
             PlatformCore::registerModule([
                 'key'        => 'recruiting',

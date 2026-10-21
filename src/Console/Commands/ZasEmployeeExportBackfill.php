@@ -47,7 +47,8 @@ class ZasEmployeeExportBackfill extends Command
         // schon NULL ist.
         $countQuery = DB::table('rec_employees')
             ->whereNull('zas_initial_exported_at')
-            ->where('is_active', true);
+            ->where('is_active', true)
+            ->where('is_test', false); // Test-MA nie an ZAS
 
         if ($teamId !== null) {
             $countQuery->where('team_id', (int) $teamId);

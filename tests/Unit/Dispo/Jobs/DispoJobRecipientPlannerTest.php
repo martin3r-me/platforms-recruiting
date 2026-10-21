@@ -105,4 +105,43 @@ final class DispoJobRecipientPlannerTest extends TestCase
         $this->assertSame([11, 12], $r['recipients'][0]['shift_ids']);
         $this->assertSame(0, $r['skipped']['schon_zugesagt']);
     }
+
+    public function testStatusFilterIstGrundmengeUndKeinTopf(): void
+    {
+        $k = [self::kandidat(1, ['status' => 'GO']), self::kandidat(2, ['status' => 'MA']), self::kandidat(3)];
+        $anker = fn (array $auswahl) => array_column(DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl($auswahl))['recipients'], 'anchor');
+
+        $this->assertSame([1, 3], $anker(['stati' => ['GO']]), 'ohne status-Feld zaehlt als GO');
+        $this->assertSame([2], $anker(['stati' => ['MA']]));
+        $this->assertSame([1, 2, 3], $anker(['stati' => ['GO', 'MA']]));
+        $this->assertSame([], $anker(['stati' => []]), 'leer heisst niemand, nicht alle');
+        $this->assertSame([1, 2, 3], $anker([]), 'fehlender Schluessel = alte Welle = beide');
+        $this->assertSame([1, 2, 3], $anker(['stati' => null]), 'null = alte Welle = beide');
+
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['stati' => ['MA']]));
+        $this->assertSame(0, array_sum($r['skipped']), 'Status zaehlt nicht als Topf');
+    }
+
+    public function testStatiNimmtNurBekannteWerteInFesterReihenfolge(): void
+    {
+        $this->assertSame(['GO', 'MA'], DispoJobRecipientPlanner::stati(['MA', 'XY', 'GO', 'GO']));
+        $this->assertSame([], DispoJobRecipientPlanner::stati([]));
+        $this->assertSame(['GO'], DispoJobRecipientPlanner::stati([['x'], 'GO']), 'verschachtelte Werte vom Client fallen still heraus');
+    }
+
+    public function testStatiLabel(): void
+    {
+        $this->assertSame('GO + MA', DispoJobRecipientPlanner::statiLabel(null));
+        $this->assertSame('GO + MA', DispoJobRecipientPlanner::statiLabel(['MA', 'GO']));
+        $this->assertSame('nur GO', DispoJobRecipientPlanner::statiLabel(['GO']));
+        $this->assertSame('nur MA', DispoJobRecipientPlanner::statiLabel(['MA']));
+        $this->assertSame('kein Status', DispoJobRecipientPlanner::statiLabel([]));
+    }
+
+    public function testGrundmengeOhneStatusFilter(): void
+    {
+        $k = [self::kandidat(1, ['status' => 'GO']), self::kandidat(2, ['status' => 'MA', 'phone' => null]), self::kandidat(3, ['block' => 100])];
+        $this->assertSame([1, 2], array_column(DispoJobRecipientPlanner::grundmenge($k, [], self::auswahl(['stati' => ['GO']])), 'anchor'),
+            'Filiale + Gruppe, aber weder Status noch Toepfe');
+    }
 }

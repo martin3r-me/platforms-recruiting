@@ -18,7 +18,7 @@ final class DispoJobAnfrageAnlegen
     /**
      * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
      *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, gesucht:int|string}>,
-     *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, minuten: int} $daten
+     *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, minuten: int} $daten
      * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
      * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
      * @throws \InvalidArgumentException wenn keine Schicht mit gesucht > 0 uebrig bleibt
@@ -54,7 +54,7 @@ final class DispoJobAnfrageAnlegen
     /**
      * Neue Welle mit nr = max + 1. Empfaenger werden erst beim Start berechnet.
      *
-     * @param array{bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, minuten: int} $auswahl
+     * @param array{bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, minuten: int} $auswahl
      */
     public static function welle(RecDispoJobRequest $request, array $auswahl): RecDispoJobWave
     {
@@ -65,6 +65,10 @@ final class DispoJobAnfrageAnlegen
             'nr'                      => $nr,
             'ma_bloecke'              => array_values(array_map(fn ($b) => $b === null ? null : (int) $b, (array) ($auswahl['bloecke'] ?? []))),
             'gruppen'                 => array_values(array_map('strval', (array) ($auswahl['gruppen'] ?? []))),
+            // Statusauswahl GO/MA (Spec 2026-10-20). Fehlt sie, bleibt die Spalte
+            // leer und die Welle gilt wie frueher fuer GO + MA.
+            'stati'                   => array_key_exists('stati', $auswahl) && $auswahl['stati'] !== null
+                ? DispoJobRecipientPlanner::stati((array) $auswahl['stati']) : null,
             'nur_passende_taetigkeit' => (bool) ($auswahl['nur_passend'] ?? true),
             'scheduled_for'           => $minuten > 0 ? now()->addMinutes($minuten) : null,
             'job_uuid'                => (string) UuidV7::generate(),

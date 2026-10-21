@@ -128,6 +128,7 @@ class SendDispoJobWave implements ShouldQueue
             ->mapWithKeys(fn ($v) => [(int) $v => true])->all();
         $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schon, [
             'gruppen' => (array) $wave->gruppen, 'bloecke' => (array) $wave->ma_bloecke, 'nur_passend' => (bool) $wave->nur_passende_taetigkeit,
+            'stati' => $wave->stati, // null = Welle von vor dem Statusfilter = GO + MA
         ], DispoJobSchonZugesagt::laden((int) $request->team_id));
 
         $progress = self::initialProgress(count($plan['recipients']));

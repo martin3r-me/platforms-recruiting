@@ -57,6 +57,7 @@ final class PersonPairLinkerTest extends TestCase
             $t->string('last_name')->nullable();
             $t->string('phone')->nullable();
             $t->date('birth_date')->nullable();
+            $t->boolean('is_test')->default(false);
             $t->timestamps();
         });
     }
