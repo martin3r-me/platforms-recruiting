@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\TestEmployee;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
 use Platform\Crm\Models\CrmContact;
@@ -63,6 +64,26 @@ final class TestEmployeeRemover
             );
         }
 
+        // Buchungen eines Test-MA wuerden nach dem Loeschen an ZAS durchsickern
+        // (der Bestaetigungs-Export schliesst nur EXISTIERENDE Test-MA aus).
+        $buchungen = DB::table('rec_dispo_assignments')
+            ->where('rec_employee_id', $employeeId)
+            ->pluck('rec_dispo_event_id');
+        if ($buchungen->isNotEmpty()) {
+            $refs = DB::table('rec_dispo_events')->whereIn('id', $buchungen->unique()->all())
+                ->pluck('einsatz_ref')->filter()->unique()->values()->all();
+            throw new \InvalidArgumentException(
+                "MA #{$employeeId} hat Dispo-Buchungen ({$buchungen->count()}) — nichts geloescht. Erst die Test-VA entfernen: "
+                . ($refs === []
+                    ? 'php artisan recruiting:dispo-test-va --remove --ref=<einsatz_ref>'
+                    : implode(' | ', array_map(fn ($r) => "php artisan recruiting:dispo-test-va --remove --ref={$r}", $refs)))
+                . '.'
+            );
+        }
+
+        // Vor dem Loeschen zaehlen: die Kontexte selbst bleiben stehen.
+        $threads = $this->verbleibendeThreads($employee, $applicant);
+
         $dateiIds = [];
 
         $report = DB::transaction(function () use ($employee, $applicant, &$dateiIds) {
@@ -87,11 +108,21 @@ final class TestEmployeeRemover
 
             $dateiIds = ContextFile::query()
                 ->where(fn ($q) => $q
-                    ->where(fn ($e) => $e->where('context_type', RecEmployee::class)->where('context_id', $employee->id))
+                    ->where(fn ($e) => $e->whereIn('context_type', ['rec_employee', RecEmployee::class])->where('context_id', $employee->id))
                     ->when($applicant, fn ($q) => $q->orWhere(
-                        fn ($a) => $a->where('context_type', RecApplicant::class)->where('context_id', $applicant->id)
+                        fn ($a) => $a->whereIn('context_type', ['rec_applicant', RecApplicant::class])->where('context_id', $applicant->id)
                     )))
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+            // Dispo-Reste ohne Buchung: Angebote (samt Schichten), Absage-Pruefungen, Weiterleitungen.
+            // rec_dispo_job_requests haben keine MA-Spalte und bleiben.
+            $angebote = DB::table('rec_dispo_job_offers')->where('rec_employee_id', $employee->id)->pluck('id')->all();
+            if ($angebote !== []) {
+                $zaehle('rec_dispo_job_offer_shifts', DB::table('rec_dispo_job_offer_shifts')->whereIn('offer_id', $angebote)->delete());
+                $zaehle('rec_dispo_job_offers', DB::table('rec_dispo_job_offers')->whereIn('id', $angebote)->delete());
+            }
+            $zaehle('rec_dispo_decline_checks', DB::table('rec_dispo_decline_checks')->where('rec_employee_id', $employee->id)->delete());
+            $zaehle('rec_conversation_forwards', DB::table('rec_conversation_forwards')->where('rec_employee_id', $employee->id)->delete());
 
             $zaehle('rec_employee_hr_data', RecEmployeeHrData::where('rec_employee_id', $employee->id)->delete());
             $zaehle('rec_contracts', RecContract::where('rec_employee_id', $employee->id)->delete());
@@ -141,11 +172,39 @@ final class TestEmployeeRemover
 
         // Dateien erst NACH dem Commit: ein Rollback haette sonst Zeilen ohne Datei hinterlassen.
         // Der Core-Dienst loescht Varianten, Original und Datensatz.
+        // Eine fehlende Datei (findOrFail) darf die uebrigen nicht aufhalten.
         $dienst = app(ContextFileService::class);
+        $fehlgeschlagen = 0;
         foreach ($dateiIds as $id) {
-            $dienst->delete($id);
+            try {
+                $dienst->delete($id);
+            } catch (\Throwable) {
+                $fehlgeschlagen++;
+            }
+        }
+        if ($fehlgeschlagen > 0) {
+            $report['context_files_fehlgeschlagen'] = $fehlgeschlagen;
+        }
+        if ($threads > 0) {
+            $report['comms_threads_verbleibend'] = $threads;
         }
 
         return $report;
+    }
+
+    /** Kommunikations-Threads, die noch am MA/Bewerber haengen (werden NICHT geloescht, nur gemeldet). */
+    private function verbleibendeThreads(RecEmployee $employee, ?RecApplicant $applicant): int
+    {
+        if (!Schema::hasTable('comms_thread_contexts')) {
+            return 0;
+        }
+
+        return DB::table('comms_thread_contexts')
+            ->where(fn ($q) => $q
+                ->where(fn ($e) => $e->whereIn('context_model', ['rec_employee', RecEmployee::class])->where('context_model_id', $employee->id))
+                ->when($applicant, fn ($q) => $q->orWhere(
+                    fn ($a) => $a->whereIn('context_model', ['rec_applicant', RecApplicant::class])->where('context_model_id', $applicant->id)
+                )))
+            ->selectRaw('thread_type, thread_id')->distinct()->get()->count();
     }
 }

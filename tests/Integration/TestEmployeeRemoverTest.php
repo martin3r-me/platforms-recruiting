@@ -277,6 +277,45 @@ class TestEmployeeRemoverTest extends TestCase
         $this->assertSame(0, Capsule::table('rec_applicants')->where('id', $result->applicantId)->count());
     }
 
+    public function testVerweigertBeiDispoBuchungUndNenntDieRef(): void
+    {
+        $result = $this->creator()->create(self::POSITION, 'eu', 'Gebucht Test', null, [], [], [], null);
+        $now = date('Y-m-d H:i:s');
+        Capsule::table('rec_dispo_events')->insert([
+            'id' => 1, 'uuid' => 'ev-1', 'einsatz_ref' => 'TEST-VA', 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        Capsule::table('rec_dispo_assignments')->insert([
+            'uuid' => 'as-1', 'ds_ref' => '1', 'pnr_raw' => '1', 'datum' => '2026-11-01', 'rec_dispo_event_id' => 1, 'rec_employee_id' => $result->employeeId,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $vorher = $this->zeilen($result);
+
+        try {
+            $this->remover()->remove($result->employeeId);
+            $this->fail('MA mit Dispo-Buchung darf nicht geloescht werden');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('recruiting:dispo-test-va --remove --ref=TEST-VA', $e->getMessage());
+        }
+
+        $this->assertSame($vorher, $this->zeilen($result), 'nichts geloescht');
+        $this->assertSame([], self::$files->deleted);
+    }
+
+    public function testDateiMitKlartextKontextWirdGeloescht(): void
+    {
+        $result = $this->creator()->create(self::POSITION, 'eu', 'Datei Kontext', null, [], [], [], null);
+        Capsule::table('context_files')->insert(['id' => 7777, 'context_type' => 'rec_employee', 'context_id' => $result->employeeId]);
+        Capsule::table('context_files')->insert(['id' => 7778, 'context_type' => 'rec_applicant', 'context_id' => $result->applicantId]);
+        Capsule::table('context_files')->insert(['id' => 7779, 'context_type' => 'rec_employee', 'context_id' => $result->employeeId + 1000]);
+
+        $this->remover()->remove($result->employeeId);
+
+        $this->assertContains(7777, self::$files->deleted);
+        $this->assertContains(7778, self::$files->deleted);
+        $this->assertNotContains(7779, self::$files->deleted, 'Datei eines anderen MA bleibt');
+        $this->assertSame(1, Capsule::table('context_files')->where('id', 7779)->count());
+    }
+
     private function remover(): TestEmployeeRemover
     {
         return new TestEmployeeRemover();
@@ -315,6 +354,13 @@ class TestEmployeeRemoverTest extends TestCase
                 'rec_applicant_id' => $r->applicantId, 'type' => 'anzeige_verknuepft', 'summary' => 'x',
             ]);
         }
+        // Produktive Upload-Pfade speichern den Kontext als 'rec_employee' (Portal, HR, ZAS).
+        $db->table('context_files')->insert(['id' => 8000 + $r->employeeId, 'context_type' => 'rec_employee', 'context_id' => $r->employeeId]);
+        $db->table('rec_dispo_job_offers')->insert([
+            'id' => $r->employeeId, 'wave_id' => 1, 'request_id' => 1, 'rec_employee_id' => $r->employeeId,
+            'anchor_employee_id' => $r->employeeId, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $db->table('rec_dispo_job_offer_shifts')->insert(['offer_id' => $r->employeeId, 'shift_id' => 1, 'created_at' => $now, 'updated_at' => $now]);
         $db->table('rec_training_certificates')->insert([
             'uuid' => 'cert-' . $r->employeeId, 'team_id' => self::TEAM, 'rec_applicant_id' => $r->applicantId,
             'kind' => 'service-basis', 'personalized_content' => 'x', 'issued_at' => $now,
@@ -345,8 +391,10 @@ class TestEmployeeRemoverTest extends TestCase
             'crm_email_addresses'          => $db->table('crm_email_addresses')->where('emailable_id', $r->contactId)->count(),
             'crm_phone_numbers'            => $db->table('crm_phone_numbers')->where('phoneable_id', $r->contactId)->count(),
             'context_files'                => $db->table('context_files')->where(fn ($q) => $q
-                ->where('context_type', RecApplicant::class)->where('context_id', $r->applicantId)
-                ->orWhere('context_type', RecEmployee::class)->where('context_id', $r->employeeId))->count(),
+                ->whereIn('context_type', ['rec_applicant', RecApplicant::class])->where('context_id', $r->applicantId)
+                ->orWhereIn('context_type', ['rec_employee', RecEmployee::class])->where('context_id', $r->employeeId))->count(),
+            'rec_dispo_job_offers'         => $db->table('rec_dispo_job_offers')->where('rec_employee_id', $r->employeeId)->count(),
+            'rec_dispo_job_offer_shifts'   => $db->table('rec_dispo_job_offer_shifts')->where('offer_id', $r->employeeId)->count(),
         ];
     }
 
