@@ -419,5 +419,7 @@ class AnstellungsRegelnTest extends TestCase
         RecEmployee::find($rg)->update(['tax_class' => '1', 'is_main_employer' => true]);
 
         $this->assertNull($this->zeile($ma)->zas_changed_at, 'Test-MA wird nie markiert');
+        $this->assertNull($this->zeile($ma)->payroll_data_changed_at, 'Test-MA nie im Lohn-Tracking');
+        $this->assertNull($this->zeile($ma)->payroll_data_changed_fields, 'Test-MA nie im Lohn-Tracking');
     }
 }

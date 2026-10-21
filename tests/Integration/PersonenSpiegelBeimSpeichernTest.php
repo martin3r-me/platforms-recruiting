@@ -107,6 +107,7 @@ class PersonenSpiegelBeimSpeichernTest extends TestCase
 
     public function test_test_ma_geschwister_bekommt_den_wert_aber_keinen_marker(): void
     {
+        $this->setzeEinstellung(['employee_payroll_tracked_fields' => ['street']]);
         $p = $this->person();
         $rg = $this->akte(['rec_person_id' => $p, 'street' => 'Alt RG']);
         $ma = $this->akte(['rec_person_id' => $p, 'street' => 'Alt MA', 'is_test' => 1]);
@@ -114,6 +115,9 @@ class PersonenSpiegelBeimSpeichernTest extends TestCase
         RecEmployee::find($rg)->update(['street' => 'Neu 5']);
 
         $this->assertNotNull($this->zeile($rg)->zas_changed_at);
+        $this->assertSame('Neu 5', $this->zeile($ma)->street, 'Test-MA bekommt den Wert');
         $this->assertNull($this->zeile($ma)->zas_changed_at, 'Test-MA wird nie markiert');
+        $this->assertNull($this->zeile($ma)->payroll_data_changed_at, 'Test-MA nie im Lohn-Tracking');
+        $this->assertNull($this->zeile($ma)->payroll_data_changed_fields, 'Test-MA nie im Lohn-Tracking');
     }
 }

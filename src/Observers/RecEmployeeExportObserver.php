@@ -406,6 +406,11 @@ class RecEmployeeExportObserver
      */
     public static function verfolgeLohn(int $employeeId, ?int $teamId, array $aenderungen): void
     {
+        // Test-MA nie in die Lohnliste (auch nicht als Schwester-Akte).
+        if (\Illuminate\Support\Facades\DB::table('rec_employees')->where('id', $employeeId)->value('is_test')) {
+            return;
+        }
+
         $defaults = RecApplicantSettings::DEFAULT_SETTINGS['employee_payroll_tracked_fields'] ?? [];
         $trackedFields = $teamId === null
             ? $defaults
