@@ -291,6 +291,8 @@ class EmployeeContactListSyncService
         $query = RecEmployee::query()
             ->where('team_id', $teamId)
             ->where('is_active', true)
+            // Test-MA (recruiting:test-ma) gehoeren nie ins Diensthandy-Telefonbuch.
+            ->where('is_test', false)
             ->with('crmContactLinks.contact');
 
         if ($restrictToContactIds !== null) {
