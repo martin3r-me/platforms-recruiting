@@ -366,6 +366,20 @@ class TestEmployeeCreatorTest extends TestCase
         }
     }
 
+    public function testSetAufDateiFeldBrichtVorJedemSchreibenAb(): void
+    {
+        $vorher = $this->zaehler();
+
+        try {
+            $this->creator()->create(self::POSITION, 'eu', 'X Y', null, ['selfie_upload' => '123'], [], [], null);
+            $this->fail('--set auf ein Datei-Feld muss abbrechen');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('--datei', $e->getMessage());
+        }
+
+        $this->assertSame($vorher, $this->zaehler(), 'nichts angelegt');
+    }
+
     public function testOhneAusschreibungBrichtAb(): void
     {
         $vorher = $this->zaehler();

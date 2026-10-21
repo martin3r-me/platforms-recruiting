@@ -18,7 +18,7 @@ class CreateTestEmployee extends Command
 {
     protected $signature = 'recruiting:test-ma
         {--stelle= : ID der Stelle (Pflicht beim Anlegen)}
-        {--profil=eu : Profil des Test-MA (z. B. eu, non-eu, schueler)}
+        {--profil=eu : Profil des Test-MA (z. B. eu, nicht-eu, student, schueler)}
         {--name=Test Mitarbeiter : Name; ein einzelnes Wort wird zum Vornamen, Nachname ist dann „Mitarbeiter"}
         {--phone= : Handynummer des Test-MA (z. B. dein eigenes Handy)}
         {--set=* : Feldwert als feld=wert (mehrfach moeglich)}
@@ -39,7 +39,7 @@ class CreateTestEmployee extends Command
 
             $removeId = trim((string) $this->option('remove'));
             if ($removeId !== '') {
-                return $this->remove((int) $removeId);
+                return $this->remove(self::parseRemoveId($removeId));
             }
 
             $stelle = trim((string) $this->option('stelle'));
@@ -62,7 +62,7 @@ class CreateTestEmployee extends Command
                 self::parseList($this->option('leer')),
                 $owner !== '' ? (int) $owner : null,
             );
-        } catch (\InvalidArgumentException $e) {
+        } catch (\Throwable $e) {
             $this->error($e->getMessage());
 
             return self::FAILURE;
@@ -152,6 +152,17 @@ class CreateTestEmployee extends Command
         }
 
         return $out;
+    }
+
+    /** --remove muss eine positive ganze Zahl sein; (int)"abc" waere sonst still 0. */
+    public static function parseRemoveId(string $raw): int
+    {
+        $raw = trim($raw);
+        if (!ctype_digit($raw) || (int) $raw <= 0) {
+            throw new \InvalidArgumentException("Ungueltige ID „{$raw}\" fuer --remove — erwartet eine positive ganze Zahl.");
+        }
+
+        return (int) $raw;
     }
 
     /** @return list<string> */

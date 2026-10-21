@@ -189,6 +189,19 @@ class ZasTestEmployeeExclusionTest extends TestCase
         $this->assertNotNull(Capsule::table('rec_employees')->where('id', $echt->id)->value('zas_changed_at'), 'Gegenprobe: echter MA wird markiert.');
     }
 
+    public function testLohnAenderungStempeltTestMaNicht(): void
+    {
+        $echt = $this->ma(false, ['iban' => 'DE02100100100006820101']);
+        $test = $this->ma(true, ['iban' => 'DE02100100100006820101']);
+
+        $test->update(['iban' => 'DE89370400440532013000']);
+        $echt->update(['iban' => 'DE89370400440532013000']);
+
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $test->id)->value('payroll_data_changed_at'));
+        $this->assertNull(Capsule::table('rec_employees')->where('id', $test->id)->value('payroll_data_changed_fields'));
+        $this->assertNotNull(Capsule::table('rec_employees')->where('id', $echt->id)->value('payroll_data_changed_at'), 'Gegenprobe: echter MA wird gestempelt.');
+    }
+
     public function testKostenstellenwechselMarkiertTestMaNicht(): void
     {
         $position = RecPosition::create(['team_id' => self::TEAM, 'title' => 'Service', 'cost_center' => '100']);
@@ -267,6 +280,21 @@ class ZasTestEmployeeExclusionTest extends TestCase
         sort($dsids);
 
         $this->assertSame(['DS-E', 'DS-N'], $dsids, 'Test-MA fehlt; echter MA und Buchung ohne MA bleiben.');
+    }
+
+    public function testBestaetigungsExportLaesstPnrTestWegAuchOhneMa(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG1', 'name' => 'Einsatz']);
+        foreach ([['DS-T', 'TEST'], ['DS-E', 'RG1']] as [$ds, $pnr]) {
+            RecDispoAssignment::create([
+                'ds_ref' => $ds, 'rec_dispo_event_id' => $event->id, 'pnr_raw' => $pnr,
+                'datum' => now()->addDay()->toDateString(), 'von' => '09:00', 'bis' => '17:00',
+                'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
+                'confirmed_at' => now(), 'rec_employee_id' => null,
+            ]);
+        }
+
+        $this->assertSame(['DS-E'], array_column((new ZasDispoConfirmationExport())->rows(7), 'DSID'));
     }
 
     public function testMatcherTrifftTestMaNie(): void

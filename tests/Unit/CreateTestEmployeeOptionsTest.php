@@ -27,4 +27,21 @@ final class CreateTestEmployeeOptionsTest extends TestCase
         $this->assertSame([], CreateTestEmployee::parseList(null));
         $this->assertSame([], CreateTestEmployee::parseList(''));
     }
+
+    public function testParseRemoveId(): void
+    {
+        $this->assertSame(12, CreateTestEmployee::parseRemoveId(' 12 '));
+    }
+
+    /** @dataProvider ungueltigeRemoveIds */
+    public function testParseRemoveIdWirftBeiUngueltigem(string $raw): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        CreateTestEmployee::parseRemoveId($raw);
+    }
+
+    public static function ungueltigeRemoveIds(): array
+    {
+        return [['abc'], ['0'], ['-3'], ['1.5'], ['12x']];
+    }
 }

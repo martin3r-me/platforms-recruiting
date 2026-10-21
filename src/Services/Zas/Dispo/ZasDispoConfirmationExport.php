@@ -34,6 +34,9 @@ class ZasDispoConfirmationExport
             // Test-MA nie bestaetigen; Buchungen ohne MA-Zuordnung bleiben drin
             ->where(fn ($q) => $q->whereNull('rec_employee_id')
                 ->orWhereNotIn('rec_employee_id', RecEmployee::query()->select('id')->where('is_test', true)))
+            // Tiefenschutz: dispo-test-va nimmt 'TEST' als PNr, wenn der MA keine hat —
+            // so leckt eine Buchung auch dann nicht, wenn der Test-MA anders geloescht wurde.
+            ->where('pnr_raw', '!=', 'TEST')
             ->whereDate('datum', '>=', $cutoff)
             ->when($einsatzRef !== null && $einsatzRef !== '', fn ($q) => $q
                 ->whereHas('event', fn ($e) => $e->where('einsatz_ref', $einsatzRef)))

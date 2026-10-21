@@ -229,6 +229,11 @@ class RecEmployeeExportObserver
      */
     protected static function trackPayrollChanges(RecEmployee $employee): void
     {
+        // Test-MA nie in die Lohnliste — sonst taucht er in PayrollChanges und im Lohn-Export auf.
+        if ($employee->is_test) {
+            return;
+        }
+
         $changes = array_keys($employee->getChanges());
 
         $settings = RecApplicantSettings::getOrCreateForTeam($employee->team_id);

@@ -92,6 +92,13 @@ final class TestEmployeeCreator
             );
         }
 
+        // Datei-Felder nur ueber --datei: ein --set-Wert waere keine gueltige Datei-ID.
+        foreach (array_keys($set) as $feld) {
+            if ($katalog[$feld]->type === 'file') {
+                throw new \InvalidArgumentException("Feld „{$feld}\" ist ein Datei-Feld — bitte mit --datei={$feld}=/pfad setzen, nicht mit --set.");
+            }
+        }
+
         foreach ($files as $feld => $pfad) {
             if ($katalog[$feld]->type !== 'file') {
                 throw new \InvalidArgumentException("Feld „{$feld}\" ist kein Datei-Feld (Typ {$katalog[$feld]->type}).");
