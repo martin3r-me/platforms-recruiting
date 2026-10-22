@@ -23,6 +23,11 @@ use Platform\Recruiting\Support\PersonenFelder;
  *
  * Gruppen ohne rec_person_id (Paarung ueber person_key) werden mit
  * "key:<8 Zeichen>" gelistet, sind aber nicht adressierbar. *
+ * --auffuellen (Spec 2026-10-22 §5): fuellt nur LEERE Personenfelder aktiver
+ * Akten, und nur wenn alle gefuellten aktiven Akten der Person denselben
+ * Wert tragen — also kein Ueberschreiben. Query Builder ohne Export-Marker
+ * und ohne updated_at (Sebastian 22.10.), --dry-run zaehlt nur.
+ *
  * --je-gesellschaft (Nachrunde Markus 12.10.2026, E7/E8): rein lesende
  * HR-Liste der Verstoesse gegen die Je-Gesellschaft-Regel unter den AKTIVEN
  * Anstellungen eines Menschen — mehr als eine Hauptarbeitgeber, mehr als
@@ -37,7 +42,9 @@ final class PersonendatenAbgleich extends Command
         {--person= : rec_person_id — nur diese Person}
         {--nach= : rec_employee_id — Personenfelder dieser Akte auf alle Geschwister uebertragen (nur mit --person)}
         {--felder= : komma-getrennt, Ausgabe und Angleichen (--nach) auf diese Felder begrenzen}
-        {--je-gesellschaft : nur lesen — Verstoesse beide Hauptarbeitgeber / beide Steuerklasse ungleich 6 als HR-Liste}';
+        {--je-gesellschaft : nur lesen — Verstoesse beide Hauptarbeitgeber / beide Steuerklasse ungleich 6 als HR-Liste}
+        {--auffuellen : leere Personenfelder AKTIVER Akten aus der aktiven Schwester fuellen (eindeutiger Wert), ohne ZAS-Marker}
+        {--dry-run : mit --auffuellen: nur zaehlen, nichts schreiben}';
 
     protected $description = 'Personenfelder je Person ueber alle Akten vergleichen; mit --person --nach gezielt angleichen';
 
@@ -59,6 +66,20 @@ final class PersonendatenAbgleich extends Command
             $this->error('--nach geht nur zusammen mit --person. Es wird nichts geschrieben.');
 
             return self::FAILURE;
+        }
+
+        if ($this->option('auffuellen')) {
+            if ($nach !== null || $this->option('je-gesellschaft')) {
+                $this->error('--auffuellen geht nicht zusammen mit --nach oder --je-gesellschaft. Es wird nichts geschrieben.');
+
+                return self::FAILURE;
+            }
+            $nurFelder = null;
+            if (($f = trim((string) $this->option('felder'))) !== '') {
+                $nurFelder = array_values(array_filter(array_map('trim', explode(',', $f))));
+            }
+
+            return $this->fuelleAuf($person, $nurFelder, (bool) $this->option('dry-run'));
         }
 
         if ($this->option('je-gesellschaft')) {
@@ -175,6 +196,90 @@ final class PersonendatenAbgleich extends Command
         }
 
         $this->line("Geprueft: {$personen} Personen mit mehreren aktiven Anstellungen · mit Verstoss: {$mitVerstoss} (nur gelesen — HR entscheidet je Person)");
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Spec 2026-10-22 §5: je Person mit mindestens zwei AKTIVEN, nicht-Test-
+     * Akten; je Personenfeld: genau ein gefuellter (normierter) Wert → in die
+     * leeren aktiven Akten schreiben. Zwei Werte → Widerspruch, nichts
+     * schreiben. Query Builder, kein zas_changed_at, kein updated_at
+     * (Sebastian 22.10.: Variante A). Wiederholbar.
+     *
+     * @param list<string>|null $nurFelder
+     */
+    private function fuelleAuf(?int $person, ?array $nurFelder, bool $trocken): int
+    {
+        $markerVorher = DB::table('rec_employees')->whereNotNull('zas_changed_at')->count();
+        $gefuellt = [];
+        $widerspruch = [];
+        $personen = 0;
+        $akten = [];
+
+        foreach ($this->gruppen($person) as $g) {
+            $rows = DB::table('rec_employees')
+                ->whereIn('id', $g['ids'])
+                ->where('is_active', 1)
+                ->where('is_test', false)
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->get();
+            if ($rows->count() < 2) {
+                continue;
+            }
+            $teamId = $rows->first()->team_id !== null ? (int) $rows->first()->team_id : null;
+            $felder = PersonenFelder::fuerTeam($teamId, $nurFelder);
+            $schreiben = [];   // id => [feld => roh]
+
+            foreach ($felder as $feld) {
+                $quelle = null;
+                $werte = [];
+                $leere = [];
+                foreach ($rows as $r) {
+                    $n = PersonenFelder::normalisiere($feld, $r->{$feld} ?? null);
+                    if ($n === null) {
+                        $leere[] = (int) $r->id;
+                        continue;
+                    }
+                    $werte[$n] = true;
+                    $quelle ??= $r->{$feld};
+                }
+                if ($leere === [] || $werte === []) {
+                    continue;
+                }
+                if (count($werte) > 1) {
+                    $widerspruch[$feld] = ($widerspruch[$feld] ?? 0) + 1;
+                    continue;
+                }
+                foreach ($leere as $id) {
+                    $schreiben[$id][$feld] = $quelle;
+                    $gefuellt[$feld] = ($gefuellt[$feld] ?? 0) + 1;
+                    $akten[$id] = true;
+                }
+            }
+
+            if ($schreiben !== []) {
+                $personen++;
+            }
+            if (!$trocken) {
+                foreach ($schreiben as $id => $set) {
+                    DB::table('rec_employees')->where('id', $id)->update($set);
+                }
+            }
+        }
+
+        $alle = array_unique(array_merge(array_keys($gefuellt), array_keys($widerspruch)));
+        sort($alle);
+        if ($alle !== []) {
+            $this->table(['Feld', 'gefuellt (Akten)', 'Widerspruch (Personen)'], array_map(
+                fn ($f) => [$f, (string) ($gefuellt[$f] ?? 0), (string) ($widerspruch[$f] ?? 0)],
+                $alle,
+            ));
+        }
+        $this->line(sprintf('Personen mit Auffuellung: %d · Akten aufgefuellt: %d · Felder aufgefuellt: %d', $personen, count($akten), array_sum($gefuellt)));
+        $this->line(sprintf('Marker vorher: %d, nachher: %d', $markerVorher, DB::table('rec_employees')->whereNotNull('zas_changed_at')->count()));
+        $this->line($trocken ? 'Trockenlauf — nichts geschrieben.' : 'aufgefuellt: ' . array_sum($gefuellt));
 
         return self::SUCCESS;
     }

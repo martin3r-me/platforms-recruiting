@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Tests\Integration;
 
 use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Console\Commands\PersonendatenAbgleich;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -18,7 +19,11 @@ class PersonendatenAbgleichTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::baueWelt(false, ['2026_08_26_000002_add_company_to_rec_employees']);
+        self::baueWelt(false, [
+            '2026_08_26_000002_add_company_to_rec_employees',
+            '2026_07_17_000001_add_arbeitsschutz_fields_to_rec_employees',
+            '2026_09_23_000001_add_nationality_to_rec_employees',
+        ]);
     }
 
     /** @return array{0: int, 1: string} */
@@ -190,6 +195,111 @@ class PersonendatenAbgleichTest extends TestCase
         $rg = $this->akte(['rec_person_id' => $p]);
         [$code] = $this->run_(['--je-gesellschaft' => true, '--person' => (string) $p, '--nach' => (string) $rg]);
         $this->assertSame(1, $code);
+    }
+
+    // ---- Spec 2026-10-22 §5: --auffuellen ---------------------------------
+
+    public function test_auffuellen_fuellt_leere_aktive_akte_ohne_marker_und_ohne_updated_at(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'deutsch', 'updated_at' => '2026-10-01 00:00:00']);
+        $rg = $this->akte(['rec_person_id' => $p, 'nationality' => null, 'updated_at' => '2026-09-01 00:00:00']);
+        $markerVorher = Capsule::table('rec_employees')->whereNotNull('zas_changed_at')->count();
+
+        [$code, $aus] = $this->run_(['--auffuellen' => true]);
+
+        $this->assertSame(0, $code);
+        $this->assertSame('deutsch', $this->zeile($rg)->nationality);
+        $this->assertNull($this->zeile($rg)->zas_changed_at);
+        $this->assertSame('2026-09-01 00:00:00', (string) $this->zeile($rg)->updated_at);
+        $this->assertSame($markerVorher, Capsule::table('rec_employees')->whereNotNull('zas_changed_at')->count());
+        $this->assertStringContainsString('nationality', $aus);
+    }
+
+    public function test_auffuellen_trockenlauf_schreibt_nichts(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'deutsch']);
+        $rg = $this->akte(['rec_person_id' => $p, 'nationality' => null]);
+
+        [$code, $aus] = $this->run_(['--auffuellen' => true, '--dry-run' => true]);
+
+        $this->assertSame(0, $code);
+        $this->assertNull($this->zeile($rg)->nationality);
+        $this->assertStringContainsString('Trockenlauf', $aus);
+    }
+
+    public function test_auffuellen_bei_widerspruch_schreibt_nichts(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'deutsch']);
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'polnisch']);
+        $leer = $this->akte(['rec_person_id' => $p, 'nationality' => null]);
+
+        [, $aus] = $this->run_(['--auffuellen' => true]);
+
+        $this->assertNull($this->zeile($leer)->nationality);
+        $this->assertMatchesRegularExpression('/nationality\D+0\D+1/', $aus, 'Zeile: nationality, gefuellt 0, Widerspruch 1');
+    }
+
+    public function test_auffuellen_ignoriert_inaktive_und_test_akten(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'deutsch', 'is_active' => 0]);
+        $aktiv = $this->akte(['rec_person_id' => $p, 'nationality' => null]);
+        $test = $this->akte(['rec_person_id' => $p, 'nationality' => null, 'is_test' => 1]);
+
+        $this->run_(['--auffuellen' => true]);
+
+        $this->assertNull($this->zeile($aktiv)->nationality, 'inaktive Quelle zaehlt nicht');
+        $this->assertNull($this->zeile($test)->nationality, 'Test-Akte wird nie angefasst');
+    }
+
+    public function test_auffuellen_uebernimmt_false(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'is_eu_citizen' => 0]);
+        $leer = $this->akte(['rec_person_id' => $p, 'is_eu_citizen' => null]);
+
+        $this->run_(['--auffuellen' => true]);
+
+        $this->assertNotNull($this->zeile($leer)->is_eu_citizen);
+        $this->assertSame(0, (int) $this->zeile($leer)->is_eu_citizen);
+    }
+
+    public function test_auffuellen_laesst_je_gesellschaft_und_telefon(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'tax_class' => '1', 'phone' => '+491511']);
+        $leer = $this->akte(['rec_person_id' => $p, 'tax_class' => null, 'phone' => null]);
+
+        $this->run_(['--auffuellen' => true]);
+
+        $this->assertNull($this->zeile($leer)->tax_class);
+        $this->assertNull($this->zeile($leer)->phone);
+    }
+
+    public function test_auffuellen_ist_wiederholbar_und_begrenzbar(): void
+    {
+        $p = $this->person();
+        $this->akte(['rec_person_id' => $p, 'nationality' => 'deutsch', 'city' => 'Koeln']);
+        $leer = $this->akte(['rec_person_id' => $p, 'nationality' => null, 'city' => null]);
+
+        $this->run_(['--auffuellen' => true, '--felder' => 'city']);
+        $this->assertNull($this->zeile($leer)->nationality, '--felder begrenzt');
+        $this->assertSame('Koeln', $this->zeile($leer)->city);
+
+        $this->run_(['--auffuellen' => true]);
+        [, $aus] = $this->run_(['--auffuellen' => true]);
+        $this->assertStringContainsString('aufgefuellt: 0', $aus, 'zweiter Lauf findet nichts mehr');
+    }
+
+    public function test_auffuellen_geht_nicht_mit_nach_oder_je_gesellschaft(): void
+    {
+        [$c1] = $this->run_(['--auffuellen' => true, '--person' => '1', '--nach' => '1']);
+        [$c2] = $this->run_(['--auffuellen' => true, '--je-gesellschaft' => true]);
+        $this->assertSame(1, $c1);
+        $this->assertSame(1, $c2);
     }
 }
 
