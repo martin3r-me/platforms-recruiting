@@ -37,7 +37,7 @@ class Mitarbeiter extends Component
         'gesperrt' => 'Gesperrt',
         'erinnert' => 'Erinnert, aber keine Reaktion',
         'pilot'    => 'Pilot-Überblick',
-        'lohn'     => 'Lohn: RG-Zuschlag fehlt',
+        'lohn'     => 'Lohn prüfen',
     ];
 
     /** Geschlossene Liste: Aktion => Modal-Titel. */

@@ -744,6 +744,47 @@ final class KontoAnlegenTest extends TestCase
         $this->assertLessThanOrEqual(3600, $rest);
     }
 
+    /**
+     * Review 22.10.2026 (30 Tage Laufzeit): fuenf Versuche je Stunde waeren
+     * ueber 30 Tage rund 3.600 Geburtsdaten — genug, um mit einem
+     * weitergeleiteten Link und grob bekanntem Alter durchzukommen. Deshalb
+     * zusaetzlich eine Obergrenze fuer die ganze Laufzeit: nach zehn
+     * Fehlversuchen ist die Einladung tot, auch wenn die Stundensperre
+     * abgelaufen ist. Die Stunde wird hier durch Leeren des Stundenzaehlers
+     * simuliert.
+     */
+    public function test_nach_zehn_fehlversuchen_ist_die_einladung_tot(): void
+    {
+        $token = $this->einladung();
+        foreach ([1, 2] as $runde) {
+            $seite = $this->seite($token);
+            $seite->passwort = self::PASSWORT;
+            $seite->passwortWiederholung = self::PASSWORT;
+            $seite->geburtsdatum = self::FALSCHE_GEBURT;
+            for ($i = 0; $i < 5; $i++) {
+                $seite->registriere();
+            }
+            RateLimiter::clear($this->drosselSchluessel($token));   // "eine Stunde spaeter"
+        }
+
+        $this->expectException(NotFoundHttpException::class);
+        $this->seite($token);
+    }
+
+    public function test_die_gesamtgrenze_haelt_die_ganze_laufzeit(): void
+    {
+        $token = $this->einladung();
+        $seite = $this->seite($token);
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+        $seite->geburtsdatum = self::FALSCHE_GEBURT;
+        $seite->registriere();
+
+        $rest = RateLimiter::availableIn('konto-anlegen-gesamt:' . sha1($token));
+
+        $this->assertGreaterThan(29 * 86400, $rest, 'Die Gesamtgrenze laeuft vor dem Ende der Einladung ab.');
+    }
+
     public function test_der_erfolg_raeumt_den_zaehler_ab(): void
     {
         $token = $this->einladung();

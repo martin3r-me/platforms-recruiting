@@ -55,6 +55,7 @@ class LohnMaExport extends Command
             $this->line(sprintf('%-10s %5d', $fall, $n));
         }
         $this->info(sprintf('%d MA-Zeilen, davon +1 € (RG 1–5, MA 6): %d — CSV: %s', $r['gesamt'], $r['sechs'], $r['csv']));
+        $this->line(sprintf('Zur Pruefung in der HR-Liste "Lohn prüfen" (Variante A nicht exakt): %d', $r['pruefen']));
         $this->line(sprintf('Vergleich mit ZAS-Stand: bei ZAS leer, wir liefern die Regel %d, von uns leer (ZAS behaelt sein Paar) %d', $r['vergleich']['zas_leer'], $r['vergleich']['wir_leer']));
         $this->line(sprintf('ZAS fuehrt schon einen MA-Lohn, wir senden nichts: %d, davon wie die Regel %d, anders als die Regel %d', $r['vergleich']['zas_behaelt_gleich'] + $r['vergleich']['zas_behaelt_abweichend'], $r['vergleich']['zas_behaelt_gleich'], $r['vergleich']['zas_behaelt_abweichend']));
         $this->info($markieren ? sprintf('MARKIERT: %d Zeilen gehen in die naechste updates.csv.', $r['markiert']) : 'Keine Marker gesetzt (ohne --markieren).');
@@ -64,7 +65,7 @@ class LohnMaExport extends Command
 
     /**
      * @param  callable(string,string):void $out
-     * @return array{zahlen: array<string,int>, vergleich: array<string,int>, sechs:int, gesamt:int, markiert:int, csv:string}
+     * @return array{zahlen: array<string,int>, vergleich: array<string,int>, sechs:int, pruefen:int, gesamt:int, markiert:int, csv:string}
      */
     public function lauf(bool $markieren, ?int $teamId, ?string $datum, string $csvPfad, callable $out): array
     {
@@ -76,6 +77,7 @@ class LohnMaExport extends Command
         // (zas_behaelt_*), sonst ist ZAS leer oder wir sind leer.
         $vergleich = ['zas_leer' => 0, 'wir_leer' => 0, 'zas_behaelt_gleich' => 0, 'zas_behaelt_abweichend' => 0];
         $sechs = 0;
+        $pruefen = 0;
         $ids = [];
 
         $dir = dirname($csvPfad);
@@ -95,9 +97,14 @@ class LohnMaExport extends Command
             $zahlen[$l->fall]++;
             // Nur Zeilen, die den Euro wirklich bekommen: bekannter Zuschlag,
             // RG 1-5 und MA 6 (nicht jede MA mit Klasse 6).
-            if ($rg !== null && $l->zuschlag !== null && $l->fall !== LohnMa::NUR_MA
+            // Variante A (22.10.2026): "+1 EUR" nur, wenn er wirklich gilt —
+            // eine Tarif-Untergrenze (pruefen) bekommt keinen Euro.
+            if ($rg !== null && $l->zuschlag !== null && $l->fall !== LohnMa::NUR_MA && $l->pruefen === null
                 && trim((string) $ma->tax_class) === '6' && in_array(trim((string) ($rg->tax_class ?? '')), ['1', '2', '3', '4', '5'], true)) {
                 $sechs++;
+            }
+            if ($l->pruefen !== null) {
+                $pruefen++;
             }
             // Vergleich mit dem ZAS-Stand DIESER MA-Zeile (Inbound seit 19.10.2026):
             // nur eine Zahl fuer die Ankuendigung, keine Abarbeitungsliste.
@@ -142,6 +149,6 @@ class LohnMaExport extends Command
             $out('line', sprintf('Marker vorher: %d, jetzt: %d', $vorher, DB::table('rec_employees')->whereNotNull('zas_changed_at')->count()));
         }
 
-        return ['zahlen' => $zahlen, 'vergleich' => $vergleich, 'sechs' => $sechs, 'gesamt' => count($ids), 'markiert' => $markiert, 'csv' => $csvPfad];
+        return ['zahlen' => $zahlen, 'vergleich' => $vergleich, 'sechs' => $sechs, 'pruefen' => $pruefen, 'gesamt' => count($ids), 'markiert' => $markiert, 'csv' => $csvPfad];
     }
 }

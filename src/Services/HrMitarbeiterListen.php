@@ -736,8 +736,10 @@ final class HrMitarbeiterListen
      * erledigt und stehen in der Akte. Dazu (Ruling R4) MA-Anstellungen mit
      * fehlender oder unklarer Personen-Zuordnung; rg_employee_id ist dann die
      * RG-Zeile mit gleicher Kennung bzw. null (keine RG-Zeile bekannt).
+     * Seit 22.10.2026 (Markus, Variante A) zusaetzlich die Prueffaelle
+     * (LohnMa::$pruefen): Wert geht raus, aber die Regel gilt nicht exakt.
      *
-     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:?int, ma_employee_id:int, zuordnung_unklar:bool, begruendung:string}>
+     * @return list<array{schluessel:string, person_id:?int, employee_id:?int, name:string, akten:list<array{id:int, firma:string, aktiv:bool}>, employee_ids:list<int>, rg_employee_id:?int, ma_employee_id:int, zuordnung_unklar:bool, begruendung:string, pruefen:?string}>
      */
     public function lohn(int $teamId, string $suche = ''): array
     {

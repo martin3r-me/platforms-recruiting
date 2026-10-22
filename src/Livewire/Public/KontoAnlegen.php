@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Support\Facades\RateLimiter;
+use Platform\Recruiting\Support\EinladungsToken;
 use InvalidArgumentException;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -36,8 +37,8 @@ use Platform\Recruiting\Support\PasswortRegeln;
  *    und "die Nachweise stimmen nicht" (ein Rateversuch).
  *
  * WARUM DIE DROSSEL HIER TRAGEND IST (Ruling GD-4): der Token ist acht
- * Zeichen aus 31, das sind rund 850 Milliarden Moeglichkeiten bei sieben
- * Tagen Gueltigkeit — fuer sich genommen duenn. Er traegt nur, weil ohne das
+ * Zeichen aus 31, das sind rund 850 Milliarden Moeglichkeiten bei 30
+ * Tagen Gueltigkeit (seit 22.10.2026, vorher sieben) — fuer sich genommen duenn. Er traegt nur, weil ohne das
  * richtige Geburtsdatum ein erratener Token nichts nuetzt. Und der zweite
  * Nachweis traegt nur, solange man ihn nicht durchprobieren kann: ein
  * plausibler Geburtsjahrgang-Bereich sind rund 25.000 Moeglichkeiten, an
@@ -46,7 +47,8 @@ use Platform\Recruiting\Support\PasswortRegeln;
  *  1. Die Route selbst (throttle:20,1, siehe routes/public.php) gegen das
  *     Durchprobieren von TOKEN.
  *  2. Der Zaehler hier gegen das Durchprobieren des GEBURTSDATUMS bei
- *     bekanntem Token. Fuenf Fehlversuche je Einladung, eine Stunde lang.
+ *     bekanntem Token. Fuenf Fehlversuche je Einladung, eine Stunde lang —
+ *     und zehn insgesamt ueber die ganze Laufzeit (MAX_VERSUCHE_GESAMT).
  *
  * Beim Ueberschreiten antwortet die Seite wie bei einem ungueltigen Token:
  * 404. Eine eigene Meldung ("zu viele Versuche") waere die Auskunft, dass es
@@ -69,6 +71,14 @@ class KontoAnlegen extends Component
 
     /** Eine Stunde. Lang genug, dass Durchprobieren sich nicht lohnt. */
     public const SPERRE_SEKUNDEN = 3600;
+
+    /**
+     * Review 22.10.2026: seit die Einladung 30 Tage gilt, reicht die
+     * Stundensperre allein nicht (rund 3.600 Versuche ueber die Laufzeit).
+     * Zehn Fehlversuche je Einladung INSGESAMT, dann ist sie tot — HR laedt
+     * neu ein. Der Zaehler lebt so lange wie die Einladung.
+     */
+    public const MAX_VERSUCHE_GESAMT = 10;
 
     /**
      * Der Einladungs-Token und WESSEN Konto angelegt wird liegen in der
@@ -261,6 +271,7 @@ class KontoAnlegen extends Component
             // sonst zaehlt ein Konfigurationsfehler als Rateversuch und
             // sperrt den Menschen fuer eine Stunde aus.
             RateLimiter::hit(self::drosselSchluessel($token), self::SPERRE_SEKUNDEN);
+            RateLimiter::hit(self::gesamtSchluessel($token), EinladungsToken::GUELTIG_TAGE * 86400);
 
             $this->fehler = $this->duzen
                 ? 'Das hat nicht geklappt. Bitte prüfe dein Geburtsdatum und versuche es noch einmal.'
@@ -270,6 +281,7 @@ class KontoAnlegen extends Component
         }
 
         RateLimiter::clear(self::drosselSchluessel($token));
+        RateLimiter::clear(self::gesamtSchluessel($token));
 
         // Das Konto steht — das Passwort hat auf dieser Seite nichts mehr zu
         // suchen. Es faehrt sonst im Livewire-Schnappschuss weiter mit.
@@ -410,9 +422,16 @@ class KontoAnlegen extends Component
         return 'konto-anlegen:' . sha1($token);
     }
 
+    /** Gesamtzaehler ueber die ganze Laufzeit der Einladung (MAX_VERSUCHE_GESAMT). */
+    private static function gesamtSchluessel(string $token): string
+    {
+        return 'konto-anlegen-gesamt:' . sha1($token);
+    }
+
     private function zuVieleFehlversuche(string $token): bool
     {
-        return RateLimiter::tooManyAttempts(self::drosselSchluessel($token), self::MAX_VERSUCHE);
+        return RateLimiter::tooManyAttempts(self::drosselSchluessel($token), self::MAX_VERSUCHE)
+            || RateLimiter::tooManyAttempts(self::gesamtSchluessel($token), self::MAX_VERSUCHE_GESAMT);
     }
 
     /**

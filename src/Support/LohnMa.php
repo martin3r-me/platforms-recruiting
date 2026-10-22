@@ -6,9 +6,10 @@ namespace Platform\Recruiting\Support;
  * Lohn einer MA-Anstellung fuer den ZAS-Export (Spec 2026-10-19 §3).
  *
  * Grundlohn = EG 1. Zuschlag gleicht an den RG-Gesamtlohn der Person an
- * (Markus 15.10.2026, E14: "mindestens den identischen Gesamtlohn"), dazu
- * +1,00 EUR, wenn die RG-Schwester Steuerklasse 1-5 und die MA die 6 hat
- * (Markus 14.10.2026). Fehlt eine der beiden Steuerklassen oder stehen
+ * (Markus 15.10.2026, E14: "mindestens den identischen Gesamtlohn"). Hat die
+ * RG-Schwester Steuerklasse 1-5 und die MA die 6, ist der MA-Gesamtlohn
+ * RG-Gesamtlohn + 1,00 EUR (Markus 22.10.2026, Variante A — nicht pauschal
+ * 1 EUR auf den Tarif); wo das nicht exakt geht, steht der Grund in $pruefen. Fehlt eine der beiden Steuerklassen oder stehen
  * beide auf 1-5 (widerspruechlich), bleibt der Zuschlag leer (Fall
  * steuerklasse_fehlt). Ohne RG-Anstellung gibt es nichts
  * anzugleichen ("nur MA ohne Zuschlag", 16.10.2026). Ist der RG-Zuschlag
