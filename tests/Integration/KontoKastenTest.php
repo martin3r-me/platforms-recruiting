@@ -194,6 +194,38 @@ final class KontoKastenTest extends TestCase
         $this->assertStringContainsString("\$k['schon_eingeladen'] ? 'Einladung neu' : 'Einladen'", $blade);
     }
 
+    /** Sebastian 22.10.2026: Akte und Login-Nummer laufen auseinander — der Kasten sagt es. */
+    public function test_kasten_warnt_bei_abweichender_login_nummer(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17', 'phone' => '+4915122222222']);
+        $this->person(['phone' => '+4915111111111', 'password_hash' => 'hash'], $akte);
+        $k = $this->kasten($akte->id);
+
+        $hinweis = (string) $k->kasten()['nummer_hinweis'];
+
+        $this->assertStringContainsString('2222', $hinweis);
+        $this->assertStringContainsString('1111', $hinweis);
+        $this->assertStringContainsString('Portal', $hinweis);
+    }
+
+    public function test_kasten_ohne_abweichung_ohne_hinweis(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17', 'phone' => '+4915122222222']);
+        $this->person([], $akte);
+
+        $this->assertNull($this->kasten($akte->id)->kasten()['nummer_hinweis']);
+    }
+
+    public function test_kasten_nennt_vergebene_nummer(): void
+    {
+        $andere = $this->akte(['phone' => '+4915122222222']);
+        $this->person([], $andere);
+        $akte = $this->akte(['birth_date' => '1990-05-17', 'phone' => '+4915122222222']);
+        $this->person(['phone' => null], $akte);
+
+        $this->assertStringContainsString('anderen Person', (string) $this->kasten($akte->id)->kasten()['nummer_hinweis']);
+    }
+
     public function test_aktion_leert_die_zaehler_und_meldet_die_aenderung(): void
     {
         $akte = $this->akte(['birth_date' => '1990-05-17']);

@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\Comms\ThemenAusloeser;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
 use Platform\Recruiting\Support\PilotKreis;
+use Platform\Recruiting\Support\PortalVorlagen;
 use Platform\Recruiting\Support\PublicAddressStyle;
 
 /**
@@ -106,9 +107,10 @@ final class ThemenAuswahlHandler
 
         // 5. Ruhezeit (eine indizierte Abfrage).
         if ($grund = $pruefe([
-            'letzte_aktivitaet_ts' => $this->letzteAktivitaetVor($thread, $message),
+            'letzte_aktivitaet_ts' => $this->letzteAktivitaetVor($thread, $message, PortalVorlagen::systemVorlagenNamen($settings)),
             'jetzt_ts' => ($message->sent_at ?? $message->created_at ?? Carbon::now())->getTimestamp(),
-            'ruhe_stunden' => max(1, (int) $settings->getSetting('comms_topic_quiet_hours', 8)),
+            // 0 = keine Ruhezeit, sofort fragen (nur zum Testen, 22.10.2026).
+            'ruhe_stunden' => max(0, (int) $settings->getSetting('comms_topic_quiet_hours', 8)),
         ])) {
             return 'uebersprungen:' . $grund;
         }
@@ -188,12 +190,23 @@ final class ThemenAuswahlHandler
     }
 
     /** Juengste Nachricht im Thread VOR dieser — egal welche Richtung, egal ob Auto-Antwort. */
-    private function letzteAktivitaetVor(CommsWhatsAppThread $thread, CommsWhatsAppMessage $message): ?int
+    /**
+     * @param list<string> $systemVorlagen Vorlagen, die kein Gespraech sind
+     *        (Einladung, Codes, Hinweis alte Nummer) — sie zaehlen nicht
+     *        (Sebastian 22.10.2026).
+     */
+    private function letzteAktivitaetVor(CommsWhatsAppThread $thread, CommsWhatsAppMessage $message, array $systemVorlagen = []): ?int
     {
-        $ts = CommsWhatsAppMessage::query()
+        $q = CommsWhatsAppMessage::query()
             ->where('comms_whatsapp_thread_id', (int) $thread->id)
-            ->where('id', '<', (int) $message->id)
-            ->max(DB::raw('COALESCE(sent_at, created_at)'));
+            ->where('id', '<', (int) $message->id);
+        if ($systemVorlagen !== []) {
+            $q->where(fn ($w) => $w->where('message_type', '!=', 'template')
+                ->orWhereNull('message_type')
+                ->orWhereNull('template_name')
+                ->orWhereNotIn('template_name', $systemVorlagen));
+        }
+        $ts = $q->max(DB::raw('COALESCE(sent_at, created_at)'));
 
         return $ts ? Carbon::parse((string) $ts)->getTimestamp() : null;
     }

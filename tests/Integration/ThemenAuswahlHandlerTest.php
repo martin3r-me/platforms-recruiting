@@ -233,6 +233,49 @@ final class ThemenAuswahlHandlerTest extends TestCase
         $this->assertSame('gesendet', $this->handler()->beiEingang($this->kanal, $thread, $msg));
     }
 
+    /**
+     * Sebastian 22.10.2026: Systemnachrichten (Einladung, Codes, Hinweis an
+     * die alte Nummer) sind kein Gespraech — sie starten die Ruhezeit nicht.
+     */
+    public function test_einladung_zaehlt_nicht_in_die_ruhezeit(): void
+    {
+        $einladung = (int) Capsule::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid' => 'tpl-einl-' . uniqid(), 'external_id' => 'ext-einl-' . uniqid(), 'name' => 't_invite_portal', 'language' => 'de',
+            'status' => 'APPROVED', 'category' => 'UTILITY', 'components' => json_encode([]),
+            'whatsapp_account_id' => self::$kontoId, 'user_id' => 1,
+        ]);
+        $this->einstellungen(['comms_topic_enabled' => true, 'konto_einladung_wa_template_id' => $einladung]);
+        $thread = $this->thread();
+        $vorlage = $this->nachricht($thread, 'outbound', -600, typ: 'template');
+        Capsule::table('comms_whatsapp_messages')->where('id', $vorlage->id)->update(['template_name' => 't_invite_portal']);
+        $msg = $this->nachricht($thread, 'inbound', -5);
+
+        $this->assertSame('gesendet', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    /** Andere Vorlagen (z. B. ein Jobangebot) zaehlen weiter — die Antwort darauf hat ein Thema. */
+    public function test_andere_vorlage_zaehlt_weiter_in_die_ruhezeit(): void
+    {
+        $this->einstellungen(['comms_topic_enabled' => true]);
+        $thread = $this->thread();
+        $vorlage = $this->nachricht($thread, 'outbound', -600, typ: 'template');
+        Capsule::table('comms_whatsapp_messages')->where('id', $vorlage->id)->update(['template_name' => 't_dispo_angebot']);
+        $msg = $this->nachricht($thread, 'inbound', -5);
+
+        $this->assertSame('uebersprungen:ruhezeit', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
+    /** Ruhezeit 0 (nur zum Testen): es wird sofort gefragt. */
+    public function test_ruhezeit_null_fragt_sofort(): void
+    {
+        $this->einstellungen(['comms_topic_enabled' => true, 'comms_topic_quiet_hours' => 0]);
+        $thread = $this->thread();
+        $this->nachricht($thread, 'outbound', -60);
+        $msg = $this->nachricht($thread, 'inbound', -5);
+
+        $this->assertSame('gesendet', $this->handler()->beiEingang($this->kanal, $thread, $msg));
+    }
+
     public function test_bewerber_loest_nicht_aus(): void
     {
         $this->mitarbeiterId = null;

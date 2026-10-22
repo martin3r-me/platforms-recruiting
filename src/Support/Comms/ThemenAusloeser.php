@@ -42,7 +42,7 @@ final class ThemenAusloeser
             return 'sprachnachricht';
         }
         $letzte = $k['letzte_aktivitaet_ts'];
-        if ($letzte !== null && ($k['jetzt_ts'] - $letzte) <= $k['ruhe_stunden'] * 3600) {
+        if ($letzte !== null && $k['ruhe_stunden'] > 0 && ($k['jetzt_ts'] - $letzte) <= $k['ruhe_stunden'] * 3600) {
             return 'ruhezeit';
         }
 

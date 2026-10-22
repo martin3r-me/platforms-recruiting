@@ -45,6 +45,37 @@ final class PortalVorlagen
      */
     public const AUFGABEN_SCHLUESSEL = ['neu' => self::AUFGABEN_NEU];
 
+    /**
+     * Systemnachrichten (Sebastian 22.10.2026): Einladung, Codes, Hinweis an
+     * die alte Nummer. Sie sind kein Gespraech und starten die Ruhezeit der
+     * Themen-Auswahl nicht (ThemenAuswahlHandler).
+     */
+    public const SYSTEM_SCHLUESSEL = [self::EINLADUNG, self::CODE_PASSWORT, self::CODE_NUMMERNWECHSEL, self::CODE_NOTFALL, self::HINWEIS_ALTE_NUMMER];
+
+    /**
+     * Namen der in den Team-Einstellungen gewaehlten Systemvorlagen — so,
+     * wie sie in comms_whatsapp_messages.template_name stehen.
+     *
+     * @return list<string>
+     */
+    public static function systemVorlagenNamen(RecApplicantSettings $settings): array
+    {
+        $ids = [];
+        foreach (self::SYSTEM_SCHLUESSEL as $schluessel) {
+            $id = $settings->getSetting($schluessel);
+            if (is_numeric($id)) {
+                $ids[] = (int) $id;
+            }
+        }
+        if ($ids === []) {
+            return [];
+        }
+
+        return \Illuminate\Support\Facades\DB::table('integrations_whatsapp_templates')
+            ->whereIn('id', array_values(array_unique($ids)))
+            ->pluck('name')->map(fn ($n) => (string) $n)->filter()->values()->all();
+    }
+
     /** Schluessel → Feldname in den Einstellungen; Teil jeder Fehlermeldung der Sender. */
     public const FELDNAMEN = [
         'konto_code_passwort_wa_template_id'       => 'Code: Passwort vergessen',

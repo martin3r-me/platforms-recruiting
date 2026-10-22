@@ -1175,7 +1175,7 @@
                         <x-ui-input-text
                             type="number"
                             name="settings.comms_topic_quiet_hours"
-                            label="Ruhezeit (Stunden, 1–48)"
+                            label="Ruhezeit (Stunden, 0–48; 0 nur zum Testen)"
                             wire:model="settings.comms_topic_quiet_hours"
                         />
                         <x-ui-input-text

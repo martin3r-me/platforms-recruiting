@@ -30,5 +30,13 @@ class RecEmployeePhoneSyncObserver
             // Nebenwirkung darf die eigentliche Speicherung nie zu Fall bringen.
             Log::warning('contact_phone_sync_failed', ['employee_id' => $employee->id, 'error' => $e->getMessage()]);
         }
+
+        // Login-Nummer der Person mitziehen, solange es kein Konto gibt
+        // (Sebastian 22.10.2026, LoginNummer).
+        try {
+            \Platform\Recruiting\Services\LoginNummer::nachAktenAenderung($employee);
+        } catch (\Throwable $e) {
+            Log::warning('recruiting.konto.login_nummer_fehler', ['employee_id' => $employee->id, 'error' => $e->getMessage()]);
+        }
     }
 }

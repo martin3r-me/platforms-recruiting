@@ -18,6 +18,7 @@ use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\KontoStatus;
 use Platform\Recruiting\Support\LohnMa;
 use Platform\Recruiting\Support\NummernwechselTafel;
+use Platform\Recruiting\Support\PhoneE164;
 use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
@@ -518,6 +519,8 @@ final class HrMitarbeiterListen
             'kann_einladen'      => $einladungMoeglich && !$ohneNeuesPortal && !$registriert,
             // Erste Einladung heisst "Einladen" und braucht keine Notiz (22.10.2026).
             'schon_eingeladen'   => $person !== null && $person->invited_at !== null,
+            // Akte und Login-Nummer laufen auseinander (22.10.2026, LoginNummer).
+            'nummer_hinweis'     => self::nummerHinweis($akte, $person),
             // Zuruecksetzen bleibt auch ohne neues Portal (Controller-Ruling
             // 19.10.2026) — dann ohne Einladung, der Hinweis sagt es.
             'kann_zuruecksetzen' => $einladungMoeglich && $registriert,
@@ -529,6 +532,31 @@ final class HrMitarbeiterListen
     }
 
     // ------------------------------------------------------------ intern
+
+    /**
+     * Hinweis, wenn die Handynummer der geoeffneten Akte nicht die
+     * Login-Nummer der Person ist. Ohne Konto zieht LoginNummer sie bei jeder
+     * Aktenaenderung nach — bleibt sie trotzdem abweichend, gehoert die
+     * Nummer einer anderen Person. Mit Konto aendert der Mensch sie selbst.
+     */
+    private static function nummerHinweis(object $akte, ?object $person): ?string
+    {
+        $aktenNummer = PhoneE164::normalize($akte->phone ?? null);
+        if ($person === null || $aktenNummer === null || (string) $person->phone === $aktenNummer) {
+            return null;
+        }
+        $kurzAkte = '…' . NummernwechselTafel::kurz($aktenNummer);
+        $kurzLogin = $person->phone !== null ? '…' . NummernwechselTafel::kurz((string) $person->phone) : 'keine';
+        if ($person->password_hash !== null) {
+            return "Die Akte hat die Nummer {$kurzAkte}, das Konto meldet sich mit {$kurzLogin} an. "
+                . 'Der Mitarbeiter ändert seine Nummer im Portal, oder HR setzt das Konto zurück.';
+        }
+        if (LoginNummer::nummerVergeben($person->team_id !== null ? (int) $person->team_id : null, $aktenNummer, (int) $person->id)) {
+            return "Die Nummer aus der Akte ({$kurzAkte}) gehört schon einer anderen Person — bitte klären, bevor eingeladen wird.";
+        }
+
+        return "Login-Nummer {$kurzLogin} weicht von der Akte ({$kurzAkte}) ab — sie wird beim nächsten Speichern der Akte übernommen.";
+    }
 
     private static function schluessel(object $akte): string
     {

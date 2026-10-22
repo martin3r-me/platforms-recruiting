@@ -75,6 +75,9 @@
             @endif
         </div>
         {{-- Pilot-Sperre: statt „Einladung neu“ steht der Grund da; bei registrierten Nicht-Piloten der Hinweis zum Zurücksetzen ohne Einladung (HrMitarbeiterListen::kasten). --}}
+        @if (($k['nummer_hinweis'] ?? null) !== null)
+            <p class="mt-2 text-sm text-amber-900">{{ $k['nummer_hinweis'] }}</p>
+        @endif
         @if ($k['einladung_riegel'] !== null)
             <p class="mt-2 text-sm text-amber-900">{{ $k['einladung_riegel'] }}</p>
         @endif
