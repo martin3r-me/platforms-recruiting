@@ -289,7 +289,7 @@ final class HrKontoAktionenTest extends TestCase
 
         $this->assertSame(HrAktionErgebnis::OK, $e->stufe);
         $this->assertStringContainsString(HrKontoAktionen::EINLADUNG_GESENDET, $e->meldung);
-        $this->assertSame('Einladung per WhatsApp verschickt (gilt 7 Tage).', HrKontoAktionen::EINLADUNG_GESENDET);
+        $this->assertSame('Einladung per WhatsApp verschickt (gilt 30 Tage).', HrKontoAktionen::EINLADUNG_GESENDET);
         $this->assertSame([['person' => $id, 'code' => (string) $e->einladungsCode]], $sender->aufrufe, 'der angezeigte Code ist der verschickte');
         $this->assertNotNull($e->einladungsLink, 'Link/Code weiterhin angezeigt');
         $this->assertSame($id, KontoWriter::personFuerEinladung((string) $e->einladungsCode));

@@ -78,8 +78,11 @@ namespace Platform\Recruiting\Support;
  */
 final class EinladungsToken
 {
-    /** Spec: eine Einladung ist eine Woche lang gueltig. */
-    public const GUELTIG_TAGE = 7;
+    /** Wie lange eine Einladung gueltig ist (Spec: eine Woche; seit 22.10.2026 30 Tage). */
+    // Markus 22.10.2026: 30 statt 7 Tage — sonst muessen viele Einladungen
+    // neu verschickt werden. Vertretbar, weil das Anlegen zusaetzlich das
+    // Geburtsdatum verlangt und jede neue Einladung die alte ersetzt.
+    public const GUELTIG_TAGE = 30;
 
     /** Ohne 0/O und 1/I/L — Verwechsler beim Vorlesen/Abtippen. */
     private const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

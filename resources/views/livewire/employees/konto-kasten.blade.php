@@ -119,7 +119,7 @@
                 @endif
                 <div><span class="text-[var(--ui-muted)]">Link:</span> <code class="break-all">{{ $einladungsLink }}</code></div>
                 <div><span class="text-[var(--ui-muted)]">Code:</span> <code class="text-lg font-semibold tracking-widest">{{ $einladungsCode }}</code></div>
-                <p class="text-amber-900">Der Code ist ein Geheimnis: nur an den Menschen selbst, nicht in eine Gruppen-Unterhaltung. Er gilt sieben Tage und wird nicht noch einmal angezeigt.</p>
+                <p class="text-amber-900">Der Code ist ein Geheimnis: nur an den Menschen selbst, nicht in eine Gruppen-Unterhaltung. Er gilt {{ \Platform\Recruiting\Support\EinladungsToken::GUELTIG_TAGE }} Tage und wird nicht noch einmal angezeigt.</p>
             @else
                 <p class="text-[var(--ui-muted)]">Link und Code wurden bereits angezeigt und sind nicht mehr abrufbar. Bei Bedarf eine neue Einladung erstellen.</p>
             @endif

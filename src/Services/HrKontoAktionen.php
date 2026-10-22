@@ -108,7 +108,7 @@ final class HrKontoAktionen
         . EinladungsRiegel::KEIN_NEUES_PORTAL . '.';
 
     /** Zusatz zur Einladungs-Meldung je Versand-Status (EinladungSender). */
-    public const EINLADUNG_GESENDET = 'Einladung per WhatsApp verschickt (gilt 7 Tage).';
+    public const EINLADUNG_GESENDET = 'Einladung per WhatsApp verschickt (gilt 30 Tage).';
     public const EINLADUNG_OHNE_VORLAGE = 'Keine Vorlage eingestellt — bitte selbst weitergeben.';
 
     private const RIEGEL_TEXT = [

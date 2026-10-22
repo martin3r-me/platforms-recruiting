@@ -460,12 +460,12 @@ final class KontoEinladenTest extends TestCase
     }
 
     /**
-     * Die Einladung gilt sieben Tage. Die Zahl steht hier AUSGESCHRIEBEN und
+     * Die Einladung gilt 30 Tage (Markus 22.10.2026, vorher sieben). Die Zahl steht hier AUSGESCHRIEBEN und
      * wird nicht aus EinladungsToken::GUELTIG_TAGE abgeleitet — sonst laesen
      * Code und Test dieselbe Konstante, und eine Aenderung der Frist bliebe
      * unbemerkt.
      */
-    public function test_die_einladung_gilt_sieben_tage(): void
+    public function test_die_einladung_gilt_dreissig_tage(): void
     {
         $person = $this->person(self::NUMMER, 'p-a');
         $this->anstellung($person, 'tok-a');
@@ -473,7 +473,7 @@ final class KontoEinladenTest extends TestCase
         $this->kommando(['--welle' => '10']);
 
         $this->assertSame(
-            '2026-10-06 12:00:00',
+            '2026-10-29 12:00:00',
             Carbon::parse($this->zeile($person)->invite_expires_at)->format('Y-m-d H:i:s'),
         );
     }
@@ -1998,7 +1998,7 @@ final class KontoEinladenTest extends TestCase
         $this->assertStringContainsString('1 mit laufender Einladung uebersprungen', $zweite);
 
         // Abgelaufen zaehlt nicht als laufend.
-        Carbon::setTestNow(Carbon::parse(self::JETZT)->addDays(8));
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addDays(31));
         $sender->aufrufe = [];
         $this->kommando(['--welle' => '10', '--senden' => true]);
         $this->assertSame([$a, $b], array_keys($sender->aufrufe));

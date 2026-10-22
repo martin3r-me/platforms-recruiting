@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\EinladungsToken;
 use Platform\Recruiting\Support\EinladungsRiegel;
 use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
@@ -184,7 +185,7 @@ class KontoZuruecksetzen extends Command
             return self::FAILURE;
         }
 
-        $this->line("Person {$personId}: Einladungscode {$token} (gilt sieben Tage, ersetzt jede fruehere Einladung).");
+        $this->line("Person {$personId}: Einladungscode {$token} (gilt " . EinladungsToken::GUELTIG_TAGE . " Tage, ersetzt jede fruehere Einladung).");
         $this->line('Der Code ist ein Geheimnis: nur an den Menschen selbst, nicht in eine Gruppen-Unterhaltung.');
 
         return self::SUCCESS;
