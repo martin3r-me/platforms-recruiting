@@ -45,6 +45,9 @@
         . 'Leerzeichen und Bindestriche sind egal.';
     $labelCode = 'Ihr Einladungscode';
     $fertigTitel = 'Das Konto steht';
+    $anmeldeHinweis = $duzen
+        ? 'Künftig meldest du dich hier an — speichere die Seite am besten als Lesezeichen oder auf deinem Startbildschirm:'
+        : 'Künftig melden Sie sich hier an — speichern Sie die Seite am besten als Lesezeichen oder auf Ihrem Startbildschirm:';
     $fertigText = $duzen
         ? 'Ab jetzt meldest du dich mit deiner Rufnummer und diesem Passwort an.'
         : 'Ab jetzt melden Sie sich mit Ihrer Rufnummer und diesem Passwort an.';
@@ -61,6 +64,19 @@
             <div class="greet">
                 <h2>{{ $fertigTitel }}</h2>
                 <p>{{ $fertigText }}</p>
+            </div>
+            @php
+                $anmeldeUrl = route('recruiting.public.konto');
+                $anmeldeAdresse = preg_replace('#^https?://#', '', $anmeldeUrl);
+            @endphp
+            @if ($weiterUrl !== null)
+                <div class="card login">
+                    <a href="{{ $weiterUrl }}" class="btn primary">Zu meinem Portal</a>
+                </div>
+            @endif
+            <div class="card">
+                <p>{{ $anmeldeHinweis }}</p>
+                <p><a href="{{ $anmeldeUrl }}">{{ $anmeldeAdresse }}</a></p>
             </div>
         @elseif ($state === 'code')
             <div class="greet">

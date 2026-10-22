@@ -26,6 +26,7 @@ use Livewire\Drawer\Utils as LivewireUtils;
 use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\KontoAnlegen;
+use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\KontoWriter;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -244,6 +245,11 @@ final class KontoAnlegenTest extends TestCase
             $t->string('phone')->nullable();
             $t->boolean('is_active')->nullable();
             $t->timestamp('zas_changed_at')->nullable();
+            // Nach dem Anlegen direkt angemeldet (22.10.2026): die Sitzung
+            // liest Token und Umstellung und stempelt portal_verified_at.
+            $t->string('portal_token')->nullable();
+            $t->timestamp('portal_v2_since')->nullable();
+            $t->timestamp('portal_verified_at')->nullable();
             $t->timestamps();
         });
 
@@ -894,6 +900,9 @@ final class KontoAnlegenTest extends TestCase
         $gesperrt = [
             'state'    => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'duzen'    => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
+            'weiterUrl' => 'das Ziel nach dem Anlegen bestimmt der Server (22.10.2026). Es enthaelt den '
+                . 'EIGENEN Portal-Token des Menschen, der gerade Einladung, Geburtsdatum und Passwort '
+                . 'bewiesen hat — derselbe Link, auf den die Anmeldung ihn weiterleitet',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt
@@ -1011,6 +1020,7 @@ final class KontoAnlegenTest extends TestCase
 
     public function test_die_fertige_seite_zeigt_kein_formular_mehr(): void
     {
+        $this->router();   // die Fertig-Seite nennt die Adresse der Anmeldung (22.10.2026)
         $seite = $this->seite($this->einladung());
         $seite->geburtsdatum = self::GEBURT;
         $seite->passwort = self::PASSWORT;
@@ -1021,6 +1031,46 @@ final class KontoAnlegenTest extends TestCase
 
         $this->assertStringNotContainsString('wire:model="passwort"', $html);
         $this->assertStringContainsString('Konto', $html);
+    }
+
+    /**
+     * Sebastian 22.10.2026: nach dem Anlegen steht der Mitarbeiter nicht
+     * verloren da — er ist angemeldet, bekommt den Knopf "Zu meinem Portal"
+     * und die Adresse, unter der er sich kuenftig anmeldet.
+     */
+    public function test_nach_dem_anlegen_angemeldet_mit_knopf_ins_portal(): void
+    {
+        DB::table('rec_employees')->where('id', 1)->update(['portal_token' => 'tok-gregor', 'portal_v2_since' => '2026-10-21 10:00:00']);
+        $this->router();
+        $seite = $this->seite($this->einladung());
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+
+        $seite->registriere();
+
+        $this->assertSame('fertig', $seite->state);
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(1)), 'Sitzung fuer die ANSTELLUNG offen');
+        $this->assertStringContainsString('tok-gregor', (string) $seite->weiterUrl);
+        $this->assertNotNull(DB::table('rec_employees')->where('id', 1)->value('portal_verified_at'));
+        $html = $this->rendere($seite);
+        $this->assertStringContainsString('Zu meinem Portal', $html);
+        $this->assertStringContainsString('/konto', $html);
+    }
+
+    /** Noch nicht umgestellt: angemeldet, aber kein Knopf — nur die Adresse. */
+    public function test_ohne_neues_portal_kein_knopf(): void
+    {
+        $this->router();
+        $seite = $this->seite($this->einladung());
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+
+        $seite->registriere();
+
+        $this->assertNull($seite->weiterUrl);
+        $this->assertStringNotContainsString('Zu meinem Portal', $this->rendere($seite));
     }
 
     public function test_die_meldung_erscheint_im_formular(): void

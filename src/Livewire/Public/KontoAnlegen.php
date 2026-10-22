@@ -118,6 +118,14 @@ class KontoAnlegen extends Component
      */
     #[Locked] public string $state = 'formular';
 
+    /**
+     * Nach dem Anlegen (22.10.2026): Startseite des eigenen neuen Portals, in
+     * das der Mitarbeiter schon angemeldet ist. Null = noch nicht umgestellt
+     * (dann nur die Adresse der Anmeldung). #[Locked]: das Ziel bestimmt der
+     * Server, nicht der Browser.
+     */
+    #[Locked] public ?string $weiterUrl = null;
+
     /** Kommt aus den Team-Einstellungen, nicht vom Menschen. */
     #[Locked] public bool $duzen = false;
 
@@ -292,6 +300,13 @@ class KontoAnlegen extends Component
         // Das Konto steht: Token und Kennung haben in der Sitzung nichts
         // mehr zu suchen. Der Token ist ohnehin verbraucht.
         $this->merkeEinladung(null, null);
+
+        // Direkt angemeldet weiter (Sebastian 22.10.2026): Einladung,
+        // Geburtsdatum und neues Passwort sind gerade bewiesen — mehr fragt
+        // die Anmeldung auch nicht. Derselbe Weg wie dort
+        // (KontoAnmelden::oeffneKontoSitzung), ohne "angemeldet bleiben".
+        $sitzung = KontoAnmelden::oeffneKontoSitzung((int) $personId, false);
+        $this->weiterUrl = $sitzung['start'] ?? null;
 
         $this->state = 'fertig';
     }

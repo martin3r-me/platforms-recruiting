@@ -441,66 +441,23 @@ class KontoAnmelden extends Component
             return;
         }
 
-        $anstellungen = self::anstellungenVon($ergebnis['personId']);
+        $sitzung = self::oeffneKontoSitzung((int) $ergebnis['personId'], $this->angemeldetBleiben);
 
-        if ($anstellungen === []) {
+        if ($sitzung === null) {
             // HEUTE UNERREICHBAR, und bewusst ohne Test (Fund Q1):
             // KontoWriter::pruefeAnmeldung() prueft dieselbe Menge
             // (hatAktiveAnstellung, is_active = 1) und laesst niemanden ohne
             // aktive Anstellung durch. Scharf wird dieser Zweig, sobald die
-            // beiden Mengen auseinanderlaufen — etwa wenn dort ein Team-
-            // oder Firmen-Schnitt hinzukommt, hier aber nicht, oder wenn
-            // zwischen der Pruefung und dieser Zeile die letzte Anstellung
-            // beendet wird. Dann greift fail closed: ohne Anstellung gaebe es
-            // keinen Sitzungsschluessel, und eine "erfolgreiche" Anmeldung
-            // ohne Sitzung waere eine Seite, die stumm nichts tut.
+            // beiden Mengen auseinanderlaufen. Dann greift fail closed: ohne
+            // Anstellung gaebe es keinen Sitzungsschluessel, und eine
+            // "erfolgreiche" Anmeldung ohne Sitzung waere eine Seite, die
+            // stumm nichts tut.
             $this->fehler = self::MELDUNG;
 
             return;
         }
-
-        // Neue Sitzungskennung, BEVOR die Sitzung etwas oeffnet (Session
-        // Fixation, Begruendung und migrate statt regenerate an
-        // PortalAuth::erneuereSitzungskennung). Die Eintragung "angemeldet
-        // bleiben" weiter unten trifft damit schon die NEUE Kennung.
-        PortalAuth::erneuereSitzungskennung();
-
-        // HIER liegt die Falle, vor der der Klassen-Docblock warnt: in
-        // sessionKey() gehoert eine ANSTELLUNGS-Kennung, niemals die
-        // Personen-Kennung aus $ergebnis.
-        $kennungen = [];
-        foreach ($anstellungen as $anstellung) {
-            $kennungen[] = (int) $anstellung->id;
-            session()->put(PortalAuth::sessionKey((int) $anstellung->id), PortalAuth::anmeldeWert());
-        }
-        $this->geoeffnet = $kennungen;
-        // Dieselbe Liste in die Sitzung: nach der Weiterleitung braucht das
-        // Abmelden im Portal sie, um die GANZE Anmeldung zu beenden.
-        PortalAuth::merkeKontoAnmeldung($kennungen);
-
-        // "Angemeldet bleiben": NACH dem Passwortnachweis und NACHDEM die
-        // Sitzung die Portal-Schluessel traegt. Ohne Haken wird eine
-        // fruehere Eintragung DIESES Geraets beendet — sonst hielte eine alte
-        // Anmeldung mit Haken die neue ohne Haken 180 Tage am Leben.
-        if ($this->angemeldetBleiben) {
-            LangeSitzung::beginne((int) $ergebnis['personId']);
-        } else {
-            LangeSitzung::beende();
-        }
-
-        // DENSELBEN STEMPEL wie der Token-Weg (PortalShell::verify): an ihm
-        // haengt die Frage "wer nutzt das Portal ueberhaupt?", mit der die
-        // Groesse der Umstellung bestimmt wird. Er stand bisher nur im
-        // Token-Weg; die Weiterleitung auf die Huelle setzt ihn NICHT nach,
-        // weil dort der Mount-Pfad mit bestehender Sitzung ohne Stempel auf
-        // 'verified' springt. Ohne diese Zeile bliebe die Spalte fuer jeden
-        // leer, der ueber das Konto hereinkommt.
-        //
-        // UEBER DEN QUERY BUILDER, damit kein Modell-Ereignis und damit kein
-        // Export-Marker entsteht: eine Anmeldung ist keine fachliche
-        // Aenderung und hat in der ZAS-Schlange nichts verloren.
-        DB::table('rec_employees')->whereIn('id', $kennungen)
-            ->update(['portal_verified_at' => now()]);
+        $anstellungen = $sitzung['anstellungen'];
+        $this->geoeffnet = $sitzung['kennungen'];
 
         $ziel = $this->weiter;
 
@@ -1294,6 +1251,48 @@ class KontoAnmelden extends Component
      *
      * @return list<object>
      */
+    /**
+     * Oeffnet die Konto-Sitzung einer Person, deren Passwort (oder beim
+     * Anlegen: Einladung + Geburtsdatum + neues Passwort) GERADE bewiesen
+     * wurde. Eine Stelle fuer Anmeldung und Konto-Anlegen (22.10.2026), damit
+     * beide dieselben Regeln haben: neue Sitzungskennung VOR dem Oeffnen
+     * (Session Fixation), Schluessel je ANSTELLUNG (nie die Personen-
+     * Kennung), Liste fuer das Abmelden, "angemeldet bleiben", derselbe
+     * Stempel portal_verified_at wie der Token-Weg (Query Builder, kein
+     * Export-Marker).
+     *
+     * @return array{anstellungen: list<object>, kennungen: list<int>, start: ?string}|null  null = keine aktive Anstellung
+     */
+    public static function oeffneKontoSitzung(int $personId, bool $angemeldetBleiben): ?array
+    {
+        $anstellungen = self::anstellungenVon($personId);
+        if ($anstellungen === []) {
+            return null;
+        }
+
+        PortalAuth::erneuereSitzungskennung();
+
+        $kennungen = [];
+        foreach ($anstellungen as $anstellung) {
+            $kennungen[] = (int) $anstellung->id;
+            session()->put(PortalAuth::sessionKey((int) $anstellung->id), PortalAuth::anmeldeWert());
+        }
+        PortalAuth::merkeKontoAnmeldung($kennungen);
+
+        // Ohne Haken wird eine fruehere Eintragung DIESES Geraets beendet —
+        // sonst hielte eine alte Anmeldung mit Haken die neue 180 Tage am Leben.
+        if ($angemeldetBleiben) {
+            LangeSitzung::beginne($personId);
+        } else {
+            LangeSitzung::beende();
+        }
+
+        DB::table('rec_employees')->whereIn('id', $kennungen)
+            ->update(['portal_verified_at' => now()]);
+
+        return ['anstellungen' => $anstellungen, 'kennungen' => $kennungen, 'start' => self::startseiteFuer($anstellungen)];
+    }
+
     private static function anstellungenVon(int $personId): array
     {
         return RecEmployee::query()
