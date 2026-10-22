@@ -204,6 +204,31 @@ final class DispoImportErinnerungsStempelTest extends TestCase
      * @param  list<string>  $dsRefs  Welche Einbuchungen diese Lieferung enthaelt
      * @return array<string, mixed>
      */
+    /**
+     * Hotfix 22.10.2026: echte ZAS-Nummern sind rein numerisch. Als
+     * Array-Schluessel macht PHP daraus int — und MySQL vergleicht die
+     * Textspalte ds_ref dann als ZAHL. Seit dem Personenwechsel (13.10.) gibt
+     * es Zeilen wie '929465~alt1'; im UPDATE bricht MySQL daran ab
+     * ("Truncated incorrect DOUBLE value"), der ganze Import scheitert.
+     * SQLite merkt das nicht — gemessen werden deshalb die Bindungen.
+     */
+    public function test_numerische_ds_refs_gehen_als_text_in_die_abfrage(): void
+    {
+        $this->einbuchungAnlegen('929465', ['missing_since' => self::VERSCHWUNDEN, 'aufgaben_erinnert_at' => self::GESTEMPELT]);
+        $this->einbuchungAnlegen('929465~alt1', ['missing_since' => self::VERSCHWUNDEN, 'aufgaben_erinnert_at' => self::GESTEMPELT]);
+        $bindungen = [];
+        DB::listen(function ($q) use (&$bindungen) {
+            if (str_contains($q->sql, 'ds_ref') && str_contains($q->sql, ' in (')) {
+                $bindungen = array_merge($bindungen, array_filter($q->bindings, fn ($b) => !is_string($b) && $b !== null && !($b instanceof \DateTimeInterface)));
+            }
+        });
+
+        $this->importiere(['929465']);
+
+        $this->assertSame([], array_values(array_filter($bindungen, 'is_int')), 'ds_ref muss als Text gebunden werden, nie als Zahl');
+        $this->assertNotNull(DB::table('rec_dispo_assignments')->where('ds_ref', '929465~alt1')->value('aufgaben_erinnert_at'), 'die abgelegte Zeile bleibt unberuehrt');
+    }
+
     private function importiere(array $dsRefs, bool $dryRun = false): array
     {
         $this->dateiInhalt = $this->lieferung($dsRefs);

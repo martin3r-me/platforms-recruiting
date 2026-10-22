@@ -48,7 +48,11 @@ class ZasDispoWebexportImporter
         return DB::table('rec_dispo_assignments')
             // whereIn mit leerem Feld liefert nichts — der leere Fall
             // braucht deshalb keine eigene Wache.
-            ->whereIn('ds_ref', $dsRefs)
+            // Hotfix 22.10.2026: als TEXT binden. Numerische ZAS-Nummern
+            // kommen als Array-Schluessel (int) herein; MySQL vergliche die
+            // Textspalte dann als Zahl und bricht im UPDATE an
+            // Personenwechsel-Zeilen wie '929465~alt1' ab.
+            ->whereIn('ds_ref', array_map('strval', $dsRefs))
             ->whereNotNull('missing_since')
             ->whereNotNull('aufgaben_erinnert_at');
     }
@@ -298,7 +302,7 @@ class ZasDispoWebexportImporter
 
                 if ($plan['missing_ds_refs'] !== []) {
                     $summary['missing_marked'] = RecDispoAssignment::query()
-                        ->whereIn('ds_ref', $plan['missing_ds_refs'])
+                        ->whereIn('ds_ref', array_map('strval', $plan['missing_ds_refs']))
                         ->whereNull('missing_since')
                         ->update(['missing_since' => now()]);
                 }

@@ -25,7 +25,9 @@ class DispoReconfirmMarker
         }
 
         $confirmed = RecDispoAssignment::query()
-            ->whereIn('ds_ref', array_keys($incomingByDsRef))
+            // Als TEXT binden (Hotfix 22.10.2026): sonst trifft 929465 als
+            // Zahl in MySQL auch die abgelegte Zeile '929465~alt1'.
+            ->whereIn('ds_ref', array_map('strval', array_keys($incomingByDsRef)))
             ->whereNotNull('confirmed_at')
             ->whereNull('deletion_marked_at')
             ->get(['id', 'ds_ref', 'confirmed_datum', 'confirmed_von', 'confirmed_bis']);
