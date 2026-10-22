@@ -33,25 +33,54 @@ final class LohnMaTest extends TestCase
         $this->assertSame('0,00', $l->zuschlagText());
     }
 
-    public function test_rg_1_und_ma_6_gibt_einen_euro_dazu(): void
+    /**
+     * Markus 22.10.2026, Variante A: MA-Gesamt = RG-Gesamt + 1,00 EUR, der
+     * Zuschlag ist die Differenz zu EG 1 (nicht pauschal 1 EUR auf den Tarif).
+     */
+    public function test_rg_1_und_ma_6_ist_rg_plus_ein_euro(): void
     {
-        $ohne = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '1', '6');
-        $mit = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '6', '1');
-        $mitAngleich = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '6', '3');
+        $mit = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '6', '1');        // RG 14,50 → MA 15,50
+        $mitAngleich = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '6', '3'); // RG 16,40 → MA 17,40
 
-        $this->assertSame(0.0, $ohne->zuschlag);
-        $this->assertSame(1.0, $mit->zuschlag);
+        $this->assertSame(0.17, $mit->zuschlag);
+        $this->assertNull($mit->pruefen);
         $this->assertSame(2.07, $mitAngleich->zuschlag);
-        $this->assertStringContainsString('Steuerklasse 6 +1,00 €', $mit->begruendung);
-        $this->assertStringNotContainsString('Steuerklasse 6', $ohne->begruendung);
+        $this->assertStringContainsString('RG + 1,00 € = 15,50 €', $mit->begruendung);
     }
 
-    /** Euro genau fuer RG 1-5 mit MA 6: jede der fuenf Klassen einzeln. */
+    /** Markus' Beispiel: RG 20,00 (Klasse 1) → MA 21,00 (Klasse 6). */
+    public function test_markus_beispiel_zwanzig_euro(): void
+    {
+        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, round(20.00 - self::MINDEST, 2), LohnMa::QUELLE_BEWERBUNG, '6', '1');
+
+        $this->assertSame(round(21.00 - self::EG1, 2), $l->zuschlag);
+    }
+
+    /** RG + 1 unter EG 1: Tarif ist Pflicht → Zuschlag 0, Akte zur Pruefung. */
+    public function test_rg_plus_euro_unter_eg1_zahlt_tarif_und_meldet(): void
+    {
+        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.0, LohnMa::QUELLE_BEWERBUNG, '6', '1');        // RG 13,90 + 1 = 14,90 < EG 1
+
+        $this->assertSame(0.0, $l->zuschlag);
+        $this->assertNotNull($l->grundlohnText(), 'Tarif geht raus, keine leere Zelle');
+        $this->assertSame('0,00', $l->zuschlagText());
+        $this->assertStringContainsString('unter EG 1', (string) $l->pruefen);
+    }
+
+    /** MA 1-5 und RG 6: der Euro gehoert zu RG — Angleich wie bisher, zur Pruefung. */
+    public function test_ma_haupt_und_rg_6_gleicht_an_und_meldet(): void
+    {
+        $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 2.50, LohnMa::QUELLE_BEWERBUNG, '1', '6');
+
+        $this->assertSame(1.07, $l->zuschlag);
+        $this->assertStringContainsString('RG 6', (string) $l->pruefen);
+    }
+
     public function test_euro_fuer_jede_rg_klasse_von_1_bis_5(): void
     {
         foreach (['1', '2', '3', '4', '5'] as $rg) {
             $l = LohnMa::rechne(self::EG1, self::MINDEST, true, 0.60, LohnMa::QUELLE_BEWERBUNG, '6', $rg);
-            $this->assertSame(1.0, $l->zuschlag, 'RG ' . $rg);
+            $this->assertSame(0.17, $l->zuschlag, 'RG ' . $rg);
         }
     }
 

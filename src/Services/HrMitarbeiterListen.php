@@ -750,7 +750,10 @@ final class HrMitarbeiterListen
         foreach ($maAkten as $ma) {
             $rg = $e->rgSchwester($ma);
             $l = $e->ermittelnMitSchwester($ma, $rg, $heute);
-            if ($l->fall !== LohnMa::UNBEKANNT) {
+            // Markus 22.10.2026: neben "RG-Zuschlag unbekannt" auch die Akten,
+            // bei denen Variante A nicht exakt gilt (RG + 1 unter EG 1, oder
+            // MA 1-5 / RG 6) — der Wert geht raus, HR prueft.
+            if ($l->fall !== LohnMa::UNBEKANNT && $l->pruefen === null) {
                 continue;
             }
             // Ohne RG-Id (Ruling R4 Fall B: keine Personen-Zuordnung) zeigt die
@@ -762,6 +765,7 @@ final class HrMitarbeiterListen
                 'rg' => $rg !== null ? (int) $rg->id : null,
                 'unklar' => $rg !== null && ($rg->zuordnung_unklar ?? false),
                 'begruendung' => $l->begruendung,
+                'pruefen' => $l->pruefen,
             ];
         }
         if ($treffer === []) {
@@ -780,7 +784,7 @@ final class HrMitarbeiterListen
             if ($maId === null || !self::passtSuche($m['name'], $suche)) {
                 continue;
             }
-            $zeilen[] = $m + ['rg_employee_id' => $treffer[$maId]['rg'], 'ma_employee_id' => $maId, 'zuordnung_unklar' => $treffer[$maId]['unklar'], 'begruendung' => $treffer[$maId]['begruendung']];
+            $zeilen[] = $m + ['rg_employee_id' => $treffer[$maId]['rg'], 'ma_employee_id' => $maId, 'zuordnung_unklar' => $treffer[$maId]['unklar'], 'begruendung' => $treffer[$maId]['begruendung'], 'pruefen' => $treffer[$maId]['pruefen']];
         }
 
         return $zeilen;

@@ -55,6 +55,13 @@ final class LohnMa
         public readonly string $begruendung,
         private readonly ?string $grund = null,
         public readonly ?self $regel = null,
+        /**
+         * Markus 22.10.2026 (Variante A): kann die Regel nicht exakt
+         * umgesetzt werden, geht der Wert trotzdem raus (Tarif ist Pflicht),
+         * aber die Akte steht zur Pruefung in der HR-Liste "Lohn". Null =
+         * nichts zu pruefen.
+         */
+        public readonly ?string $pruefen = null,
     ) {
     }
 
@@ -120,14 +127,35 @@ final class LohnMa
             return new self(self::STEUERKLASSE_FEHLT, $eg1, null, implode(' · ', $teile), 'Steuerklasse widersprüchlich (beide Hauptarbeitgeber)');
         }
 
-        // Markus 14.10.: RG 1-5 und in der MA die 6 → 1,00 EUR mehr. 'P'
-        // (pauschal), 'S', '/' sind gesetzt, aber weder 1-5 noch 6: kein Euro.
-        $sechs = ($ma === '6' && in_array($rg, $haupt, true)) ? self::KLASSE_SECHS_EURO : 0.0;
-        if ($sechs > 0) {
-            $teile[] = 'Steuerklasse 6 +' . self::euro($sechs);
+        // Markus 22.10.2026 (Variante A): "Wir betrachten immer den
+        // Gesamtstundenlohn des Mitarbeiters in beiden Firmen. In der Firma
+        // mit der schlechteren Steuerklasse erhaelt er genau 1,00 EUR mehr."
+        // RG 1-5 und MA 6 → MA-Gesamt = RG-Gesamt + 1,00; der Zuschlag ist
+        // die Differenz zu EG 1. Liegt RG + 1 unter EG 1, zahlt MA den Tarif
+        // (Zuschlag 0) und die Akte geht zur Pruefung. MA 1-5 und RG 6: der
+        // Euro gehoert zu RG, deren Lohn wir nicht setzen — Angleich wie
+        // bisher und zur Pruefung. Sonst (6/6, P, S, /): Angleich, kein Euro.
+        $pruefen = null;
+        $rgHaupt = in_array($rg, $haupt, true);
+        $maHaupt = in_array(strtoupper($ma), $haupt, true);
+        if ($rgHaupt && $ma === '6') {
+            $ziel = round($gesamt + self::KLASSE_SECHS_EURO, 2);
+            $zuschlag = round($ziel - $eg1, 2);
+            $teile[] = 'Steuerklasse RG ' . $rg . ' / MA 6: RG + ' . self::euro(self::KLASSE_SECHS_EURO) . ' = ' . self::euro($ziel);
+            if ($zuschlag < 0) {
+                $zuschlag = 0.0;
+                $pruefen = 'RG + 1 € liegt unter EG 1 — MA zahlt den Tarif';
+            }
+        } elseif ($maHaupt && $rg === '6') {
+            $zuschlag = round($angleich, 2);
+            $pruefen = 'Steuerklasse MA ' . $ma . ' / RG 6 — der Euro gehört zu RG, RG-Lohn prüfen';
+        } else {
+            $zuschlag = round($angleich, 2);
         }
-        $zuschlag = round($angleich + $sechs, 2);
         $teile[] = 'Zuschlag ' . self::euro($zuschlag);
+        if ($pruefen !== null) {
+            $teile[] = 'zur Prüfung: ' . $pruefen;
+        }
 
         $fall = match ($quelle) {
             self::QUELLE_MANUELL => self::MANUELL,
@@ -135,7 +163,7 @@ final class LohnMa
             default              => self::ANGLEICH,
         };
 
-        return new self($fall, $eg1, $zuschlag, implode(' · ', $teile));
+        return new self($fall, $eg1, $zuschlag, implode(' · ', $teile), null, null, $pruefen);
     }
 
     /**

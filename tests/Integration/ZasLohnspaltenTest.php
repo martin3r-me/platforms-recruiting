@@ -145,7 +145,7 @@ final class ZasLohnspaltenTest extends TestCase
 
         $r = $this->resolver();
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::zahl(\Platform\Recruiting\Support\EntgeltgruppeEins::satz(now()->toDateString())), $r->col($ma, 'Grundlohn'));
-        $this->assertSame('1,00', $r->col($ma, 'Zuschlag'), 'Angleich 0 (15,00 < 15,33) + 1 EUR Klasse 6');
+        $this->assertSame('0,67', $r->col($ma, 'Zuschlag'), 'Variante A (Markus 22.10.): RG 15,00 + 1 = 16,00 → 0,67');
     }
 
     /** Review Focus 3: nur person_key, keine Personen-Zeile. */
@@ -386,7 +386,7 @@ final class ZasLohnspaltenTest extends TestCase
 
         $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma, '2026-10-19');
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::ANGLEICH, $l->fall);
-        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'), '13,90 + 0,00 liegt unter EG 1 -> 0,00 + Klasse 6');
+        $this->assertSame('0,00', $this->resolver()->col($ma, 'Zuschlag'), 'Variante A: RG 13,90 + 1 = 14,90 liegt unter EG 1 -> Tarif, Zuschlag 0,00, zur Pruefung');
     }
 
     /** R3': Bewerbung ohne Wert, kein ZAS, aber manuell eingetragen — der manuelle Wert gilt. */
@@ -420,7 +420,7 @@ final class ZasLohnspaltenTest extends TestCase
         $l = (new \Platform\Recruiting\Services\LohnMaErmittlung())->ermitteln($ma);
         $this->assertSame(\Platform\Recruiting\Support\LohnMa::ZAS_BESTAND, $l->fall);
         $this->assertNotNull($l->regel);
-        $this->assertSame(1.00, $l->regel->zuschlag, 'Rechnung nach der Regel bleibt zum Vergleich');
+        $this->assertSame(0.39, $l->regel->zuschlag, 'Rechnung nach der Regel bleibt zum Vergleich');
         $this->assertStringContainsString('1,17', $l->begruendung);
     }
 
@@ -443,7 +443,7 @@ final class ZasLohnspaltenTest extends TestCase
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 70, 'tax_class' => '6']);
         $this->zasLohn($ma->id, 0.0, 1.17);
 
-        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertSame('0,67', $this->resolver()->col($ma, 'Zuschlag'));
     }
 
     /** Neue MA ohne ZAS-Lohn (keine hr_data-Zeile): die Regel liefert. */
@@ -453,7 +453,7 @@ final class ZasLohnspaltenTest extends TestCase
         $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 71]);
         $ma = $this->zeile(['company' => 'MA', 'rec_person_id' => 71, 'tax_class' => '6']);
 
-        $this->assertSame('1,00', $this->resolver()->col($ma, 'Zuschlag'));
+        $this->assertSame('0,67', $this->resolver()->col($ma, 'Zuschlag'));
         $this->assertNotNull($this->resolver()->col($ma, 'Grundlohn'));
     }
 

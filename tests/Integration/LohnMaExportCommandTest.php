@@ -189,8 +189,8 @@ class LohnMaExportCommandTest extends TestCase
     public function test_vergleich_mit_dem_zas_stand_der_ma_zeile(): void
     {
         $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 1]);          // RG 15,00
-        $gleich = $this->zeile(['company' => 'MA', 'rec_person_id' => 1, 'tax_class' => '6']);         // wir: 15,33 + 1,00
-        $this->zasLohn($gleich, 15.33, 1.00);
+        $gleich = $this->zeile(['company' => 'MA', 'rec_person_id' => 1, 'tax_class' => '6']);         // wir: 15,33 + 0,67
+        $this->zasLohn($gleich, 15.33, 0.67);   // Variante A: RG 15,00 + 1 = 16,00
         $this->zeile(['company' => 'RG', 'rec_applicant_id' => 500, 'rec_person_id' => 2]);
         $alt = $this->zeile(['company' => 'MA', 'rec_person_id' => 2, 'tax_class' => '6']);
         $this->zasLohn($alt, 14.96, 1.37);                                                             // veralteter Stand

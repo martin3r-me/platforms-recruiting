@@ -52,6 +52,24 @@ final class HrMitarbeiterListenLohnTest extends TestCase
     }
 
     /** Sebastian: sonst Hunderte ZAS-Bestandsleute ohne Steuerklasse — die Liste zeigt nur "unbekannt". */
+    /** Markus 22.10.2026: kann Variante A nicht exakt gelten, steht die Akte zur Pruefung in der Liste. */
+    public function test_pruefffaelle_stehen_mit_grund_in_der_liste(): void
+    {
+        // RG 13,90 + 0,00 (manuell), Klasse 1 / MA 6: RG + 1 = 14,90 < EG 1
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 0.00, 'tax_class' => '1']), $unter = $this->akte(['company' => 'MA', 'tax_class' => '6']));
+        // MA 1 / RG 6: der Euro gehoert zu RG
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 2.50, 'tax_class' => '6']), $umgekehrt = $this->akte(['company' => 'MA', 'tax_class' => '1']));
+        // RG 1 / MA 6 ueber EG 1: exakt umsetzbar, nicht in der Liste
+        $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 2.50, 'tax_class' => '1']), $this->akte(['company' => 'MA', 'tax_class' => '6']));
+
+        $zeilen = $this->listen()->lohn($this->team);
+        $nachMa = array_column($zeilen, null, 'ma_employee_id');
+
+        $this->assertCount(2, $zeilen);
+        $this->assertStringContainsString('unter EG 1', (string) $nachMa[(int) $unter->id]['pruefen']);
+        $this->assertStringContainsString('RG 6', (string) $nachMa[(int) $umgekehrt->id]['pruefen']);
+    }
+
     public function test_steuerklasse_fehlt_steht_nicht_in_der_liste(): void
     {
         $this->person([], $this->akte(['company' => 'RG', 'rec_applicant_id' => null, 'zuschlag_manuell' => 1.10, 'tax_class' => '1']), $ma = $this->akte(['company' => 'MA', 'tax_class' => null]));
@@ -113,7 +131,7 @@ final class HrMitarbeiterListenLohnTest extends TestCase
 
         // Die Liste zeigt dann Hinweis statt Eingabefeld (Blade-Zweig ueber rg_employee_id === null).
         $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/hr-desk/mitarbeiter.blade.php');
-        $this->assertMatchesRegularExpression('/@if \(\$rgId === null\)\s*<div[^>]*>keine Personen-Zuordnung — RG-Anstellung in der Akte prüfen<\/div>\s*@else/u', $blade);
+        $this->assertMatchesRegularExpression('/@(?:else)?if \(\$rgId === null\)\s*<div[^>]*>keine Personen-Zuordnung — RG-Anstellung in der Akte prüfen<\/div>\s*@else/u', $blade);
     }
 
     public function test_zas_wert_ohne_bewerbung_gilt_als_bekannt(): void
