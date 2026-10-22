@@ -35,6 +35,8 @@ class ZasInboundSpiegelTest extends TestCase
             '2026_08_19_000001_add_status_ma_since_to_rec_employee_hr_data',
             '2026_08_26_000002_add_company_to_rec_employees',
             '2026_09_23_000001_add_nationality_to_rec_employees',
+            // Spec 2026-10-22 §4: Ersthelfer-Felder sind Personenfelder.
+            '2026_07_17_000001_add_arbeitsschutz_fields_to_rec_employees',
         ]);
         $config = Container::getInstance()->make('config');
         $config->set('activity-log', ['events' => []]);

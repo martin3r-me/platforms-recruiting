@@ -15,7 +15,7 @@ class PersonenSpiegelTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::baueWelt(false);
+        self::baueWelt(false, ['2026_07_17_000001_add_arbeitsschutz_fields_to_rec_employees']);
     }
 
 public function test_schreibt_abweichende_felder_auf_das_geschwister_mit_marker_und_lohn(): void
@@ -152,4 +152,27 @@ public function test_krankenkasse_wird_nie_gespiegelt(): void
     $this->assertSame('knappschaft', $this->zeile($ma)->health_insurance);
     $this->assertNull($this->zeile($ma)->zas_changed_at);
 }
+
+    /** Spec 2026-10-22 §4: Ersthelfer gehoert dem Menschen. */
+    public function test_ersthelfer_wird_gespiegelt_mit_marker(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'is_first_aider' => 1, 'first_aider_valid_until' => '2027-05-01']);
+        $ma = $this->akte(['rec_person_id' => $p, 'is_first_aider' => null, 'first_aider_valid_until' => null]);
+
+        $ids = (new PersonenSpiegel())->spiegele(RecEmployee::find($rg), ['is_first_aider' => true, 'first_aider_valid_until' => '2027-05-01'], true, true);
+
+        $this->assertSame([$ma], $ids);
+        $this->assertSame(1, (int) $this->zeile($ma)->is_first_aider);
+        $this->assertSame('2027-05-01', substr((string) $this->zeile($ma)->first_aider_valid_until, 0, 10));
+        $this->assertNotNull($this->zeile($ma)->zas_changed_at, 'echte Aenderung: Schwester geht an ZAS');
+    }
+
+    public function test_ersthelfer_normalisierung(): void
+    {
+        $this->assertSame('0', \Platform\Recruiting\Support\PersonenFelder::normalisiere('is_first_aider', false));
+        $this->assertSame('1', \Platform\Recruiting\Support\PersonenFelder::normalisiere('is_first_aider', '1'));
+        $this->assertNull(\Platform\Recruiting\Support\PersonenFelder::normalisiere('is_first_aider', null));
+        $this->assertSame('2027-05-01', \Platform\Recruiting\Support\PersonenFelder::normalisiere('first_aider_valid_until', '2027-05-01 00:00:00'));
+    }
 }

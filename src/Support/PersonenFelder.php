@@ -20,10 +20,14 @@ final class PersonenFelder
         'marital_status', 'number_of_children', 'religion', 'employment_type',
         'iban', 'bic', 'bank_institute', 'account_holder',
         'steuer_id', 'sozialversicherungsnummer',
+        // Spec 2026-10-22 §4 (Sebastian 21.10.): Ersthelfer gehoert dem
+        // Menschen, nicht der Gesellschaft. Der Schein laeuft als Nachweis
+        // (ProofWriter spiegelt die Altspalte schon selbst).
+        'is_first_aider', 'first_aider_valid_until',
     ];
 
-    public const DATUM = ['birth_date', 'identity_card_valid_until'];
-    public const BOOL  = ['is_main_employer', 'is_eu_citizen'];
+    public const DATUM = ['birth_date', 'identity_card_valid_until', 'first_aider_valid_until'];
+    public const BOOL  = ['is_main_employer', 'is_eu_citizen', 'is_first_aider'];
 
     /**
      * Felder, die an der ANSTELLUNG haengen, nicht am Menschen: sie werden
