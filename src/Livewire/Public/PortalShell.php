@@ -31,6 +31,7 @@ use Platform\Recruiting\Support\PortalFieldAccess;
 use Platform\Recruiting\Support\PortalFieldRelevance;
 use Platform\Recruiting\Support\PortalGroupSummary;
 use Platform\Recruiting\Support\PortalMandatory;
+use Platform\Recruiting\Support\PersonDatensatz;
 use Platform\Recruiting\Support\PortalSectionHints;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
@@ -1408,11 +1409,60 @@ class PortalShell extends Component
         $werte = [];
         foreach ($gruppen as $felder) {
             foreach (array_keys($felder) as $schluessel) {
-                $werte[$schluessel] = $employee->getAttribute($schluessel);
+                $werte[$schluessel] = $this->personWert($employee, $schluessel);
             }
         }
 
         return $werte;
+    }
+
+    /**
+     * Aktive, nicht-Test-Schwestern derselben Person, juengste zuerst
+     * (Spec 2026-10-22 §3). Je Request einmal geladen — privat, also kein
+     * Livewire-Zustand.
+     *
+     * @var array<int, list<RecEmployee>>
+     */
+    private array $schwesternJeAkte = [];
+
+    /** @return list<RecEmployee> */
+    private function aktiveSchwestern(RecEmployee $employee): array
+    {
+        $id = (int) $employee->id;
+        if (!array_key_exists($id, $this->schwesternJeAkte)) {
+            $ids = array_values(array_diff((new PersonScopeResolver())->forEmployee($employee)['ids'], [$id]));
+            $this->schwesternJeAkte[$id] = $ids === [] ? [] : RecEmployee::query()
+                ->whereIn('id', $ids)
+                ->where('is_active', true)
+                ->where('is_test', false)
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->get()
+                ->all();
+        }
+
+        return $this->schwesternJeAkte[$id];
+    }
+
+    /**
+     * Personenweiter Feldwert (Spec 2026-10-22 §3, PersonDatensatz) — eine
+     * Stelle fuer alle Lesewege des Portals: Pflicht/Ring (datensatzWerte),
+     * Vorbelegung des Blatts (formularwert), Gruppenzeile (anzeigewert).
+     * Gespeichert wird weiter in die geoeffnete Akte (PortalProfileWriter):
+     * so heilt sie sich beim ersten Speichern.
+     */
+    private function personWert(RecEmployee $employee, string $feld): mixed
+    {
+        $eigen = $employee->getAttribute($feld);
+        if (!PersonDatensatz::istLeer($eigen) || !in_array($feld, \Platform\Recruiting\Support\PersonenFelder::SPIEGELN, true)) {
+            return $eigen;
+        }
+
+        return PersonDatensatz::wert(
+            $feld,
+            $eigen,
+            array_map(fn (RecEmployee $s) => $s->getAttribute($feld), $this->aktiveSchwestern($employee)),
+        );
     }
 
     /**
@@ -1422,7 +1472,7 @@ class PortalShell extends Component
      */
     private function formularwert(RecEmployee $employee, string $feld): string
     {
-        $roh = $employee->getAttribute($feld);
+        $roh = $this->personWert($employee, $feld);
         if ($roh instanceof \DateTimeInterface) {
             $roh = $roh->format('Y-m-d');
         } elseif (is_bool($roh)) {
@@ -1453,7 +1503,7 @@ class PortalShell extends Component
      */
     private function anzeigewert(RecEmployee $employee, string $feld, array $meta): string
     {
-        $wert = $employee->getAttribute($feld);
+        $wert = $this->personWert($employee, $feld);
         if ($wert === null || $wert === '' || $wert === []) {
             return '';
         }
