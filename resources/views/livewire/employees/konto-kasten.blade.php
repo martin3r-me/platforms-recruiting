@@ -10,6 +10,12 @@
             default => '',
         };
         $titel = \Platform\Recruiting\Livewire\Employees\KontoKasten::AKTIONEN[$aktion] ?? '';
+        // Erste Einladung: "Einladen", Notiz freiwillig (22.10.2026).
+        $ersteEinladung = $aktion === 'einladung_neu' && $k !== null && !$k['schon_eingeladen'];
+        if ($ersteEinladung) {
+            $titel = 'Einladen';
+        }
+        $notizLabel = $ersteEinladung ? 'Notiz (optional)' : 'Notiz (Pflicht, 5–500 Zeichen)';
         $antragLink = route('recruiting.dashboard.hr-desk') . '?tab=mitarbeiter&liste=antraege';
         $gruende = $k !== null ? $k['gruende'] : [];
         $verlauf = $k !== null ? $k['verlauf'] : [];
@@ -62,7 +68,7 @@
     @if ($knoepfeAn)
         <div class="mt-3 flex flex-wrap gap-2">
             @if ($k['kann_einladen'])
-                <button type="button" class="{{ $knopf }}" wire:click="oeffne('einladung_neu')" wire:loading.attr="disabled" wire:target="oeffne">Einladung neu</button>
+                <button type="button" class="{{ $knopf }}" wire:click="oeffne('einladung_neu')" wire:loading.attr="disabled" wire:target="oeffne">{{ $k['schon_eingeladen'] ? 'Einladung neu' : 'Einladen' }}</button>
             @endif
             @if ($k['kann_zuruecksetzen'])
                 <button type="button" class="{{ $knopfRot }}" wire:click="oeffne('konto_zuruecksetzen')" wire:loading.attr="disabled" wire:target="oeffne">Konto zurücksetzen</button>
@@ -99,7 +105,7 @@
             @if ($modalFehler !== '')
                 <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ $modalFehler }}</div>
             @endif
-            <label class="block text-sm font-medium text-[var(--ui-secondary)]">Notiz (Pflicht, 5–500 Zeichen)</label>
+            <label class="block text-sm font-medium text-[var(--ui-secondary)]">{{ $notizLabel }}</label>
             <textarea wire:model="notiz" rows="3" maxlength="500" class="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm"></textarea>
         </div>
         <x-slot name="footer">

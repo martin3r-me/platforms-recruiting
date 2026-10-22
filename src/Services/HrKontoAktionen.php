@@ -142,6 +142,18 @@ final class HrKontoAktionen
      * Person im Team: rec_persons.team_id = Team UND eine Akte im Team — an
      * der Person selbst oder (stillgelegte Zeile) an der Zielzeile.
      */
+    /** Verlaufs-Notiz der ersten Einladung, wenn HR keine eintraegt (22.10.2026). */
+    public const ERSTE_EINLADUNG_NOTIZ = 'Erste Einladung';
+
+    /** Gab es fuer die Person dieser Akte schon einmal eine Einladung? */
+    public static function schonEingeladen(int $teamId, int $employeeId): bool
+    {
+        $personId = DB::table('rec_employees')->where('team_id', $teamId)->where('id', $employeeId)->value('rec_person_id');
+
+        return $personId !== null
+            && DB::table('rec_persons')->where('id', (int) $personId)->where('team_id', $teamId)->whereNotNull('invited_at')->exists();
+    }
+
     public static function personImTeam(int $teamId, ?int $personId): ?object
     {
         if ($personId === null || $personId <= 0) {
@@ -407,8 +419,18 @@ final class HrKontoAktionen
     private function einladung(int $employeeId, string $notiz, bool $zuruecksetzen): HrAktionErgebnis
     {
         $teamId = $this->team();
-        if (($f = self::notizFehler($notiz)) !== null) {
+        // Sebastian 22.10.2026: die ERSTE Einladung braucht keine Notiz —
+        // es gibt nichts zu begruenden, der Vermerk steht trotzdem im
+        // Verlauf. Pflicht bleibt sie beim Zuruecksetzen und bei jeder
+        // erneuten Einladung (die entwertet die alte).
+        $pflicht = $zuruecksetzen || self::schonEingeladen($teamId, $employeeId);
+        if (($f = self::notizFehler($notiz, $pflicht)) !== null) {
             return HrAktionErgebnis::fehler($f);
+        }
+        // Der Verlauf verlangt fuer jede Einladung eine Notiz (Spec HR §7.1) —
+        // ohne Eingabe steht dort der Anlass selbst.
+        if (!$pflicht && trim((string) RecHrVermerk::bereinige($notiz)) === '') {
+            $notiz = self::ERSTE_EINLADUNG_NOTIZ;
         }
         $akte = self::akteImTeam($teamId, $employeeId);
         if ($akte === null) {

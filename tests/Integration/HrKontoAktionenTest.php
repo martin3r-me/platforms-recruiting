@@ -209,6 +209,24 @@ final class HrKontoAktionenTest extends TestCase
         $this->assertStringNotContainsString(self::NEU, json_encode($this->log->zeilen), 'auch im Log keine volle Nummer');
     }
 
+    /**
+     * Sebastian 22.10.2026: die ERSTE Einladung braucht keine Notiz (es gibt
+     * nichts zu begruenden); eine erneute schon — sie entwertet die alte.
+     */
+    public function test_erste_einladung_ohne_notiz_erneute_nur_mit(): void
+    {
+        $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);
+        $this->person([], $ma);
+
+        $erste = $this->aktionen()->ladeNeuEin($ma->id, '');
+        $zweite = $this->aktionen()->ladeNeuEin($ma->id, '');
+
+        $this->assertTrue($erste->istOk(), 'erste Einladung ohne Notiz');
+        $this->assertSame(HrAktionErgebnis::FEHLER, $zweite->stufe, 'erneute Einladung verlangt die Notiz');
+        $this->assertCount(1, $this->vermerke(), 'die erste steht trotzdem im Verlauf');
+        $this->assertTrue($this->aktionen()->ladeNeuEin($ma->id, self::NOTIZ)->istOk());
+    }
+
     public function test_einladung_neu_zeigt_link_und_code_nur_im_ergebnis(): void
     {
         $ma = $this->akte(['phone' => self::ALT, 'birth_date' => '1990-05-17']);

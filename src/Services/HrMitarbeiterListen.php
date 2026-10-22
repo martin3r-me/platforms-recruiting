@@ -516,6 +516,8 @@ final class HrMitarbeiterListen
             'antrag_offen'       => $person !== null && $person->wechsel_wirksam_ab !== null,
             'verlauf'            => $verlauf,
             'kann_einladen'      => $einladungMoeglich && !$ohneNeuesPortal && !$registriert,
+            // Erste Einladung heisst "Einladen" und braucht keine Notiz (22.10.2026).
+            'schon_eingeladen'   => $person !== null && $person->invited_at !== null,
             // Zuruecksetzen bleibt auch ohne neues Portal (Controller-Ruling
             // 19.10.2026) — dann ohne Einladung, der Hinweis sagt es.
             'kann_zuruecksetzen' => $einladungMoeglich && $registriert,

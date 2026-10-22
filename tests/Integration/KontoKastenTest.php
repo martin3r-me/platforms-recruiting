@@ -175,6 +175,25 @@ final class KontoKastenTest extends TestCase
     }
 
     /** Jede wirksame Aktion leert die Zaehler des HR-Schreibtischs und meldet die Aenderung. */
+    /** Sebastian 22.10.2026: "Einladen" beim ersten Mal ohne Pflichtnotiz, danach "Einladung neu". */
+    public function test_erste_einladung_heisst_einladen_und_braucht_keine_notiz(): void
+    {
+        $akte = $this->akte(['birth_date' => '1990-05-17']);
+        $this->person([], $akte);
+        $k = $this->kasten($akte->id);
+        $this->assertFalse($k->kasten()['schon_eingeladen']);
+
+        $k->oeffne('einladung_neu');
+        $k->notiz = '';
+        $k->bestaetige();
+
+        $this->assertSame('', $k->modalFehler);
+        $this->assertTrue($k->kasten()['schon_eingeladen']);
+
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/konto-kasten.blade.php');
+        $this->assertStringContainsString("\$k['schon_eingeladen'] ? 'Einladung neu' : 'Einladen'", $blade);
+    }
+
     public function test_aktion_leert_die_zaehler_und_meldet_die_aenderung(): void
     {
         $akte = $this->akte(['birth_date' => '1990-05-17']);
