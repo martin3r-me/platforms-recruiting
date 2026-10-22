@@ -71,9 +71,15 @@ final class PortalVorlagen
             return [];
         }
 
-        return \Illuminate\Support\Facades\DB::table('integrations_whatsapp_templates')
-            ->whereIn('id', array_values(array_unique($ids)))
-            ->pluck('name')->map(fn ($n) => (string) $n)->filter()->values()->all();
+        // Fehlt die Tabelle (anderes Modul-Setup), zaehlt eben alles — die
+        // Themen-Auswahl darf daran nicht scheitern (Review 22.10.2026).
+        try {
+            return \Illuminate\Support\Facades\DB::table('integrations_whatsapp_templates')
+                ->whereIn('id', array_values(array_unique($ids)))
+                ->pluck('name')->map(fn ($n) => (string) $n)->filter()->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** Schluessel → Feldname in den Einstellungen; Teil jeder Fehlermeldung der Sender. */

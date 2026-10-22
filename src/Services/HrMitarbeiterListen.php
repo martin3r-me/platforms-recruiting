@@ -555,7 +555,7 @@ final class HrMitarbeiterListen
             return "Die Nummer aus der Akte ({$kurzAkte}) gehört schon einer anderen Person — bitte klären, bevor eingeladen wird.";
         }
 
-        return "Login-Nummer {$kurzLogin} weicht von der Akte ({$kurzAkte}) ab — sie wird beim nächsten Speichern der Akte übernommen.";
+        return "Login-Nummer {$kurzLogin} weicht von der Akte ({$kurzAkte}) ab — sie wird beim nächsten Speichern der Akte übernommen. Eine offene Einladung wird dabei zurückgezogen, danach neu einladen.";
     }
 
     private static function schluessel(object $akte): string

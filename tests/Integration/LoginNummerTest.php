@@ -19,7 +19,7 @@ final class LoginNummerTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::baueWelt(false);
+        self::baueWelt(false, ['2026_09_29_000001_add_konto_felder_to_rec_persons']);
     }
 
     private function personMit(?string $phone, bool $konto = false): int
@@ -78,6 +78,36 @@ final class LoginNummerTest extends TestCase
         $akte = $this->akte(['rec_person_id' => $p, 'phone' => null]);
 
         $this->assertSame(LoginNummer::OHNE, LoginNummer::nachAktenAenderung(RecEmployee::find($akte)));
+        $this->assertSame('+4915111111111', Capsule::table('rec_persons')->where('id', $p)->value('phone'));
+    }
+
+    /**
+     * Review 22.10.2026 (I1): wandert die Nummer, stirbt die offene
+     * Einladung — sie ging an die alte, vermutlich falsche Nummer. HR laedt
+     * an die neue neu ein.
+     */
+    public function test_nummernwechsel_zieht_die_offene_einladung_zurueck(): void
+    {
+        $p = $this->personMit('+4915111111111');
+        Capsule::table('rec_persons')->where('id', $p)->update(['invite_token_hash' => 'hash-alt', 'invite_expires_at' => '2026-11-20 00:00:00']);
+        $akte = $this->akte(['rec_person_id' => $p, 'phone' => '+4915122222222']);
+
+        LoginNummer::nachAktenAenderung(RecEmployee::find($akte));
+
+        $zeile = Capsule::table('rec_persons')->where('id', $p)->first();
+        $this->assertNull($zeile->invite_token_hash);
+        $this->assertNull($zeile->invite_expires_at);
+    }
+
+    /** Review M1: entsteht das Konto zwischen Lesen und Schreiben, wird nichts geaendert. */
+    public function test_schreibt_nur_ohne_passwort(): void
+    {
+        $p = $this->personMit('+4915111111111');
+        $akte = RecEmployee::find($this->akte(['rec_person_id' => $p, 'phone' => '+4915122222222']));
+        // Konto entsteht "gleichzeitig" — die Bedingung im UPDATE faengt es ab.
+        Capsule::table('rec_persons')->where('id', $p)->update(['password_hash' => 'hash']);
+
+        $this->assertNotSame(LoginNummer::GESETZT, LoginNummer::nachAktenAenderung($akte));
         $this->assertSame('+4915111111111', Capsule::table('rec_persons')->where('id', $p)->value('phone'));
     }
 }

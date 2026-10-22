@@ -19,6 +19,8 @@ use Platform\Recruiting\Support\PhoneE164;
  *  - MIT KONTO: bleibt. Die Nummer ist dann der Zugang; der Mensch aendert
  *    sie selbst im Portal und bestaetigt sie per Code (Nummernwechsel). Der
  *    Konto-Kasten zeigt die Abweichung.
+ *  - Eine OFFENE EINLADUNG wird dabei zurueckgezogen: sie ging an die alte
+ *    Nummer (Review 22.10.2026). HR laedt an die neue ein.
  *  - VERGEBEN: gehoert die neue Nummer im Team schon einer anderen Person
  *    (Eindeutigkeit team_id + phone), bleibt sie stehen; der Kasten nennt es.
  *
@@ -41,7 +43,7 @@ final class LoginNummer
             return self::OHNE;
         }
         $person = DB::table('rec_persons')->where('id', (int) $employee->rec_person_id)
-            ->first(['id', 'team_id', 'phone', 'password_hash', 'merged_into_person_id']);
+            ->first(['id', 'team_id', 'phone', 'password_hash', 'merged_into_person_id', 'invite_token_hash']);
         if ($person === null || $person->merged_into_person_id !== null) {
             return self::OHNE;
         }
@@ -60,8 +62,20 @@ final class LoginNummer
             return self::BELEGT;
         }
 
-        DB::table('rec_persons')->where('id', (int) $person->id)->update(['phone' => $neu, 'updated_at' => now()]);
-        Log::info('recruiting.konto.login_nummer_nachgezogen', $kontext);
+        // Review 22.10.2026: die offene Einladung ging an die ALTE Nummer —
+        // sie stirbt mit (I1), HR laedt an die neue neu ein. Und nur, solange
+        // weiterhin kein Passwort gesetzt ist (M1: Registrierung zwischen
+        // Lesen und Schreiben).
+        $geaendert = DB::table('rec_persons')->where('id', (int) $person->id)->whereNull('password_hash')->update([
+            'phone'             => $neu,
+            'invite_token_hash' => null,
+            'invite_expires_at' => null,
+            'updated_at'        => now(),
+        ]);
+        if ($geaendert === 0) {
+            return self::MIT_KONTO;
+        }
+        Log::info('recruiting.konto.login_nummer_nachgezogen', $kontext + ['einladung_zurueckgezogen' => $person->invite_token_hash !== null]);
 
         return self::GESETZT;
     }
