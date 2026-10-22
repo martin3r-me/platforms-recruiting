@@ -294,6 +294,20 @@ class PersonendatenAbgleichTest extends TestCase
         $this->assertStringContainsString('aufgefuellt: 0', $aus, 'zweiter Lauf findet nichts mehr');
     }
 
+    /** Review I2 (22.10.): --dry-run ohne --auffuellen wuerde sonst still echt schreiben (--nach). */
+    public function test_dry_run_ohne_auffuellen_bricht_ab_und_schreibt_nichts(): void
+    {
+        $p = $this->person();
+        $rg = $this->akte(['rec_person_id' => $p, 'city' => 'Koeln']);
+        $ma = $this->akte(['rec_person_id' => $p, 'city' => 'Bonn']);
+
+        [$code] = $this->run_(['--person' => (string) $p, '--nach' => (string) $rg, '--dry-run' => true]);
+
+        $this->assertSame(1, $code);
+        $this->assertSame('Bonn', $this->zeile($ma)->city);
+        $this->assertNull($this->zeile($ma)->zas_changed_at);
+    }
+
     public function test_auffuellen_geht_nicht_mit_nach_oder_je_gesellschaft(): void
     {
         [$c1] = $this->run_(['--auffuellen' => true, '--person' => '1', '--nach' => '1']);

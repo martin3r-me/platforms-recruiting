@@ -68,6 +68,15 @@ final class PersonendatenAbgleich extends Command
             return self::FAILURE;
         }
 
+        // Review I2 (22.10.): --dry-run gilt nur fuer --auffuellen. Ohne diese
+        // Bremse liefe "--nach ... --dry-run" still als echtes Angleichen mit
+        // ZAS-Markern.
+        if ($this->option('dry-run') && !$this->option('auffuellen')) {
+            $this->error('--dry-run gibt es nur zusammen mit --auffuellen (ohne --nach liest das Kommando ohnehin nur). Es wird nichts geschrieben.');
+
+            return self::FAILURE;
+        }
+
         if ($this->option('auffuellen')) {
             if ($nach !== null || $this->option('je-gesellschaft')) {
                 $this->error('--auffuellen geht nicht zusammen mit --nach oder --je-gesellschaft. Es wird nichts geschrieben.');

@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Services;
 
+use Platform\Recruiting\Support\PersonDatensatz;
+
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\PortalProfileGuards;
@@ -179,11 +181,28 @@ final class PortalProfileWriter
         // Vollspeicherung ist $reichweite === $erlaubt (alle Felder), also
         // sind zwangslaeufig immer alle drei betroffen -- siehe
         // PortalProfileGuards-Docblock.
+        //
+        // Personenfelder (Spec 2026-10-22 §3, Review I1): was die eigene Akte
+        // nicht hat, kommt von der aktiven Schwester — wie in der Anzeige des
+        // Portals. Sonst zeigt das Blatt "Ja, gueltig bis 01.05.2027" (von
+        // der MA-Akte) und das Speichern meldet "Datum fehlt". Der Schein
+        // gehoert zum Nachweis der Person (ProofReader liest personenweit);
+        // hier wird nur geprueft, nichts davon geschrieben.
+        $schwestern = null;
+        $person = function (string $feld) use ($employee, &$schwestern): mixed {
+            if (!PersonDatensatz::istLeer($employee->getAttribute($feld))) {
+                return $employee->getAttribute($feld);
+            }
+            $schwestern ??= (new PersonSchwestern())->aktive($employee);
+
+            return PersonSchwestern::ersterWert($employee, $feld, $schwestern);
+        };
+        $ablauf = $person('first_aider_valid_until');
         $fehler = PortalProfileGuards::fehler($formwerte, [
-            'is_first_aider'                  => $employee->is_first_aider,
-            'first_aider_valid_until'         => $employee->first_aider_valid_until?->format('Y-m-d'),
-            'first_aider_certificate_file_id' => $employee->first_aider_certificate_file_id,
-            'nationality'                     => $employee->nationality,
+            'is_first_aider'                  => $person('is_first_aider'),
+            'first_aider_valid_until'         => $ablauf instanceof \DateTimeInterface ? $ablauf->format('Y-m-d') : $ablauf,
+            'first_aider_certificate_file_id' => $person('first_aider_certificate_file_id'),
+            'nationality'                     => $person('nationality'),
             'is_main_employer'                => $employee->is_main_employer,
             'other_employer'                  => $employee->other_employer,
         ], $reichweite);

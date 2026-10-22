@@ -20,6 +20,7 @@ use Platform\Recruiting\Services\DokumentUnterschrift;
 use Platform\Recruiting\Services\VertragLeser;
 use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\DokumentStatus;
+use Platform\Recruiting\Services\PersonSchwestern;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
@@ -1430,15 +1431,7 @@ class PortalShell extends Component
     {
         $id = (int) $employee->id;
         if (!array_key_exists($id, $this->schwesternJeAkte)) {
-            $ids = array_values(array_diff((new PersonScopeResolver())->forEmployee($employee)['ids'], [$id]));
-            $this->schwesternJeAkte[$id] = $ids === [] ? [] : RecEmployee::query()
-                ->whereIn('id', $ids)
-                ->where('is_active', true)
-                ->where('is_test', false)
-                ->orderByDesc('updated_at')
-                ->orderByDesc('id')
-                ->get()
-                ->all();
+            $this->schwesternJeAkte[$id] = (new PersonSchwestern())->aktive($employee);
         }
 
         return $this->schwesternJeAkte[$id];

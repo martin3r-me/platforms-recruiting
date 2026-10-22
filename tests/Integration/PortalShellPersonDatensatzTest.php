@@ -226,4 +226,23 @@ final class PortalShellPersonDatensatzTest extends TestCase
 
         $this->assertSame('0', $shell->profilWerte['is_first_aider'] ?? null);
     }
+
+    /**
+     * Review I1 (22.10.): Schwester hat Ersthelfer Ja + Datum + Schein, die
+     * RG-Akte nichts. Das Blatt zeigt Ja und das Datum — Speichern darf nicht
+     * mit "Datum fehlt" scheitern (Speicher-Waechter las nur die eigene Akte).
+     */
+    public function test_arbeitsschutz_speichern_mit_ersthelfer_der_schwester(): void
+    {
+        $rg = $this->akte(['company' => 'RG', 'nationality' => 'deutsch', 'is_first_aider' => null, 'first_aider_valid_until' => null]);
+        $this->akte(['company' => 'MA', 'nationality' => 'deutsch', 'is_main_employer' => false,
+            'is_first_aider' => true, 'first_aider_valid_until' => '2027-05-01', 'first_aider_certificate_file_id' => 501]);
+        $shell = $this->shell($rg);
+
+        $shell->oeffneGruppe('Arbeitsschutz');
+        $shell->speichereGruppe();
+
+        $this->assertSame('', $shell->profilFehler);
+        $this->assertTrue((bool) RecEmployee::find($rg->id)->is_first_aider, 'RG-Akte heilt sich beim Speichern');
+    }
 }
