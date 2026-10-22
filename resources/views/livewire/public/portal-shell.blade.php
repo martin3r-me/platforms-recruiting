@@ -105,8 +105,19 @@
             // damit eine kuenftige Aenderung am Zaehler diesen Satz nicht
             // still wieder von der Pflicht entlasten kann.
             $allesDa = $offen === 0 && $pflichtAufgaben === [];
+            // Sebastian 22.10.2026: "alles vollstaendig" nur, wenn auch das
+            // Profil ganz ausgefuellt ist. Sonst sind die Nachweise
+            // vollstaendig, aber die Personalakte nicht — Wortlaut wie Markus'
+            // Vorlage "Personalakte unvollstaendig", Knopf ins Profil
+            // (dieselbe Liste wie der Ring).
+            $profilProzent = (int) (($profilStand ?? null)['prozent'] ?? 100);
+            $profilFehlt = array_values(($profilStand ?? null)['fehlend'] ?? []);
+            $profilLuecke = $allesDa && $profilProzent < 100 && $profilFehlt !== [];
+            $profilNamen = implode(', ', array_slice($profilFehlt, 0, 3)) . (count($profilFehlt) > 3 ? ' und weitere' : '');
             $untertitel = $allesDa
-                ? ($duzen ? 'Bei dir ist alles vollständig. Danke!' : 'Bei Ihnen ist alles vollständig. Danke!')
+                ? ($profilLuecke
+                    ? ($duzen ? 'Deine Personalakte ist noch unvollständig.' : 'Ihre Personalakte ist noch unvollständig.')
+                    : ($duzen ? 'Bei dir ist alles vollständig. Danke!' : 'Bei Ihnen ist alles vollständig. Danke!'))
                 : ($duzen ? 'Es fehlt noch etwas von dir.' : 'Es fehlt noch etwas von Ihnen.');
             $offeneAufgaben = array_values(array_filter($aufgaben, fn ($a) => $a['offen']));
             $erledigt       = array_values(array_filter($aufgaben, fn ($a) => ! $a['offen']));
@@ -190,7 +201,15 @@
                 --}}
                 <div class="next">
                     <div class="kicker">{{ $duzen ? 'Deine Unterlagen' : 'Ihre Unterlagen' }}</div>
-                    @if ($allesDa)
+                    @if ($profilLuecke)
+                        <h3>Personalakte noch unvollständig</h3>
+                        <div class="when">
+                            {{ $duzen
+                                ? 'Deine Nachweise sind vollständig. Bitte ergänze zeitnah noch deine Angaben im Profil (' . $profilNamen . '), damit wir deinen Lohn ordnungsgemäß abrechnen dürfen.'
+                                : 'Ihre Nachweise sind vollständig. Bitte ergänzen Sie zeitnah noch Ihre Angaben im Profil (' . $profilNamen . '), damit wir Ihren Lohn ordnungsgemäß abrechnen dürfen.' }}
+                        </div>
+                        <button type="button" class="btn primary" @click="tab = 'me'">Zum Profil</button>
+                    @elseif ($allesDa)
                         <h3>Alles vollständig</h3>
                         <div class="when">
                             {{ $duzen

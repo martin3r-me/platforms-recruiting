@@ -450,6 +450,40 @@ final class PortalPflichtangabenTest extends TestCase
         $this->assertStringContainsString('Wir haben alles, was wir von dir brauchen', $satz);
     }
 
+    /**
+     * Sebastian 22.10.2026: Nachweise und Pflicht da, im Profil fehlen aber
+     * Angaben — der Start sagt nicht "alles vollstaendig", sondern
+     * "Nachweise vollstaendig" und schickt ins Profil, damit der Lohn korrekt
+     * abgerechnet werden kann.
+     */
+    public function test_start_schickt_ins_profil_wenn_angaben_fehlen(): void
+    {
+        $daten = $this->ansicht($this->shell($this->mitarbeiter()));
+        $satz = $this->rendereStart([
+            'offen' => $daten['offen'], 'pflichtAufgaben' => $daten['pflichtAufgaben'], 'aufgaben' => $daten['aufgaben'], 'duzen' => true,
+            'profilStand' => ['prozent' => 44, 'gesamt' => 25, 'gefuellt' => 11, 'fehlend' => ['country_code' => 'Land', 'birth_country' => 'Geburtsland', 'gender' => 'Geschlecht', 'religion' => 'Religion']],
+        ]);
+
+        $this->assertStringNotContainsString('Alles vollständig', $satz);
+        $this->assertStringContainsString('Personalakte noch unvollständig', $satz);
+        $this->assertStringContainsString('Deine Nachweise sind vollständig', $satz);
+        $this->assertStringContainsString('damit wir deinen Lohn ordnungsgemäß abrechnen dürfen', $satz);
+        $this->assertStringContainsString('Land, Geburtsland, Geschlecht', $satz);
+        $this->assertStringContainsString('Zum Profil', $satz);
+    }
+
+    public function test_start_sagt_alles_vollstaendig_bei_vollem_profil(): void
+    {
+        $daten = $this->ansicht($this->shell($this->mitarbeiter()));
+        $satz = $this->rendereStart([
+            'offen' => $daten['offen'], 'pflichtAufgaben' => $daten['pflichtAufgaben'], 'aufgaben' => $daten['aufgaben'], 'duzen' => true,
+            'profilStand' => ['prozent' => 100, 'gesamt' => 25, 'gefuellt' => 25, 'fehlend' => []],
+        ]);
+
+        $this->assertStringContainsString('Alles vollständig', $satz);
+        $this->assertStringNotContainsString('Zum Profil', $satz);
+    }
+
     public function test_start_sagt_nicht_alles_vollstaendig_wenn_die_arbeitgeber_frage_offen_ist(): void
     {
         $satz = $this->startSatz($this->mitarbeiter(['is_main_employer' => null]));
