@@ -1085,6 +1085,10 @@ class Inbox extends Component
             if ($employee === null || !$employee->is_active) {
                 return null;
             }
+            $settings = \Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $this->teamId())->first();
+            if (!\Platform\Recruiting\Services\Comms\AkteAmpel::zeigen($employee, (array) ($settings?->settings ?? []))) {
+                return null;
+            }
 
             return app(\Platform\Recruiting\Services\Comms\AkteAmpel::class)->fuer($employee);
         } catch (\Throwable $e) {

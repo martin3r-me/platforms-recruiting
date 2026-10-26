@@ -62,6 +62,40 @@ final class AkteAmpelTest extends TestCase
         $this->assertStringNotContainsString('https://', $text);
     }
 
+    public function test_ampel_nur_fuer_pilot_solange_die_sperre_an_ist(): void
+    {
+        $capsule = new \Illuminate\Database\Capsule\Manager();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setAsGlobal();
+        $c = Container::getInstance();
+        $c->instance('db', $capsule->getDatabaseManager());
+        Facade::clearResolvedInstances();
+        $capsule->getConnection()->getSchemaBuilder()->create('rec_employees', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_person_id')->nullable();
+            $t->boolean('is_active')->nullable();
+            $t->timestamp('portal_v2_since')->nullable();
+        });
+        $capsule->getConnection()->table('rec_employees')->insert([
+            ['id' => 1, 'rec_person_id' => null, 'is_active' => true, 'portal_v2_since' => '2026-10-20 10:00:00'],
+            ['id' => 2, 'rec_person_id' => null, 'is_active' => true, 'portal_v2_since' => null],
+        ]);
+        $pilot = new RecEmployee();
+        $pilot->id = 1;
+        $alt = new RecEmployee();
+        $alt->id = 2;
+
+        // Vorgabe: Sperre an (fehlender Schluessel) — nur Pilot.
+        $this->assertTrue(AkteAmpel::zeigen($pilot, []));
+        $this->assertFalse(AkteAmpel::zeigen($alt, []));
+        $this->assertFalse(AkteAmpel::zeigen($alt, ['comms_topic_nur_pilot' => true]));
+        // Ausrollen: Sperre aus — fuer alle.
+        $this->assertTrue(AkteAmpel::zeigen($alt, ['comms_topic_nur_pilot' => false]));
+
+        $c->forgetInstance('db');
+        Facade::clearResolvedInstances();
+    }
+
     public function test_chat_kopf_zeigt_ampel_und_knopf(): void
     {
         // Vertrag an der Quelle (Muster SharedPartialContractTest): Livewire-Render braucht den App-Boot.
@@ -74,6 +108,7 @@ final class AkteAmpelTest extends TestCase
         $php = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Conversations/Inbox.php');
         $this->assertMatchesRegularExpression('/#\[Computed\]\s*public function akteAmpel\(\): \?array/', $php);
         $this->assertStringContainsString('public function akteHinweis(): void', $php);
+        $this->assertStringContainsString('AkteAmpel::zeigen(', $php);
     }
 
     /**

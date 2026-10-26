@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services\Comms;
 
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
+use Platform\Recruiting\Support\PilotKreis;
 
 /**
  * Ampel im Chat-Kopf (Markus, HR allgemein, 26.10.2026): ist die Akte des
@@ -22,6 +23,23 @@ class AkteAmpel
         $luecken = array_values(array_unique([...$g['nachweise'], ...$g['angaben']]));
 
         return ['gruen' => $luecken === [], 'luecken' => $luecken, 'nachweise' => count($g['nachweise'])];
+    }
+
+    /**
+     * Neue Features erst im Pilot (Sebastian 19.10./26.10.2026): solange die
+     * Sperre der Themen-Auswahl („nur Pilot“) an ist, nur fuer Pilot-MA.
+     * Sonst stuende bei Leuten im alten Portal Rot fuer Nachweise, die sie
+     * dort gar nicht nachreichen koennen. Ausrollen = Sperre aus.
+     *
+     * @param array<string, mixed> $settings rohe Team-Einstellungen
+     */
+    public static function zeigen(RecEmployee $employee, array $settings): bool
+    {
+        if (!PilotKreis::sperreAn($settings['comms_topic_nur_pilot'] ?? null)) {
+            return true;
+        }
+
+        return PilotKreis::istImPilot((int) $employee->id);
     }
 
     /** @param list<string> $luecken */
