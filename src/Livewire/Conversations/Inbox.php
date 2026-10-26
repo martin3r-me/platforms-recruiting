@@ -1071,6 +1071,71 @@ class Inbox extends Component
     }
 
     /**
+     * Ampel im Chat-Kopf (Markus, HR allgemein, 26.10.2026): ist die Akte des
+     * Mitarbeiters hinter dem Chat vollstaendig? null = kein aktiver MA oder
+     * Pruefung gescheitert — lieber keine Ampel als eine falsche.
+     *
+     * @return ?array{gruen: bool, luecken: list<string>}
+     */
+    #[Computed]
+    public function akteAmpel(): ?array
+    {
+        $employee = $this->forwardEmployee();
+        if ($employee === null || !$employee->is_active) {
+            return null;
+        }
+        try {
+            return app(\Platform\Recruiting\Services\Comms\AkteAmpel::class)->fuer($employee);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
+    /**
+     * Knopf neben der roten Ampel. Fenster offen: Entwurf mit den Luecken ins
+     * Antwortfeld — HR liest und schickt selbst (zaehlt als Antwort). Fenster
+     * zu: die Vorlage „Personalakte unvollständig“ ueber denselben Weg wie
+     * „Erneut erinnern“ in der Akte (Pause und Sperre inklusive).
+     */
+    public function akteHinweis(): void
+    {
+        $this->sendError = null;
+        $employee = $this->forwardEmployee();
+        $ampel = $this->akteAmpel;
+        if ($employee === null || $ampel === null || $ampel['gruen']) {
+            return;
+        }
+
+        if ($this->windowOpen) {
+            $settings = \Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $this->teamId())->first();
+            $this->replyText = \Platform\Recruiting\Services\Comms\AkteAmpel::entwurf(
+                $employee,
+                \Platform\Recruiting\Support\PublicAddressStyle::informal($settings?->getSetting('use_informal_address')),
+                $settings?->getSetting('comms_topic_text_lohn_offen'),
+                $ampel['luecken'],
+            );
+
+            return;
+        }
+
+        $personId = \Platform\Recruiting\Services\HrKontoAktionen::personDerAkteImTeam($this->teamId(), $employee);
+        $ergebnis = app(\Platform\Recruiting\Services\HrKontoAktionen::class)->erinnereErneut(
+            $personId,
+            (int) $employee->id,
+            \Platform\Recruiting\Services\HrKontoAktionen::BEZUG_AUFGABEN,
+            'Aus der Kommunikation: Personalakte unvollständig',
+        );
+        if ($ergebnis->stufe === \Platform\Recruiting\Support\HrAktionErgebnis::OK) {
+            session()->flash('message', $ergebnis->meldung);
+            $this->forgetSnapshot();
+        } else {
+            $this->sendError = $ergebnis->meldung;
+        }
+    }
+
+    /**
      * MA hinter dem offenen Chat: Mitarbeiter-Thread direkt, Bewerber-Thread
      * ueber die aktive Anstellung dieser Bewerbung (wie InboxQuery::kindOf).
      */
