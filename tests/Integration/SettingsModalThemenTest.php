@@ -107,7 +107,7 @@ class SettingsModalThemenTest extends TestCase
 
     public function test_zu_langer_text_wird_null_mit_meldung(): void
     {
-        foreach (['comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $k) {
+        foreach (['comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok', 'comms_topic_text_lohn_frei'] as $k) {
             $m = $this->offen();
             $m->settings[$k] = str_repeat('ä', 1001);
             $m->save();
@@ -126,7 +126,7 @@ class SettingsModalThemenTest extends TestCase
         foreach (['Disposition', 'Lohn &amp; Gehalt', 'HR allgemein'] as $thema) {
             $this->assertStringContainsString($thema, $abschnitt, $thema);
         }
-        foreach (['comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $k) {
+        foreach (['comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok', 'comms_topic_text_lohn_frei'] as $k) {
             $this->assertStringContainsString("@error('settings." . $k . "')", $blade, $k);
         }
     }

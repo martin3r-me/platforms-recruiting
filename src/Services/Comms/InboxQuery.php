@@ -41,7 +41,7 @@ final class InboxQuery
      */
     public function __construct(private ?DispoForwardChannels $dispoKanaele = null) {}
 
-    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
+    /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, parked:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}} */
     public function counts(int $teamId, ?int $now = null): array
     {
         // Ohne Filial-Aufloesung und ohne „Offen lassen“-Marker: die Navigation
@@ -89,6 +89,8 @@ final class InboxQuery
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
+        // Themen-Auswahl aus → nichts geparkt, alles normal bei HR.
+        $parkenAn = (bool) $settings->getSetting('comms_topic_enabled', false);
 
         $row = [
             'thread_id' => $id,
@@ -109,6 +111,7 @@ final class InboxQuery
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
             ...self::themaFelder($themen[$id] ?? null),
+            'parked' => $parkenAn && ($themen[$id]['state'] ?? null) === RecConversationTopic::STATE_GEPARKT,
             'followup' => $offen[$id] ?? null,
         ];
 
@@ -151,7 +154,7 @@ final class InboxQuery
      * die Filial-Basis, aber unabhaengig von der gewaehlten Thema-Pille
      * (jede Pille zeigt ihre eigene Zahl).
      *
-     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, parked:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}, rows: list<InboxRow>, total: int, fallback: bool, filialen: array<string, int>}
      */
     public function snapshot(
         int $teamId,
@@ -256,12 +259,12 @@ final class InboxQuery
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, followup:int, parked:int, total:int, applicants:int, employees:int, topics: array{dispo:int, lohn:int, hr:int}}
      */
     private function countsFromScored(array $rows): array
     {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
-                   'missed' => 0, 'followup' => 0, 'total' => 0,
+                   'missed' => 0, 'followup' => 0, 'parked' => 0, 'total' => 0,
                    'applicants' => 0, 'employees' => 0,
                    'topics' => array_fill_keys(self::TOPICS, 0)];
 
@@ -285,6 +288,12 @@ final class InboxQuery
                 $counts['followup']++;
             }
             if (!$row['is_unread']) {
+                continue;
+            }
+            // Geparkt (Lohn, Akte unvollstaendig): eigener Zaehler statt
+            // Ungelesen/Ampel — auch nicht in der Seitenleiste (26.10.2026).
+            if ($row['parked'] ?? false) {
+                $counts['parked']++;
                 continue;
             }
             $counts['unread']++;
@@ -337,6 +346,8 @@ final class InboxQuery
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
+        // Themen-Auswahl aus → nichts geparkt, alles normal bei HR.
+        $parkenAn = (bool) $settings->getSetting('comms_topic_enabled', false);
 
         // Bewerbungen, aus denen ein aktiver Mitarbeiter wurde: deren Chats
         // haengen weiter an der Bewerbung, gehoeren im Filter aber zu
@@ -396,6 +407,7 @@ final class InboxQuery
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
                 ...self::themaFelder($themen[$id] ?? null),
+                'parked' => $parkenAn && ($themen[$id]['state'] ?? null) === RecConversationTopic::STATE_GEPARKT,
                 'followup' => $offen[$id] ?? null,
             ];
         }
@@ -429,7 +441,16 @@ final class InboxQuery
             if (($row['followup'] ?? null) === null) {
                 return false;
             }
+        } elseif ($filter->level === 'parked') {
+            // „Wartet auf Akte“ (26.10.2026): nur geparkte, noch offene Chats.
+            if (!($row['parked'] ?? false) || !$row['is_unread']) {
+                return false;
+            }
         } else {
+            // Geparkte Chats stehen in keiner Ampel-/Ungelesen-Pille, nur unter "Alle".
+            if ($filter->level !== 'all' && ($row['parked'] ?? false)) {
+                return false;
+            }
             // Jede Pille ausser "Alle" zeigt nur offene Chats. Eine Ampelstufe
             // haben ohnehin nur offene (openState()), die Pruefung auf is_unread
             // steht trotzdem fuer alle Stufen da, damit beides nie auseinanderlaeuft.
@@ -949,6 +970,8 @@ final class InboxQuery
     {
         return match ($state) {
             RecConversationTopic::STATE_AKTE_HINT => 'Akte unvollständig · Hinweis gesendet',
+            RecConversationTopic::STATE_GEPARKT => 'Wartet auf Akte',
+            RecConversationTopic::STATE_FREIGEGEBEN => 'Akte nachgereicht',
             RecConversationTopic::STATE_LOHN_INFO => 'Login-Hinweis gesendet',
             default => null,
         };

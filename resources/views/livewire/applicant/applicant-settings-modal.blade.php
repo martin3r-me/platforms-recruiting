@@ -1219,6 +1219,17 @@
                         @enderror
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Vorgabetext.</p>
                     </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Text Lohn — Akte nachgereicht</label>
+                        <textarea wire:model="settings.comms_topic_text_lohn_frei" rows="3"
+                                  class="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-sm text-[var(--ui-secondary)] p-2"></textarea>
+                        @error('settings.comms_topic_text_lohn_frei')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">
+                            Leer = Vorgabetext. Geht raus, wenn ein Lohn-Chat „Wartet auf Akte“ war und die Akte jetzt vollständig ist — der Chat landet dann wieder bei HR.
+                        </p>
+                    </div>
                 </div>
 
                 {{-- Mitarbeiterportal (Spec Portal-Vorlagen §2/§7): acht Vorlagen plus der

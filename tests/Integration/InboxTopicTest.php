@@ -47,6 +47,7 @@ class InboxTopicTest extends TestCase
     private static int $loginHinweis = 0;  // MA ohne Kostenstelle, lohn + lohn_info_sent
     private static int $neueFrage = 0;     // gestern Lohn gewaehlt, vor 1h neue Frage (unbeantwortet)
     private static int $gesternHr = 0;     // gestern HR gewaehlt, seitdem keine neue Frage
+    private static int $geparkt = 0;       // Lohn bei unvollstaendiger Akte (Variante B, 26.10.2026)
 
     private static array $previousMorphMap = [];
 
@@ -193,7 +194,7 @@ class InboxTopicTest extends TestCase
     {
         $lohn = array_keys($this->zeilen(new InboxFilter(topic: 'lohn')));
         sort($lohn);
-        $erwartet = [self::$lohnMgl, self::$loginHinweis];
+        $erwartet = [self::$lohnMgl, self::$loginHinweis, self::$geparkt];
         sort($erwartet);
         $this->assertSame($erwartet, $lohn);
 
@@ -214,12 +215,12 @@ class InboxTopicTest extends TestCase
     public function test_themen_zaehler_folgen_der_filiale_nicht_der_eigenen_auswahl(): void
     {
         $alle = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
-        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $alle['topics']);
+        $this->assertSame(['dispo' => 1, 'lohn' => 3, 'hr' => 3], $alle['topics']);
 
         $nurLohn = $this->query()->snapshot(self::TEAM, new InboxFilter(topic: 'lohn'), 50, 0, self::JETZT);
-        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $nurLohn['counts']['topics']);
-        $this->assertSame(9, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
-        $this->assertSame(2, $nurLohn['total']);
+        $this->assertSame(['dispo' => 1, 'lohn' => 3, 'hr' => 3], $nurLohn['counts']['topics']);
+        $this->assertSame(10, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
+        $this->assertSame(3, $nurLohn['total']);
 
         $mgl = $this->query()->snapshot(self::TEAM, new InboxFilter(filiale: '200'), 50, 0, self::JETZT)['counts'];
         $this->assertSame(['dispo' => 0, 'lohn' => 1, 'hr' => 1], $mgl['topics']);
@@ -263,12 +264,52 @@ class InboxTopicTest extends TestCase
             Capsule::table('rec_conversation_topics')->insert($gesichert);
         }
 
-        $this->assertSame(9, $counts['total']);
+        $this->assertSame(10, $counts['total']);
         $this->assertSame(['dispo' => 0, 'lohn' => 0, 'hr' => 0], $counts['topics']);
-        $this->assertCount(9, $snap['rows']);
+        $this->assertCount(10, $snap['rows']);
         foreach ($snap['rows'] as $row) {
             $this->assertNull($row->topicLabel);
         }
+    }
+
+    // ------------------------------------------------------------ Parken (Variante B, 26.10.2026)
+
+    public function test_geparkter_lohn_chat_zaehlt_nicht_als_ungelesen(): void
+    {
+        $counts = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
+
+        $this->assertSame(1, $counts['parked']);
+        $this->assertSame(9, $counts['unread'], '10 ungelesene Chats, der geparkte zaehlt nicht mit');
+        $this->assertSame(9, $this->query()->counts(self::TEAM, self::JETZT)['unread'], 'auch nicht in der Seitenleiste');
+        $this->assertSame(10, $counts['total'], 'unter „Alle“ steht er weiter');
+        $this->assertSame('Wartet auf Akte', $this->zeilen()[self::$geparkt]->topicNote);
+    }
+
+    public function test_filter_wartet_auf_akte(): void
+    {
+        $this->assertSame([self::$geparkt], array_keys($this->zeilen(new InboxFilter(level: 'parked'))));
+        $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(level: 'unread'))));
+        $farben = [];
+        foreach (['green', 'yellow', 'red', 'missed'] as $stufe) {
+            $farben = [...$farben, ...array_keys($this->zeilen(new InboxFilter(level: $stufe)))];
+        }
+        $this->assertNotContains(self::$geparkt, $farben);
+        $this->assertContains(self::$geparkt, array_keys($this->zeilen()));
+    }
+
+    public function test_themen_auswahl_aus_dann_ist_nichts_geparkt(): void
+    {
+        $zeile = RecApplicantSettings::query()->where('team_id', self::TEAM)->firstOrFail();
+        $vorher = $zeile->settings;
+        $zeile->forceFill(['settings' => [...$vorher, 'comms_topic_enabled' => false]])->save();
+        try {
+            $counts = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
+        } finally {
+            $zeile->forceFill(['settings' => $vorher])->save();
+        }
+
+        $this->assertSame(0, $counts['parked']);
+        $this->assertSame(10, $counts['unread']);
     }
 
     private static function seed(): void
@@ -282,7 +323,7 @@ class InboxTopicTest extends TestCase
             'sender_identifier' => '+49 160 5559601', 'is_active' => true,
             'meta' => json_encode(['integrations_whatsapp_account_id' => $accountId]),
         ]);
-        RecApplicantSettings::create(['team_id' => self::TEAM, 'settings' => ['auto_pilot_wa_account_id' => $accountId]]);
+        RecApplicantSettings::create(['team_id' => self::TEAM, 'settings' => ['auto_pilot_wa_account_id' => $accountId, 'comms_topic_enabled' => true]]);
 
         self::$dispoKanal = (int) Capsule::table('comms_channels')->insertGetId([
             'team_id' => self::TEAM, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
@@ -326,6 +367,7 @@ class InboxTopicTest extends TestCase
         self::$ohneZeile = $thread('+4915100000999', null, null);
         self::$neueFrage = $thread('+4915100000997', null, null);
         self::$gesternHr = $thread('+4915100000996', null, null);
+        self::$geparkt = $thread('+4915100000995', null, null);
 
         $zeile = fn (int $threadId, ?string $topic, string $state, int $vorStunden, ?int $kanal = null) => RecConversationTopic::create([
             'team_id' => self::TEAM, 'comms_whatsapp_thread_id' => $threadId,
@@ -345,5 +387,6 @@ class InboxTopicTest extends TestCase
         $zeile(self::$neueFrage, RecConversationTopic::TOPIC_LOHN, RecConversationTopic::STATE_AKTE_HINT, 20);
         $zeile(self::$gesternHr, RecConversationTopic::TOPIC_HR, RecConversationTopic::STATE_CHOSEN, 26);
         $zeile(self::$neueFrage, null, RecConversationTopic::STATE_ASKED, 1);
+        $zeile(self::$geparkt, RecConversationTopic::TOPIC_LOHN, RecConversationTopic::STATE_GEPARKT, 1);
     }
 }

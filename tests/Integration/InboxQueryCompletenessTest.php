@@ -178,6 +178,7 @@ class InboxQueryCompletenessTest extends TestCase
             'missed' => 4,
             // „Offen lassen“: hier nie markiert (Tabelle fehlt sogar) → 0.
             'followup' => 0,
+            'parked' => 0,
             'total' => 6,
             // Filter Alle | Bewerber | Mitarbeiter: fuenf der sechs haengen an
             // einem Bewerber, der Chat ohne Kontext zaehlt nur unter "Alle".

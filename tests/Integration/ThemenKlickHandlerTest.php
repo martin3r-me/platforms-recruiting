@@ -591,8 +591,8 @@ final class ThemenKlickHandlerTest extends TestCase
 
         $topic->refresh();
         $this->assertSame(RecConversationTopic::TOPIC_LOHN, $topic->topic);
-        $this->assertSame(RecConversationTopic::STATE_AKTE_HINT, $topic->state);
-        $this->assertSame(0, RecConversationHandled::query()->count(), 'Lohn bleibt offen bei HR.');
+        $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->state);
+        $this->assertSame(0, RecConversationHandled::query()->count(), 'Geparkt, kein Stempel — InboxQuery haelt ihn aus Ungelesen.');
     }
 
     public function test_topic_lohn_ohne_portal_v2_nur_text(): void
@@ -609,7 +609,7 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame([['type' => 'reply', 'reply' => ['id' => 'topic_ack', 'title' => 'Alles klar']]], $i['action']['buttons']);
         $this->assertStringContainsString('• Personalausweis', $i['body']['text']);
         $this->assertStringNotContainsString('tok-erika', json_encode($i));
-        $this->assertSame(RecConversationTopic::STATE_AKTE_HINT, $topic->fresh()->state);
+        $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->fresh()->state);
     }
 
     public function test_topic_lohn_akte_vollstaendig_mit_login_url(): void
@@ -651,7 +651,7 @@ final class ThemenKlickHandlerTest extends TestCase
         $text = $this->gesendet[0]['interactive']['body']['text'];
         $this->assertStringContainsString('• IBAN', $text);
         $this->assertStringContainsString('• Steuer-ID', $text);
-        $this->assertSame(RecConversationTopic::STATE_AKTE_HINT, $topic->fresh()->state);
+        $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->fresh()->state);
     }
 
     public function test_topic_lohn_send_scheitert_zeile_unveraendert(): void
@@ -740,8 +740,13 @@ final class ThemenKlickHandlerTest extends TestCase
         $klickPos = strpos($quelle, 'ThemenKlickHandler::class)->beiEingang');
         $this->assertLessThan(strpos($quelle, '$this->oooAutoReply->handle('), $klickPos);
         $this->assertLessThan(strpos($quelle, 'QuickReplyStamper::class'), $klickPos);
+        // Lohn-Parken nach dem Klick, vor der Abwesenheitsnotiz (26.10.2026).
+        $parkPos = strpos($quelle, 'LohnParken::class)->beiEingang');
+        $this->assertNotFalse($parkPos);
+        $this->assertGreaterThan($klickPos, $parkPos);
+        $this->assertLessThan(strpos($quelle, '$this->oooAutoReply->handle('), $parkPos);
         $this->assertMatchesRegularExpression(
-            '/if \(!ThemenAuswahlHandler::abwesenheitMitgeteilt\(\$themenStatus\)\s*&&\s*!ThemenKlickHandler::beantwortet\(\$klickStatus\)\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
+            '/if \(!ThemenAuswahlHandler::abwesenheitMitgeteilt\(\$themenStatus\)\s*&&\s*!ThemenKlickHandler::beantwortet\(\$klickStatus\)\s*&&\s*!LohnParken::antwortet\(\$parkStatus\)\)\s*\{\s*try\s*\{\s*\$this->oooAutoReply->handle\(/',
             $quelle,
         );
         $this->assertTrue(ThemenKlickHandler::beantwortet('verarbeitet:topic_hr'));

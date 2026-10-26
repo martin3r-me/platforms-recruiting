@@ -30,8 +30,9 @@ use Platform\Recruiting\Support\PublicAddressStyle;
  *                   Weiterleitung des Getippten in die Dispo-Postfach-Karte.
  *                   Stempel routed_dispo NUR, wenn der Link rausging UND die
  *                   Karte bei dieser Dispo liegt (Schlussreview I1).
- *  - topic_lohn   → Hinweis aus der Akte (OffenePunkte) bzw. Login-Anleitung.
- *                   Kein Stempel — eine echte Lohnfrage bleibt bei HR.
+ *  - topic_lohn   → Akte unvollstaendig: Liste der Luecken, Chat geparkt
+ *                   (LohnParken, Variante B 26.10.2026). Sonst Login-Anleitung,
+ *                   kein Stempel — eine echte Lohnfrage bleibt bei HR.
  *  - topic_hr     → nur das Thema setzen.
  *  - topic_ack    → Quittungsknopf ohne Wirkung (s. sendeHinweis()).
  *
@@ -476,20 +477,14 @@ final class ThemenKlickHandler
             return 'ignoriert:kein_aktiver_ma';
         }
 
-        $punkte = $this->offenePunkte()->fuer($employee)['punkte'] ?? [];
-        // 26.10.2026: dazu die lohnrelevanten Luecken im Profil (IBAN,
-        // Steuer-ID ...) — dieselbe Liste wie der Portal-Start.
-        $luecken = array_values(array_unique([
-            ...array_column($punkte, 'label'),
-            ...array_values(($this->lohnangaben ?? new \Platform\Recruiting\Services\Lohnangaben())->fehlendFuer($employee)),
-        ]));
+        // 26.10.2026: offene Nachweise plus lohnrelevante Luecken im Profil
+        // (IBAN, Steuer-ID ...) — dieselbe Liste wie der Portal-Start.
+        $luecken = $this->lohnLuecken()->fuer($employee);
         if ($luecken !== []) {
-            $body = ThemenTexte::lohnOffen($duzen, $settings?->getSetting('comms_topic_text_lohn_offen'), $luecken);
-            $url = $employee->portal_v2_since !== null && (string) $employee->portal_token !== ''
-                ? route('recruiting.public.employee-portal', ['token' => $employee->portal_token])
-                : null;
-            $r = $this->sendeHinweis($channel, $phone, $body, 'Zum Portal', $url);
-            $state = RecConversationTopic::STATE_AKTE_HINT;
+            // Variante B (26.10.2026): der Chat wird geparkt — er wartet im
+            // Filter „Wartet auf Akte“, bis die Akte vollstaendig ist (LohnParken).
+            $r = $this->parken()->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
+            $state = RecConversationTopic::STATE_GEPARKT;
         } else {
             $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
             $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
@@ -500,7 +495,8 @@ final class ThemenKlickHandler
             return $this->sendGescheitert('lohn', $topic, $r);
         }
 
-        // Kein Stempel: der Chat bleibt bei HR offen (§2.4).
+        // Kein Stempel: geparkt haelt InboxQuery aus „Ungelesen“ heraus, der
+        // Login-Hinweis bleibt bei HR offen (§2.4).
         return $this->themaSetzen($topic, RecConversationTopic::TOPIC_LOHN, $state, 'topic_lohn');
     }
 
@@ -587,8 +583,13 @@ final class ThemenKlickHandler
         return $this->forwarder ?? new ConversationForwarder($this->kanaele());
     }
 
-    private function offenePunkte(): OffenePunkte
+    private function lohnLuecken(): LohnLuecken
     {
-        return $this->offenePunkte ?? app(OffenePunkte::class);
+        return new LohnLuecken($this->offenePunkte, $this->lohnangaben);
+    }
+
+    private function parken(): LohnParken
+    {
+        return new LohnParken($this->sender(), $this->empfaenger(), $this->lohnLuecken());
     }
 }

@@ -354,7 +354,7 @@ class ApplicantSettingsModal extends Component
         $settings['comms_topic_nur_pilot'] = PilotKreis::sperreAn($settings['comms_topic_nur_pilot'] ?? null);
         $settings['comms_topic_quiet_hours'] = HrEinstellungen::begrenze($settings['comms_topic_quiet_hours'] ?? null, 0, 48, 8);
 
-        foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok'] as $schluessel) {
+        foreach (['comms_topic_lohn_url', 'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok', 'comms_topic_text_lohn_frei'] as $schluessel) {
             $wert = trim((string) ($settings[$schluessel] ?? ''));
             if ($wert !== '' && $schluessel === 'comms_topic_lohn_url'
                 && (!str_starts_with(strtolower($wert), 'https://') || filter_var($wert, FILTER_VALIDATE_URL) === false)) {

@@ -71,6 +71,14 @@ final class ThemenTexte
             : 'Haben Sie Ihre Stundenübersicht und Abrechnung schon kontrolliert? Dann können Sie uns gezielt sagen, was nicht passt.') . $knopf);
     }
 
+    /** Akte nachgereicht, der geparkte Lohn-Chat geht an HR (Variante B, 26.10.2026). */
+    public static function lohnFrei(bool $duzen, ?string $teamText): string
+    {
+        return self::oderVorgabe($teamText, $duzen
+            ? 'Danke, deine Akte ist jetzt vollständig! Wir schauen uns deine Frage an und melden uns bei dir.'
+            : 'Danke, Ihre Akte ist jetzt vollständig! Wir schauen uns Ihre Frage an und melden uns bei Ihnen.');
+    }
+
     /**
      * Knopf einer Filiale. Das Praefix „Dispo“ faellt weg — die Frage sagt
      * schon „Disposition“, und mit Praefix schnitt Meta „Dispo Düsseldorf & …“

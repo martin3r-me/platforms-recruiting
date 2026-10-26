@@ -19,6 +19,14 @@ class RecConversationTopic extends Model
     public const STATE_AKTE_HINT = 'akte_hint_sent';
     public const STATE_LOHN_INFO = 'lohn_info_sent';
     public const STATE_ROUTED = 'routed';
+    /**
+     * Lohn bei unvollstaendiger Akte (Variante B, 26.10.2026): der Chat wartet
+     * ausserhalb von „Ungelesen“, bis die Akte vollstaendig ist (LohnParken).
+     * STATE_AKTE_HINT bleibt fuer Zeilen von vorher.
+     */
+    public const STATE_GEPARKT = 'lohn_parked';
+    /** Akte nachgereicht — der Chat ist wieder normal bei HR. */
+    public const STATE_FREIGEGEBEN = 'lohn_released';
 
     protected $table = 'rec_conversation_topics';
 

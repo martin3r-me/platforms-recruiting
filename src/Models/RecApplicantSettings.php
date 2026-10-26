@@ -185,6 +185,7 @@ class RecApplicantSettings extends Model
         'comms_topic_text_ask' => null,          // Team-Texte (null = Vorgabe aus ThemenTexte)
         'comms_topic_text_lohn_offen' => null,
         'comms_topic_text_lohn_ok' => null,
+        'comms_topic_text_lohn_frei' => null,    // Dank, wenn ein geparkter Lohn-Chat freigegeben wird (26.10.2026)
         // Steuerklasse + Haupt-/Nebenarbeitgeber gelten je Gesellschaft (RG/MA) statt je Person: dann spiegelt PersonenSpiegel sie nicht
         // wirkungslos seit 12.10.2026 (Kundenentscheidung Markus, E7/E8): die Felder gelten immer je
         // Anstellung (PersonenFelder::JE_GESELLSCHAFT), der Schalter ist aus dem Einstellungsfenster

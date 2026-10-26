@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
 use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
+use Platform\Recruiting\Services\Comms\LohnParken;
 use Platform\Recruiting\Services\Comms\QuickReplyStamper;
 use Platform\Recruiting\Services\Comms\ThemenAuswahlHandler;
 use Platform\Recruiting\Services\Comms\ThemenKlickHandler;
@@ -83,13 +84,30 @@ class HandleWhatsAppInboundForRecruiting
             ]);
         }
 
+        // Geparkter Lohn-Chat (Variante B, 26.10.2026): Weiterschreiben bei noch
+        // unvollstaendiger Akte bekommt die Liste erneut (hoechstens stuendlich),
+        // bei vollstaendiger Akte wird der Chat freigegeben. Nur wenn weder die
+        // Themen-Frage noch ein Klick schon geantwortet hat.
+        $parkStatus = 'ignoriert:nicht_gelaufen';
+        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus) && !ThemenKlickHandler::beantwortet($klickStatus)) {
+            try {
+                $parkStatus = app(LohnParken::class)->beiEingang($channel, $thread, $message);
+            } catch (\Throwable $e) {
+                Log::warning('[Recruiting] Lohn-Parken fehlgeschlagen', [
+                    'thread_id' => $thread->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
         // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
         // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
         // Hat die Themen-Auswahl gesendet (oder ist das ein wiederholter Webhook
         // fuer einen schon gefragten Eingang), steckt die Abwesenheit schon darin.
         // Ebenso, wenn ein Themen-Klick schon beantwortet wurde (auch als Dublette).
-        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus) && !ThemenKlickHandler::beantwortet($klickStatus)) {
+        if (!ThemenAuswahlHandler::abwesenheitMitgeteilt($themenStatus) && !ThemenKlickHandler::beantwortet($klickStatus)
+            && !LohnParken::antwortet($parkStatus)) {
             try {
                 $this->oooAutoReply->handle($channel, $thread, $message);
             } catch (\Throwable $e) {

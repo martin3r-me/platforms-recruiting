@@ -6,7 +6,7 @@ namespace Platform\Recruiting\Services\Comms;
 final class InboxFilter
 {
     public function __construct(
-        /** all | unread | green | yellow | red | missed | followup (markiert, auch gelesen) */
+        /** all | unread | green | yellow | red | missed | followup (markiert, auch gelesen) | parked (Lohn, wartet auf Akte) */
         public readonly string $level = 'all',
         /** all | mine | <userId> */
         public readonly string $owner = 'all',

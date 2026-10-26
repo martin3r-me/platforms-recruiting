@@ -14,7 +14,7 @@ final class ThemenSettingsTest extends TestCase
 {
     private const KEYS = [
         'comms_topic_enabled', 'comms_topic_quiet_hours', 'comms_topic_lohn_url',
-        'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok',
+        'comms_topic_text_ask', 'comms_topic_text_lohn_offen', 'comms_topic_text_lohn_ok', 'comms_topic_text_lohn_frei',
     ];
 
     private function blade(): string
@@ -40,7 +40,7 @@ final class ThemenSettingsTest extends TestCase
             $this->assertStringContainsString('wire:model="settings.' . $k . '"', $blade, $k);
         }
         $this->assertMatchesRegularExpression('~<input type="checkbox"[^>]*wire:model="settings\.comms_topic_enabled"~s', $blade);
-        $this->assertSame(3, preg_match_all('~<textarea[^>]*wire:model="settings\.comms_topic_text_~s', $blade));
+        $this->assertSame(4, preg_match_all('~<textarea[^>]*wire:model="settings\.comms_topic_text_~s', $blade));
         $this->assertStringContainsString('{PUNKTE}', $blade);
     }
 

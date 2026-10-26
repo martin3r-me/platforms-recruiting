@@ -20,6 +20,7 @@ class RecruitingServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Platform\Recruiting\Console\Commands\ProcessAutoPilotApplicants::class,
+                \Platform\Recruiting\Console\Commands\LohnParkenFreigeben::class,
                 \Platform\Recruiting\Console\Commands\SyncContactPhonesCommand::class,
                 \Platform\Recruiting\Console\Commands\DispatchAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
@@ -285,6 +286,12 @@ class RecruitingServiceProvider extends ServiceProvider
         // Dispo-Eskalation (Runde 2): 14/15 Uhr Reminder, 16 Uhr Rausnahme +
         // Portalsperre + Alarm. No-op solange dispo_escalation_enabled=false.
         Schedule::command('recruiting:dispo-escalate')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(5)
+            ->runInBackground();
+
+        // Lohn-Chats parken (Variante B, 26.10.2026): Akte vollstaendig → an HR.
+        Schedule::command('recruiting:lohn-parken-freigeben')
             ->everyFiveMinutes()
             ->withoutOverlapping(5)
             ->runInBackground();
