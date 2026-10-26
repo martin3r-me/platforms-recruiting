@@ -370,7 +370,7 @@
                                 <button type="button" wire:click="whatsappJetztSenden({{ $dok['id'] }})" wire:confirm="Für „{{ $dok['title'] }}“ jetzt die WhatsApp an alle Offenen senden?" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">WhatsApp jetzt senden</button>
                             @endif
                             @if ($dok['is_info'])
-                                <span class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)]">INFO</span>
+                                <button type="button" wire:click="textAnzeigen({{ $dok['id'] }})" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">Text anzeigen</button>
                             @endif
                             @if (!$dok['is_info'])
                                 <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dok['uuid']]) }}" target="_blank" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">PDF</a>
@@ -500,6 +500,30 @@
         <x-slot name="footer">
             <div class="flex justify-end">
                 <x-ui-button type="button" variant="secondary-outline" wire:click="$set('vorschauOffen', false)">Schließen</x-ui-button>
+            </div>
+        </x-slot>
+    </x-ui-modal>
+
+    {{-- Bestehende Info ansehen (26.10.2026): gleicher Renderer und gleiche Regeln wie die Vorschau oben. --}}
+    <x-ui-modal wire:model="textOffen" size="md">
+        <x-slot name="header">Info wie im Portal</x-slot>
+        @php
+            $angezeigt = $this->angezeigteInfo;
+        @endphp
+        <div class="info-vorschau">
+            @if ($angezeigt !== null)
+                <h2 class="info-titel">{{ $angezeigt['title'] !== '' ? $angezeigt['title'] : 'Ohne Titel' }}</h2>
+                @if (trim(strip_tags($angezeigt['html'])) === '')
+                    <p class="text-sm text-[var(--ui-muted)]">Kein Text.</p>
+                @else
+                    {{-- Ungeescaped nur, weil InfoText::html() die Element-Weissliste erzwingt. --}}
+                    <div class="info-text">{!! $angezeigt['html'] !!}</div>
+                @endif
+            @endif
+        </div>
+        <x-slot name="footer">
+            <div class="flex justify-end">
+                <x-ui-button type="button" variant="secondary-outline" wire:click="$set('textOffen', false)">Schließen</x-ui-button>
             </div>
         </x-slot>
     </x-ui-modal>

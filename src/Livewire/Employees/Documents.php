@@ -51,6 +51,9 @@ class Documents extends Component
     /** Haken "automatisch an neue Mitarbeiter (beim ersten Oeffnen des Portals)" */
     public bool $autoNeue = false;
     public bool $vorschauOffen = false;
+    /** Text einer bestehenden Info ansehen (26.10.2026) — getrennt von der Vorschau des Entwurfs. */
+    public bool $textOffen = false;
+    public ?int $textDokumentId = null;
     /** Haken "WhatsApp-Hinweis senden" (PDF und Info), vorausgewaehlt an — aus = notify_mode none. */
     public bool $whatsappHinweis = true;
 
@@ -96,6 +99,38 @@ class Documents extends Component
     public function vorschauHtml(): string
     {
         return InfoText::html($this->infoMarkdown);
+    }
+
+    /**
+     * Bestehende Info in der Liste ansehen — derselbe Renderer wie im Portal.
+     * Nur Infos dieses Teams, auch zurueckgezogene (der Verlauf bleibt lesbar).
+     */
+    public function textAnzeigen(int $documentId): void
+    {
+        $this->textDokumentId = $documentId;
+        unset($this->angezeigteInfo);
+        $this->textOffen = $this->angezeigteInfo !== null;
+        if (!$this->textOffen) {
+            $this->textDokumentId = null;
+        }
+    }
+
+    /** @return ?array{title: string, html: string} */
+    #[Computed]
+    public function angezeigteInfo(): ?array
+    {
+        if ($this->textDokumentId === null) {
+            return null;
+        }
+        $d = RecDocument::query()->withTrashed()
+            ->where('team_id', $this->teamId())
+            ->whereKey($this->textDokumentId)
+            ->first(['id', 'title', 'category', 'content_markdown']);
+        if ($d === null || !DokumentKategorie::istText((string) $d->category)) {
+            return null;
+        }
+
+        return ['title' => (string) $d->title, 'html' => InfoText::html((string) $d->content_markdown)];
     }
 
     private function istInfo(): bool

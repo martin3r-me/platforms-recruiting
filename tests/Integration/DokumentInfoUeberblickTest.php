@@ -135,6 +135,37 @@ final class DokumentInfoUeberblickTest extends TestCase
         $this->assertSame(1, $dok['automatisch'], 'Zahl der automatisch zugestellten Zeilen (Spec §6)');
     }
 
+    /** 26.10.2026: Text einer bestehenden Info in der Admin-Liste ansehen (wie im Portal). */
+    public function test_text_anzeigen_zeigt_bestehende_info_wie_im_portal(): void
+    {
+        $d = $this->info(false);
+        DB::table('rec_documents')->where('id', $d->id)->update(['content_markdown' => "## Willkommen\n\n**Schön**, dass du da bist."]);
+
+        $s = $this->seite('alle');
+        $this->assertNull($s->angezeigteInfo);
+        $s->textAnzeigen((int) $d->id);
+
+        $this->assertTrue($s->textOffen);
+        $info = $s->angezeigteInfo;
+        $this->assertSame('Willkommen', $info['title']);
+        $this->assertStringContainsString('<strong>Schön</strong>', $info['html']);
+        $this->assertStringContainsString('wire:click="textAnzeigen({{ $dok[\'id\'] }})"', $this->blade('documents.blade.php'));
+    }
+
+    public function test_text_anzeigen_nur_eigene_infos(): void
+    {
+        $fremd = RecDocument::create([
+            'team_id' => 99, 'title' => 'Fremd', 'category' => 'info', 'action' => 'none',
+            'content_markdown' => 'Geheim', 'file_sha256' => hash('sha256', 'Geheim'),
+        ]);
+
+        $s = $this->seite('alle');
+        $s->textAnzeigen((int) $fremd->id);
+
+        $this->assertFalse($s->textOffen);
+        $this->assertNull($s->angezeigteInfo);
+    }
+
     public function test_pdf_hat_kein_automatik_abzeichen(): void
     {
         RecDocument::create(['team_id' => 3, 'title' => 'Hausordnung', 'category' => 'other', 'action' => 'acknowledge',
