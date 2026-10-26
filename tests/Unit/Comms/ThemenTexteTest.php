@@ -44,7 +44,7 @@ final class ThemenTexteTest extends TestCase
     {
         // 26.10.2026: „Dispo Düsseldorf & …“ — die Frage sagt schon „Disposition“.
         $this->assertSame('Mönchengladbach', ThemenTexte::filialKnopf('Dispo Mönchengladbach'));
-        $this->assertSame('Düsseldorf & Neuss', ThemenTexte::filialKnopf('Dispo Düsseldorf & Neuss'));
+        $this->assertSame('Düsseldorf & Essen', ThemenTexte::filialKnopf('Dispo Düsseldorf & Essen'));
         $this->assertSame('Köln', ThemenTexte::filialKnopf('Disposition Köln'));
         $this->assertSame('Köln', ThemenTexte::filialKnopf('Köln'));
         $this->assertSame('Dispo', ThemenTexte::filialKnopf('Dispo'));
@@ -57,7 +57,7 @@ final class ThemenTexteTest extends TestCase
 
     public function test_listen_titel_der_filiale_ohne_praefix(): void
     {
-        $this->assertSame('Düsseldorf & Neuss', ThemenTexte::filialTitel('Dispo Düsseldorf & Neuss'));
+        $this->assertSame('Düsseldorf & Essen', ThemenTexte::filialTitel('Dispo Düsseldorf & Essen'));
     }
 
     public function test_listen_titel_wird_auf_24_zeichen_gekuerzt(): void
