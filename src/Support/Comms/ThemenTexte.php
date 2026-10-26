@@ -56,11 +56,19 @@ final class ThemenTexte
         return str_replace('{PUNKTE}', $liste, $text);
     }
 
-    public static function lohnOk(bool $duzen, ?string $teamText): string
+    /**
+     * Ohne hinterlegte Anleitung-URL kommt kein Link-Knopf (nur „Alles klar"),
+     * also verspricht der Vorgabetext ihn dann auch nicht (26.10.2026).
+     */
+    public static function lohnOk(bool $duzen, ?string $teamText, bool $mitAnleitung = true): string
     {
-        return self::oderVorgabe($teamText, $duzen
-            ? 'Hast du deine Stundenübersicht und Abrechnung schon kontrolliert? Dann kannst du uns gezielt sagen, was nicht passt. Wie du dich einloggst, zeigt der Knopf unten.'
-            : 'Haben Sie Ihre Stundenübersicht und Abrechnung schon kontrolliert? Dann können Sie uns gezielt sagen, was nicht passt. Wie Sie sich einloggen, zeigt der Knopf unten.');
+        $knopf = $mitAnleitung
+            ? ($duzen ? ' Wie du dich einloggst, zeigt der Knopf unten.' : ' Wie Sie sich einloggen, zeigt der Knopf unten.')
+            : '';
+
+        return self::oderVorgabe($teamText, ($duzen
+            ? 'Hast du deine Stundenübersicht und Abrechnung schon kontrolliert? Dann kannst du uns gezielt sagen, was nicht passt.'
+            : 'Haben Sie Ihre Stundenübersicht und Abrechnung schon kontrolliert? Dann können Sie uns gezielt sagen, was nicht passt.') . $knopf);
     }
 
     public static function filialKnopf(string $label): string

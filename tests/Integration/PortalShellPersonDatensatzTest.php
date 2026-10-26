@@ -245,4 +245,31 @@ final class PortalShellPersonDatensatzTest extends TestCase
         $this->assertSame('', $shell->profilFehler);
         $this->assertTrue((bool) RecEmployee::find($rg->id)->is_first_aider, 'RG-Akte heilt sich beim Speichern');
     }
+
+    /** 26.10.2026: lohnrelevante Luecken kommen aus dem echten (personenweiten) Datensatz. */
+    public function test_lohn_luecken_nur_lohnrelevant_und_personenweit(): void
+    {
+        $rg = $this->akte(['company' => 'RG', 'nationality' => 'deutsch', 'iban' => null, 'religion' => null, 'steuer_id' => null]);
+        $this->akte(['company' => 'MA', 'nationality' => 'deutsch', 'is_main_employer' => false, 'steuer_id' => '12345678901']);
+
+        $fehlt = $this->profilDaten($this->shell($rg), $rg)['lohnFehlt'];
+
+        $this->assertArrayHasKey('iban', $fehlt);
+        $this->assertArrayNotHasKey('religion', $fehlt, 'freiwillig');
+        $this->assertArrayNotHasKey('steuer_id', $fehlt, 'die Schwester hat sie (Personenfeld)');
+    }
+
+    /** 26.10.2026: der Lohn-Zweig der Themen-Auswahl rechnet wie der Portal-Start. */
+    public function test_lohnangaben_rechnen_wie_der_start(): void
+    {
+        $rg = $this->akte(['company' => 'RG', 'nationality' => 'deutsch', 'iban' => null, 'religion' => null, 'steuer_id' => null]);
+        $this->akte(['company' => 'MA', 'nationality' => 'deutsch', 'is_main_employer' => false, 'steuer_id' => '12345678901']);
+
+        $dienst = (new \Platform\Recruiting\Services\Lohnangaben())->fehlendFuer($rg);
+        $start = $this->profilDaten($this->shell($rg), $rg)['lohnFehlt'];
+
+        $this->assertSame($start, $dienst);
+        $this->assertArrayHasKey('iban', $dienst);
+        $this->assertArrayNotHasKey('steuer_id', $dienst);
+    }
 }

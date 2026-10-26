@@ -67,6 +67,7 @@ final class ThemenKlickHandler
         private readonly ?DispoForwardChannels $kanaele = null,
         private readonly ?ConversationForwarder $forwarder = null,
         private readonly ?OffenePunkte $offenePunkte = null,
+        private readonly ?\Platform\Recruiting\Services\Lohnangaben $lohnangaben = null,
     ) {}
 
     /**
@@ -474,16 +475,22 @@ final class ThemenKlickHandler
         }
 
         $punkte = $this->offenePunkte()->fuer($employee)['punkte'] ?? [];
-        if ($punkte !== []) {
-            $body = ThemenTexte::lohnOffen($duzen, $settings?->getSetting('comms_topic_text_lohn_offen'), array_column($punkte, 'label'));
+        // 26.10.2026: dazu die lohnrelevanten Luecken im Profil (IBAN,
+        // Steuer-ID ...) — dieselbe Liste wie der Portal-Start.
+        $luecken = array_values(array_unique([
+            ...array_column($punkte, 'label'),
+            ...array_values(($this->lohnangaben ?? new \Platform\Recruiting\Services\Lohnangaben())->fehlendFuer($employee)),
+        ]));
+        if ($luecken !== []) {
+            $body = ThemenTexte::lohnOffen($duzen, $settings?->getSetting('comms_topic_text_lohn_offen'), $luecken);
             $url = $employee->portal_v2_since !== null && (string) $employee->portal_token !== ''
                 ? route('recruiting.public.employee-portal', ['token' => $employee->portal_token])
                 : null;
             $r = $this->sendeHinweis($channel, $phone, $body, 'Zum Portal', $url);
             $state = RecConversationTopic::STATE_AKTE_HINT;
         } else {
-            $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'));
             $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
+            $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
             $r = $this->sendeHinweis($channel, $phone, $body, 'Anleitung', $url !== '' ? $url : null);
             $state = RecConversationTopic::STATE_LOHN_INFO;
         }

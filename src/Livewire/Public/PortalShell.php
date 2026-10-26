@@ -1047,6 +1047,7 @@ class PortalShell extends Component
             'uploadAccept'    => '.' . implode(',.', ProofUploadRules::MIME_TYPES),
             'profilGruppen'   => $profil['gruppen'],
             'profilStand'     => $profil['stand'],
+            'lohnFehlt'       => $profil['lohnFehlt'],
             'pflicht'         => $profil['pflicht'],
             'profilFelder'    => $profil['felder'],
             'profilHinweis'   => $profil['hinweis'],
@@ -1147,6 +1148,7 @@ class PortalShell extends Component
             return [
                 'gruppen'  => [],
                 'stand'    => PortalCompleteness::stand([], []),
+                'lohnFehlt' => [],
                 'felder'   => [],
                 'hinweis'  => null,
                 'nurLesen' => [],
@@ -1249,6 +1251,9 @@ class PortalShell extends Component
         // Non-EU-Gruppe fuer ihn ohnehin gar nicht erst mit.
         $flach = PortalFieldAccess::sichtbareFelderFlach($gruppen, $datensatz, []);
         $stand = PortalCompleteness::stand($flach, $datensatz);
+        // Lohnrelevante Luecken (26.10.2026) — fuer den Start-Kasten; der
+        // Ring ($stand) zaehlt weiter alles.
+        $lohnFehlt = \Platform\Recruiting\Support\LohnrelevanteFelder::fehlend($flach, $datensatz);
 
         $profilFelder = [];
         $blattNachweise = [];
@@ -1386,6 +1391,7 @@ class PortalShell extends Component
         return [
             'gruppen'  => $profilGruppen,
             'stand'    => $stand,
+            'lohnFehlt' => $lohnFehlt,
             'felder'   => $profilFelder,
             'hinweis'  => $hinweis,
             'nurLesen' => $employee->readOnlyDisplayFields(),

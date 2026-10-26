@@ -110,9 +110,10 @@
             // vollstaendig, aber die Personalakte nicht — Wortlaut wie Markus'
             // Vorlage "Personalakte unvollstaendig", Knopf ins Profil
             // (dieselbe Liste wie der Ring).
-            $profilProzent = (int) (($profilStand ?? null)['prozent'] ?? 100);
-            $profilFehlt = array_values(($profilStand ?? null)['fehlend'] ?? []);
-            $profilLuecke = $allesDa && $profilProzent < 100 && $profilFehlt !== [];
+            // 26.10.2026: nur LOHNRELEVANTE Luecken (LohnrelevanteFelder) —
+            // Religion & Co. sind freiwillig, der Ring im Profil zeigt sie weiter.
+            $profilFehlt = array_values($lohnFehlt ?? []);
+            $profilLuecke = $allesDa && $profilFehlt !== [];
             $profilNamen = implode(', ', array_slice($profilFehlt, 0, 3)) . (count($profilFehlt) > 3 ? ' und weitere' : '');
             $untertitel = $allesDa
                 ? ($profilLuecke

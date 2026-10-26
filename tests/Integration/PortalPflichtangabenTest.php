@@ -461,23 +461,25 @@ final class PortalPflichtangabenTest extends TestCase
         $daten = $this->ansicht($this->shell($this->mitarbeiter()));
         $satz = $this->rendereStart([
             'offen' => $daten['offen'], 'pflichtAufgaben' => $daten['pflichtAufgaben'], 'aufgaben' => $daten['aufgaben'], 'duzen' => true,
-            'profilStand' => ['prozent' => 44, 'gesamt' => 25, 'gefuellt' => 11, 'fehlend' => ['country_code' => 'Land', 'birth_country' => 'Geburtsland', 'gender' => 'Geschlecht', 'religion' => 'Religion']],
+            // 26.10.2026: der Start nennt nur LOHNRELEVANTE Luecken (LohnrelevanteFelder), nicht jede.
+            'lohnFehlt' => ['country_code' => 'Land', 'iban' => 'IBAN', 'steuer_id' => 'Steuer-ID', 'health_insurance' => 'Krankenkasse'],
         ]);
 
         $this->assertStringNotContainsString('Alles vollständig', $satz);
         $this->assertStringContainsString('Personalakte noch unvollständig', $satz);
         $this->assertStringContainsString('Deine Nachweise sind vollständig', $satz);
         $this->assertStringContainsString('damit wir deinen Lohn ordnungsgemäß abrechnen dürfen', $satz);
-        $this->assertStringContainsString('Land, Geburtsland, Geschlecht', $satz);
+        $this->assertStringContainsString('Land, IBAN, Steuer-ID und weitere', $satz);
         $this->assertStringContainsString('Zum Profil', $satz);
     }
 
-    public function test_start_sagt_alles_vollstaendig_bei_vollem_profil(): void
+    public function test_start_sagt_alles_vollstaendig_ohne_lohnrelevante_luecke(): void
     {
         $daten = $this->ansicht($this->shell($this->mitarbeiter()));
         $satz = $this->rendereStart([
             'offen' => $daten['offen'], 'pflichtAufgaben' => $daten['pflichtAufgaben'], 'aufgaben' => $daten['aufgaben'], 'duzen' => true,
-            'profilStand' => ['prozent' => 100, 'gesamt' => 25, 'gefuellt' => 25, 'fehlend' => []],
+            // Freiwillige Luecken (Religion, Familienstand ...) zaehlen hier nicht.
+            'lohnFehlt' => [],
         ]);
 
         $this->assertStringContainsString('Alles vollständig', $satz);

@@ -49,6 +49,9 @@ final class ThemenKlickHandlerTest extends TestCase
     private array $dispoKanaele = [7, 8, 9];
     /** @var list<array{code:string,label:string,status:string,ko:bool}> */
     private array $punkte = [];
+
+    /** @var array<string,string> lohnrelevante Luecken (26.10.2026) */
+    private array $lohnLuecken = [];
     private CommsChannel $kanal;
 
     public static function setUpBeforeClass(): void
@@ -633,7 +636,22 @@ final class ThemenKlickHandlerTest extends TestCase
         $i = $this->gesendet[0]['interactive'];
         $this->assertSame('button', $i['type']);
         $this->assertSame('topic_ack', $i['action']['buttons'][0]['reply']['id']);
+        $this->assertStringNotContainsString('Knopf unten', $i['body']['text'], 'ohne Anleitung-URL kein Versprechen eines Knopfs (26.10.2026)');
         $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+    }
+
+    /** 26.10.2026: fehlt eine lohnrelevante Angabe (z. B. IBAN), nennt der Lohn-Zweig sie — auch ohne offenen Nachweis. */
+    public function test_topic_lohn_nennt_lohnrelevante_luecken(): void
+    {
+        $this->lohnLuecken = ['iban' => 'IBAN', 'steuer_id' => 'Steuer-ID'];
+        [$thread, , $topic] = $this->gefragt();
+
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn'));
+
+        $text = $this->gesendet[0]['interactive']['body']['text'];
+        $this->assertStringContainsString('• IBAN', $text);
+        $this->assertStringContainsString('• Steuer-ID', $text);
+        $this->assertSame(RecConversationTopic::STATE_AKTE_HINT, $topic->fresh()->state);
     }
 
     public function test_topic_lohn_send_scheitert_zeile_unveraendert(): void
@@ -780,12 +798,23 @@ final class ThemenKlickHandlerTest extends TestCase
 
         $kanaele = new DispoForwardChannels($this->dispoKanaele);
 
+        $luecken = $this->lohnLuecken;
+        $lohn = new class($luecken) extends \Platform\Recruiting\Services\Lohnangaben {
+            public function __construct(private array $l) {}
+
+            public function fehlendFuer(RecEmployee $employee): array
+            {
+                return $this->l;
+            }
+        };
+
         return new ThemenKlickHandler(
             new InteraktivSender($meta),
             new ThemenAuswahlEmpfaenger($resolver),
             $kanaele,
             $forwarder ?? new ConversationForwarder($kanaele),
             $offen,
+            $lohn,
         );
     }
 
