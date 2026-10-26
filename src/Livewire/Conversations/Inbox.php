@@ -1122,12 +1122,31 @@ class Inbox extends Component
 
         if ($this->windowOpen) {
             $settings = \Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $this->teamId())->first();
-            $entwurf = \Platform\Recruiting\Services\Comms\AkteAmpel::entwurf(
-                $employee,
-                \Platform\Recruiting\Support\PublicAddressStyle::informal($settings?->getSetting('use_informal_address')),
-                $settings?->getSetting('comms_topic_text_lohn_offen'),
-                $ampel['luecken'],
-            );
+            $duzen = \Platform\Recruiting\Support\PublicAddressStyle::informal($settings?->getSetting('use_informal_address'));
+            $teamText = $settings?->getSetting('comms_topic_text_lohn_offen');
+            $url = \Platform\Recruiting\Services\Comms\LohnLuecken::portalUrl($employee);
+            $thread = $this->selectedThread;
+            $channel = $thread !== null ? \Platform\Crm\Models\CommsChannel::query()->where('team_id', $this->teamId())->find((int) $thread->comms_channel_id) : null;
+            $phone = (string) ($thread?->remote_phone_number ?? '');
+
+            // 26.10.2026: Knopf „Zum Portal“ statt langem Link im Text — als
+            // HR-Antwort (Absender = HR, keine Auto-Antwort), zaehlt wie ein
+            // getippter Text. Ohne Portal-Link oder Kanal: Entwurf wie bisher.
+            if ($url !== null && $channel !== null && $phone !== '') {
+                $text = \Platform\Recruiting\Support\Comms\ThemenTexte::lohnOffen($duzen, $teamText, $ampel['luecken']);
+                $r = app(\Platform\Recruiting\Services\Comms\InteraktivSender::class)
+                    ->linkKnopf($channel, $phone, $text, 'Zum Portal', $url, Auth::user(), false);
+                if ($r['status'] === \Platform\Recruiting\Services\Comms\InteraktivSender::STATUS_SENT) {
+                    session()->flash('message', 'Unterlagen angefordert — Nachricht mit Knopf „Zum Portal“ gesendet.');
+                    $this->forgetSnapshot();
+                } else {
+                    $this->sendError = 'Nicht gesendet: ' . ($r['error'] ?? 'Meta hat abgelehnt.');
+                }
+
+                return;
+            }
+
+            $entwurf = \Platform\Recruiting\Services\Comms\AkteAmpel::entwurf($employee, $duzen, $teamText, $ampel['luecken']);
             // Angefangenen Text nicht ueberschreiben, sondern anhaengen (Review 26.10. m6).
             $this->replyText = trim($this->replyText) === '' ? $entwurf : rtrim($this->replyText) . "\n\n" . $entwurf;
 

@@ -40,7 +40,7 @@ final class InteraktivSenderTest extends TestCase
 
             public function sendInteractive(CommsChannel $channel, string $to, array $interactive, string $displayBody, ?\Platform\Core\Models\User $sender = null, bool $isAutoReply = false): CommsWhatsAppMessage
             {
-                $this->calls[] = compact('to', 'interactive', 'displayBody', 'isAutoReply');
+                $this->calls[] = compact('to', 'interactive', 'displayBody', 'isAutoReply', 'sender');
                 if ($this->wirft) {
                     throw $this->wirft;
                 }
@@ -138,6 +138,22 @@ final class InteraktivSenderTest extends TestCase
             'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => 'Schreiben', 'url' => 'https://wa.me/49?text=Hi']],
         ], $a->calls[0]['interactive']);
         $this->assertThrows(fn () => (new InteraktivSender($a->meta))->linkKnopf(new CommsChannel(), '49', 'b', str_repeat('a', 21), 'https://x'));
+    }
+
+    /** 26.10.2026: „Unterlagen anfordern“ aus dem Chat — Knopf-Nachricht als HR-Antwort, nicht als Auto-Antwort. */
+    public function test_link_knopf_als_hr_antwort(): void
+    {
+        $a = $this->attrappe();
+        $hr = new \Platform\Core\Models\User();
+        $s = new InteraktivSender($a->meta);
+
+        $s->linkKnopf(new CommsChannel(), '49', 'Text', 'Zum Portal', 'https://x', $hr, false);
+        $s->linkKnopf(new CommsChannel(), '49', 'Text', 'Zum Portal', 'https://x');
+
+        $this->assertFalse($a->calls[0]['isAutoReply']);
+        $this->assertSame($hr, $a->calls[0]['sender']);
+        $this->assertTrue($a->calls[1]['isAutoReply'], 'Vorgabe bleibt Auto-Antwort (Themen-Auswahl, Parken)');
+        $this->assertNull($a->calls[1]['sender']);
     }
 
     public function test_abgelehnter_versand_ist_failed_mit_meta_fehler(): void

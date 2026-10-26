@@ -108,6 +108,9 @@ final class AkteAmpelTest extends TestCase
         $php = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Conversations/Inbox.php');
         $this->assertMatchesRegularExpression('/#\[Computed\]\s*public function akteAmpel\(\): \?array/', $php);
         $this->assertStringContainsString('public function akteHinweis(): void', $php);
+        // 26.10.: Fenster offen → Knopf „Zum Portal“ als HR-Antwort statt Link im Text.
+        $this->assertStringContainsString("->linkKnopf(\$channel, \$phone, \$text, 'Zum Portal', \$url, Auth::user(), false)", $php);
+        $this->assertStringContainsString('wire:confirm="{{ $akteBestaetigung }}"', $blade);
         $this->assertStringContainsString('AkteAmpel::zeigen(', $php);
         // Chat ohne Zuordnung: Ampel ueber die Nummer wie Themen-Auswahl/Parken (26.10.).
         $this->assertStringContainsString('ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId)', $php);

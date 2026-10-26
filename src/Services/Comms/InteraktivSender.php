@@ -75,7 +75,11 @@ final class InteraktivSender
     }
 
     /** @return array{status:string, message_id:?int, error:?string} */
-    public function linkKnopf(CommsChannel $channel, string $to, string $body, string $knopfTitel, string $url): array
+    /**
+     * @param ?\Platform\Core\Models\User $absender HR-Mitarbeiter, wenn ein Mensch sendet
+     * @param bool $autoAntwort false = zaehlt als HR-Antwort (Ampel „Unterlagen anfordern“, 26.10.2026)
+     */
+    public function linkKnopf(CommsChannel $channel, string $to, string $body, string $knopfTitel, string $url, ?\Platform\Core\Models\User $absender = null, bool $autoAntwort = true): array
     {
         $this->titelPruefen($knopfTitel, ThemenTexte::MAX_BUTTON, 'Link-Knopf');
         $interactive = [
@@ -84,7 +88,7 @@ final class InteraktivSender
             'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => $knopfTitel, 'url' => $url]],
         ];
 
-        return $this->senden($channel, $to, $interactive, $body);
+        return $this->senden($channel, $to, $interactive, $body, $absender, $autoAntwort);
     }
 
     private function titelPruefen(string $titel, int $max, string $was): void
@@ -95,10 +99,10 @@ final class InteraktivSender
     }
 
     /** @return array{status:string, message_id:?int, error:?string} */
-    private function senden(CommsChannel $channel, string $to, array $interactive, string $displayBody): array
+    private function senden(CommsChannel $channel, string $to, array $interactive, string $displayBody, ?\Platform\Core\Models\User $absender = null, bool $autoAntwort = true): array
     {
         try {
-            $message = ($this->meta ?? app(WhatsAppMetaService::class))->sendInteractive($channel, $to, $interactive, $displayBody, null, true);
+            $message = ($this->meta ?? app(WhatsAppMetaService::class))->sendInteractive($channel, $to, $interactive, $displayBody, $absender, $autoAntwort);
         } catch (\Throwable $e) {
             // Nur die letzten vier Ziffern loggen, nie die ganze Nummer (Muster EinmalcodeSender).
             $ziffern = preg_replace('/\D+/', '', $to) ?? '';
