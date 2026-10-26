@@ -15,12 +15,13 @@ class AkteAmpel
 {
     public function __construct(private readonly ?LohnLuecken $luecken = null) {}
 
-    /** @return array{gruen: bool, luecken: list<string>} */
+    /** @return array{gruen: bool, luecken: list<string>, nachweise: int} nachweise = Zahl offener Nachweise */
     public function fuer(RecEmployee $employee): array
     {
-        $luecken = ($this->luecken ?? app(LohnLuecken::class))->fuer($employee);
+        $g = ($this->luecken ?? app(LohnLuecken::class))->getrennt($employee);
+        $luecken = array_values(array_unique([...$g['nachweise'], ...$g['angaben']]));
 
-        return ['gruen' => $luecken === [], 'luecken' => $luecken];
+        return ['gruen' => $luecken === [], 'luecken' => $luecken, 'nachweise' => count($g['nachweise'])];
     }
 
     /** @param list<string> $luecken */

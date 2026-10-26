@@ -33,8 +33,12 @@ final class AkteAmpelTest extends TestCase
 
     public function test_gruen_ohne_luecken_rot_mit_luecken(): void
     {
-        $this->assertSame(['gruen' => true, 'luecken' => []], (new AkteAmpel($this->luecken([])))->fuer(new RecEmployee()));
-        $this->assertSame(['gruen' => false, 'luecken' => ['IBAN']], (new AkteAmpel($this->luecken(['IBAN'])))->fuer(new RecEmployee()));
+        $this->assertSame(['gruen' => true, 'luecken' => [], 'nachweise' => 0], (new AkteAmpel($this->luecken([], [])))->fuer(new RecEmployee()));
+        $this->assertSame(
+            ['gruen' => false, 'luecken' => ['Personalausweis', 'IBAN'], 'nachweise' => 1],
+            (new AkteAmpel($this->luecken(['Personalausweis'], ['IBAN'])))->fuer(new RecEmployee()),
+        );
+        $this->assertSame(['gruen' => false, 'luecken' => ['IBAN'], 'nachweise' => 0], (new AkteAmpel($this->luecken([], ['IBAN'])))->fuer(new RecEmployee()));
     }
 
     public function test_entwurf_nennt_die_luecken_und_den_portal_link(): void
@@ -72,15 +76,18 @@ final class AkteAmpelTest extends TestCase
         $this->assertStringContainsString('public function akteHinweis(): void', $php);
     }
 
-    /** @param list<string> $l */
-    private function luecken(array $l): LohnLuecken
+    /**
+     * @param list<string> $nachweise
+     * @param list<string> $angaben
+     */
+    private function luecken(array $nachweise, array $angaben): LohnLuecken
     {
-        return new class($l) extends LohnLuecken {
-            public function __construct(private array $l) {}
+        return new class($nachweise, $angaben) extends LohnLuecken {
+            public function __construct(private array $n, private array $a) {}
 
-            public function fuer(RecEmployee $employee): array
+            public function getrennt(RecEmployee $employee): array
             {
-                return $this->l;
+                return ['nachweise' => $this->n, 'angaben' => $this->a];
             }
         };
     }

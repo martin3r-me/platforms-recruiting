@@ -500,9 +500,14 @@
                             @php
                                 $akteAmpel = $this->akteAmpel;
                                 $akteFehlt = $akteAmpel !== null ? implode(', ', $akteAmpel['luecken']) : '';
-                                $akteKnopfTitel = $this->windowOpen
+                                $akteFensterOffen = $this->windowOpen;
+                                // Fenster zu + nur Profil-Angaben offen: keine Vorlage dafuer (erinnereAufgaben).
+                                $akteKnopfAus = $akteAmpel !== null && !$akteFensterOffen && $akteAmpel['nachweise'] === 0;
+                                $akteKnopfTitel = $akteFensterOffen
                                     ? 'Entwurf mit den fehlenden Punkten ins Antwortfeld setzen — vor dem Senden prüfen'
-                                    : 'Vorlage „Personalakte unvollständig“ senden (wie „Erneut erinnern“ in der Akte)';
+                                    : ($akteKnopfAus
+                                        ? 'Fenster zu und es fehlen nur Angaben im Profil — dafür gibt es keine Vorlage'
+                                        : 'Vorlage „Personalakte unvollständig“ senden (wie „Erneut erinnern“ in der Akte)');
                             @endphp
                             @if ($akteAmpel !== null)
                                 @if ($akteAmpel['gruen'])
@@ -510,6 +515,7 @@
                                 @else
                                     <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700" title="Fehlt: {{ $akteFehlt }}">● Akte unvollständig</span>
                                     <button type="button" wire:click="akteHinweis" wire:loading.attr="disabled" wire:target="akteHinweis"
+                                            @disabled($akteKnopfAus)
                                             title="{{ $akteKnopfTitel }}"
                                             class="rounded border border-red-200 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
                                         Unterlagen anfordern

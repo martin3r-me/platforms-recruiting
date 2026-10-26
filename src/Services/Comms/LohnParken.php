@@ -8,6 +8,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecConversationHandled;
 use Platform\Recruiting\Models\RecConversationTopic;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\Comms\ThemenTexte;
@@ -65,6 +66,13 @@ class LohnParken
         if ($topic === null) {
             return 'ignoriert:nicht_geparkt';
         }
+        // HR hat inzwischen selbst geantwortet (Review 26.10. I2): kein Bot
+        // mitten ins Gespraech — das Parken endet, die Nachricht geht an HR.
+        if (self::hrHatGeantwortet($topic)) {
+            $this->freigeben($topic);
+
+            return 'freigegeben:hr_hat_geantwortet';
+        }
 
         $phone = (string) ($thread->remote_phone_number ?? '');
         $employee = $this->mitarbeiter($phone, $teamId);
@@ -86,7 +94,8 @@ class LohnParken
                 'topic_id' => $topic->id, 'status' => $r['status'], 'error' => $r['error'],
             ]);
 
-            return self::STILL;
+            // Nicht STILL: dann darf die Abwesenheitsnotiz laufen (Review 26.10. m8).
+            return 'ignoriert:send_' . $r['status'];
         }
         $topic->touch();
 
@@ -102,21 +111,25 @@ class LohnParken
         if ($thread === null) {
             return $this->freigeben($topic) ? 'freigegeben:ohne_thread' : 'geparkt';
         }
+        // HR hat schon geantwortet: der Chat ist in Arbeit, nichts zurueckholen.
+        if (self::hrHatGeantwortet($topic)) {
+            return $this->freigeben($topic) ? 'freigegeben:hr_hat_geantwortet' : 'geparkt';
+        }
         if (!self::schalterAn($settings)) {
-            return $this->freigeben($topic) ? 'freigegeben:schalter_aus' : 'geparkt';
+            return $this->freigeben($topic, $thread) ? 'freigegeben:schalter_aus' : 'geparkt';
         }
 
         $phone = (string) ($thread->remote_phone_number ?? '');
         $employee = $this->mitarbeiter($phone, $teamId);
         if ($employee === null) {
-            return $this->freigeben($topic) ? 'freigegeben:kein_aktiver_ma' : 'geparkt';
+            return $this->freigeben($topic, $thread) ? 'freigegeben:kein_aktiver_ma' : 'geparkt';
         }
         if ($this->luecken()->fuer($employee) !== []) {
             return 'geparkt';
         }
 
         // Erst beanspruchen, dann senden: zwei Laeufe schicken nicht zweimal Dank.
-        if (!$this->freigeben($topic)) {
+        if (!$this->freigeben($topic, $thread)) {
             return 'geparkt';
         }
         $channel = CommsChannel::query()->find((int) $thread->comms_channel_id);
@@ -158,6 +171,25 @@ class LohnParken
             : $this->sender()->knoepfe($channel, $phone, $body, [['id' => self::ACK, 'title' => 'Alles klar']]);
     }
 
+    /**
+     * Menschliche Antwort von HR nach der Lohn-Wahl? Dieselbe Regel wie
+     * InboxQuery (is_auto_reply = false). chosen_at fehlt nie bei einer
+     * geparkten Zeile; ohne gilt die Zeile als nicht beantwortet.
+     */
+    public static function hrHatGeantwortet(RecConversationTopic $topic): bool
+    {
+        if ($topic->chosen_at === null) {
+            return false;
+        }
+
+        return CommsWhatsAppMessage::query()
+            ->where('comms_whatsapp_thread_id', (int) $topic->comms_whatsapp_thread_id)
+            ->where('direction', 'outbound')
+            ->where('is_auto_reply', false)
+            ->where('created_at', '>', $topic->chosen_at)
+            ->exists();
+    }
+
     public static function schalterAn(?RecApplicantSettings $settings): bool
     {
         return $settings !== null && (bool) $settings->getSetting('comms_topic_enabled', false);
@@ -174,8 +206,16 @@ class LohnParken
         return RecConversationTopic::query()->find($zeile->id);
     }
 
-    /** Bedingt: nur eine geparkte Zeile wird freigegeben (zwei Laeufe, Eingang + Lauf). */
-    private function freigeben(RecConversationTopic $topic): bool
+    /**
+     * Bedingt: nur eine geparkte Zeile wird freigegeben (zwei Laeufe, Eingang + Lauf).
+     *
+     * Mit $thread (Lauf): der Chat wird wieder ungelesen und ein Erledigt-
+     * Stempel faellt weg — sonst blieb ein Chat, den HR im Filter „Wartet auf
+     * Akte“ schon geoeffnet hatte, nach der Freigabe nur unter „Alle“ stehen
+     * (Review 26.10. I1). Beim Eingang ist der Chat durch die neue Nachricht
+     * ohnehin offen.
+     */
+    private function freigeben(RecConversationTopic $topic, ?CommsWhatsAppThread $thread = null): bool
     {
         $n = RecConversationTopic::query()
             ->whereKey($topic->id)
@@ -184,6 +224,13 @@ class LohnParken
         if ($n === 1) {
             $topic->state = RecConversationTopic::STATE_FREIGEGEBEN;
             $topic->syncOriginalAttribute('state');
+            if ($thread !== null) {
+                $thread->markAsUnread();
+                RecConversationHandled::query()
+                    ->where('team_id', (int) $topic->team_id)
+                    ->where('comms_whatsapp_thread_id', (int) $thread->id)
+                    ->delete();
+            }
         }
 
         return $n === 1;

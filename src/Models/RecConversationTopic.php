@@ -79,7 +79,7 @@ class RecConversationTopic extends Model
                     ->where('team_id', $teamId)
                     ->groupBy('comms_whatsapp_thread_id');
             })
-            ->get(['id', 'comms_whatsapp_thread_id', 'topic', 'state', 'dispo_channel_id', 'asked_at']);
+            ->get(['id', 'comms_whatsapp_thread_id', 'topic', 'state', 'dispo_channel_id', 'asked_at', 'chosen_at']);
 
         $gesucht = array_fill_keys($threadIds, true);
         $out = [];

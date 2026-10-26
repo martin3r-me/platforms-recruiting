@@ -1075,16 +1075,17 @@ class Inbox extends Component
      * Mitarbeiters hinter dem Chat vollstaendig? null = kein aktiver MA oder
      * Pruefung gescheitert — lieber keine Ampel als eine falsche.
      *
-     * @return ?array{gruen: bool, luecken: list<string>}
+     * @return ?array{gruen: bool, luecken: list<string>, nachweise: int}
      */
     #[Computed]
     public function akteAmpel(): ?array
     {
-        $employee = $this->forwardEmployee();
-        if ($employee === null || !$employee->is_active) {
-            return null;
-        }
         try {
+            $employee = $this->forwardEmployee();
+            if ($employee === null || !$employee->is_active) {
+                return null;
+            }
+
             return app(\Platform\Recruiting\Services\Comms\AkteAmpel::class)->fuer($employee);
         } catch (\Throwable $e) {
             report($e);
@@ -1110,12 +1111,20 @@ class Inbox extends Component
 
         if ($this->windowOpen) {
             $settings = \Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $this->teamId())->first();
-            $this->replyText = \Platform\Recruiting\Services\Comms\AkteAmpel::entwurf(
+            $entwurf = \Platform\Recruiting\Services\Comms\AkteAmpel::entwurf(
                 $employee,
                 \Platform\Recruiting\Support\PublicAddressStyle::informal($settings?->getSetting('use_informal_address')),
                 $settings?->getSetting('comms_topic_text_lohn_offen'),
                 $ampel['luecken'],
             );
+            // Angefangenen Text nicht ueberschreiben, sondern anhaengen (Review 26.10. m6).
+            $this->replyText = trim($this->replyText) === '' ? $entwurf : rtrim($this->replyText) . "\n\n" . $entwurf;
+
+            return;
+        }
+        // Fenster zu: die Vorlage geht nur bei offenen Nachweisen (erinnereAufgaben).
+        if ($ampel['nachweise'] === 0) {
+            $this->sendError = 'Es fehlen nur Angaben im Profil, keine Nachweise — dafür gibt es keine Vorlage. Sobald die Person schreibt, kann der Entwurf per Freitext raus.';
 
             return;
         }

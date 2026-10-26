@@ -61,6 +61,7 @@ final class LohnParkenTest extends TestCase
         foreach ([
             $own . '/database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php',
             $own . '/database/migrations/2026_10_17_000001_create_rec_conversation_topics_table.php',
+            $own . '/database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php',
             $crm . '/database/migrations/2026_01_14_000003_create_comms_channels_table.php',
             $crm . '/database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php',
             $crm . '/database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php',
@@ -108,7 +109,7 @@ final class LohnParkenTest extends TestCase
     protected function setUp(): void
     {
         self::bindeContainer();
-        foreach (['rec_conversation_topics', 'rec_employees', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'rec_applicant_settings'] as $t) {
+        foreach (['rec_conversation_topics', 'rec_conversation_handled', 'rec_employees', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'rec_applicant_settings'] as $t) {
             Capsule::table($t)->delete();
         }
         $this->gesendet = new \ArrayObject();
@@ -271,6 +272,88 @@ final class LohnParkenTest extends TestCase
         $this->assertNotSame((int) $alt->id, (int) $aktuell->id);
     }
 
+    // ------------------------------------------------------------ Review 26.10.
+
+    public function test_hr_antwort_beendet_das_parken_kein_bot_ins_gespraech(): void
+    {
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        $this->hrAntwort($thread, vorSekunden: 3600);
+
+        $status = $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread));
+
+        $this->assertSame('freigegeben:hr_hat_geantwortet', $status);
+        $this->assertFalse(LohnParken::antwortet($status));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_FREIGEGEBEN, $topic->fresh()->state);
+    }
+
+    public function test_auto_antwort_zaehlt_nicht_als_hr_antwort(): void
+    {
+        [$thread] = $this->geparkt(vorSekunden: 2 * 3600);
+        $this->hrAntwort($thread, vorSekunden: 3600, auto: true);
+
+        $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
+    }
+
+    public function test_lauf_hr_hat_geantwortet_gibt_frei_ohne_dank_und_ohne_ungelesen(): void
+    {
+        $this->luecken = [];
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        $this->hrAntwort($thread, vorSekunden: 3600);
+        $thread->forceFill(['is_unread' => false])->save();
+
+        $this->assertSame('freigegeben:hr_hat_geantwortet', $this->parken()->freigebenWennVollstaendig($topic));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertFalse((bool) $thread->fresh()->is_unread);
+    }
+
+    public function test_lauf_freigabe_macht_den_chat_wieder_ungelesen(): void
+    {
+        // HR hat den Chat im Filter „Wartet auf Akte“ geoeffnet (gelesen) oder abgehakt.
+        $this->luecken = [];
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        $thread->forceFill(['is_unread' => false])->save();
+        Capsule::table('rec_conversation_handled')->insert([
+            'team_id' => self::TEAM, 'comms_whatsapp_thread_id' => (int) $thread->id,
+            'handled_at' => date('Y-m-d H:i:s'), 'handled_reason' => 'manual',
+            'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->assertSame(LohnParken::FREIGEGEBEN, $this->parken()->freigebenWennVollstaendig($topic));
+        $this->assertTrue((bool) $thread->fresh()->is_unread);
+        $this->assertSame(0, Capsule::table('rec_conversation_handled')->count());
+    }
+
+    public function test_erinnerung_scheitert_dann_darf_die_abwesenheitsnotiz_laufen(): void
+    {
+        $this->sendStatus = ['failed'];
+        [$thread] = $this->geparkt(vorSekunden: 2 * 3600);
+
+        $status = $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread));
+
+        $this->assertSame('ignoriert:send_failed', $status);
+        $this->assertFalse(LohnParken::antwortet($status));
+    }
+
+    public function test_kommando_ueber_zwei_teams(): void
+    {
+        [, $hier] = $this->geparkt(vorSekunden: 2 * 3600);
+        [, $dort] = $this->geparkt(vorSekunden: 2 * 3600, team: 952);
+
+        $ids = LohnParkenFreigeben::kandidaten()->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $this->assertSame([(int) $hier->id, (int) $dort->id], $ids);
+    }
+
+    private function hrAntwort(CommsWhatsAppThread $thread, int $vorSekunden, bool $auto = false): void
+    {
+        $zeit = date('Y-m-d H:i:s', time() - $vorSekunden);
+        Capsule::table('comms_whatsapp_messages')->insert([
+            'comms_whatsapp_thread_id' => $thread->id, 'direction' => 'outbound', 'is_auto_reply' => $auto,
+            'body' => 'Wir schauen nach.', 'message_type' => 'text', 'sent_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
+        ]);
+    }
+
     // ------------------------------------------------------------ Hilfen
 
     private function parken(): LohnParken
@@ -316,16 +399,16 @@ final class LohnParkenTest extends TestCase
     }
 
     /** @return array{0: CommsWhatsAppThread, 1: RecConversationTopic} */
-    private function geparkt(int $vorSekunden, string $state = RecConversationTopic::STATE_GEPARKT): array
+    private function geparkt(int $vorSekunden, string $state = RecConversationTopic::STATE_GEPARKT, int $team = self::TEAM): array
     {
         $thread = CommsWhatsAppThread::create([
-            'team_id' => self::TEAM, 'comms_channel_id' => self::HR_KANAL, 'token' => bin2hex(random_bytes(8)),
+            'team_id' => $team, 'comms_channel_id' => self::HR_KANAL, 'token' => bin2hex(random_bytes(8)),
             'remote_phone_number' => '+4915170000' . random_int(100, 999), 'is_unread' => true,
             'last_inbound_at' => date('Y-m-d H:i:s', time() - 5),
         ]);
         $zeit = date('Y-m-d H:i:s', time() - $vorSekunden);
         $id = (int) Capsule::table('rec_conversation_topics')->insertGetId([
-            'team_id' => self::TEAM, 'comms_whatsapp_thread_id' => (int) $thread->id,
+            'team_id' => $team, 'comms_whatsapp_thread_id' => (int) $thread->id,
             'topic' => RecConversationTopic::TOPIC_LOHN, 'state' => $state,
             'asked_at' => $zeit, 'chosen_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
         ]);

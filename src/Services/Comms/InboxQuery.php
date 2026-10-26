@@ -111,7 +111,7 @@ final class InboxQuery
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
             ...self::themaFelder($themen[$id] ?? null),
-            'parked' => $parkenAn && ($themen[$id]['state'] ?? null) === RecConversationTopic::STATE_GEPARKT,
+            'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $humanOutbound[$id] ?? null),
             'followup' => $offen[$id] ?? null,
         ];
 
@@ -287,13 +287,15 @@ final class InboxQuery
             if (($row['followup'] ?? null) !== null) {
                 $counts['followup']++;
             }
-            if (!$row['is_unread']) {
-                continue;
-            }
             // Geparkt (Lohn, Akte unvollstaendig): eigener Zaehler statt
             // Ungelesen/Ampel — auch nicht in der Seitenleiste (26.10.2026).
+            // Wie „Offen“ unabhaengig von gelesen: ein geoeffneter, noch
+            // wartender Chat darf nicht aus dem Filter fallen (Review 26.10. I1).
             if ($row['parked'] ?? false) {
                 $counts['parked']++;
+                continue;
+            }
+            if (!$row['is_unread']) {
                 continue;
             }
             $counts['unread']++;
@@ -407,7 +409,7 @@ final class InboxQuery
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
                 ...self::themaFelder($themen[$id] ?? null),
-                'parked' => $parkenAn && ($themen[$id]['state'] ?? null) === RecConversationTopic::STATE_GEPARKT,
+                'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $humanOutbound[$id] ?? null),
                 'followup' => $offen[$id] ?? null,
             ];
         }
@@ -442,8 +444,8 @@ final class InboxQuery
                 return false;
             }
         } elseif ($filter->level === 'parked') {
-            // „Wartet auf Akte“ (26.10.2026): nur geparkte, noch offene Chats.
-            if (!($row['parked'] ?? false) || !$row['is_unread']) {
+            // „Wartet auf Akte“ (26.10.2026): geparkte Chats, auch gelesene.
+            if (!($row['parked'] ?? false)) {
                 return false;
             }
         } else {
@@ -855,7 +857,7 @@ final class InboxQuery
      * Fehler wird gemeldet, nicht verschluckt.
      *
      * @param list<int> $threadIds
-     * @return array<int, array{topic: string, state: string, dispo_channel_id: ?int}>
+     * @return array<int, array{topic: string, state: string, dispo_channel_id: ?int, chosen_at: ?int}>
      */
     private function aktuelleThemen(int $teamId, array $threadIds): array
     {
@@ -876,6 +878,7 @@ final class InboxQuery
                 'topic' => (string) $row->topic,
                 'state' => (string) $row->state,
                 'dispo_channel_id' => $row->dispo_channel_id !== null ? (int) $row->dispo_channel_id : null,
+                'chosen_at' => $row->chosen_at?->getTimestamp(),
             ];
         }
 
@@ -931,6 +934,22 @@ final class InboxQuery
             'topic_state' => $thema['state'],
             'topic_dispo_channel_id' => $thema['dispo_channel_id'],
         ];
+    }
+
+    /**
+     * Geparkt (Lohn, Akte unvollstaendig — LohnParken): Zustand lohn_parked
+     * UND keine menschliche HR-Antwort seit der Wahl. Antwortet HR, ist der
+     * Chat in Arbeit und gehoert nicht mehr in „Wartet auf Akte“ (Review 26.10. I2).
+     *
+     * @param ?array{state: string, chosen_at: ?int} $thema
+     */
+    private static function geparkt(?array $thema, ?int $humanOutboundAt): bool
+    {
+        if ($thema === null || $thema['state'] !== RecConversationTopic::STATE_GEPARKT) {
+            return false;
+        }
+
+        return $humanOutboundAt === null || ($thema['chosen_at'] ?? null) === null || $humanOutboundAt <= $thema['chosen_at'];
     }
 
     /**

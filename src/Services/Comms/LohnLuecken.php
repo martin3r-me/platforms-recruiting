@@ -21,12 +21,25 @@ class LohnLuecken
     /** @return list<string> Beschriftungen, leer = vollstaendig */
     public function fuer(RecEmployee $employee): array
     {
+        $g = $this->getrennt($employee);
+
+        return array_values(array_unique([...$g['nachweise'], ...$g['angaben']]));
+    }
+
+    /**
+     * Getrennt nach Herkunft: die Vorlage „Personalakte unvollständig“ geht
+     * nur bei offenen Nachweisen raus (HrKontoAktionen::erinnereAufgaben).
+     *
+     * @return array{nachweise: list<string>, angaben: list<string>}
+     */
+    public function getrennt(RecEmployee $employee): array
+    {
         $punkte = ($this->offenePunkte ?? app(OffenePunkte::class))->fuer($employee)['punkte'] ?? [];
 
-        return array_values(array_unique([
-            ...array_column($punkte, 'label'),
-            ...array_values(($this->lohnangaben ?? new Lohnangaben())->fehlendFuer($employee)),
-        ]));
+        return [
+            'nachweise' => array_values(array_column($punkte, 'label')),
+            'angaben' => array_values(($this->lohnangaben ?? new Lohnangaben())->fehlendFuer($employee)),
+        ];
     }
 
     /** Portal-Link nur im neuen Portal — das alte kennt die Nachreichung nicht. */

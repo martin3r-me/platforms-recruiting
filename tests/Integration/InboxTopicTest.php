@@ -312,6 +312,38 @@ class InboxTopicTest extends TestCase
         $this->assertSame(10, $counts['unread']);
     }
 
+    public function test_geparkt_und_gelesen_bleibt_im_filter(): void
+    {
+        // Review 26.10. I1: HR oeffnet den Chat aus „Wartet auf Akte“ — er bleibt dort.
+        CommsWhatsAppThread::query()->whereKey(self::$geparkt)->update(['is_unread' => false]);
+        try {
+            $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(level: 'parked'), 50, 0, self::JETZT);
+        } finally {
+            CommsWhatsAppThread::query()->whereKey(self::$geparkt)->update(['is_unread' => true]);
+        }
+
+        $this->assertSame(1, $snap['counts']['parked']);
+        $this->assertSame([self::$geparkt], array_map(fn ($r) => $r->threadId, $snap['rows']));
+    }
+
+    public function test_hr_antwort_nach_der_wahl_beendet_das_parken(): void
+    {
+        // Review 26.10. I2: HR hat geantwortet → Chat ist in Arbeit, normal unter Ungelesen.
+        $zeit = date('Y-m-d H:i:s', self::JETZT - 1_800);
+        $id = Capsule::table('comms_whatsapp_messages')->insertGetId([
+            'comms_whatsapp_thread_id' => self::$geparkt, 'direction' => 'outbound', 'is_auto_reply' => false,
+            'body' => 'Schauen wir uns an.', 'message_type' => 'text', 'sent_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
+        ]);
+        try {
+            $counts = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
+        } finally {
+            Capsule::table('comms_whatsapp_messages')->where('id', $id)->delete();
+        }
+
+        $this->assertSame(0, $counts['parked']);
+        $this->assertSame(10, $counts['unread']);
+    }
+
     private static function seed(): void
     {
         $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
