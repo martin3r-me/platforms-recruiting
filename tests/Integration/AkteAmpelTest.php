@@ -109,6 +109,9 @@ final class AkteAmpelTest extends TestCase
         $this->assertMatchesRegularExpression('/#\[Computed\]\s*public function akteAmpel\(\): \?array/', $php);
         $this->assertStringContainsString('public function akteHinweis(): void', $php);
         $this->assertStringContainsString('AkteAmpel::zeigen(', $php);
+        // Chat ohne Zuordnung: Ampel ueber die Nummer wie Themen-Auswahl/Parken (26.10.).
+        $this->assertStringContainsString('ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId)', $php);
+        $this->assertSame(2, substr_count($php, '$employee = $this->akteMitarbeiter();'));
     }
 
     /**

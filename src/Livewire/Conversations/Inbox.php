@@ -1081,7 +1081,7 @@ class Inbox extends Component
     public function akteAmpel(): ?array
     {
         try {
-            $employee = $this->forwardEmployee();
+            $employee = $this->akteMitarbeiter();
             if ($employee === null || !$employee->is_active) {
                 return null;
             }
@@ -1107,7 +1107,7 @@ class Inbox extends Component
     public function akteHinweis(): void
     {
         $this->sendError = null;
-        $employee = $this->forwardEmployee();
+        $employee = $this->akteMitarbeiter();
         $ampel = $this->akteAmpel;
         if ($employee === null || $ampel === null || $ampel['gruen']) {
             return;
@@ -1146,6 +1146,36 @@ class Inbox extends Component
         } else {
             $this->sendError = $ergebnis->meldung;
         }
+    }
+
+    /**
+     * MA fuer die Ampel: erst ueber die Zuordnung des Chats, sonst ueber die
+     * Nummer — derselbe Weg wie Themen-Auswahl und Lohn-Parken (Screenshot
+     * 26.10.: Chat ohne Zuordnung, geparkt, aber keine Ampel). Die Nummern-
+     * Suche laedt alle aktiven MA mit Nummer; 5 Minuten gemerkt, weil der
+     * Chat alle 20 s neu zeichnet.
+     */
+    private function akteMitarbeiter(): ?\Platform\Recruiting\Models\RecEmployee
+    {
+        $employee = $this->forwardEmployee();
+        if ($employee !== null) {
+            return $employee;
+        }
+        $row = $this->selectedRow;
+        $phone = (string) ($row?->phone ?? '');
+        if ($row === null || $phone === '' || $row->subjectType === 'applicant') {
+            return null;
+        }
+        $teamId = $this->teamId();
+        $id = \Illuminate\Support\Facades\Cache::remember(
+            'akte-ampel-ma:' . $teamId . ':' . preg_replace('/\D+/', '', $phone),
+            300,
+            fn () => app(\Platform\Recruiting\Services\Comms\ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId) ?? 0,
+        );
+
+        return $id > 0
+            ? \Platform\Recruiting\Models\RecEmployee::query()->where('team_id', $teamId)->find((int) $id)
+            : null;
     }
 
     /**
