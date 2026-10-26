@@ -71,9 +71,29 @@ final class ThemenTexte
             : 'Haben Sie Ihre Stundenübersicht und Abrechnung schon kontrolliert? Dann können Sie uns gezielt sagen, was nicht passt.') . $knopf);
     }
 
+    /**
+     * Knopf einer Filiale. Das Praefix „Dispo“ faellt weg — die Frage sagt
+     * schon „Disposition“, und mit Praefix schnitt Meta „Dispo Düsseldorf & …“
+     * ab (26.10.2026).
+     */
     public static function filialKnopf(string $label): string
     {
+        $label = self::ohneDispoPraefix($label);
+
         return mb_strlen($label) <= self::MAX_BUTTON ? $label : mb_substr($label, 0, self::MAX_BUTTON - 1) . '…';
+    }
+
+    /** Listenzeile einer Filiale (ab 4 Filialen), ebenfalls ohne „Dispo“. */
+    public static function filialTitel(string $label): string
+    {
+        return self::listenTitel(self::ohneDispoPraefix($label));
+    }
+
+    private static function ohneDispoPraefix(string $label): string
+    {
+        $kurz = trim((string) preg_replace('/^\s*(Disposition|Dispo)\s+/iu', '', $label));
+
+        return $kurz === '' ? trim($label) : $kurz;
     }
 
     /** Listenzeilen-Titel: Meta erlaubt 24 Zeichen, ein längerer wird auf 23 + „…“ gekürzt. */

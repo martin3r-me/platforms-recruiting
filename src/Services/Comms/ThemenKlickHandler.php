@@ -54,6 +54,8 @@ final class ThemenKlickHandler
     private const KOMMENTAR = 'Automatisch: Mitarbeiter hat Thema Disposition gewählt';
     private const VORBELEGUNG_OHNE_TEXT = 'Hallo, ich habe eine Frage zu meinem Einsatz.';
     private const LISTEN_KNOPF = 'Dispo wählen';
+    /** Der Text nennt die Filiale schon; „Zur Dispo Düsseldorf & …“ waere abgeschnitten. */
+    private const LINK_KNOPF = 'Zur Dispo';
     private const MAX_LISTE = 10;
     private const MAX_TEXT = 1000;
     private const MAX_URL = 2000;
@@ -200,7 +202,7 @@ final class ThemenKlickHandler
                 Log::warning('recruiting.themen.zu_viele_filialen', ['team_id' => $teamId, 'anzahl' => count($optionen)]);
             }
             $r = $this->sender()->liste($channel, $phone, $body, self::LISTEN_KNOPF, array_map(
-                fn (array $o) => ['id' => 'dispo_' . $o['channel_id'], 'title' => ThemenTexte::listenTitel($o['label'])],
+                fn (array $o) => ['id' => 'dispo_' . $o['channel_id'], 'title' => ThemenTexte::filialTitel($o['label'])],
                 array_slice($optionen, 0, self::MAX_LISTE),
             ));
         }
@@ -248,7 +250,7 @@ final class ThemenKlickHandler
         // (Review Task 4, I1).
         $eingaenge = $this->getippteEingaenge($thread, $message, $topic);
         $url = self::waMeUrl($nummer, $this->vorbelegung($eingaenge));
-        $r = $this->sender()->linkKnopf($channel, $phone, ThemenTexte::dispoLink($duzen, $label), ThemenTexte::filialKnopf('Zur ' . $label), $url);
+        $r = $this->sender()->linkKnopf($channel, $phone, ThemenTexte::dispoLink($duzen, $label), self::LINK_KNOPF, $url);
 
         // Die Weiterleitung ist das Sicherheitsnetz: sie geht auch dann raus,
         // wenn Meta den Link ablehnt — das Anliegen soll bei der Dispo ankommen

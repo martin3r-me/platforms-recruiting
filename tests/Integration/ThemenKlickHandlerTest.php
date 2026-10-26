@@ -178,8 +178,8 @@ final class ThemenKlickHandlerTest extends TestCase
         $i = $this->gesendet[0]['interactive'];
         $this->assertSame('button', $i['type']);
         $this->assertSame(['dispo_7', 'dispo_8', 'dispo_9'], array_map(fn ($k) => $k['reply']['id'], $i['action']['buttons']));
-        $this->assertSame('Dispo Düsseldorf', $i['action']['buttons'][0]['reply']['title']);
-        $this->assertSame('Dispo Köln', $i['action']['buttons'][1]['reply']['title']);
+        $this->assertSame('Düsseldorf', $i['action']['buttons'][0]['reply']['title']);
+        $this->assertSame('Köln', $i['action']['buttons'][1]['reply']['title']);
         $this->assertTrue($this->gesendet[0]['isAutoReply']);
         $this->assertSame((string) $thread->remote_phone_number, $this->gesendet[0]['to']);
 
@@ -232,7 +232,7 @@ final class ThemenKlickHandlerTest extends TestCase
             'https://wa.me/4921178177723?text=' . rawurlencode('Komme morgen 30 min später'),
             $i['action']['parameters']['url'],
         );
-        $this->assertSame('Zur Dispo Düsseldorf', $i['action']['parameters']['display_text']);
+        $this->assertSame('Zur Dispo', $i['action']['parameters']['display_text']);
         $this->assertStringContainsString('Dispo Düsseldorf', $i['body']['text']);
         $this->assertTrue($this->gesendet[0]['isAutoReply']);
 

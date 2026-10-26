@@ -40,10 +40,24 @@ final class ThemenTexteTest extends TestCase
         $this->assertStringContainsString('Abrechnung', $t);
     }
 
+    public function test_filialknopf_laesst_das_praefix_dispo_weg(): void
+    {
+        // 26.10.2026: „Dispo Düsseldorf & …“ — die Frage sagt schon „Disposition“.
+        $this->assertSame('Mönchengladbach', ThemenTexte::filialKnopf('Dispo Mönchengladbach'));
+        $this->assertSame('Düsseldorf & Neuss', ThemenTexte::filialKnopf('Dispo Düsseldorf & Neuss'));
+        $this->assertSame('Köln', ThemenTexte::filialKnopf('Disposition Köln'));
+        $this->assertSame('Köln', ThemenTexte::filialKnopf('Köln'));
+        $this->assertSame('Dispo', ThemenTexte::filialKnopf('Dispo'));
+    }
+
     public function test_filialknopf_wird_auf_20_zeichen_gekuerzt(): void
     {
-        $this->assertSame('Dispo Mönchengladba…', ThemenTexte::filialKnopf('Dispo Mönchengladbach'));
-        $this->assertSame('Dispo Köln', ThemenTexte::filialKnopf('Dispo Köln'));
+        $this->assertSame(str_repeat('a', 19) . '…', ThemenTexte::filialKnopf('Dispo ' . str_repeat('a', 25)));
+    }
+
+    public function test_listen_titel_der_filiale_ohne_praefix(): void
+    {
+        $this->assertSame('Düsseldorf & Neuss', ThemenTexte::filialTitel('Dispo Düsseldorf & Neuss'));
     }
 
     public function test_listen_titel_wird_auf_24_zeichen_gekuerzt(): void
