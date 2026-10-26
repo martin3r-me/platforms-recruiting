@@ -1161,6 +1161,11 @@ class Inbox extends Component
      * 26.10.: Chat ohne Zuordnung, geparkt, aber keine Ampel). Die Nummern-
      * Suche laedt alle aktiven MA mit Nummer; 5 Minuten gemerkt, weil der
      * Chat alle 20 s neu zeichnet.
+     *
+     * Auch Bewerber-Chats: haengt der Chat an einer alten Bewerbung ohne
+     * aktive Anstellung, ist der MA trotzdem ueber die Nummer eindeutig
+     * (Fall Test-MA 26.10.). Die Suche nimmt nur einen eindeutigen aktiven MA,
+     * der Treffer muss die Nummer des Chats tragen.
      */
     private function akteMitarbeiter(): ?\Platform\Recruiting\Models\RecEmployee
     {
@@ -1170,7 +1175,7 @@ class Inbox extends Component
         }
         $row = $this->selectedRow;
         $phone = (string) ($row?->phone ?? '');
-        if ($row === null || $phone === '' || $row->subjectType === 'applicant') {
+        if ($row === null || $phone === '') {
             return null;
         }
         $teamId = $this->teamId();
