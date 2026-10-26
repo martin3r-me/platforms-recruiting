@@ -1107,7 +1107,14 @@ class Inbox extends Component
     public function akteHinweis(): void
     {
         $this->sendError = null;
-        $employee = $this->akteMitarbeiter();
+        try {
+            $employee = $this->akteMitarbeiter();
+        } catch (\Throwable $e) {
+            report($e);
+            $this->sendError = 'Die Akte konnte gerade nicht geprüft werden — bitte erneut versuchen.';
+
+            return;
+        }
         $ampel = $this->akteAmpel;
         if ($employee === null || $ampel === null || $ampel['gruen']) {
             return;
@@ -1167,15 +1174,25 @@ class Inbox extends Component
             return null;
         }
         $teamId = $this->teamId();
-        $id = \Illuminate\Support\Facades\Cache::remember(
-            'akte-ampel-ma:' . $teamId . ':' . preg_replace('/\D+/', '', $phone),
-            300,
-            fn () => app(\Platform\Recruiting\Services\Comms\ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId) ?? 0,
-        );
-
-        return $id > 0
-            ? \Platform\Recruiting\Models\RecEmployee::query()->where('team_id', $teamId)->find((int) $id)
+        $schluessel = 'akte-ampel-ma:' . $teamId . ':' . preg_replace('/\D+/', '', $phone);
+        $suche = fn () => app(\Platform\Recruiting\Services\Comms\ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId) ?? 0;
+        $laden = fn (int $id) => $id > 0
+            ? \Platform\Recruiting\Models\RecEmployee::query()->where('team_id', $teamId)->find($id)
             : null;
+
+        $employee = $laden((int) \Illuminate\Support\Facades\Cache::remember($schluessel, 300, $suche));
+        // Gemerkter Treffer nur, solange die Akte noch diese Nummer traegt —
+        // sonst stuende nach einem Nummernwechsel die Akte (und der Portal-Link)
+        // der falschen Person im Chat (Review 26.10.). Dann frisch suchen.
+        if ($employee !== null && \Platform\Recruiting\Support\PhoneE164::normalize((string) $employee->phone) !== \Platform\Recruiting\Support\PhoneE164::normalize($phone)) {
+            \Illuminate\Support\Facades\Cache::forget($schluessel);
+            $employee = $laden((int) \Illuminate\Support\Facades\Cache::remember($schluessel, 300, $suche));
+            if ($employee !== null && \Platform\Recruiting\Support\PhoneE164::normalize((string) $employee->phone) !== \Platform\Recruiting\Support\PhoneE164::normalize($phone)) {
+                return null;
+            }
+        }
+
+        return $employee;
     }
 
     /**

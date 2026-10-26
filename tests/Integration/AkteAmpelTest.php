@@ -112,6 +112,8 @@ final class AkteAmpelTest extends TestCase
         // Chat ohne Zuordnung: Ampel ueber die Nummer wie Themen-Auswahl/Parken (26.10.).
         $this->assertStringContainsString('ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId)', $php);
         $this->assertSame(2, substr_count($php, '$employee = $this->akteMitarbeiter();'));
+        // Gemerkter Treffer wird gegen die Nummer der Akte geprueft (Review 26.10.).
+        $this->assertStringContainsString('PhoneE164::normalize((string) $employee->phone) !== \\Platform\\Recruiting\\Support\\PhoneE164::normalize($phone)', $php);
     }
 
     /**
