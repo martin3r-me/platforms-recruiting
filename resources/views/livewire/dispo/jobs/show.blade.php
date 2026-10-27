@@ -166,8 +166,9 @@
             @php
                 $bloecke = $this->blockOptionen;
                 $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
-                $wz = $wZahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
+                $wz = $wZahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0, 'rest' => 0];
                 $wPersonen = $wz['empfaenger'] === 1 ? 'Person' : 'Personen';
+                $wRest = (int) ($wz['rest'] ?? 0);
                 $wStartText = $wStartModus === 'spaeter' ? 'in ' . (ctype_digit(trim($wMinuten)) ? (int) trim($wMinuten) : '?') . ' Minuten' : 'jetzt';
                 $wBestaetigung = 'Neue Welle ' . $wStartText . ' starten? Laut Vorschau werden ' . $wz['empfaenger'] . ' ' . $wPersonen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
             @endphp
@@ -179,11 +180,21 @@
                             @php $blockWert = $b['block'] === null ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen::OHNE : (string) $b['block']; @endphp
                             <label wire:key="wblock-{{ $blockWert }}" class="flex cursor-pointer items-center gap-2">
                                 <input type="checkbox" value="{{ $blockWert }}" wire:model.live="wBloecke" class="rounded border-gray-300">
-                                <span>{{ $b['label'] }} <span class="text-gray-500">· {{ $b['count'] }}</span>
+                                <span>{{ $b['label'] }}
+                                    @foreach ($b['firmen'] as $firma => $fz)
+                                        <span class="text-gray-500">· {{ $firma }} {{ $fz['aktiv'] }}</span>
+                                    @endforeach
                                     @if ($b['inaktiv'] > 0)
-                                        <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
+                                        <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv</span>
                                     @endif
                                 </span>
+                            </label>
+                        @endforeach
+                        <div class="pt-2 font-medium text-gray-700">Gesellschaft</div>
+                        @foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft::ALLE as $firmaKey => $firmaLabel)
+                            <label wire:key="wfirma-{{ $firmaKey }}" class="flex cursor-pointer items-center gap-2">
+                                <input type="checkbox" value="{{ $firmaKey }}" wire:model.live="wFirmen" class="rounded border-gray-300">
+                                <span>{{ $firmaLabel }}</span>
                             </label>
                         @endforeach
                         <div class="pt-2 font-medium text-gray-700">Status in ZAS</div>
@@ -209,7 +220,16 @@
                         </label>
                     </div>
                     <div class="space-y-2">
-                        <div>Sendet an <strong>{{ $wz['empfaenger'] }}</strong> {{ $wPersonen }}</div>
+                        <label class="flex flex-wrap items-center gap-2">
+                            <span>Pro Welle höchstens</span>
+                            <input type="number" min="1" max="9999" inputmode="numeric" placeholder="alle" wire:model.live.debounce.500ms="wMax" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
+                            <span>Personen</span>
+                        </label>
+                        <div>Sendet an <strong>{{ $wz['empfaenger'] }}</strong> {{ $wPersonen }}
+                            @if ($wRest > 0)
+                                <span class="text-xs text-gray-500">· {{ $wRest }} weitere in späteren Wellen</span>
+                            @endif
+                        </div>
                         @if ($wz['ohne_vertrag'] > 0)
                             <div class="text-xs text-gray-500">davon {{ $wz['ohne_vertrag'] }} mit Status MA (brauchen neuen Vertrag)</div>
                         @endif
@@ -326,6 +346,24 @@
                         </div>
                     @endif
                 </div>
+                @php $absagenSchicht = $rueck['absagen'][$s->id] ?? []; @endphp
+                @if ($absagenSchicht !== [])
+                    <details class="text-xs text-gray-600">
+                        <summary class="cursor-pointer text-amber-700">{{ count($absagenSchicht) }} {{ count($absagenSchicht) === 1 ? 'Absage' : 'Absagen' }} („Kann nicht“)</summary>
+                        <ul class="mt-1 space-y-0.5">
+                            @foreach ($absagenSchicht as $ab)
+                                <li wire:key="absage-{{ $s->id }}-{{ $loop->index }}">
+                                    @if ($ab['employee_id'] > 0)
+                                        <a href="{{ route('recruiting.employees.show', ['employee' => $ab['employee_id']]) }}" class="text-blue-700 hover:underline">{{ $ab['name'] }}</a>
+                                    @else
+                                        {{ $ab['name'] }}
+                                    @endif
+                                    · {{ $ab['grund'] }}@if ($ab['notiz'] !== '') · „{{ $ab['notiz'] }}“@endif · {{ $ab['am'] }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </details>
+                @endif
                 @if ($zeilen === [])
                     <p class="text-xs text-gray-400">Noch keine Zusage.</p>
                 @else
@@ -338,6 +376,7 @@
                                 <th class="py-1 pr-3 font-medium" title="Auftrags-Einsatztage im laufenden Monat">Einsätze</th>
                                 <th class="py-1 pr-3 font-medium">Tätigkeit</th>
                                 <th class="py-1 pr-3 font-medium">Bewertung</th>
+                                <th class="py-1 pr-3 font-medium" title="„Kann nicht“ auf Jobanfragen in den letzten 60 Tagen">Absagen (60 T.)</th>
                                 <th class="py-1 font-medium">ZAS</th>
                             </tr>
                         </thead>
@@ -375,6 +414,7 @@
                                         @endif
                                     </td>
                                     <td class="py-1 pr-3 tabular-nums text-gray-700" title="{{ $bewertung['title'] }}">{{ $bewertung['text'] }}</td>
+                                    <td class="py-1 pr-3 tabular-nums {{ ($info['absagen_60'] ?? 0) > 0 ? 'text-amber-700' : 'text-gray-400' }}">{{ $info['absagen_60'] ?? 0 }}</td>
                                     <td class="py-1">
                                         <div class="flex flex-wrap items-center gap-3">
                                             <label class="flex cursor-pointer items-center gap-1.5 text-xs">

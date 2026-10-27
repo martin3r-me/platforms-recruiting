@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecEmployeeHrData;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
@@ -20,7 +21,7 @@ final class DispoJobZusagenInfo
 
     /**
      * @param list<int> $employeeIds rec_employee_id der Angebots-Zeilen
-     * @return array<int, array{name:string, personnel_number:string, phone:string, einsaetze:int, taetigkeiten:list<string>, ratings:array<string,int>, ohne_vertrag:bool}>
+     * @return array<int, array{name:string, personnel_number:string, phone:string, einsaetze:int, taetigkeiten:list<string>, ratings:array<string,int>, ohne_vertrag:bool, absagen_60:int}>
      */
     public static function laden(array $employeeIds, string $monat): array
     {
@@ -56,6 +57,15 @@ final class DispoJobZusagenInfo
                 'status_id' => (int) $a->status_id, 'missing_since' => $a->missing_since, 'deletion_marked_at' => $a->deletion_marked_at, 'declined_at' => $a->declined_at])
             ->all();
         $einsaetze = DispoEinsatzZaehler::proMonat($assignments, $anchorByEmployee, $monat);
+
+        // Absagen „Kann nicht“ der letzten 60 Tage je Anstellung, unten je Person summiert.
+        $absagen = RecDispoJobOfferShift::query()
+            ->whereNotNull('declined_at')->where('declined_at', '>=', DispoJobAbsagen::seit())
+            ->join('rec_dispo_job_offers', 'rec_dispo_job_offers.id', '=', 'rec_dispo_job_offer_shifts.offer_id')
+            ->whereIn('rec_dispo_job_offers.rec_employee_id', $alle)
+            ->groupBy('rec_dispo_job_offers.rec_employee_id')
+            ->selectRaw('rec_dispo_job_offers.rec_employee_id as mid, count(*) as n')
+            ->pluck('n', 'mid');
 
         $out = [];
         foreach ($ids as $id) {
@@ -98,6 +108,7 @@ final class DispoJobZusagenInfo
                 'taetigkeiten'     => $taetigkeiten,
                 'ratings'          => $ratings,
                 'ohne_vertrag'     => DispoJobKandidaten::ohneVertrag(array_map(fn ($m) => $stati[(int) $m] ?? null, array_unique(array_merge([$id], $group)))),
+                'absagen_60'       => (int) array_sum(array_map(fn ($m) => (int) ($absagen[(int) $m] ?? 0), array_unique(array_merge([$id], $group)))),
             ];
         }
 

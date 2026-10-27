@@ -199,6 +199,26 @@ class Show extends Component
     }
 
     /**
+     * Absagen auf Jobanfragen („Kann nicht“, Spec 2026-10-27 §5) der letzten
+     * 60 Tage ueber alle Anstellungen der Person — fuer alle sichtbar (Markus).
+     *
+     * @return array{anzahl:int, liste:list<array<string,string>>}
+     */
+    #[Computed]
+    public function dispoAbsagen(): array
+    {
+        $employee = $this->employee;
+        if ($employee === null) {
+            return ['anzahl' => 0, 'liste' => []];
+        }
+        $ids = $this->personRecordIds((int) $employee->id, $employee->person_key);
+        $seit = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen::seit();
+        $liste = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen::liste($ids, $seit);
+
+        return ['anzahl' => count($liste), 'liste' => $liste];
+    }
+
+    /**
      * Nur die Zahl fuer den Reiter — die volle Liste wird erst geladen, wenn
      * der Reiter offen ist.
      */

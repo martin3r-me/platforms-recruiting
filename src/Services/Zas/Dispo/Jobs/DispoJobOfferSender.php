@@ -34,7 +34,7 @@ class DispoJobOfferSender
             return ['ok' => false, 'message' => 'Kein WhatsApp-Kanal auflösbar (Filiale/Standard prüfen).', 'sent' => 0, 'failed' => []];
         }
 
-        $usesName = self::bodyUsesName($template);
+        $variablen = self::bodyVariablen($template);
         $service = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class);
         try {
             $sender = auth()->user();
@@ -65,14 +65,15 @@ class DispoJobOfferSender
                 }
 
                 $components = [];
-                if ($usesName) {
+                if ($variablen !== []) {
+                    $werte = [
+                        'name'  => trim((string) $r['first_name']) !== '' ? trim((string) $r['first_name']) : 'zusammen',
+                        // Dringend-Vorlage (Folie 1): fruehester angebotener Tag, „Sa, 31.10.“
+                        'datum' => self::datumText((string) ($r['datum'] ?? '')),
+                    ];
                     $components[] = [
                         'type'       => 'body',
-                        'parameters' => [[
-                            'type'           => 'text',
-                            'parameter_name' => 'name',
-                            'text'           => trim((string) $r['first_name']) !== '' ? trim((string) $r['first_name']) : 'zusammen',
-                        ]],
+                        'parameters' => array_map(fn ($v) => ['type' => 'text', 'parameter_name' => $v, 'text' => $werte[$v]], $variablen),
                     ];
                 }
                 $components[] = [
@@ -113,16 +114,36 @@ class DispoJobOfferSender
         return ['ok' => true, 'message' => null, 'sent' => $sent, 'failed' => $failed];
     }
 
-    /** Traegt der BODY die Named-Variable {{name}}? (Muster DispoInfoSender). */
-    private static function bodyUsesName(IntegrationsWhatsAppTemplate $template): bool
+    /**
+     * Benannte Variablen im BODY, in Reihenfolge ihres Auftretens (Muster
+     * DispoInfoSender). Bekannt sind {{name}} und {{datum}}; gefuellt wird nur,
+     * was die Vorlage traegt — alte Vorlagen ohne Datum laufen unveraendert.
+     *
+     * @return list<string>
+     */
+    public static function bodyVariablen(IntegrationsWhatsAppTemplate $template): array
     {
         foreach ((array) ($template->components ?? []) as $component) {
-            if (strtoupper((string) ($component['type'] ?? '')) === 'BODY'
-                && str_contains((string) ($component['text'] ?? ''), '{{name}}')) {
-                return true;
+            if (strtoupper((string) ($component['type'] ?? '')) !== 'BODY') {
+                continue;
             }
+            preg_match_all('/\{\{(name|datum)\}\}/', (string) ($component['text'] ?? ''), $m);
+
+            return array_values(array_unique($m[1]));
         }
 
-        return false;
+        return [];
+    }
+
+    /** „Sa, 31.10.“ aus Y-m-d; leer bleibt leer (Meta lehnt leere Parameter ab — dann steht „bald“). */
+    public static function datumText(string $ymd): string
+    {
+        if ($ymd === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+            return 'bald';
+        }
+        $c = \Carbon\Carbon::parse($ymd);
+        $wd = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+        return $wd[$c->dayOfWeek] . ', ' . $c->format('d.m.');
     }
 }

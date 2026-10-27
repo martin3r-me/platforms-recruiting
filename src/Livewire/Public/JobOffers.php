@@ -8,6 +8,7 @@ use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
+use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
@@ -15,6 +16,10 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZugang;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersAbsage;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersTexte;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
 /**
@@ -44,6 +49,11 @@ class JobOffers extends Component
     public string $hinweis = '';
     #[Locked]
     public bool $hinweisOk = false;
+
+    /** „Kann nicht“ (nur Dringend, Spec 2026-10-27 §5): aufgeklappte Angebots-Schicht, Grund, Notiz. Besitz prueft der Dienst. */
+    public ?int $absageOffen = null;
+    public string $absageGrund = '';
+    public string $absageNotiz = '';
 
     public function mount(string $token): void
     {
@@ -115,9 +125,27 @@ class JobOffers extends Component
             ->selectRaw('shift_id, count(*) as n')->groupBy('shift_id')
             ->pluck('n', 'shift_id');
 
-        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht) {
+        // Einmal pro Tag (§6): Tage mit eigener Zusage, Schwestern (gleicher Schluessel) ausgenommen.
+        $zugesagtTage = [];
+        $zugesagtSchluessel = [];
+        foreach ($offerShifts as $os) {
+            if ($os->accepted_at !== null && $os->declined_at === null) {
+                $zugesagtTage[$os->shift->datum->toDateString()] = true;
+                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->taetigkeit)] = true;
+            }
+        }
+        // „Bitte antworte bis“ (§2.5): naechste wartende automatische Welle je Anfrage.
+        $naechsteWelle = RecDispoJobWave::query()
+            ->whereIn('request_id', $offerShifts->map(fn ($os) => (int) $os->shift->request_id)->unique()->all())
+            ->where('auto', true)->whereNull('started_at')->whereNotNull('scheduled_for')
+            ->selectRaw('request_id, min(scheduled_for) as bis')->groupBy('request_id')
+            ->pluck('bis', 'request_id');
+
+        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht, $zugesagtTage, $zugesagtSchluessel, $naechsteWelle) {
             $shift = $os->shift;
             $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
+            $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->toDateString(), $shift->von, $shift->taetigkeit);
+            $bis = $naechsteWelle[$shift->request_id] ?? null;
 
             return [
                 'offer_shift_id' => (int) $os->id,
@@ -131,6 +159,11 @@ class JobOffers extends Component
                 'accepted'       => $os->accepted_at !== null,
                 'zuerst'         => $zuerst,
                 'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
+                'anlass'         => $shift->request->anlass,
+                'dringend'       => $shift->request->anlass === 'dringend',
+                'declined'       => $os->declined_at !== null,
+                'tag_belegt'     => $os->accepted_at === null && isset($zugesagtTage[$shift->datum->toDateString()]) && !isset($zugesagtSchluessel[$schluessel]),
+                'antworten_bis'  => $bis !== null ? JobOffersTexte::antwortenBis(\Carbon\Carbon::parse($bis), now()) : null,
                 'os'             => $os,
             ];
         })->all();
@@ -143,10 +176,14 @@ class JobOffers extends Component
             $event = $row['os']->shift->event;
 
             $groups[$row['event']] ??= [
-                'name' => $event?->name ?? $event?->einsatz_ref ?? 'Einsatz',
-                'ort'  => $event?->venue_text ?: $event?->ort,
-                'days' => [],
+                'name'          => $event?->name ?? $event?->einsatz_ref ?? 'Einsatz',
+                'ort'           => $event?->venue_text ?: $event?->ort,
+                'anlaesse'      => [],
+                'antworten_bis' => null,
+                'days'          => [],
             ];
+            $groups[$row['event']]['anlaesse'][] = $row['anlass'] ?? null;
+            $groups[$row['event']]['antworten_bis'] ??= $row['antworten_bis'] ?? null;
             $groups[$row['event']]['days'][$row['datum']][] = [
                 'offer_shift_id' => $row['offer_shift_id'],
                 'von'            => $row['von'],
@@ -156,10 +193,15 @@ class JobOffers extends Component
                 'zuerst'         => $row['zuerst'],
                 'frei'           => $row['zuerst'] ? $row['frei'] : null,
                 'voll'           => $row['voll'],
+                'dringend'       => (bool) ($row['dringend'] ?? false),
+                'declined'       => (bool) ($row['declined'] ?? false),
+                'tag_belegt'     => (bool) ($row['tag_belegt'] ?? false),
             ];
         }
 
         foreach ($groups as &$g) {
+            $g['texte'] = JobOffersTexte::fuer(JobOffersTexte::anlassVorrang($g['anlaesse']));
+            unset($g['anlaesse']);
             ksort($g['days']);
             foreach ($g['days'] as &$shifts) {
                 usort($shifts, fn ($a, $b) => strcmp((string) $a['von'], (string) $b['von']));
@@ -186,12 +228,63 @@ class JobOffers extends Component
         $ergebnis = JobOffersZusage::ausfuehren($offerShiftId, $this->employeeIds);
         $this->hinweisOk = $ergebnis === 'ok';
         $this->hinweis = match ($ergebnis) {
-            'ok'    => 'Danke! Du bekommst eine Bestätigung, sobald du eingeteilt bist.',
-            'voll'  => 'Diese Schicht ist schon voll — danke fürs Melden.',
-            default => 'Dieses Angebot gibt es nicht mehr.',
+            'ok'         => 'Danke! Du bekommst eine Bestätigung, sobald du eingeteilt bist.',
+            'voll'       => 'Diese Schicht ist schon voll — danke fürs Melden.',
+            'tag_belegt' => 'Du hast für diesen Tag schon zugesagt.',
+            default      => 'Dieses Angebot gibt es nicht mehr.',
         };
+        $this->absageOffen = null;
 
         unset($this->angebote);
+    }
+
+    /** Absagen der Person in den letzten 60 Tagen — fuer den Satz „Das waere deine N. Absage“. */
+    #[Computed]
+    public function absagen60(): int
+    {
+        if ($this->employeeIds === []) {
+            return 0;
+        }
+
+        return DispoJobAbsagen::anzahl($this->employeeIds, DispoJobAbsagen::seit());
+    }
+
+    public function absageOeffnen(int $offerShiftId): void
+    {
+        $this->absageOffen = $offerShiftId;
+        $this->absageGrund = '';
+        $this->absageNotiz = '';
+        $this->hinweis = '';
+    }
+
+    public function absageAbbrechen(): void
+    {
+        $this->absageOffen = null;
+    }
+
+    public function absagen(): void
+    {
+        if ($this->employeeId === null || $this->portalLocked || $this->absageOffen === null) {
+            return;
+        }
+        if ($this->gesperrt()) {
+            $this->portalLocked = true;
+            return;
+        }
+        $ergebnis = JobOffersAbsage::ausfuehren((int) $this->absageOffen, $this->employeeIds, trim($this->absageGrund), (string) $this->absageNotiz);
+        if ($ergebnis === 'kein_grund') {
+            $this->hinweisOk = false;
+            $this->hinweis = 'Bitte wähle einen Grund.';
+            return;
+        }
+        $this->hinweisOk = $ergebnis === 'ok';
+        $this->hinweis = match ($ergebnis) {
+            'ok'             => 'Schade — danke für die Rückmeldung.',
+            'schon_zugesagt' => 'Du hast für diese Schicht schon zugesagt. Wenn du doch nicht kannst, melde dich bitte im Chat.',
+            default          => 'Dieses Angebot gibt es nicht mehr.',
+        };
+        $this->absageOffen = null;
+        unset($this->angebote, $this->absagen60);
     }
 
     public function render()

@@ -237,4 +237,24 @@ class DispoJobOfferSenderTest extends TestCase
 
         return $dir;
     }
+
+    public function test_datum_variable_nur_wenn_die_vorlage_sie_traegt_in_vorlagenreihenfolge(): void
+    {
+        $templateId = $this->template('Für den {{datum}} brauchen wir dich, {{name}}!');
+        [, $wave, $shift] = $this->anfrageMitWelle();
+
+        $r = (new DispoJobOfferSender())->send($wave, [$this->recipient($shift->id) + ['datum' => '2026-10-31']], $templateId);
+
+        $this->assertSame(1, $r['sent']);
+        $this->assertSame([
+            ['type' => 'text', 'parameter_name' => 'datum', 'text' => 'Sa, 31.10.'],
+            ['type' => 'text', 'parameter_name' => 'name', 'text' => 'Anna'],
+        ], $this->stub->log[0]['components'][0]['parameters']);
+
+        $nurName = $this->template('Hi {{name}}');
+        [, $wave2, $shift2] = $this->anfrageMitWelle();
+        (new DispoJobOfferSender())->send($wave2, [$this->recipient($shift2->id) + ['datum' => '2026-10-31']], $nurName);
+        $this->assertSame([['type' => 'text', 'parameter_name' => 'name', 'text' => 'Anna']], $this->stub->log[1]['components'][0]['parameters'], 'ohne {{datum}} in der Vorlage kein Datum');
+        $this->assertSame('bald', DispoJobOfferSender::datumText(''), 'nie ein leerer Parameter');
+    }
 }

@@ -97,9 +97,9 @@ class JobOffersZugangTest extends TestCase
         $src = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Public/JobOffers.php');
 
         $this->assertSame(
-            2,
+            3,
             substr_count($src, '$this->gesperrt()'),
-            'mount() und zusagen() pruefen beide ueber gesperrt()'
+            'mount(), zusagen() und absagen() pruefen alle ueber gesperrt()'
         );
         $this->assertStringContainsString(
             'JobOffersZugang::gesperrt($this->employeeIds, (int) $this->employeeId)',

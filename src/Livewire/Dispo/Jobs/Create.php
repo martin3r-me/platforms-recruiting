@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
@@ -76,6 +77,13 @@ class Create extends Component
     public bool $nurPassend = true;
     /** @var list<string> ZAS-Status GO/MA (Spec 2026-10-20); Vorbelegung nur GO — „zuerst GO anschreiben“. */
     public array $stati = ['GO'];
+    /** @var list<string> Gesellschaft RG/MA der Anstellung (Spec 2026-10-27 §3); Vorbelegung beide, ueber eine VA deren Gesellschaft. */
+    public array $firmen = ['RG', 'MA'];
+    /** Wellenplan (Spec 2026-10-27 §2): Obergrenze je Welle ('' = alle) und Abstand in Minuten ('0' = keine Folgewelle). */
+    public string $welleMax = '';
+    public string $welleAbstand = '0';
+    /** Sobald der Nutzer den Wellenplan angefasst hat, belegt ein Anlasswechsel ihn nicht mehr neu. */
+    public bool $wellenAngefasst = false;
     public string $startModus = 'jetzt';
     public string $minuten = '30';
 
@@ -101,8 +109,14 @@ class Create extends Component
 
         // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
         $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
+        $this->wellenVorbelegen();
 
         $va = $this->event !== null ? RecDispoEvent::query()->find($this->event) : null;
+        if ($va !== null) {
+            // Gesellschaft der Veranstaltung, wenn der ZAS-Text sie erkennen laesst; sonst beide.
+            $gesellschaft = DispoGesellschaft::ausEinsatzfirma($va->einsatzfirma);
+            $this->firmen = $gesellschaft !== null ? [$gesellschaft] : ['RG', 'MA'];
+        }
         if ($va !== null && $va->filial_nr !== null && $va->starts_on !== null) {
             $start = $va->starts_on->toDateString();
             $ende = ($va->ends_on ?? $va->starts_on)->toDateString();
@@ -131,10 +145,20 @@ class Create extends Component
         return '';
     }
 
+    private function wellenVorbelegen(): void
+    {
+        $w = DispoJobAnlass::wellen($this->anlass);
+        $this->welleMax = $w['max'] !== null ? (string) $w['max'] : '';
+        $this->welleAbstand = (string) ($w['abstand_minuten'] ?? 0);
+    }
+
     public function anlassWaehlen(string $anlass): void
     {
         if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
             $this->anlass = $anlass;
+            if (!$this->wellenAngefasst) {
+                $this->wellenVorbelegen();
+            }
         }
     }
 
@@ -558,7 +582,11 @@ class Create extends Component
 
     public function updated(string $name): void
     {
-        if ($this->schritt === 3 && in_array(explode('.', $name)[0], ['maBloecke', 'gruppen', 'nurPassend', 'stati'], true)) {
+        $feld = explode('.', $name)[0];
+        if (in_array($feld, ['welleMax', 'welleAbstand'], true)) {
+            $this->wellenAngefasst = true;
+        }
+        if ($this->schritt === 3 && in_array($feld, ['maBloecke', 'gruppen', 'nurPassend', 'stati', 'firmen', 'welleMax'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -572,7 +600,25 @@ class Create extends Component
             'bloecke'     => DispoJobZahlen::bloecke(array_intersect($this->maBloecke, $erlaubt)),
             'nur_passend' => $this->nurPassend,
             'stati'       => DispoJobRecipientPlanner::stati($this->stati),
+            'firmen'      => DispoGesellschaft::normalize($this->firmen),
+            'max'         => $this->welleMaxZahl(),
         ];
+    }
+
+    /** Obergrenze je Welle als Zahl; leer/0 = alle (null). */
+    private function welleMaxZahl(): ?int
+    {
+        $s = trim($this->welleMax);
+
+        return ctype_digit($s) && (int) $s > 0 ? min(9999, (int) $s) : null;
+    }
+
+    /** Abstand der Folgewellen in Minuten; nur bekannte Werte, sonst keine. */
+    private function welleAbstandMinuten(): int
+    {
+        $s = trim($this->welleAbstand);
+
+        return ctype_digit($s) && array_key_exists((int) $s, DispoJobAnlass::ABSTAENDE) ? (int) $s : 0;
     }
 
     /**
@@ -602,6 +648,8 @@ class Create extends Component
                 'gruppen'          => $auswahl['gruppen'],
                 'bloecke'          => $auswahl['bloecke'],
                 'stati'            => $auswahl['stati'],
+                'firmen'           => $auswahl['firmen'],
+                'schichten_tage'   => array_values(array_unique(array_map(fn ($s) => (string) $s['datum'], array_filter($this->gewaehlteSchichten, fn ($s) => (int) $s['gesucht'] > 0)))),
                 'modus'            => $this->modus,
             ];
         }
@@ -645,6 +693,8 @@ class Create extends Component
             'template_id' => (int) $this->vorlagenId,
             'schichten'   => $this->gewaehlteSchichten,
             'minuten'     => $minuten,
+            'welle_max'             => $auswahl['max'] ?? 0,
+            'welle_abstand_minuten' => $this->welleAbstandMinuten(),
         ] + $auswahl, $teamId, $userId);
 
         // Erst nach dem Commit (anlegen() hat seine Transaktion abgeschlossen).

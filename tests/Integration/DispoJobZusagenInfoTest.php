@@ -225,6 +225,11 @@ class DispoJobZusagenInfoTest extends TestCase
             [$own, 'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php'],
             [$own, 'database/migrations/2026_05_21_000003_add_full_hr_field_set_to_rec_employees_and_hr_data.php'],
             [$own, 'database/migrations/2026_05_21_000004_add_linen_package_to_hr_data.php'],
+            [$own, 'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php'],
+            [$own, 'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
+            [$own, 'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php'],
             [$own, 'database/migrations/2026_08_05_000002_add_ratings_to_rec_employee_hr_data.php'],
             [$own, 'database/migrations/2026_09_15_000001_add_dispo_taetigkeiten_to_hr_data.php'],
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
@@ -254,5 +259,21 @@ class DispoJobZusagenInfoTest extends TestCase
         }
 
         return $dir;
+    }
+
+    public function test_absagen_der_letzten_60_tage_je_person_ueber_alle_anstellungen(): void
+    {
+        $a = $this->employee(['first_name' => 'Absager']);
+        $request = \Platform\Recruiting\Models\RecDispoJobRequest::create(['team_id' => 3, 'filial_nr' => 200, 'zeitraum_von' => '2026-10-20', 'zeitraum_bis' => '2099-11-17',
+            'modus' => 'sammeln', 'anlass' => 'dringend', 'status' => 'laeuft', 'created_by_user_id' => 1]);
+        $wave = $request->waves()->create(['nr' => 1, 'ma_bloecke' => [200], 'gruppen' => ['0'], 'nur_passende_taetigkeit' => true]);
+        $offer = $wave->offers()->create(['request_id' => $request->id, 'rec_employee_id' => $a, 'anchor_employee_id' => $a]);
+        foreach ([['2026-11-01', now()], ['2026-11-02', now()->subDays(3)], ['2026-11-03', now()->subDays(90)]] as [$tag, $wann]) {
+            $shift = $request->shifts()->create(['rec_dispo_event_id' => 1, 'datum' => $tag, 'von' => '17:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 3]);
+            $offer->shifts()->create(['shift_id' => $shift->id, 'declined_at' => $wann, 'declined_reason' => 'krank']);
+        }
+
+        $info = DispoJobZusagenInfo::laden([$a], '2026-10');
+        $this->assertSame(2, $info[$a]['absagen_60'], 'die 90 Tage alte zaehlt nicht');
     }
 }

@@ -13,6 +13,7 @@ use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
@@ -53,6 +54,10 @@ class Show extends Component
     public bool $wNurPassend = true;
     /** @var list<string> ZAS-Status GO/MA der neuen Welle — vorbelegt aus der letzten Welle. */
     public array $wStati = ['GO'];
+    /** @var list<string> Gesellschaft RG/MA — vorbelegt aus der letzten Welle (null = beide). */
+    public array $wFirmen = ['RG', 'MA'];
+    /** Obergrenze je Welle, vorbelegt aus der Anfrage ('' = alle). */
+    public string $wMax = '';
     public string $wStartModus = 'jetzt';
     public string $wMinuten = '30';
 
@@ -79,7 +84,9 @@ class Show extends Component
             $this->wNurPassend = (bool) $letzte->nur_passende_taetigkeit;
             // Alte Welle ohne Statusauswahl wurde an GO + MA geschickt.
             $this->wStati = $letzte->stati === null ? array_keys(DispoJobRecipientPlanner::STATI) : DispoJobRecipientPlanner::stati((array) $letzte->stati);
+            $this->wFirmen = $letzte->firmen === null ? array_keys(DispoGesellschaft::ALLE) : DispoGesellschaft::normalize((array) $letzte->firmen);
         }
+        $this->wMax = $request->welle_max !== null ? (string) $request->welle_max : '';
     }
 
     private function teamId(): int
@@ -171,7 +178,7 @@ class Show extends Component
     {
         $shiftIds = $this->schichten->pluck('id')->all();
         if ($shiftIds === []) {
-            return ['zeilen' => [], 'info' => []];
+            return ['zeilen' => [], 'info' => [], 'absagen' => []];
         }
         $zeilen = RecDispoJobOfferShift::query()
             ->whereIn('shift_id', $shiftIds)
@@ -183,8 +190,10 @@ class Show extends Component
         $ids = $zeilen->map(fn ($z) => (int) $z->offer?->rec_employee_id)->filter()->unique()->values()->all();
 
         return [
-            'zeilen' => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
-            'info'   => DispoJobZusagenInfo::laden($ids, now()->format('Y-m')),
+            'zeilen'  => $zeilen->groupBy('shift_id')->map(fn ($g) => $g->all())->all(),
+            'info'    => DispoJobZusagenInfo::laden($ids, now()->format('Y-m')),
+            // „Kann nicht“ je Schicht (Spec 2026-10-27 §5), sichtbar fuer alle.
+            'absagen' => DispoJobAbsagen::jeSchichten($shiftIds),
         ];
     }
 
@@ -238,6 +247,8 @@ class Show extends Component
             'bloecke'     => DispoJobZahlen::bloecke(array_intersect($this->wBloecke, $erlaubt)),
             'nur_passend' => $this->wNurPassend,
             'stati'       => DispoJobRecipientPlanner::stati($this->wStati),
+            'firmen'      => DispoGesellschaft::normalize($this->wFirmen),
+            'max'         => ctype_digit(trim($this->wMax)) && (int) trim($this->wMax) > 0 ? min(9999, (int) trim($this->wMax)) : null,
         ];
     }
 
@@ -271,7 +282,7 @@ class Show extends Component
 
     public function updated(string $name): void
     {
-        if ($this->neueWelleOffen && in_array(explode('.', $name)[0], ['wGruppen', 'wBloecke', 'wNurPassend', 'wStati'], true)) {
+        if ($this->neueWelleOffen && in_array(explode('.', $name)[0], ['wGruppen', 'wBloecke', 'wNurPassend', 'wStati', 'wFirmen', 'wMax'], true)) {
             $this->zahlenRechnen();
         }
     }
@@ -295,6 +306,7 @@ class Show extends Component
             $auswahl['bloecke'] === [] => 'Bitte wähle mindestens eine Mitarbeiterfiliale.',
             $auswahl['gruppen'] === [] => 'Bitte wähle mindestens eine Gruppe.',
             $auswahl['stati'] === [] => 'Bitte wähle mindestens einen Status.',
+            $auswahl['firmen'] === [] => 'Bitte wähle mindestens eine Gesellschaft.',
             $this->offeneSchichten($request) === [] => 'Alle Schichten dieser Anfrage liegen in der Vergangenheit.',
             $this->wStartModus === 'spaeter' && ($minuten < 1 || $minuten > 1440) => 'Bitte gib zwischen 1 und 1440 Minuten an.',
             default => null,
@@ -314,6 +326,10 @@ class Show extends Component
             return;
         }
 
+        // Die Obergrenze gilt ab jetzt auch fuer automatische Folgewellen.
+        if ($request->welle_max !== ($auswahl['max'] ?? null)) {
+            $request->update(['welle_max' => $auswahl['max'] ?? null]);
+        }
         $wave = DispoJobAnfrageAnlegen::welle($request, $auswahl + ['minuten' => $minuten]);
         DispoJobAnfrageAnlegen::starten($wave, $this->teamId(), auth()->id() !== null ? (int) auth()->id() : null);
 

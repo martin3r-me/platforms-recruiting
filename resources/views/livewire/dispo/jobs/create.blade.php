@@ -262,7 +262,9 @@
         @php
             $bloecke = $this->blockOptionen;
             $baender = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler::BAENDER;
-            $zahlen = $this->zahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0];
+            $zahlen = $this->zahlen ?? ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0, 'rest' => 0];
+            $rest = (int) ($zahlen['rest'] ?? 0);
+            $abstandLabel = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ABSTAENDE[(int) $welleAbstand] ?? 'keine';
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
@@ -285,7 +287,9 @@
             }
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
             // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
-            $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben — die genaue Zahl wird beim Start neu berechnet.';
+            $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben'
+                . ($rest > 0 ? ', ' . $rest . ' weitere ' . ($abstandLabel !== 'keine' ? 'in späteren Wellen (nächste nach ' . $abstandLabel . ')' : 'erst mit einer Welle von Hand') : '')
+                . ' — die genaue Zahl wird beim Start neu berechnet.';
             $sendenGesperrt = $problem !== null;
         @endphp
 
@@ -300,9 +304,11 @@
                             <input type="checkbox" value="{{ $blockWert }}" wire:model.live="maBloecke" class="mt-0.5 rounded border-gray-300">
                             <span>
                                 <span class="font-medium text-gray-800">{{ $b['label'] }}</span>
-                                <span class="text-gray-500">· {{ $b['count'] }} Mitarbeiter</span>
+                                @foreach ($b['firmen'] as $firma => $fz)
+                                    <span class="text-gray-500">· {{ $firma }} {{ number_format($fz['aktiv'], 0, ',', '.') }}</span>
+                                @endforeach
                                 @if ($b['inaktiv'] > 0)
-                                    <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
+                                    <span class="block text-xs text-gray-400">inaktiv: {{ implode(' · ', array_map(fn ($f, $fz) => $f . ' ' . number_format($fz['inaktiv'], 0, ',', '.'), array_keys($b['firmen']), $b['firmen'])) }} (werden nicht angeschrieben)</span>
                                 @endif
                                 @if ($b['nummern'] !== [])
                                     <span class="block text-xs text-gray-400">Kostenstellen {{ implode(', ', $b['nummern']) }}</span>
@@ -310,6 +316,17 @@
                             </span>
                         </label>
                     @endforeach
+                    <div class="border-t border-gray-100 pt-2">
+                        <div class="text-xs font-medium text-gray-500">Gesellschaft</div>
+                        <div class="mt-1 flex flex-wrap gap-4">
+                            @foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft::ALLE as $firmaKey => $firmaLabel)
+                                <label wire:key="firma-{{ $firmaKey }}" class="flex cursor-pointer items-center gap-2 text-sm">
+                                    <input type="checkbox" value="{{ $firmaKey }}" wire:model.live="firmen" class="rounded border-gray-300">
+                                    <span>{{ $firmaLabel }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
                 </div>
 
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
@@ -342,6 +359,24 @@
                             @endif
                         </span>
                     </label>
+                </div>
+
+                <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+                    <div class="font-medium text-gray-700">Wellen</div>
+                    <label class="flex flex-wrap items-center gap-2 text-sm">
+                        <span>Pro Welle höchstens</span>
+                        <input type="number" min="1" max="9999" inputmode="numeric" placeholder="alle" wire:model.live.debounce.500ms="welleMax" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
+                        <span>Personen</span>
+                    </label>
+                    <label class="flex flex-wrap items-center gap-2 text-sm">
+                        <span>Nächste Welle automatisch nach</span>
+                        <select wire:model.live="welleAbstand" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                            @foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ABSTAENDE as $minutenWert => $minutenLabel)
+                                <option value="{{ $minutenWert }}">{{ $minutenLabel }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <p class="text-xs text-gray-500">Weitere Wellen gehen an die nächsten Personen und stoppen von selbst, sobald alle Schichten gedeckt sind oder niemand mehr übrig ist.</p>
                 </div>
 
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
@@ -396,7 +431,11 @@
 
                 {{-- Zahlen vor dem Senden: jeder Ausschluss mit Namen aufklappbar. --}}
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
-                    <div class="text-base">Sendet an <strong>{{ $zahlen['empfaenger'] }}</strong> {{ $personen }}</div>
+                    <div class="text-base">Sendet jetzt an <strong>{{ $zahlen['empfaenger'] }}</strong> {{ $personen }}
+                        @if ($rest > 0)
+                            <span class="text-sm text-gray-500">· {{ $rest }} weitere {{ $abstandLabel !== 'keine' ? 'in späteren Wellen' : '— nächste Welle von Hand starten' }}</span>
+                        @endif
+                    </div>
                     @if ($zahlen['ohne_vertrag'] > 0)
                         <div class="text-xs text-gray-500">davon {{ $zahlen['ohne_vertrag'] }} mit Status MA (brauchen neuen Vertrag)</div>
                     @endif

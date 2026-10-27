@@ -890,6 +890,28 @@
                         Einbuchungen aus ZAS — nur Anzeige. Bestätigen, absagen und anschreiben passiert in der Veranstaltung.
                     </div>
 
+                    @php $absagen = $this->dispoAbsagen; @endphp
+                    <div class="rounded-lg border {{ $absagen['anzahl'] > 0 ? 'border-amber-200 bg-amber-50/40' : 'border-gray-200 bg-white' }} p-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Absagen auf Jobanfragen (60 Tage)</span>
+                            <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $absagen['anzahl'] }}</span>
+                        </div>
+                        @if ($absagen['liste'] === [])
+                            <p class="mt-1 text-sm text-gray-500">Keine Absage über „Kann nicht“ in den letzten 60 Tagen.</p>
+                        @else
+                            <ul class="mt-2 space-y-1 text-sm text-gray-700">
+                                @foreach ($absagen['liste'] as $ab)
+                                    <li wire:key="akte-absage-{{ $loop->index }}">
+                                        <span class="tabular-nums text-gray-500">{{ $ab['datum'] !== '' ? \Carbon\Carbon::parse($ab['datum'])->format('d.m.Y') : '' }}</span>
+                                        · {{ $ab['veranstaltung'] !== '' ? $ab['veranstaltung'] : 'Einsatz' }}@if ($ab['schicht'] !== '') · {{ $ab['schicht'] }}@endif
+                                        · <span class="font-medium">{{ $ab['grund'] }}</span>@if ($ab['notiz'] !== '') · „{{ $ab['notiz'] }}“@endif
+                                        <span class="text-xs text-gray-400">(abgesagt {{ $ab['am'] }})</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </div>
+
                     <div>
                         <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
                             Kommende Einsätze @if ($dispo['upcoming'] !== []) <span class="text-gray-400">({{ count($dispo['upcoming']) }})</span> @endif
