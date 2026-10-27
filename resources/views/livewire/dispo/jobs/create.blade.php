@@ -308,7 +308,7 @@
                                     <span class="text-gray-500">· {{ $firma }} {{ number_format($fz['aktiv'], 0, ',', '.') }}</span>
                                 @endforeach
                                 @if ($b['inaktiv'] > 0)
-                                    <span class="block text-xs text-gray-400">inaktiv: {{ implode(' · ', array_map(fn ($f, $fz) => $f . ' ' . number_format($fz['inaktiv'], 0, ',', '.'), array_keys($b['firmen']), $b['firmen'])) }} (werden nicht angeschrieben)</span>
+                                    <span class="block text-xs text-gray-400">{{ implode(' · ', array_map(fn ($f, $fz) => $f . ' ' . number_format($fz['inaktiv'], 0, ',', '.'), array_keys($b['firmen']), $b['firmen'])) }} inaktiv (werden nicht angeschrieben)</span>
                                 @endif
                                 @if ($b['nummern'] !== [])
                                     <span class="block text-xs text-gray-400">Kostenstellen {{ implode(', ', $b['nummern']) }}</span>
