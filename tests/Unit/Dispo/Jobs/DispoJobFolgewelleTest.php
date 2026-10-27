@@ -16,6 +16,8 @@ final class DispoJobFolgewelleTest extends TestCase
         $this->assertNull(DispoJobFolgewelle::entscheiden(true, 0, 5, false), '0 = keine');
         $this->assertNull(DispoJobFolgewelle::entscheiden(true, 360, 0, false), 'niemand mehr uebrig');
         $this->assertNull(DispoJobFolgewelle::entscheiden(true, 360, 5, true), 'alle Schichten gedeckt');
+        $this->assertNull(DispoJobFolgewelle::entscheiden(true, 360, 5, false, true), 'es wartet schon eine Welle: nie zwei Ketten');
+        $this->assertNull(DispoJobFolgewelle::entscheiden(true, 360, 5, false, false, true), 'Versand komplett gescheitert: nicht alle N Stunden erneut');
     }
 
     public function testGestopptGrund(): void

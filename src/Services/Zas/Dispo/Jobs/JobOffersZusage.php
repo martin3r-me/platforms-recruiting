@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
@@ -87,6 +88,9 @@ final class JobOffersZusage
         if (!$request->laeuft() || $shift->closed_at !== null || $shift->datum->lt(now()->startOfDay())) {
             return $request->laeuft() && $shift->closed_at !== null ? 'voll' : 'weg';
         }
+        if ($os->declined_at !== null) {
+            return 'weg'; // abgesagt bleibt abgesagt — zurueck geht nur ueber den Chat
+        }
         if (self::tagBelegt($shift, $employeeIds)) {
             return 'tag_belegt';
         }
@@ -117,14 +121,21 @@ final class JobOffersZusage
     private static function tagBelegt(RecDispoJobShift $shift, array $employeeIds): bool
     {
         $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
+        // Erst die Angebote der Person (ohne Sperre), dann sperrend nur ueber deren offer_id-Index —
+        // ein FOR UPDATE mit whereHas scannt unter InnoDB die ganze Tabelle samt Luecken (Review 27.10.).
+        $offerIds = RecDispoJobOffer::query()->whereIn('rec_employee_id', $employeeIds)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        if ($offerIds === []) {
+            return false;
+        }
         $andere = RecDispoJobOfferShift::query()
+            ->whereIn('offer_id', $offerIds)
             ->whereNotNull('accepted_at')->whereNull('declined_at')
             ->where('shift_id', '!=', $shift->id)
-            ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $employeeIds))
-            ->whereHas('shift', fn ($q) => $q->whereDate('datum', $shift->datum->format('Y-m-d')))
-            ->with('shift')
             ->lockForUpdate()
             ->get();
+        $andere->load('shift');
+        $tag = $shift->datum->format('Y-m-d');
+        $andere = $andere->filter(fn ($os) => $os->shift !== null && $os->shift->datum->format('Y-m-d') === $tag);
 
         return $andere->contains(fn ($os) => $os->shift !== null && DispoJobRecipientPlanner::schichtSchluessel(
             $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'), $os->shift->von, $os->shift->taetigkeit

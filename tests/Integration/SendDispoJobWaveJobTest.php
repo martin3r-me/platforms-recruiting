@@ -423,4 +423,24 @@ class SendDispoJobWaveJobTest extends TestCase
         $this->assertSame(0, $this->stub->calls);
         $this->assertSame('bedarf_gedeckt', $wave->fresh()->summary['gestoppt']);
     }
+
+    public function test_keine_zweite_kette_wenn_schon_eine_welle_wartet_und_auto_welle_stoppt_bei_automatik_aus(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 60]);
+        $this->employee('Anna', '0176 12345678');
+        $this->employee('Ben', '0176 87654321');
+        $wartend = $request->waves()->create(['nr' => 2, 'ma_bloecke' => [200], 'gruppen' => ['alle'], 'nur_passende_taetigkeit' => false, 'auto' => true, 'scheduled_for' => now()->addHour()]);
+
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+        $this->assertSame(2, $request->waves()->count(), 'die wartende Welle reicht, keine dritte');
+        $this->assertSame([], $job->gestartet);
+
+        $request->update(['welle_abstand_minuten' => null]);
+        $wartend->update(['scheduled_for' => now()->subMinute()]);
+        $this->jobOhneBus($wartend->id)->handle($this->cache(), $this->sender());
+        $this->assertSame('automatik_aus', $wartend->fresh()->summary['gestoppt']);
+        $this->assertSame(1, $this->stub->calls, 'die gestoppte Automatik-Welle hat nichts gesendet');
+    }
 }

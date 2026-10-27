@@ -280,4 +280,19 @@ class JobOffersPageTest extends TestCase
         $this->assertSame('anderer Job', $liste[0]['grund'], 'neueste zuerst, Grund als Klartext');
         $this->assertSame('Messe', $liste[0]['notiz']);
     }
+
+    public function test_nach_absage_keine_zusage_und_absage_nur_auf_laufende_kuenftige_schicht(): void
+    {
+        $os = $this->dringend(421, 31);
+        $this->assertSame('ok', JobOffersAbsage::ausfuehren($os, [31], 'krank', ''));
+        $this->assertSame('weg', JobOffersZusage::ausfuehren($os, [31]), 'abgesagt bleibt abgesagt');
+        $this->assertNull(RecDispoJobOfferShift::find($os)->accepted_at);
+
+        $zu = $this->dringend(422, 31);
+        RecDispoJobOfferShift::find($zu)->shift->request->update(['status' => RecDispoJobRequest::STATUS_ABGESCHLOSSEN, 'closed_at' => now()]);
+        $this->assertSame('weg', JobOffersAbsage::ausfuehren($zu, [31], 'krank', ''), 'abgeschlossene Anfrage');
+        $alt = $this->dringend(423, 31);
+        RecDispoJobOfferShift::find($alt)->shift->update(['datum' => now()->subDay()->toDateString()]);
+        $this->assertSame('weg', JobOffersAbsage::ausfuehren($alt, [31], 'krank', ''), 'Tag vorbei');
+    }
 }

@@ -40,6 +40,9 @@ final class JobOffersAbsage
                 || !in_array((int) $os->offer->rec_employee_id, $employeeIds, true)) {
                 return 'weg';
             }
+            if (!$os->shift->request->laeuft() || $os->shift->datum->lt(now()->startOfDay())) {
+                return 'weg';
+            }
             if ($os->shift->request->anlass !== 'dringend') {
                 return 'nicht_dringend';
             }

@@ -137,7 +137,7 @@ class JobOffers extends Component
         // „Bitte antworte bis“ (§2.5): naechste wartende automatische Welle je Anfrage.
         $naechsteWelle = RecDispoJobWave::query()
             ->whereIn('request_id', $offerShifts->map(fn ($os) => (int) $os->shift->request_id)->unique()->all())
-            ->where('auto', true)->whereNull('started_at')->whereNotNull('scheduled_for')
+            ->where('auto', true)->whereNull('started_at')->where('scheduled_for', '>', now())
             ->selectRaw('request_id, min(scheduled_for) as bis')->groupBy('request_id')
             ->pluck('bis', 'request_id');
 

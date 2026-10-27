@@ -100,6 +100,15 @@ class SendDispoJobWave implements ShouldQueue
         if ($request === null || $request->closed_at !== null) {
             return;
         }
+        // Automatik inzwischen gestoppt (Rennen zwischen Klick und Anlegen der Folgewelle): nicht senden.
+        if ($wave->auto && $request->welle_abstand_minuten === null) {
+            $progress = self::initialProgress(0);
+            $progress['done'] = true;
+            $progress['gestoppt'] = 'automatik_aus';
+            $wave->update(['started_at' => now(), 'finished_at' => now(), 'summary' => $progress]);
+
+            return;
+        }
 
         // Atomar beanspruchen: zwei Zustellungen derselben Welle duerfen nicht beide durch.
         $claimed = RecDispoJobWave::query()->whereKey($wave->id)->whereNull('started_at')
@@ -182,8 +191,9 @@ class SendDispoJobWave implements ShouldQueue
         if ($gestoppt !== null) {
             $progress['gestoppt'] = $gestoppt;
         }
+        $wartet = RecDispoJobWave::query()->where('request_id', $request->id)->where('id', '!=', $wave->id)->whereNull('started_at')->exists();
         $minuten = DispoJobFolgewelle::entscheiden($request->closed_at === null && $request->status === RecDispoJobRequest::STATUS_LAEUFT,
-            $request->welle_abstand_minuten, $progress['rest'], $alleGedeckt);
+            $request->welle_abstand_minuten, $progress['rest'], $alleGedeckt, $wartet, $progress['sent'] === 0 && $progress['failed'] > 0);
         if ($minuten !== null) {
             $naechste = DispoJobAnfrageAnlegen::welle($request, [
                 'bloecke' => (array) $wave->ma_bloecke, 'gruppen' => (array) $wave->gruppen, 'nur_passend' => (bool) $wave->nur_passende_taetigkeit,

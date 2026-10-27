@@ -16,12 +16,17 @@ final class DispoJobFolgewelle
     public const GRUENDE = [
         'bedarf_gedeckt' => 'Bedarf gedeckt — keine weiteren Wellen',
         'niemand_uebrig' => 'Niemand mehr übrig — keine weiteren Wellen',
+        'automatik_aus'  => 'Automatik gestoppt — nicht gesendet',
     ];
 
-    /** @return ?int Minuten bis zur naechsten Welle, null = keine */
-    public static function entscheiden(bool $anfrageOffen, ?int $abstandMinuten, int $rest, bool $alleGedeckt): ?int
+    /**
+     * @param bool $wartendeWelle   es wartet schon eine ungestartete Welle dieser Anfrage — nie zwei Ketten (Review 27.10.)
+     * @param bool $versandGescheitert nichts gesendet, aber Fehler — sonst scheitert dieselbe Welle alle N Stunden erneut
+     * @return ?int Minuten bis zur naechsten Welle, null = keine
+     */
+    public static function entscheiden(bool $anfrageOffen, ?int $abstandMinuten, int $rest, bool $alleGedeckt, bool $wartendeWelle = false, bool $versandGescheitert = false): ?int
     {
-        if (!$anfrageOffen || $alleGedeckt || $rest <= 0 || $abstandMinuten === null || $abstandMinuten <= 0) {
+        if (!$anfrageOffen || $alleGedeckt || $rest <= 0 || $abstandMinuten === null || $abstandMinuten <= 0 || $wartendeWelle || $versandGescheitert) {
             return null;
         }
 

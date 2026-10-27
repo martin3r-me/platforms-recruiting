@@ -158,6 +158,9 @@ class Create extends Component
             $this->anlass = $anlass;
             if (!$this->wellenAngefasst) {
                 $this->wellenVorbelegen();
+                if ($this->schritt === 3) {
+                    $this->zahlenRechnen();
+                }
             }
         }
     }

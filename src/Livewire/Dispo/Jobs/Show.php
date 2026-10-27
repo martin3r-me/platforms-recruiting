@@ -307,7 +307,7 @@ class Show extends Component
             $auswahl['gruppen'] === [] => 'Bitte wähle mindestens eine Gruppe.',
             $auswahl['stati'] === [] => 'Bitte wähle mindestens einen Status.',
             $auswahl['firmen'] === [] => 'Bitte wähle mindestens eine Gesellschaft.',
-            $this->offeneSchichten($request) === [] => 'Alle Schichten dieser Anfrage liegen in der Vergangenheit.',
+            $this->offeneSchichten($request) === [] => 'Alle Schichten sind gedeckt oder liegen in der Vergangenheit.',
             $this->wStartModus === 'spaeter' && ($minuten < 1 || $minuten > 1440) => 'Bitte gib zwischen 1 und 1440 Minuten an.',
             default => null,
         };
