@@ -34,8 +34,16 @@
             <div class="mt-0.5 text-xs text-gray-400">Vorlage {{ $this->vorlageName }}</div>
         </div>
         @if ($offen)
-            <button type="button" wire:click="abschliessen" wire:confirm="{{ $schliessenText }}"
-                    class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Anfrage abschließen</button>
+            <div class="flex flex-wrap items-center gap-2">
+                @if ($anfrage->welle_abstand_minuten !== null)
+                    <button type="button" wire:click="automatikStoppen" wire:confirm="Keine weiteren automatischen Wellen? Eine wartende automatische Welle wird gelöscht."
+                            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Automatische Wellen stoppen</button>
+                @else
+                    <span class="text-xs text-gray-400">Automatische Wellen: aus</span>
+                @endif
+                <button type="button" wire:click="abschliessen" wire:confirm="{{ $schliessenText }}"
+                        class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Anfrage abschließen</button>
+            </div>
         @endif
     </div>
 
@@ -94,8 +102,17 @@
                         <span class="text-gray-600">· {{ implode(', ', $w['gruppen']) }}</span>
                         <span class="text-gray-500">· {{ implode(', ', $w['bloecke']) }}</span>
                         <span class="text-gray-500">· {{ $w['stati'] }}</span>
+                        @if ($w['firmen'] !== '')
+                            <span class="text-gray-500">· {{ $w['firmen'] }}</span>
+                        @endif
                         @if ($w['nur_passend'])
                             <span class="text-gray-500">· nur passende Tätigkeit</span>
+                        @endif
+                        @if ($w['auto'])
+                            <span class="text-gray-400">· automatisch</span>
+                        @endif
+                        @if ($w['gestoppt'] !== null)
+                            <span class="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700">{{ $w['gestoppt'] }}</span>
                         @endif
                     </div>
                     <div class="flex items-center gap-3 text-xs text-gray-500">
@@ -259,7 +276,8 @@
                     $s->von !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit::spanne($s->von, $s->bis) . ' Uhr' : null,
                     $s->taetigkeit,
                 ]));
-                $voll = (int) $s->zugesagt >= (int) $s->gesucht;
+                $gedecktVonHand = $s->gedeckt_manuell_at !== null;
+                $voll = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt::istGedeckt($s, (int) $s->zugesagt);
                 $kopfKlasse = $voll ? '-mx-4 -mt-4 rounded-t-lg bg-green-50 px-4 pt-4 pb-2' : '';
                 $offeneHaken = count(array_filter($zeilen, fn ($z) => $z->zas_entered_at === null));
                 $listeText = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasListe::text(array_map(
@@ -276,6 +294,17 @@
                         <span class="rounded-full border px-2 py-0.5 {{ $voll ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-700' }}">zugesagt {{ $s->zugesagt }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">in ZAS eingetragen {{ $s->eingetragen }}</span>
                         <span class="rounded-full border border-gray-200 px-2 py-0.5 text-gray-700">angekommen {{ $s->angekommen }}</span>
+                        @if ($voll)
+                            <span class="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-green-700">{{ $gedecktVonHand ? 'gedeckt (von Hand)' : 'gedeckt' }}</span>
+                        @endif
+                        @if ($offen)
+                            @if ($gedecktVonHand)
+                                <button type="button" wire:click="gedecktOeffnen({{ (int) $s->id }})" class="rounded-full border border-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-50">wieder öffnen</button>
+                            @elseif (!$voll)
+                                <button type="button" wire:click="gedecktMarkieren({{ (int) $s->id }})" wire:confirm="Schicht als gedeckt markieren? Sie wird nicht mehr angeboten, bis du sie wieder öffnest."
+                                        class="rounded-full border border-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-50">als gedeckt markieren</button>
+                            @endif
+                        @endif
                     </div>
                     @if ($offen && $zeilen !== [])
                         <div class="flex items-center gap-2" x-data="{ ok: false, zeigen: false, kopieren() {

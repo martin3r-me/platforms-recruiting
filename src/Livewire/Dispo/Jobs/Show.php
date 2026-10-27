@@ -16,6 +16,8 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFolgewelle;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
@@ -202,6 +204,9 @@ class Show extends Component
                 'bloecke'     => array_map(fn ($b) => DispoJobKandidaten::blockLabel($b === null ? null : (int) $b), (array) $w->ma_bloecke),
                 'nur_passend' => (bool) $w->nur_passende_taetigkeit,
                 'stati'       => DispoJobRecipientPlanner::statiLabel($w->stati),
+                'firmen'      => DispoGesellschaft::label($w->firmen),
+                'auto'        => (bool) $w->auto,
+                'gestoppt'    => is_array($w->summary) ? (DispoJobFolgewelle::GRUENDE[$w->summary['gestoppt'] ?? ''] ?? null) : null,
                 'geplant'     => $w->scheduled_for,
                 'gestartet'   => $w->started_at,
                 'fertig'      => $w->finished_at,
@@ -341,6 +346,32 @@ class Show extends Component
         $this->fehler = '';
         $n = DispoJobZasHaken::alle($this->anfrage(), $shiftId, auth()->id() !== null ? (int) auth()->id() : null);
         $this->hinweis = $n > 0 ? $n . ' ' . ($n === 1 ? 'Zusage' : 'Zusagen') . ' als in ZAS eingetragen markiert.' : '';
+    }
+
+    /** Schicht von Hand als gedeckt markieren (Spec 2026-10-27 §4): Seite zeigt „schon voll“, Wellen lassen sie aus. */
+    public function gedecktMarkieren(int $shiftId): void
+    {
+        $this->fehler = '';
+        DispoJobGedeckt::markieren($this->anfrage(), $shiftId);
+        unset($this->schichten, $this->fortschritt);
+    }
+
+    public function gedecktOeffnen(int $shiftId): void
+    {
+        $this->fehler = '';
+        DispoJobGedeckt::oeffnen($this->anfrage(), $shiftId);
+        unset($this->schichten, $this->fortschritt);
+    }
+
+    /** Keine weiteren automatischen Wellen; von Hand geht weiterhin alles. */
+    public function automatikStoppen(): void
+    {
+        $this->fehler = '';
+        $request = $this->anfrage();
+        $request->update(['welle_abstand_minuten' => null]);
+        RecDispoJobWave::query()->where('request_id', $request->id)->where('auto', true)->whereNull('started_at')->delete();
+        $this->hinweis = 'Keine weiteren automatischen Wellen. Du kannst jederzeit von Hand eine neue Welle starten.';
+        unset($this->vorgang, $this->wellen);
     }
 
     public function abschliessen(): void
