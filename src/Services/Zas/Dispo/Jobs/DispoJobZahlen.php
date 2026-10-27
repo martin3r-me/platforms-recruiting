@@ -18,12 +18,12 @@ final class DispoJobZahlen
      * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
      * @param array<int,true> $schonAngeschrieben
      * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>} $auswahl
-     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int, ohne_vertrag:int, je_status:array{GO:int, MA:int}}
+     * @return array{empfaenger:int, namen:list<string>, toepfe:list<array{key:string, label:string, anzahl:int, namen:list<string>}>, mit_passend:int, ohne_vertrag:int, je_status:array{GO:int, MA:int}, rest:int}
      */
     public static function berechnen(int $teamId, array $schichten, array $schonAngeschrieben, array $auswahl): array
     {
         if ($schichten === []) {
-            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0, 'je_status' => ['GO' => 0, 'MA' => 0]];
+            return ['empfaenger' => 0, 'namen' => [], 'toepfe' => [], 'mit_passend' => 0, 'ohne_vertrag' => 0, 'je_status' => ['GO' => 0, 'MA' => 0], 'rest' => 0];
         }
         $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
         $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
@@ -76,6 +76,7 @@ final class DispoJobZahlen
             'mit_passend' => $mitPassend,
             'ohne_vertrag' => count(array_filter($plan['recipients'], fn ($r) => !empty($ohneVertrag[(int) $r['anchor']]))),
             'je_status'   => $jeStatus,
+            'rest'        => (int) ($plan['rest'] ?? 0),
         ];
     }
 

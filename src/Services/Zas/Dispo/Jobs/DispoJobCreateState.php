@@ -135,6 +135,17 @@ final class DispoJobCreateState
         if (array_key_exists('stati', $state) && DispoJobRecipientPlanner::stati((array) $state['stati']) === []) {
             return 'Bitte wähle mindestens einen Status.';
         }
+        if (array_key_exists('firmen', $state) && DispoGesellschaft::normalize((array) $state['firmen']) === []) {
+            return 'Bitte wähle mindestens eine Gesellschaft.';
+        }
+        // Dringend = eine Veranstaltung an einem Tag (Markus 27.10.: „immer fixiert auf einen Tag / eine Veranstaltung“).
+        if (($state['anlass'] ?? '') === 'dringend') {
+            $events = array_values(array_unique(array_filter(array_map('intval', (array) ($state['event_ids'] ?? [])), fn ($id) => $id > 0)));
+            $tage = array_values(array_unique(array_map('strval', (array) ($state['schichten_tage'] ?? []))));
+            if (count($events) > 1 || count($tage) > 1) {
+                return 'Bei „Dringend“ geht es um eine Veranstaltung an einem Tag. Für mehrere nimm „Nächste Woche“.';
+            }
+        }
         if (!in_array($state['modus'] ?? '', [RecDispoJobRequest::MODUS_SAMMELN, RecDispoJobRequest::MODUS_ZUERST], true)) {
             return 'Bitte wähle, wie die Zusagen gezählt werden.';
         }

@@ -26,6 +26,8 @@ final class DispoJobRecipientPlanner
         'ohne_taetigkeit'     => 'ohne passende Tätigkeit',
         'alle_tage_gebucht'   => 'an allen gewählten Tagen schon gebucht',
         'schon_zugesagt'      => 'hat diese Schicht schon zugesagt',
+        // Kein Ausschluss, nur Reihenfolge: hinter der Obergrenze dieser Welle (Spec 2026-10-27 §2.3).
+        'spaeter'             => 'kommt in einer späteren Welle dran',
     ];
 
     /** Statusfilter (Spec 2026-10-20): ZAS-Status je Person, NICHT die Gesellschaft. */
@@ -75,12 +77,25 @@ final class DispoJobRecipientPlanner
         $gruppen = $auswahl['gruppen'] ?? [];
         $ohneKostenstelle = in_array(null, $bloecke, true);
         $blockSet = array_fill_keys(array_map('intval', array_filter($bloecke, fn ($b) => $b !== null)), true);
+        // Gesellschaft (RG/MA der Anstellungen): null/fehlend = alte Welle = beide; [] = niemand.
+        $firmen = ($auswahl['firmen'] ?? null) === null ? null : array_fill_keys(DispoGesellschaft::normalize((array) $auswahl['firmen']), true);
 
-        return array_values(array_filter($kandidaten, function ($k) use ($einsaetze, $gruppen, $ohneKostenstelle, $blockSet) {
+        return array_values(array_filter($kandidaten, function ($k) use ($einsaetze, $gruppen, $ohneKostenstelle, $blockSet, $firmen) {
             $block = $k['block'];
             $imBlock = $block === null ? $ohneKostenstelle : isset($blockSet[(int) $block]);
+            if (!$imBlock || !DispoEinsatzZaehler::trifft((int) ($einsaetze[(int) $k['anchor']] ?? 0), $gruppen)) {
+                return false;
+            }
+            if ($firmen === null) {
+                return true;
+            }
+            foreach ((array) ($k['firmen'] ?? [DispoGesellschaft::RG]) as $f) {
+                if (isset($firmen[(string) $f])) {
+                    return true;
+                }
+            }
 
-            return $imBlock && DispoEinsatzZaehler::trifft((int) ($einsaetze[(int) $k['anchor']] ?? 0), $gruppen);
+            return false;
         }));
     }
 
@@ -96,9 +111,9 @@ final class DispoJobRecipientPlanner
      * @param array<int,int> $einsaetze Anker => Einsaetze im Monat
      * @param array<int,array<string,true>> $gebucht Anker => gebuchte Tage
      * @param array<int,true> $schonAngeschrieben Anker => true
-     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>} $auswahl
+     * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>, firmen?:?list<string>, max?:?int} $auswahl
      * @param array<int,list<string>> $schonZugesagt Anker => schichtSchluessel() der anderswo zugesagten Schichten
-     * @return array{recipients: list<array{anchor:int, employee_id:int, phone:string, first_name:string, portal_token:string, shift_ids:list<int>}>, skipped: array<string,int>, skipped_ids: array<string,list<int>>}
+     * @return array{recipients: list<array{anchor:int, employee_id:int, phone:string, first_name:string, portal_token:string, shift_ids:list<int>, datum:string}>, skipped: array<string,int>, skipped_ids: array<string,list<int>>, rest:int}
      */
     public static function plan(array $kandidaten, array $schichten, array $einsaetze, array $gebucht, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = []): array
     {
@@ -156,6 +171,7 @@ final class DispoJobRecipientPlanner
                 }
             }
 
+            $tageFrei = array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $frei);
             $recipients[] = [
                 'anchor'       => $anchor,
                 'employee_id'  => (int) $k['employee_id'],
@@ -163,10 +179,28 @@ final class DispoJobRecipientPlanner
                 'first_name'   => (string) $k['first_name'],
                 'portal_token' => (string) $k['portal_token'],
                 'shift_ids'    => array_map(fn ($s) => (int) $s['id'], $frei),
+                // Fuer {{datum}} in der Nachricht: fruehester angebotener Tag.
+                'datum'        => (string) min($tageFrei),
+                'einsaetze'    => (int) ($einsaetze[$anchor] ?? 0),
             ];
         }
 
-        return ['recipients' => $recipients, 'skipped' => $skipped, 'skipped_ids' => $skippedIds];
+        // Reihenfolge (Spec 2026-10-27 §2.3): wenigste Einsaetze im Monat zuerst, dann Anker.
+        usort($recipients, fn ($a, $b) => [$a['einsaetze'], $a['anchor']] <=> [$b['einsaetze'], $b['anchor']]);
+
+        // Obergrenze je Welle NACH den Toepfen; der Ueberhang ist kein Ausschluss.
+        $max = (int) ($auswahl['max'] ?? 0);
+        $rest = 0;
+        if ($max > 0 && count($recipients) > $max) {
+            foreach (array_slice($recipients, $max) as $r) {
+                self::topf($skipped, $skippedIds, 'spaeter', (int) $r['anchor']);
+            }
+            $rest = count($recipients) - $max;
+            $recipients = array_slice($recipients, 0, $max);
+        }
+        $recipients = array_map(function ($r) { unset($r['einsaetze']); return $r; }, $recipients);
+
+        return ['recipients' => $recipients, 'skipped' => $skipped, 'skipped_ids' => $skippedIds, 'rest' => $rest];
     }
 
     private static function topf(array &$skipped, array &$ids, string $topf, int $anchor): void

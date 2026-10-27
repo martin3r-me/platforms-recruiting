@@ -115,4 +115,20 @@ final class DispoJobCreateStateTest extends TestCase
         $this->assertSame('Bitte wähle mindestens einen Status.', DispoJobCreateState::kannWeiter(3, self::state(['stati' => []])));
         $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['stati' => ['GO']])));
     }
+
+    public function testSchritt3BrauchtMindestensEineGesellschaftWennVorhanden(): void
+    {
+        $this->assertSame('Bitte wähle mindestens eine Gesellschaft.', DispoJobCreateState::kannWeiter(3, self::state(['firmen' => []])));
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['firmen' => ['MA']])));
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state()), 'ohne Schluessel keine Pruefung');
+    }
+
+    public function testDringendBrauchtGenauEineVeranstaltungAnEinemTag(): void
+    {
+        $text = 'Bei „Dringend“ geht es um eine Veranstaltung an einem Tag. Für mehrere nimm „Nächste Woche“.';
+        $this->assertSame($text, DispoJobCreateState::kannWeiter(3, self::state(['anlass' => 'dringend', 'event_ids' => [5, 6], 'schichten_tage' => ['2026-10-24']])));
+        $this->assertSame($text, DispoJobCreateState::kannWeiter(3, self::state(['anlass' => 'dringend', 'event_ids' => [5], 'schichten_tage' => ['2026-10-24', '2026-10-25']])));
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['anlass' => 'dringend', 'event_ids' => [5], 'schichten_tage' => ['2026-10-24']])));
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['anlass' => 'naechste_woche', 'event_ids' => [5, 6], 'schichten_tage' => ['2026-10-24', '2026-10-25']])));
+    }
 }

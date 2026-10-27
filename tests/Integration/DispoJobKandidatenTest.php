@@ -245,4 +245,29 @@ class DispoJobKandidatenTest extends TestCase
 
         return $dir;
     }
+
+    public function test_gesellschaft_je_person_und_je_block(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            $rg = $this->employee(['first_name' => 'Beide', 'company' => 'RG', 'cost_center' => '201', 'personnel_number' => 'RG1']);
+            $ma = $this->employee(['first_name' => 'Beide', 'company' => 'MA', 'cost_center' => '201', 'personnel_number' => 'MA1']);
+            $this->verknuepfen($rg, $ma);
+            $nurMa = $this->employee(['first_name' => 'NurMA', 'company' => 'MA', 'cost_center' => '201']);
+            $ohne = $this->employee(['first_name' => 'Ohne', 'company' => null, 'cost_center' => '201']);
+            $this->employee(['first_name' => 'Inaktiv', 'company' => 'MA', 'cost_center' => '201', 'is_active' => false]);
+
+            $k = array_column(DispoJobKandidaten::laden(3, ['2026-10-24'], '2026-10')['kandidaten'], null, 'anchor');
+            $this->assertSame(['RG', 'MA'], $k[$rg]['firmen']);
+            $this->assertSame(['MA'], $k[$nurMa]['firmen']);
+            $this->assertSame(['RG'], $k[$ohne]['firmen'], 'ohne Firma = RG');
+
+            $o = array_column(DispoJobKandidaten::blockOptionen(3), null, 'block');
+            $this->assertSame(['aktiv' => 2, 'inaktiv' => 0], $o[200]['firmen']['RG']);
+            $this->assertSame(['aktiv' => 2, 'inaktiv' => 1], $o[200]['firmen']['MA'], 'die Person mit beiden zaehlt bei RG und bei MA');
+            $this->assertSame(4, $o[200]['count']);
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
+    }
 }

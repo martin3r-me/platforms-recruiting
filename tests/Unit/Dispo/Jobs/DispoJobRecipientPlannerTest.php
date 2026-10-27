@@ -59,7 +59,7 @@ final class DispoJobRecipientPlannerTest extends TestCase
         ];
         $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [5 => ['2026-10-24' => true, '2026-10-25' => true]], [1 => true], self::auswahl(['nur_passend' => true]));
         $this->assertSame([], $r['recipients']);
-        $this->assertSame(['schon_angeschrieben' => 1, 'portal_gesperrt' => 1, 'ohne_nummer' => 1, 'ohne_taetigkeit' => 1, 'alle_tage_gebucht' => 1, 'schon_zugesagt' => 0], $r['skipped']);
+        $this->assertSame(['schon_angeschrieben' => 1, 'portal_gesperrt' => 1, 'ohne_nummer' => 1, 'ohne_taetigkeit' => 1, 'alle_tage_gebucht' => 1, 'schon_zugesagt' => 0, 'spaeter' => 0], $r['skipped']);
         $this->assertSame([2], $r['skipped_ids']['portal_gesperrt'], 'gesperrt vor ohne Nummer');
     }
 
@@ -143,5 +143,48 @@ final class DispoJobRecipientPlannerTest extends TestCase
         $k = [self::kandidat(1, ['status' => 'GO']), self::kandidat(2, ['status' => 'MA', 'phone' => null]), self::kandidat(3, ['block' => 100])];
         $this->assertSame([1, 2], array_column(DispoJobRecipientPlanner::grundmenge($k, [], self::auswahl(['stati' => ['GO']])), 'anchor'),
             'Filiale + Gruppe, aber weder Status noch Toepfe');
+    }
+
+    public function testReihenfolgeWenigsteEinsaetzeZuerstDannAnker(): void
+    {
+        $k = [self::kandidat(1), self::kandidat(2), self::kandidat(3), self::kandidat(4)];
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [1 => 3, 2 => 0, 3 => 1, 4 => 0], [], [], self::auswahl());
+        $this->assertSame([2, 4, 3, 1], array_column($r['recipients'], 'anchor'));
+        $this->assertSame(0, $r['rest']);
+    }
+
+    public function testObergrenzeKapptNachDenToepfenUndZaehltDenRest(): void
+    {
+        $k = [self::kandidat(1), self::kandidat(2, ['phone' => null]), self::kandidat(3), self::kandidat(4)];
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['max' => 2]));
+        $this->assertSame([1, 3], array_column($r['recipients'], 'anchor'));
+        $this->assertSame(1, $r['skipped']['ohne_nummer'], 'Topf vor der Obergrenze');
+        $this->assertSame(1, $r['skipped']['spaeter']);
+        $this->assertSame([4], $r['skipped_ids']['spaeter']);
+        $this->assertSame(1, $r['rest']);
+
+        $alle = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['max' => null]));
+        $this->assertCount(3, $alle['recipients'], 'null = alle');
+        $this->assertCount(3, DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['max' => 0]))['recipients'], '0 = alle');
+    }
+
+    public function testGesellschaftIstGrundmenge(): void
+    {
+        $k = [self::kandidat(1, ['firmen' => ['RG', 'MA']]), self::kandidat(2, ['firmen' => ['MA']]), self::kandidat(3)];
+        $anker = fn (array $a) => array_column(DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl($a))['recipients'], 'anchor');
+        $this->assertSame([1, 2], $anker(['firmen' => ['MA']]), 'Person mit beiden Anstellungen ist bei MA dabei');
+        $this->assertSame([1, 3], $anker(['firmen' => ['RG']]), 'ohne firmen-Feld = RG');
+        $this->assertSame([1, 2, 3], $anker(['firmen' => ['RG', 'MA']]));
+        $this->assertSame([], $anker(['firmen' => []]), 'leer = niemand');
+        $this->assertSame([1, 2, 3], $anker([]), 'fehlend = alte Welle = beide');
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [], [], self::auswahl(['firmen' => ['MA']]));
+        $this->assertSame(0, array_sum($r['skipped']), 'kein Topf');
+    }
+
+    public function testEmpfaengerTraegtFruehestenTagSeinerSchichten(): void
+    {
+        $k = [self::kandidat(1)];
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), [], [1 => ['2026-10-24' => true]], [], self::auswahl());
+        $this->assertSame('2026-10-25', $r['recipients'][0]['datum'], 'der 24. ist gebucht');
     }
 }

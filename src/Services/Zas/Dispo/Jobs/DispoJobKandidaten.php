@@ -28,7 +28,7 @@ final class DispoJobKandidaten
             ->with(['position:id,cost_center', 'hrData:id,rec_employee_id,dispo_taetigkeiten,export_status'])
             ->where('team_id', $teamId)->where('is_active', true)
             ->orderBy('id')
-            ->get(['id', 'rec_position_id', 'first_name', 'last_name', 'phone', 'portal_token', 'portal_locked_at', 'cost_center']);
+            ->get(['id', 'rec_position_id', 'first_name', 'last_name', 'phone', 'portal_token', 'portal_locked_at', 'cost_center', 'company']);
         if ($employees->isEmpty()) {
             return ['kandidaten' => [], 'einsaetze' => [], 'gebucht' => []];
         }
@@ -51,7 +51,7 @@ final class DispoJobKandidaten
             $row = &$byAnchor[$anchor];
             $row ??= ['anchor' => $anchor, 'employee_id' => $id, 'phone' => null, 'first_name' => (string) $e->first_name,
                 'name' => trim($e->first_name . ' ' . $e->last_name), 'portal_token' => (string) $e->portal_token,
-                'block' => KostenstellenBloecke::block($e->cost_center, $e->position?->cost_center), 'portal_locked' => false, 'taetigkeiten' => [], 'stati' => []];
+                'block' => KostenstellenBloecke::block($e->cost_center, $e->position?->cost_center), 'portal_locked' => false, 'taetigkeiten' => [], 'stati' => [], 'firmen' => []];
             if ($row['phone'] === null && $phone !== null && trim($phone) !== '') {
                 // Der Datensatz MIT Nummer bekommt die Nachricht (und seinen Token).
                 $row['employee_id'] = $id;
@@ -65,6 +65,8 @@ final class DispoJobKandidaten
             if ($e->hrData !== null) {
                 $row['stati'][] = $e->hrData->export_status;
             }
+            // Gesellschaften der Person (Spec 2026-10-27 §3): jede Anstellung bringt ihre Firma mit.
+            $row['firmen'] = DispoGesellschaft::normalize(array_merge($row['firmen'], [DispoGesellschaft::ausCompany($e->company)]));
             unset($row);
         }
         foreach ($byAnchor as &$row) {
@@ -121,30 +123,49 @@ final class DispoJobKandidaten
         return $ma;
     }
 
-    /** @return list<array{block:?int, label:string, nummern:list<string>, count:int, inaktiv:int}> */
+    /**
+     * Je Block die Zahlen fuer die Filial-Auswahl. `count`/`inaktiv` sind Anstellungen
+     * (Datensaetze, User-Entscheidung 20.10.), `firmen` teilt sie je Gesellschaft
+     * (Kunde 27.10.: „je Filiale je Gesellschaft ausweisen“) — eine Person mit RG-
+     * und MA-Anstellung steht in beiden Zahlen.
+     *
+     * @return list<array{block:?int, label:string, nummern:list<string>, count:int, inaktiv:int, firmen:array<string,array{aktiv:int,inaktiv:int}>}>
+     */
     public static function blockOptionen(int $teamId): array
     {
         $rows = RecEmployee::query()->with('position:id,cost_center')
             ->where('team_id', $teamId)->where('is_active', true)
-            ->get(['id', 'rec_position_id', 'cost_center'])
-            ->map(fn ($e) => ['cost_center' => $e->cost_center, 'position_cost_center' => $e->position?->cost_center !== null ? (string) $e->position->cost_center : null])
+            ->get(['id', 'rec_position_id', 'cost_center', 'company'])
+            ->map(fn ($e) => ['cost_center' => $e->cost_center, 'position_cost_center' => $e->position?->cost_center !== null ? (string) $e->position->cost_center : null,
+                'firma' => DispoGesellschaft::ausCompany($e->company)])
             ->all();
+
+        $leer = fn () => array_map(fn () => ['aktiv' => 0, 'inaktiv' => 0], DispoGesellschaft::ALLE);
+        $firmen = [];
+        foreach ($rows as $row) {
+            $key = KostenstellenBloecke::block($row['cost_center'], $row['position_cost_center']) ?? 'ohne';
+            $firmen[$key] ??= $leer();
+            $firmen[$key][$row['firma']]['aktiv']++;
+        }
 
         // Inaktive: eine gruppierte Zaehlung, nur zur Anzeige — sie sind nie Empfaenger.
         $inaktiv = [];
         $gruppiert = RecEmployee::query()
             ->leftJoin('rec_positions', 'rec_positions.id', '=', 'rec_employees.rec_position_id')
             ->where('rec_employees.team_id', $teamId)->where('rec_employees.is_active', false)
-            ->groupBy('rec_employees.cost_center', 'rec_positions.cost_center')
-            ->selectRaw('rec_employees.cost_center as ma_kst, rec_positions.cost_center as stelle_kst, count(*) as anzahl')
+            ->groupBy('rec_employees.cost_center', 'rec_positions.cost_center', 'rec_employees.company')
+            ->selectRaw('rec_employees.cost_center as ma_kst, rec_positions.cost_center as stelle_kst, rec_employees.company as firma, count(*) as anzahl')
             ->get();
         foreach ($gruppiert as $g) {
             $block = KostenstellenBloecke::block($g->ma_kst, $g->stelle_kst !== null ? (string) $g->stelle_kst : null);
             $key = $block ?? 'ohne';
             $inaktiv[$key] = ($inaktiv[$key] ?? 0) + (int) $g->anzahl;
+            $firmen[$key] ??= $leer();
+            $firmen[$key][DispoGesellschaft::ausCompany($g->firma)]['inaktiv'] += (int) $g->anzahl;
         }
 
-        return array_map(fn ($o) => $o + ['label' => self::blockLabel($o['block']), 'inaktiv' => $inaktiv[$o['block'] ?? 'ohne'] ?? 0],
+        return array_map(fn ($o) => $o + ['label' => self::blockLabel($o['block']), 'inaktiv' => $inaktiv[$o['block'] ?? 'ohne'] ?? 0,
+                'firmen' => $firmen[$o['block'] ?? 'ohne'] ?? $leer()],
             KostenstellenBloecke::optionen($rows));
     }
 
