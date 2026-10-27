@@ -18,7 +18,7 @@ final class DispoJobAnfrageAnlegen
     /**
      * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
      *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, gesucht:int|string}>,
-     *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, minuten: int} $daten
+     *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, firmen?: ?list<string>, welle_max?: int, welle_abstand_minuten?: int, minuten: int} $daten
      * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
      * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
      * @throws \InvalidArgumentException wenn keine Schicht mit gesucht > 0 uebrig bleibt
@@ -41,6 +41,9 @@ final class DispoJobAnfrageAnlegen
                 'whatsapp_template_id' => (int) $daten['template_id'],
                 'status'               => RecDispoJobRequest::STATUS_ENTWURF,
                 'created_by_user_id'   => $userId,
+                // Wellenplan (Spec 2026-10-27 §2): 0/leer = alle bzw. keine Folgewelle.
+                'welle_max'             => (int) ($daten['welle_max'] ?? 0) > 0 ? (int) $daten['welle_max'] : null,
+                'welle_abstand_minuten' => (int) ($daten['welle_abstand_minuten'] ?? 0) > 0 ? (int) $daten['welle_abstand_minuten'] : null,
             ]);
             foreach ($schichten as $s) {
                 $request->shifts()->create($s);
@@ -54,7 +57,7 @@ final class DispoJobAnfrageAnlegen
     /**
      * Neue Welle mit nr = max + 1. Empfaenger werden erst beim Start berechnet.
      *
-     * @param array{bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, minuten: int} $auswahl
+     * @param array{bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, firmen?: ?list<string>, auto?: bool, minuten: int} $auswahl
      */
     public static function welle(RecDispoJobRequest $request, array $auswahl): RecDispoJobWave
     {
@@ -69,6 +72,10 @@ final class DispoJobAnfrageAnlegen
             // leer und die Welle gilt wie frueher fuer GO + MA.
             'stati'                   => array_key_exists('stati', $auswahl) && $auswahl['stati'] !== null
                 ? DispoJobRecipientPlanner::stati((array) $auswahl['stati']) : null,
+            // Gesellschaft RG/MA (Spec 2026-10-27 §3); null = alte Welle = beide.
+            'firmen'                  => array_key_exists('firmen', $auswahl) && $auswahl['firmen'] !== null
+                ? DispoGesellschaft::normalize((array) $auswahl['firmen']) : null,
+            'auto'                    => (bool) ($auswahl['auto'] ?? false),
             'nur_passende_taetigkeit' => (bool) ($auswahl['nur_passend'] ?? true),
             'scheduled_for'           => $minuten > 0 ? now()->addMinutes($minuten) : null,
             'job_uuid'                => (string) UuidV7::generate(),

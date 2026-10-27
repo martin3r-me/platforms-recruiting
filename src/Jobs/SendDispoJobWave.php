@@ -11,6 +11,9 @@ use Illuminate\Queue\SerializesModels;
 use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFolgewelle;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOfferSender;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
@@ -119,9 +122,17 @@ class SendDispoJobWave implements ShouldQueue
             return;
         }
 
-        $schichten = $request->shifts()->whereNull('closed_at')->whereDate('datum', '>=', now()->toDateString())->get()
-            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
-                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von])->all();
+        // Nur nicht gedeckte Schichten (Spec 2026-10-27 §4) — in beiden Modi.
+        $schichten = DispoJobGedeckt::offeneSchichten($request);
+        if ($schichten === []) {
+            $progress = self::initialProgress(0);
+            $progress['done'] = true;
+            $progress['gestoppt'] = 'bedarf_gedeckt';
+            $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+            $wave->update(['finished_at' => now(), 'summary' => $progress]);
+
+            return;
+        }
         $tage = array_values(array_unique(array_column($schichten, 'datum')));
         $daten = DispoJobKandidaten::laden($this->teamId, $tage, now()->format('Y-m'));
         $schon = RecDispoJobOffer::query()->where('request_id', $request->id)->pluck('anchor_employee_id')
@@ -129,11 +140,14 @@ class SendDispoJobWave implements ShouldQueue
         $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schon, [
             'gruppen' => (array) $wave->gruppen, 'bloecke' => (array) $wave->ma_bloecke, 'nur_passend' => (bool) $wave->nur_passende_taetigkeit,
             'stati' => $wave->stati, // null = Welle von vor dem Statusfilter = GO + MA
+            'firmen' => $wave->firmen, // null = alte Welle = beide Gesellschaften
+            'max' => $request->welle_max, // Obergrenze je Welle, null = alle
         ], DispoJobSchonZugesagt::laden((int) $request->team_id));
 
         $progress = self::initialProgress(count($plan['recipients']));
         $progress['skipped'] = array_sum($plan['skipped']);
         $progress['skipped_toepfe'] = $plan['skipped'];
+        $progress['rest'] = (int) ($plan['rest'] ?? 0);
         $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
 
         if ($request->status === RecDispoJobRequest::STATUS_ENTWURF) {
@@ -161,9 +175,36 @@ class SendDispoJobWave implements ShouldQueue
             $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
         }
 
+        // Folgewelle (Spec 2026-10-27 §2.4): gleiche Filter, naechste Personen, nach dem Abstand.
+        $request->refresh();
+        $alleGedeckt = DispoJobGedeckt::alleGedeckt($request);
+        $gestoppt = DispoJobFolgewelle::gestopptGrund($alleGedeckt, count($plan['recipients']), $progress['rest']);
+        if ($gestoppt !== null) {
+            $progress['gestoppt'] = $gestoppt;
+        }
+        $minuten = DispoJobFolgewelle::entscheiden($request->closed_at === null && $request->status === RecDispoJobRequest::STATUS_LAEUFT,
+            $request->welle_abstand_minuten, $progress['rest'], $alleGedeckt);
+        if ($minuten !== null) {
+            $naechste = DispoJobAnfrageAnlegen::welle($request, [
+                'bloecke' => (array) $wave->ma_bloecke, 'gruppen' => (array) $wave->gruppen, 'nur_passend' => (bool) $wave->nur_passende_taetigkeit,
+                'stati' => $wave->stati, 'firmen' => $wave->firmen, 'auto' => true, 'minuten' => $minuten,
+            ]);
+            $progress['naechste_welle_nr'] = (int) $naechste->nr;
+        }
+
         $progress['done'] = true;
         $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
         $wave->update(['finished_at' => now(), 'summary' => $progress]);
+
+        if ($minuten !== null) {
+            $this->folgewelleStarten($naechste);
+        }
+    }
+
+    /** In die Warteschlange — getrennt, damit Tests ohne Bus die Welle nur sehen. */
+    protected function folgewelleStarten(RecDispoJobWave $wave): void
+    {
+        DispoJobAnfrageAnlegen::starten($wave, $this->teamId, $this->userId);
     }
 
     private function keepError(array &$progress, string $line): void

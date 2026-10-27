@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoEinsatzZaehler;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
@@ -238,9 +239,7 @@ class Show extends Component
     /** Offene, kuenftige Schichten — dieselbe Menge, die der Job beim Start anbietet. */
     private function offeneSchichten(RecDispoJobRequest $request): array
     {
-        return $request->shifts()->whereNull('closed_at')->whereDate('datum', '>=', now()->toDateString())->get()
-            ->map(fn ($s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
-                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von])->all();
+        return DispoJobGedeckt::offeneSchichten($request);
     }
 
     private function zahlenRechnen(): void

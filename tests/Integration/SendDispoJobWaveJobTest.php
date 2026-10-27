@@ -332,4 +332,95 @@ class SendDispoJobWaveJobTest extends TestCase
         (new SendDispoJobWave($alt->id, 3, 9))->handle($this->cache(), $this->sender());
         $this->assertSame(1, $this->stub->calls, 'alte Welle ohne Status = GO + MA');
     }
+
+    /** Job, der die Folgewelle nur anlegt statt sie in die Warteschlange zu geben (kein Bus im Test). */
+    private function jobOhneBus(int $waveId): SendDispoJobWave
+    {
+        return new class($waveId, 3, 9) extends SendDispoJobWave {
+            public array $gestartet = [];
+            protected function folgewelleStarten(\Platform\Recruiting\Models\RecDispoJobWave $wave): void
+            {
+                $this->gestartet[] = (int) $wave->id;
+            }
+        };
+    }
+
+    public function test_folgewelle_entsteht_mit_abstand_und_gleichen_filtern(): void
+    {
+        Carbon::setTestNow('2026-10-27 10:00:00');
+        [$request, $wave] = $this->anfrage(['stati' => ['GO'], 'firmen' => ['RG']]);
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 360]);
+        $this->employee('Anna', '0176 12345678');
+        $this->employee('Ben', '0176 87654321');
+
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+
+        $this->assertSame(1, $this->stub->calls, 'Obergrenze 1');
+        $wave->refresh();
+        $this->assertSame(1, $wave->summary['rest']);
+        $this->assertSame(1, $wave->summary['skipped_toepfe']['spaeter']);
+        $naechste = $request->waves()->where('nr', 2)->first();
+        $this->assertNotNull($naechste, 'Folgewelle angelegt');
+        $this->assertTrue((bool) $naechste->auto);
+        $this->assertSame('2026-10-27 16:00:00', $naechste->scheduled_for->format('Y-m-d H:i:s'));
+        $this->assertSame(['GO'], $naechste->stati);
+        $this->assertSame(['RG'], $naechste->firmen);
+        $this->assertSame([200], $naechste->ma_bloecke);
+        $this->assertSame([(int) $naechste->id], $job->gestartet);
+        $this->assertSame(2, $wave->summary['naechste_welle_nr']);
+        Carbon::setTestNow();
+    }
+
+    public function test_keine_folgewelle_ohne_abstand_oder_ohne_rest(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => null]);
+        $this->employee('Anna', '0176 12345678');
+        $this->employee('Ben', '0176 87654321');
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+        $this->assertSame(1, $request->waves()->count(), 'ohne Abstand keine Folgewelle');
+        $this->assertSame([], $job->gestartet);
+
+        [$request2, $wave2] = $this->anfrage();
+        $request2->update(['welle_max' => 10, 'welle_abstand_minuten' => 60]);
+        $job2 = $this->jobOhneBus($wave2->id);
+        $job2->handle($this->cache(), $this->sender());
+        $this->assertSame(1, $request2->waves()->count(), 'alle passten in die Welle: kein Rest, keine Folgewelle');
+    }
+
+    public function test_auto_welle_bei_gedecktem_bedarf_sendet_nichts_und_kettet_nicht(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 60]);
+        $shift = $request->shifts()->first();
+        $shift->update(['gesucht' => 1]);
+        $anna = $this->employee('Anna', '0176 12345678');
+        $this->employee('Ben', '0176 87654321');
+        // Anna hat (aus einer frueheren Welle) schon zugesagt: Bedarf 1 von 1 gedeckt.
+        $alt = $request->waves()->create(['nr' => 0, 'ma_bloecke' => [200], 'gruppen' => ['alle'], 'nur_passende_taetigkeit' => false, 'started_at' => now(), 'finished_at' => now()]);
+        $offer = RecDispoJobOffer::create(['wave_id' => $alt->id, 'request_id' => $request->id, 'rec_employee_id' => $anna, 'anchor_employee_id' => $anna, 'sent_at' => now()]);
+        \Platform\Recruiting\Models\RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $shift->id, 'accepted_at' => now()]);
+        $wave->update(['auto' => true]);
+
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame('bedarf_gedeckt', $wave->fresh()->summary['gestoppt']);
+        $this->assertNotNull($wave->fresh()->finished_at);
+        $this->assertSame(2, $request->waves()->count(), 'keine dritte Welle');
+    }
+
+    public function test_von_hand_gedeckte_schicht_wird_nicht_angeboten(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->shifts()->first()->update(['gedeckt_manuell_at' => now(), 'closed_at' => now()]);
+        $this->employee('Anna', '0176 12345678');
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame('bedarf_gedeckt', $wave->fresh()->summary['gestoppt']);
+    }
 }

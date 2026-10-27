@@ -70,7 +70,7 @@ class DispoJobCreateFlowTest extends TestCase
     {
         return $o + [
             'filial_nr' => 200, 'von' => '2026-10-13', 'bis' => '2026-11-09', 'modus' => RecDispoJobRequest::MODUS_SAMMELN,
-            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'stati' => ['GO'], 'minuten' => 0,
+            'anlass' => 'dringend', 'template_id' => 7, 'bloecke' => [200, null], 'gruppen' => ['0', '1-4'], 'nur_passend' => true, 'stati' => ['GO'], 'firmen' => ['MA'], 'welle_max' => 20, 'welle_abstand_minuten' => 360, 'minuten' => 0,
             'schichten' => [
                 ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer', 'gesucht' => 20],
                 ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3],
@@ -123,6 +123,10 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame(['0', '1-4'], $waves[0]->gruppen);
         $this->assertTrue($waves[0]->nur_passende_taetigkeit);
         $this->assertSame(['GO'], $waves[0]->stati, 'Statusauswahl wird je Welle gespeichert');
+        $this->assertSame(['MA'], $waves[0]->firmen, 'Gesellschaft je Welle');
+        $this->assertFalse((bool) $waves[0]->auto);
+        $this->assertSame(20, $fresh->welle_max);
+        $this->assertSame(360, $fresh->welle_abstand_minuten);
         $this->assertNull($waves[0]->scheduled_for, 'jetzt senden');
         $this->assertNull($waves[0]->started_at);
         $this->assertNotEmpty($waves[0]->job_uuid, 'Fortschritts-Schluessel steht vor dem Start fest');
