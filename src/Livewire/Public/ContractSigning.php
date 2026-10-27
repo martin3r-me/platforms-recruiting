@@ -7,6 +7,7 @@ use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Support\ContractDeclarationPlaceholders;
 use Platform\Recruiting\Support\ContractPreSigningType;
 use Platform\Recruiting\Support\EmployerDeclaration;
 use Platform\Recruiting\Support\ResttagePlaceholder;
@@ -234,6 +235,27 @@ class ContractSigning extends Component
         $this->par16Entries = array_values($this->par16Entries);
     }
 
+    /**
+     * MA-Vertrag (Markus 2026): traegt die Vorlage {{erklaerung_kurzfristig}} /
+     * {{erklaerung_beschaeftigungslos}}, sieht der Mitarbeiter in Schritt 2 seine
+     * Antworten schon an § 8 / § 16 — dasselbe Dokument, das er unterschreibt.
+     * Immer vom DB-Stand aus, damit „Zurueck“ mit geaenderter Antwort neu greift.
+     * Ohne Platzhalter (RG) bleibt die Anzeige wie bisher.
+     */
+    private function erklaerungenInVorschau(): void
+    {
+        $basis = RecContract::find($this->contractId)?->personalized_content ?? '';
+        if (!ContractDeclarationPlaceholders::vorhanden($basis)) {
+            return;
+        }
+        $this->contractContent = RecContract::embedPreSigningData($basis, [
+            'par15_has_previous' => $this->par15HasPrevious,
+            'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
+            'par16_was_jobseeking' => $this->par16WasJobseeking,
+            'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
+        ]);
+    }
+
     public function nextStep(): void
     {
         if ($this->step === 1) {
@@ -243,6 +265,10 @@ class ContractSigning extends Component
             // das er unterschreibt — inklusive seiner Zahl. Immer vom
             // DB-Stand aus ersetzen, damit ein "Zurueck" mit korrigierter
             // Eingabe sauber neu greift.
+            if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
+                $this->erklaerungenInVorschau();
+            }
+
             if ($this->preSigningType === ContractPreSigningType::RESTTAGE) {
                 $contract = RecContract::find($this->contractId);
                 $this->contractContent = ResttagePlaceholder::fill(

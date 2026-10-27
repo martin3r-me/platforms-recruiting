@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
+use Platform\Recruiting\Support\ContractDeclarationPlaceholders;
 use Platform\Recruiting\Support\ResttagePlaceholder;
 use Symfony\Component\Uid\UuidV7;
 
@@ -272,9 +273,10 @@ class RecContract extends Model implements InheritsExtraFields
         return self::buildPar15Html($data) . self::buildPar16Html($data);
     }
 
-    public static function buildPar15Html(array $data): string
+    /** $mitUeberschrift = false: Einsatz an {{erklaerung_kurzfristig}} (MA-Vertrag § 8). */
+    public static function buildPar15Html(array $data, bool $mitUeberschrift = true): string
     {
-        $header = '<h2 style="margin-top:24px;margin-bottom:8px;">§ 15 Angaben zu kurzfristigen Beschäftigungen</h2>';
+        $header = $mitUeberschrift ? '<h2 style="margin-top:24px;margin-bottom:8px;">§ 15 Angaben zu kurzfristigen Beschäftigungen</h2>' : '';
         $intro = '<p style="margin-bottom:8px;">Der Arbeitnehmer erklärt hiermit zu kurzfristigen Beschäftigungsverhältnissen in den letzten 12 Monaten:</p>';
 
         if (empty($data['par15_has_previous'])) {
@@ -307,9 +309,10 @@ class RecContract extends Model implements InheritsExtraFields
         return $html;
     }
 
-    public static function buildPar16Html(array $data): string
+    /** $mitUeberschrift = false: Einsatz an {{erklaerung_beschaeftigungslos}} (MA-Vertrag § 16). */
+    public static function buildPar16Html(array $data, bool $mitUeberschrift = true): string
     {
-        $header = '<h2 style="margin-top:24px;margin-bottom:8px;">§ 16 Angaben zu beschäftigungslosen Zeiten</h2>';
+        $header = $mitUeberschrift ? '<h2 style="margin-top:24px;margin-bottom:8px;">§ 16 Angaben zu beschäftigungslosen Zeiten</h2>' : '';
         $intro = '<p style="margin-bottom:8px;">Der Arbeitnehmer erklärt hiermit zu Meldungen bei der Arbeitsagentur in den letzten 12 Monaten:</p>';
 
         if (empty($data['par16_was_jobseeking'])) {
@@ -356,8 +359,20 @@ class RecContract extends Model implements InheritsExtraFields
             return $resttageContent;
         }
 
-        $par15Html = self::buildPar15Html($data);
-        $par16Html = self::buildPar16Html($data);
+        // MA-Vertrag (Markus 2026): Platzhalter an § 8 / § 16 — die Antworten
+        // genau dort, ohne eigene Ueberschrift. Ein Teil ohne Platzhalter
+        // faellt nicht still weg, er geht den alten Weg (vor § 17).
+        $kurzHier = str_contains($content, ContractDeclarationPlaceholders::KURZFRISTIG);
+        $losHier = str_contains($content, ContractDeclarationPlaceholders::BESCHAEFTIGUNGSLOS);
+        if ($kurzHier) {
+            $content = str_replace(ContractDeclarationPlaceholders::KURZFRISTIG, self::buildPar15Html($data, false), $content);
+        }
+        if ($losHier) {
+            $content = str_replace(ContractDeclarationPlaceholders::BESCHAEFTIGUNGSLOS, self::buildPar16Html($data, false), $content);
+        }
+
+        $par15Html = $kurzHier ? '' : self::buildPar15Html($data);
+        $par16Html = $losHier ? '' : self::buildPar16Html($data);
 
         $combined = $par15Html . $par16Html;
         if ($combined === '') {

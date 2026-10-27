@@ -45,7 +45,7 @@
                     <div class="flex items-center justify-between mb-2">
                         @php
                             $resttageStepLabel = $duzen ? 'Deine Angabe' : 'Ihre Angabe';
-                            $stepOneLabel = $preSigningType === 'resttage' ? $resttageStepLabel : '§15/§16 Angaben';
+                            $stepOneLabel = $preSigningType === 'resttage' ? $resttageStepLabel : ($duzen ? 'Deine Angaben' : 'Ihre Angaben');
                         @endphp
                         @foreach([1 => $stepOneLabel, 2 => 'Vertrag & Unterschrift'] as $num => $label)
                             <div class="flex items-center {{ $num < 2 ? 'flex-1' : '' }}">
@@ -74,7 +74,7 @@
                 <div class="space-y-6">
                     {{-- §15 - Kurzfristige Beschäftigungen --}}
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
-                        <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben nach §15 — Kurzfristige Beschäftigungen</h2>
+                        <h2 class="text-xl font-bold text-gray-900 mb-2">Kurzfristige Beschäftigungen</h2>
                         <p class="text-gray-500 text-sm mb-6">
                             {{ $duzen ? 'Warst du in den letzten 12 Monaten kurzfristig beschäftigt?' : 'Waren Sie in den letzten 12 Monaten kurzfristig beschäftigt?' }}
                         </p>
@@ -154,7 +154,7 @@
 
                     {{-- §16 - Beschäftigungslose Zeiten --}}
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
-                        <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben nach §16 — Beschäftigungslose Zeiten</h2>
+                        <h2 class="text-xl font-bold text-gray-900 mb-2">Beschäftigungslose Zeiten</h2>
                         <p class="text-gray-500 text-sm mb-6">
                             {{ $duzen ? 'Warst du in den letzten 12 Monaten bei der Arbeitsagentur als arbeitssuchend gemeldet?' : 'Waren Sie in den letzten 12 Monaten bei der Arbeitsagentur als arbeitssuchend gemeldet?' }}
                         </p>

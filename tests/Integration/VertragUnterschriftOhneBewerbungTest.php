@@ -157,6 +157,28 @@ final class VertragUnterschriftOhneBewerbungTest extends TestCase
             'ohne Bewerbung und ohne neues Portal gibt es keinen Rueckweg');
     }
 
+    /** MA-Vertrag (Markus 2026): Schritt 2 zeigt die Antworten schon an § 8 / § 16, nicht den Platzhalter. */
+    public function test_vorschau_setzt_die_erklaerungen_an_die_platzhalter(): void
+    {
+        $ma = $this->anstellung(['is_main_employer' => true]);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-KF'));
+        $v->update(['personalized_content' => '<h2>§ 8 Erklärung</h2>{{erklaerung_kurzfristig}}<h2>§16 Erklärung</h2>{{erklaerung_beschaeftigungslos}}<h2>§ 17 Verschiedenes</h2>']);
+        $signing = new ContractSigning();
+        $signing->mount($v->getOrCreatePublicFormLink()->token);
+        $this->assertSame(1, $signing->step);
+
+        $this->assertStringContainsString('{{erklaerung_kurzfristig}}', $signing->contractContent, 'vor Schritt 1 noch Platzhalter');
+
+        $signing->par15HasPrevious = false;
+        $signing->par16WasJobseeking = false;
+        // nextStep() validiert ueber Livewire (hier kein App-Boot) — die Vorschau selbst:
+        $this->privat($signing, 'erklaerungenInVorschau')->invoke($signing);
+
+        $this->assertStringNotContainsString('{{', $signing->contractContent);
+        $this->assertStringContainsString('Nein', $signing->contractContent);
+        $this->assertStringNotContainsString('§ 15 Angaben', $signing->contractContent);
+    }
+
     private function privat(object $o, string $name): ReflectionMethod
     {
         $m = new ReflectionMethod($o, $name);
