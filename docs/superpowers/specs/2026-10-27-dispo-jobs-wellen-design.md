@@ -94,3 +94,12 @@ Deploy mit `migrate`, `view:clear`, `queue:restart` (Job liest neue Spalten und 
 
 ## 11. Tests
 Planer: Sortierung, Obergrenze + Topf `spaeter` + `rest`, Firmen-Filter als Grundmenge, null/[]-Semantik. Folgewelle: `entscheiden()` alle Fälle. Kandidaten/blockOptionen: Firmen je Block, Person mit RG+MA in beiden Zahlen. CreateState: Dringend-Regel, Gesellschaft leer. Zusage: `tag_belegt`, Absage speichert und sperrt, Absage nur bei Dringend (Komponente). SendDispoJobWave: Auto-Welle wird angelegt/gestoppt (gedeckt, niemand übrig, Abstand null, Anfrage geschlossen). Sender: `{{datum}}` nur bei Vorlage mit Variable. ZusagenInfo: `absagen_60`. Blade-Check beider Views + Jobseite.
+
+## 12. Nachträge aus der Umsetzung (27.10.)
+- Der Topf heißt `spaeter` und zählt als Topf („kommt in einer späteren Welle dran“); `rest` steht zusätzlich in der Wellen-Zusammenfassung.
+- Welle speichert keine eigene Obergrenze; „Neue Welle“ von Hand schreibt eine geänderte Obergrenze an die Anfrage (`welle_max`), damit automatische Folgewellen sie übernehmen.
+- Gestoppte Wellen zeigen den Grund als grünen Chip in der Wellenliste („Bedarf gedeckt — keine weiteren Wellen“ / „Niemand mehr übrig — keine weiteren Wellen“).
+- `{{datum}}` ohne Tag liefert „bald“ statt leer (Meta lehnt leere Parameter ab).
+- Absage: zweiter Grund bei bereits abgesagter Schicht wird ignoriert (erster bleibt). Hinweis bei Absage nach Zusage: „Du hast für diese Schicht schon zugesagt. Wenn du doch nicht kannst, melde dich bitte im Chat.“
+- Vorbelegung Gesellschaft aus `einsatzfirma`: „MA“ nur als eigenes Wort (nicht „Maritim“), „RG“ als Wort oder Text mit „Rhein“; sonst beide. Echte Werte auf Prod vor dem Merge prüfen.
+

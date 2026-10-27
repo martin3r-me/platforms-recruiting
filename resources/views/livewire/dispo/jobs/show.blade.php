@@ -185,7 +185,7 @@
                                         <span class="text-gray-500">· {{ $firma }} {{ $fz['aktiv'] }}</span>
                                     @endforeach
                                     @if ($b['inaktiv'] > 0)
-                                        <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv</span>
+                                        <span class="text-gray-400">· {{ number_format($b['inaktiv'], 0, ',', '.') }} inaktiv (werden nicht angeschrieben)</span>
                                     @endif
                                 </span>
                             </label>
