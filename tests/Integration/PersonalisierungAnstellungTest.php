@@ -125,19 +125,23 @@ final class PersonalisierungAnstellungTest extends TestCase
     {
         $ma = $this->anstellung(['iban' => 'DE02120300000000202051', 'birth_place' => 'Köln']);
         $t = $this->vorlage('AV-MA-LOG', 'MA', [
-            'content' => '<p>{{iban}}|{{ort}}|{{geb}}|{{tok}}|{{rel}}</p>',
+            'content' => '<p>{{iban}}|{{ort}}|{{geb}}|{{tok}}|{{rel}}|{{anders}}</p>',
             'field_mappings' => [
                 'iban' => 'applicant.iban',
                 'ort'  => 'applicant.extra_field.geburtsort',
                 'geb'  => 'employee.birth_place',
                 'tok'  => 'employee.portal_token',
                 'rel'  => 'employee.applicant',
+                'anders' => 'applicant.extra_field.lieblingsfarbe',
             ],
         ]);
         $v = $this->vertragAn($ma, $t);
 
-        $this->assertSame('<p>DE02120300000000202051||Köln||</p>', $t->personalizeFuerAnstellung($ma, $v),
-            'Bewerber-Extrafeld ohne Bewerbung leer (Spec §2.3); Portal-Token und Relationen nie im Vertrag');
+        // 27.10.2026: der Geburtsort (AV-default mappt applicant.extra_field.geburtsort)
+        // faellt auf die Akte zurueck — sonst blieb er bei Bestands-MA ohne Bewerbung
+        // leer. Alle anderen Bewerber-Extrafelder bleiben ohne Bewerbung leer (Spec §2.3).
+        $this->assertSame('<p>DE02120300000000202051|Köln|Köln|||</p>', $t->personalizeFuerAnstellung($ma, $v),
+            'Geburtsort aus der Akte; sonstiges Bewerber-Extrafeld leer; Portal-Token und Relationen nie im Vertrag');
     }
 
     public function test_mit_bewerbung_fuellt_die_anstellung_nur_leere_werte(): void

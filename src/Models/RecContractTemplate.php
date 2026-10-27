@@ -80,6 +80,16 @@ class RecContractTemplate extends Model
         'address.city'         => 'city',
     ];
 
+    /**
+     * Bewerber-Extrafelder mit einer Entsprechung in der Akte (27.10.2026):
+     * AV-default mappt den Geburtsort als applicant.extra_field.geburtsort —
+     * ohne Rueckfall blieb er bei Bestands-MA ohne Bewerbung leer. Alle
+     * anderen Bewerber-Extrafelder bleiben im Akte-Weg leer (Spec §2.3).
+     */
+    private const EXTRAFELD_AUF_ANSTELLUNG = [
+        'geburtsort' => 'birth_place',
+    ];
+
     /** Spalten, die in keinem Vertrag stehen duerfen — ein Portal-Token im PDF waere ein Schluessel zum Konto. */
     private const NIE_IM_VERTRAG = ['portal_token', 'uuid', 'person_key', 'rec_person_id', 'portal_locked_reason'];
 
@@ -364,6 +374,12 @@ class RecContractTemplate extends Model
 
         if (str_starts_with($source, 'applicant.') && !str_starts_with($source, 'applicant.extra_field.')) {
             return $this->anstellungsWert($anstellung, substr($source, strlen('applicant.')));
+        }
+
+        if (str_starts_with($source, 'applicant.extra_field.')) {
+            $spalte = self::EXTRAFELD_AUF_ANSTELLUNG[substr($source, strlen('applicant.extra_field.'))] ?? null;
+
+            return $spalte !== null ? $this->anstellungsWert($anstellung, $spalte) : $wert;
         }
 
         return $wert;
