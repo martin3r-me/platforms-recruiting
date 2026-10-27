@@ -60,7 +60,7 @@ final class JobOffersZusage
                 return 'weg';
             }
 
-            $ergebnis = $os->accepted_at !== null ? 'ok' : self::annehmen($shift, $os);
+            $ergebnis = $os->accepted_at !== null ? 'ok' : self::annehmen($shift, $os, $employeeIds);
             if ($ergebnis !== 'ok') {
                 return $ergebnis;
             }
@@ -69,7 +69,7 @@ final class JobOffersZusage
                 $schwesterShift = $shifts[(int) $s->shift_id] ?? null;
                 $frisch = RecDispoJobOfferShift::query()->whereKey($s->id)->lockForUpdate()->first();
                 if ($schwesterShift !== null && $frisch !== null && $frisch->accepted_at === null) {
-                    self::annehmen($schwesterShift, $frisch);
+                    self::annehmen($schwesterShift, $frisch, $employeeIds);
                 }
             }
 
@@ -77,8 +77,8 @@ final class JobOffersZusage
         }, 3);
     }
 
-    /** Regeln einer (gesperrten) Schicht anwenden. @return 'ok'|'voll'|'weg' */
-    private static function annehmen(RecDispoJobShift $shift, RecDispoJobOfferShift $os): string
+    /** Regeln einer (gesperrten) Schicht anwenden. @return 'ok'|'voll'|'weg'|'tag_belegt' */
+    private static function annehmen(RecDispoJobShift $shift, RecDispoJobOfferShift $os, array $employeeIds): string
     {
         $request = RecDispoJobRequest::query()->whereKey($shift->request_id)->sharedLock()->first();
         if ($request === null) {
@@ -86,6 +86,9 @@ final class JobOffersZusage
         }
         if (!$request->laeuft() || $shift->closed_at !== null || $shift->datum->lt(now()->startOfDay())) {
             return $request->laeuft() && $shift->closed_at !== null ? 'voll' : 'weg';
+        }
+        if (self::tagBelegt($shift, $employeeIds)) {
+            return 'tag_belegt';
         }
         if ($request->modus === RecDispoJobRequest::MODUS_ZUERST && $shift->gesucht > 0) {
             // Sperrende Zaehlung: sieht Zusagen, die nach Beginn dieser Transaktion committet wurden.
@@ -102,5 +105,29 @@ final class JobOffersZusage
         $os->update(['accepted_at' => now()]);
 
         return 'ok';
+    }
+
+    /**
+     * Einmal pro Tag (Spec 2026-10-27 §6, Markus: „nur 1x fuer einen Tag“): hat
+     * die Person an diesem Tag schon eine andere Schicht zugesagt (beliebige
+     * Anfrage, nicht abgesagt), ist der Tag belegt. Dieselbe Schicht aus einer
+     * anderen Anfrage (Schwester, gleicher Schluessel) zaehlt nicht — der Klick
+     * sagt ihr gerade mit zu. Sperrend gelesen wie die Vollzaehlung.
+     */
+    private static function tagBelegt(RecDispoJobShift $shift, array $employeeIds): bool
+    {
+        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
+        $andere = RecDispoJobOfferShift::query()
+            ->whereNotNull('accepted_at')->whereNull('declined_at')
+            ->where('shift_id', '!=', $shift->id)
+            ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $employeeIds))
+            ->whereHas('shift', fn ($q) => $q->whereDate('datum', $shift->datum->format('Y-m-d')))
+            ->with('shift')
+            ->lockForUpdate()
+            ->get();
+
+        return $andere->contains(fn ($os) => $os->shift !== null && DispoJobRecipientPlanner::schichtSchluessel(
+            $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'), $os->shift->von, $os->shift->taetigkeit
+        ) !== $schluessel);
     }
 }
