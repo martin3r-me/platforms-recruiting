@@ -61,4 +61,14 @@ final class DispoJobAnlassTest extends TestCase
 
         $this->assertSame(['vier_wochen' => null, 'naechste_woche' => null, 'dringend' => null], DispoJobAnlass::templateIds($s));
     }
+
+    public function testWellenVorbelegungJeAnlass(): void
+    {
+        $this->assertSame(['max' => 20, 'abstand_minuten' => 360], DispoJobAnlass::wellen('dringend'));
+        $this->assertSame(['max' => 50, 'abstand_minuten' => 1440], DispoJobAnlass::wellen('naechste_woche'));
+        $this->assertSame(['max' => 50, 'abstand_minuten' => 4320], DispoJobAnlass::wellen('vier_wochen'));
+        $this->assertSame(['max' => null, 'abstand_minuten' => null], DispoJobAnlass::wellen('irgendwas'));
+        $this->assertSame('keine', DispoJobAnlass::ABSTAENDE[0]);
+        $this->assertSame('6 Stunden', DispoJobAnlass::ABSTAENDE[360]);
+    }
 }

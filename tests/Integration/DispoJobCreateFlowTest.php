@@ -43,6 +43,7 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php',
+            'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
             'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
         ] as $rel) {

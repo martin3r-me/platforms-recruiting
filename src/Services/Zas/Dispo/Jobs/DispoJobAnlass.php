@@ -16,6 +16,29 @@ final class DispoJobAnlass
         'dringend'       => 'Dringend',
     ];
 
+    /**
+     * Wellenplan je Anlass (Kunde 27.10.2026, Folie 4/6): hoechstens so viele
+     * Personen je Welle, naechste Welle automatisch nach so vielen Minuten.
+     * Je Anfrage aenderbar; keine Einstellungsseite.
+     */
+    public const WELLEN = [
+        'dringend'       => ['max' => 20, 'abstand_minuten' => 360],
+        'naechste_woche' => ['max' => 50, 'abstand_minuten' => 1440],
+        'vier_wochen'    => ['max' => 50, 'abstand_minuten' => 4320],
+    ];
+
+    /** Auswahl „Naechste Welle automatisch nach“: Minuten => Beschriftung; 0 = keine. */
+    public const ABSTAENDE = [
+        0 => 'keine', 120 => '2 Stunden', 360 => '6 Stunden', 720 => '12 Stunden',
+        1440 => '24 Stunden', 2880 => '2 Tage', 4320 => '3 Tage', 7200 => '5 Tage',
+    ];
+
+    /** @return array{max:?int, abstand_minuten:?int} */
+    public static function wellen(string $anlass): array
+    {
+        return self::WELLEN[$anlass] ?? ['max' => null, 'abstand_minuten' => null];
+    }
+
     public static function istGueltig(string $anlass): bool
     {
         return array_key_exists($anlass, self::ALLE);
