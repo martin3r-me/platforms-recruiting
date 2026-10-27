@@ -179,6 +179,25 @@ final class VertragUnterschriftOhneBewerbungTest extends TestCase
         $this->assertStringNotContainsString('§ 15 Angaben', $signing->contractContent);
     }
 
+    /** Review 27.10.: Erklaerungs-Platzhalter, aber Code ohne „AV-“ → keine Abfrage, also gleich unvollstaendig. */
+    public function test_platzhalter_ohne_av_code_ist_unvollstaendig(): void
+    {
+        $ma = $this->anstellung();
+        $v = $this->vertragAn($ma, $this->vorlage('MA-KF'));
+        $v->update(['personalized_content' => '<h2>§ 8</h2>{{erklaerung_kurzfristig}}<h2>§ 17</h2>']);
+        $signing = new ContractSigning();
+        $signing->mount($v->getOrCreatePublicFormLink()->token);
+
+        $this->assertSame(2, $signing->step, 'ohne AV- kein Vorschalt-Schritt');
+        $this->assertTrue($signing->contentIncomplete);
+
+        $rg = $this->vertragAn($this->anstellung(), $this->vorlage('IFSG-X'));
+        $rg->update(['personalized_content' => '<p>Belehrung</p>']);
+        $ohne = new ContractSigning();
+        $ohne->mount($rg->getOrCreatePublicFormLink()->token);
+        $this->assertFalse($ohne->contentIncomplete, 'Vorlagen ohne Platzhalter unberuehrt');
+    }
+
     private function privat(object $o, string $name): ReflectionMethod
     {
         $m = new ReflectionMethod($o, $name);

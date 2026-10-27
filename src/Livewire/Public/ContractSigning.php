@@ -159,6 +159,12 @@ class ContractSigning extends Component
         if ($code !== null && str_starts_with($code, 'AT-')) {
             $this->contentIncomplete = ResttagePlaceholder::hasUnresolvedPlaceholder($this->contractContent);
         }
+        // Erklaerungs-Platzhalter ohne Vorschalt-Schritt (Code ohne „AV-“): die
+        // Antworten werden nie abgefragt — gleich als unvollstaendig zeigen,
+        // statt den Mitarbeiter bis zur abgelehnten Unterschrift laufen zu lassen.
+        if (!$this->requiresPreSigningStep && ContractDeclarationPlaceholders::offen($this->contractContent)) {
+            $this->contentIncomplete = true;
+        }
 
         // Startwerte der Arbeitgeber-Auswahl (Markus 24.09.2026). Eine
         // bereits gegebene Antwort gewinnt vor der Vorbelegung aus "Ich bin" —
@@ -400,8 +406,12 @@ class ContractSigning extends Component
         // in der Blade nur im @else-Zweig von $contentIncomplete gerendert.
         // Setzt man das Flag, verschwindet das Feld, an dem die Meldung
         // haengt — und der Bewerber sieht gar nichts.
-        if ($code !== null && str_starts_with($code, 'AT-')
-            && ResttagePlaceholder::hasUnresolvedPlaceholder($personalizedContent)) {
+        // Dasselbe fuer die Erklaerungs-Platzhalter (MA-Vertrag, Review 27.10.):
+        // unabhaengig vom Code — ein Code ohne „AV-“ oder ein zerstueckelter
+        // Platzhalter liesse sonst „{{erklaerung_…}}“ im unterschriebenen Dokument.
+        if (($code !== null && str_starts_with($code, 'AT-')
+            && ResttagePlaceholder::hasUnresolvedPlaceholder($personalizedContent))
+            || ContractDeclarationPlaceholders::offen($personalizedContent)) {
             Log::error('[ContractSigning] Signieren abgebrochen — unaufgeloester Platzhalter', [
                 'contract_id' => $contract->id,
             ]);

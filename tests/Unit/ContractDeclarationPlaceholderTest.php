@@ -61,15 +61,45 @@ final class ContractDeclarationPlaceholderTest extends TestCase
 
     public function test_nur_ein_platzhalter_der_andere_teil_faellt_nicht_still_weg(): void
     {
-        // Vorlage mit nur einem Platzhalter: der zweite Teil darf nicht verschwinden —
-        // er wird wie bisher vor § 17 angehaengt, mit Ueberschrift.
+        // Vorlage mit nur einem Platzhalter: die Antwort dort, der andere Teil
+        // nicht verloren — er geht den alten Weg vor § 17, mit Ueberschrift.
         $html = RecContract::embedPreSigningData(
-            '<h2>§ 8 Erklärung</h2>{{erklaerung_kurzfristig}}<h2>§ 17 Verschiedenes</h2>',
+            '<h2>§ 8 Erklärung</h2>{{erklaerung_kurzfristig}}<p>Hinweis</p><h2>§ 17 Verschiedenes</h2>',
             $this->daten(false, true),
         );
 
-        $this->assertStringContainsString('Agentur Düsseldorf', $html);
         $this->assertStringNotContainsString('{{', $html);
+        $nein = strpos($html, 'Nein');
+        $this->assertGreaterThan(strpos($html, '§ 8'), $nein);
+        $this->assertLessThan(strpos($html, '<p>Hinweis</p>'), $nein, 'kurzfristig steht am Platzhalter');
+        $kopf = strpos($html, '§ 16 Angaben zu beschäftigungslosen Zeiten');
+        $this->assertNotFalse($kopf);
+        $this->assertGreaterThan(strpos($html, '<p>Hinweis</p>'), $kopf);
+        $this->assertLessThan(strpos($html, '§ 17 Verschiedenes'), $kopf);
+        $this->assertLessThan(strpos($html, '§ 17 Verschiedenes'), strpos($html, 'Agentur Düsseldorf'));
+    }
+
+    /** Review 27.10.: „{{ erklaerung_kurzfristig }}“ mit Leerzeichen ist derselbe Platzhalter. */
+    public function test_platzhalter_mit_leerzeichen(): void
+    {
+        $html = RecContract::embedPreSigningData(
+            '<h2>§ 8</h2>{{ erklaerung_kurzfristig }}<h2>§ 16</h2>{{erklaerung_beschaeftigungslos  }}<h2>§ 17 Verschiedenes</h2>',
+            $this->daten(true, false),
+        );
+
+        $this->assertStringNotContainsString('erklaerung_', $html);
+        $this->assertStringNotContainsString('§ 15 Angaben', $html);
+        $this->assertTrue(ContractDeclarationPlaceholders::vorhanden('<p>{{ erklaerung_beschaeftigungslos }}</p>'));
+    }
+
+    /** Harter Stopp vor dem Unterschreiben: auch ein von Formatierung zerstueckelter Rest zaehlt. */
+    public function test_offen_erkennt_reste_auch_zerstueckelt(): void
+    {
+        $this->assertTrue(ContractDeclarationPlaceholders::offen('<p>{{erklaerung_kurzfristig}}</p>'));
+        $this->assertTrue(ContractDeclarationPlaceholders::offen('<p>{{<span>erklaerung_</span>kurzfristig}}</p>'));
+        $this->assertTrue(ContractDeclarationPlaceholders::offen('<p>{{ erklaerung_beschaeftigungslos }}</p>'));
+        $this->assertFalse(ContractDeclarationPlaceholders::offen(RecContract::embedPreSigningData(self::MA, $this->daten(true, true))));
+        $this->assertFalse(ContractDeclarationPlaceholders::offen(self::RG));
     }
 
     public function test_rg_vorlage_ohne_platzhalter_unveraendert(): void

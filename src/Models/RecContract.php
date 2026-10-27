@@ -362,13 +362,13 @@ class RecContract extends Model implements InheritsExtraFields
         // MA-Vertrag (Markus 2026): Platzhalter an § 8 / § 16 — die Antworten
         // genau dort, ohne eigene Ueberschrift. Ein Teil ohne Platzhalter
         // faellt nicht still weg, er geht den alten Weg (vor § 17).
-        $kurzHier = str_contains($content, ContractDeclarationPlaceholders::KURZFRISTIG);
-        $losHier = str_contains($content, ContractDeclarationPlaceholders::BESCHAEFTIGUNGSLOS);
+        $kurzHier = ContractDeclarationPlaceholders::hatKurzfristig($content);
+        $losHier = ContractDeclarationPlaceholders::hatBeschaeftigungslos($content);
         if ($kurzHier) {
-            $content = str_replace(ContractDeclarationPlaceholders::KURZFRISTIG, self::buildPar15Html($data, false), $content);
+            $content = ContractDeclarationPlaceholders::ersetze($content, ContractDeclarationPlaceholders::MUSTER_KURZFRISTIG, self::buildPar15Html($data, false));
         }
         if ($losHier) {
-            $content = str_replace(ContractDeclarationPlaceholders::BESCHAEFTIGUNGSLOS, self::buildPar16Html($data, false), $content);
+            $content = ContractDeclarationPlaceholders::ersetze($content, ContractDeclarationPlaceholders::MUSTER_BESCHAEFTIGUNGSLOS, self::buildPar16Html($data, false));
         }
 
         $par15Html = $kurzHier ? '' : self::buildPar15Html($data);
