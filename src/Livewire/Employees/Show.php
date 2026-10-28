@@ -1269,11 +1269,11 @@ class Show extends Component
                 'selfie_file_id'              => ['type' => 'file', 'label' => 'Selfie'],
             ],
             'Kontakt' => [
-                'email' => ['type' => 'text', 'label' => 'Email'],
+                'email' => ['type' => 'text', 'label' => 'E-Mail'],
                 'phone' => ['type' => 'text', 'label' => 'Telefon'],
             ],
             'Adresse' => [
-                'street' => ['type' => 'text', 'label' => 'Strasse'],
+                'street' => ['type' => 'text', 'label' => 'Straße'],
                 'house_number' => ['type' => 'text', 'label' => 'Hausnummer'],
                 'zip' => ['type' => 'text', 'label' => 'PLZ'],
                 'city' => ['type' => 'text', 'label' => 'Ort'],

@@ -105,6 +105,13 @@
             // damit eine kuenftige Aenderung am Zaehler diesen Satz nicht
             // still wieder von der Pflicht entlasten kann.
             $allesDa = $offen === 0 && $pflichtAufgaben === [];
+            // Pilot-Review 28.10.2026: die Lohnangaben (wie in der WhatsApp-
+            // Lohn-Liste) stehen unter "Das fehlt noch" — Abzeichen und
+            // "N Punkte offen" zaehlen sie mit, sonst sagt die Seite zweierlei.
+            // $allesDa bleibt bewusst ohne sie: dafuer gibt es den Kasten
+            // "Personalakte noch unvollstaendig".
+            $lohnAufgaben = \Platform\Recruiting\Livewire\Public\PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen);
+            $offenGesamt = $offen + count($lohnAufgaben);
             // Sebastian 22.10.2026: "alles vollstaendig" nur, wenn auch das
             // Profil ganz ausgefuellt ist. Sonst sind die Nachweise
             // vollstaendig, aber die Personalakte nicht — Wortlaut wie Markus'
@@ -144,8 +151,8 @@
             <div class="logo">Rhein<span>Gedeck</span></div>
             <button type="button" class="rnav" @click="tab = 'start'" :class="tab === 'start' && 'on'">
                 <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg> Start
-                @if ($offen > 0)
-                    <span class="n">{{ $offen }}</span>
+                @if ($offenGesamt > 0)
+                    <span class="n">{{ $offenGesamt }}</span>
                 @endif
             </button>
             <button type="button" class="rnav" @click="tab = 'jobs'" :class="tab === 'jobs' && 'on'">
@@ -224,7 +231,7 @@
                                 : 'Wir haben alles, was wir von Ihnen brauchen. Läuft etwas ab, melden wir uns rechtzeitig.' }}
                         </div>
                     @else
-                        <h3>{{ $offen === 1 ? 'Ein Punkt offen' : $offen . ' Punkte offen' }}</h3>
+                        <h3>{{ $offenGesamt === 1 ? 'Ein Punkt offen' : $offenGesamt . ' Punkte offen' }}</h3>
                         @if ($ersteAufgabe !== null)
                             <div class="when">{{ $ersteAufgabe['label'] }} — {{ $ersteAufgabe['text'] }}</div>
                         @endif
@@ -353,7 +360,6 @@
 
                 <div class="bcols">
                 @php
-                    $lohnAufgaben = \Platform\Recruiting\Livewire\Public\PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen);
                     $fehltNochZahl = count($pflichtAufgaben) + count($lohnAufgaben);
                 @endphp
                 @if ($fehltNochZahl > 0)
@@ -850,8 +856,8 @@
                         :aria-selected="tab === 'start'" :class="tab === 'start' && 'on'">
                     <span class="ico">
                         <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>
-                        @if ($offen > 0)
-                            <span class="badge">{{ $offen }}</span>
+                        @if ($offenGesamt > 0)
+                            <span class="badge">{{ $offenGesamt }}</span>
                         @endif
                     </span>Start
                 </button>

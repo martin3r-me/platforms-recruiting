@@ -473,6 +473,7 @@ class PortalShell extends Component
      */
     public function oeffneGruppe(string $gruppe): void
     {
+        $this->nachweisMeldung = '';
         $this->profilFokus = null;
         $this->profilFehler = '';
         $this->profilMeldung = '';
@@ -580,6 +581,7 @@ class PortalShell extends Component
 
     public function oeffneDokument(int $recipientId): void
     {
+        $this->nachweisMeldung = '';
         $this->dokumentFehler = '';
         $this->dokumentMeldung = '';
         $this->dokumentGelesen = false;
@@ -822,29 +824,6 @@ class PortalShell extends Component
     }
 
     /**
-     * Die offenen PFLICHTANGABEN als Aufgabenzeilen fuer den Start-Bereich
-     * -- in der Form einer dekorierten Nachweis-Zeile, damit Blade beide
-     * gleich rendern kann. Ein Klick fuehrt ins Profil, nicht ins
-     * Upload-Formular.
-     *
-     * Schlussfix F1 (26.09.2026): bis hierher gab es nur EINE solche Zeile,
-     * die Arbeitgeber-Frage. Staatsangehoerigkeit und Ersthelfer-Kopplung
-     * fehlten im Start-Bereich und im Offen-Zaehler vollstaendig -- der
-     * Bildschirm, auf dem der Mensch landet, entlastete ihn also von genau
-     * den Angaben, die ihn druecken sollten. Welche Angaben Pflicht sind,
-     * steht nicht hier, sondern bei den Waechtern (PortalMandatory).
-     *
-     * Der Text ist bewusst ANREDEFREI, bis auf die Arbeitgeber-Frage: die
-     * traegt ihren eigenen, gewachsenen Satz, weil er die FOLGE nennt (die
-     * Steuerklasse) und damit erklaert, warum diese Zeile ganz oben steht.
-     * Eine Satz-je-Feld-Tabelle waere die zweite Liste, die wir hier
-     * dreimal beseitigt haben -- ein neues Waechterfeld bekaeme darin
-     * still keinen Text.
-     *
-     * @param list<array{feld:string, gruppe:string, label:string}> $pflicht
-     * @return list<array{feld:string, code:string, label:string, punkt:string, text:string, offen:bool}>
-     */
-    /**
      * Anzeigename einer Profil-Gruppe. Der Schluessel bleibt (er ist
      * Kennung in oeffneGruppe, Tests und der HR-Akte); nur der sichtbare
      * Titel bekommt seine Umlaute (Pilot-Review 28.10.2026).
@@ -886,6 +865,29 @@ class PortalShell extends Component
         return $zeilen;
     }
 
+    /**
+     * Die offenen PFLICHTANGABEN als Aufgabenzeilen fuer den Start-Bereich
+     * -- in der Form einer dekorierten Nachweis-Zeile, damit Blade beide
+     * gleich rendern kann. Ein Klick fuehrt ins Profil, nicht ins
+     * Upload-Formular.
+     *
+     * Schlussfix F1 (26.09.2026): bis hierher gab es nur EINE solche Zeile,
+     * die Arbeitgeber-Frage. Staatsangehoerigkeit und Ersthelfer-Kopplung
+     * fehlten im Start-Bereich und im Offen-Zaehler vollstaendig -- der
+     * Bildschirm, auf dem der Mensch landet, entlastete ihn also von genau
+     * den Angaben, die ihn druecken sollten. Welche Angaben Pflicht sind,
+     * steht nicht hier, sondern bei den Waechtern (PortalMandatory).
+     *
+     * Der Text ist bewusst ANREDEFREI, bis auf die Arbeitgeber-Frage: die
+     * traegt ihren eigenen, gewachsenen Satz, weil er die FOLGE nennt (die
+     * Steuerklasse) und damit erklaert, warum diese Zeile ganz oben steht.
+     * Eine Satz-je-Feld-Tabelle waere die zweite Liste, die wir hier
+     * dreimal beseitigt haben -- ein neues Waechterfeld bekaeme darin
+     * still keinen Text.
+     *
+     * @param list<array{feld:string, gruppe:string, label:string}> $pflicht
+     * @return list<array{feld:string, code:string, label:string, punkt:string, text:string, offen:bool}>
+     */
     public static function pflichtAufgaben(array $pflicht, bool $duzen): array
     {
         return array_map(static function (array $eintrag) use ($duzen): array {

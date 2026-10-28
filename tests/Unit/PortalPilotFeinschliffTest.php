@@ -57,6 +57,9 @@ class PortalPilotFeinschliffTest extends TestCase
         $blade = self::datei('resources/views/livewire/public/portal-shell.blade.php');
         $this->assertStringContainsString('PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen)', $blade);
         $this->assertStringContainsString('@foreach ($lohnAufgaben as $aufgabe)', $blade);
+        // Abzeichen und „N Punkte offen“ zaehlen die Lohnangaben mit.
+        $this->assertStringContainsString('$offenGesamt = $offen + count($lohnAufgaben);', $blade);
+        $this->assertSame(3, substr_count($blade, '{{ $offenGesamt'), 'Seitenleiste, Reiterleiste, Kasten');
     }
 
     /** Sichtbare Texte ohne ae/oe/ue-Ersatz, „Stellen“ statt „Ziffern“, kein roher Vertragsstatus. */
