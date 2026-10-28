@@ -214,6 +214,35 @@ final class PortalShellUploadTest extends TestCase
         $this->assertSame('2032-01-31', $nachweis->valid_until->toDateString());
     }
 
+    /** Pilot-Review 28.10.: das Blatt schloss sich stumm — jetzt eine Bestaetigung, beim naechsten Oeffnen weg. */
+    public function test_upload_bestaetigt_und_die_meldung_verschwindet_beim_naechsten_oeffnen(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        $shell = $this->shell($ma);
+
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('ausweis.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertStringContainsString('angekommen', $shell->nachweisMeldung);
+        $shell->oeffneUpload('ausweis');
+        $this->assertSame('', $shell->nachweisMeldung);
+    }
+
+    public function test_fehlgeschlagener_upload_bestaetigt_nichts(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        $shell = $this->shell($ma);
+
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2020-01-01';
+        $shell->uploadDatei = UploadedFile::fake()->image('alt.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertSame('', $shell->nachweisMeldung);
+    }
+
     public function test_falsches_datum_legt_nichts_an(): void
     {
         $ma = $this->angemeldeterMitarbeiter();

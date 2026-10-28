@@ -191,6 +191,12 @@
                         <div class="txt">{{ $dokumentMeldung }}</div>
                     </div>
                 @endif
+                @if ($nachweisMeldung !== '')
+                    <div class="alert ok">
+                        <span class="dot ok" style="margin-top:6px"></span>
+                        <div class="txt">{{ $nachweisMeldung }}</div>
+                    </div>
+                @endif
 
                 {{--
                     Der dunkle Block ist im Entwurf „Dein naechster Einsatz".
@@ -626,6 +632,12 @@
                         <div class="txt">{{ $profilMeldung }}</div>
                     </div>
                 @endif
+                @if ($nachweisMeldung !== '')
+                    <div class="alert ok">
+                        <span class="dot ok" style="margin-top:6px"></span>
+                        <div class="txt">{{ $nachweisMeldung }}</div>
+                    </div>
+                @endif
 
                 {{--
                     Vollstaendigkeitsring -- seit dem Deadlock-Fix (Aufgabe 6,
@@ -915,7 +927,7 @@
                             </div>
                         @endif
 
-                        <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="speichereNachweis">
+                        <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="speichereNachweis,uploadDatei,uploadDateiRueckseite">
                             Speichern
                         </button>
                         <button type="button" class="btn" wire:click="schliesseUpload">Abbrechen</button>

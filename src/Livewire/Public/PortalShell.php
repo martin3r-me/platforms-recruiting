@@ -143,6 +143,9 @@ class PortalShell extends Component
     public string $dokumentFehler = '';
     public string $dokumentMeldung = '';
 
+    /** Bestaetigung nach einem Nachweis-Upload (Pilot-Review 28.10.: das Blatt schloss sich stumm). */
+    public string $nachweisMeldung = '';
+
     /**
      * Infos (Spec 2026-10-16 §5.1/§5.2). Reiner Anzeige-Zustand, nichts davon
      * steht in der DB.
@@ -354,6 +357,7 @@ class PortalShell extends Component
     public function oeffneUpload(string $code): void
     {
         $this->uploadCode = ProofTypes::exists($code) ? $code : null;
+        $this->nachweisMeldung = '';
         $this->uploadGueltigBis = '';
         $this->uploadDatei = null;
         $this->uploadDateiRueckseite = null;
@@ -453,6 +457,9 @@ class PortalShell extends Component
         $this->uploadDateiRueckseite = null;
         $this->uploadGueltigBis = '';
         $this->uploadFehler = '';
+        $this->nachweisMeldung = $this->duzen
+            ? 'Danke, dein Nachweis ist angekommen.'
+            : 'Danke, Ihr Nachweis ist angekommen.';
     }
 
     /**
