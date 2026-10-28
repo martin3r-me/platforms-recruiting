@@ -79,8 +79,8 @@
                     @if ($group['texte']['satz'] !== null)
                         <div class="satz">{{ $group['texte']['satz'] }}</div>
                     @endif
-                    @if ($group['antworten_bis'] !== null)
-                        <div class="bis">Bitte antworte bis {{ $group['antworten_bis'] }}</div>
+                    @if ($group['texte']['antwort'] !== null)
+                        <div class="bis">{{ $group['texte']['antwort'] }}</div>
                     @endif
                 </header>
 

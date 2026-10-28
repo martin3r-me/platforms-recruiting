@@ -200,7 +200,8 @@ class JobOffers extends Component
         }
 
         foreach ($groups as &$g) {
-            $g['texte'] = JobOffersTexte::fuer(JobOffersTexte::anlassVorrang($g['anlaesse']));
+            // Wortlaut 1:1 nach Markus' Folien 1–3; Frist = naechste automatische Welle (§2.5).
+            $g['texte'] = JobOffersTexte::fuer(JobOffersTexte::anlassVorrang($g['anlaesse']), $this->firstName, $g['antworten_bis']);
             unset($g['anlaesse']);
             ksort($g['days']);
             foreach ($g['days'] as &$shifts) {

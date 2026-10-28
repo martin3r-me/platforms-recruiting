@@ -80,10 +80,11 @@ Steht an der Anfrage ein Abstand und ist die nächste Welle geplant, zeigt die K
 - Nachricht: `DispoJobOfferSender` füllt im Body zusätzlich die benannte Variable `{{datum}}`, wenn die Vorlage sie trägt: frühester Tag der angebotenen Schichten, Format „31.10.2026“ (28.10. umgestellt von „Sa, 31.10.“, Wunsch User). Hinweis an den User für die Meta-Vorlage: benannte Variablen `{{name}}` und `{{datum}}` verwenden, nicht `{{1}}`/`{{2}}`.
 
 ## 8. Mitarbeiterseite — Text je Anlass (Folien 1–3)
-Je Veranstaltungskarte nach Anlass der Anfrage (bei gebündelten Schichten mehrerer Anfragen gewinnt Dringend > Woche > Vierwochen):
-- Dringend: Kicker „Wir zählen auf dich!“, Satz „Für diese Veranstaltung brauchen wir dringend Unterstützung.“ + ggf. „Bitte antworte bis …“ (§2.5).
-- Nächste Woche: Kicker „Hier brauchen wir deine Unterstützung!“, Satz „Melde dich für alle Tage, an denen du dabei sein kannst.“ Fußnote „Eine Meldung ist noch keine bestätigte Einteilung.“
-- Vier Wochen: Kicker „Sichere dir frühzeitig deine Einsätze!“, Satz „Wer zuerst reagiert, hat bessere Chancen auf passende Schichten.“ Fußnote „Keine Garantie auf eine Einteilung.“
+Je Veranstaltungskarte nach Anlass der Anfrage (bei gebündelten Schichten mehrerer Anfragen gewinnt Dringend > Woche > Vierwochen). Wortlaut seit 28.10. **1:1 die Portal-Spalte der Folien** (`…_kommentiert_MA_SH_MA II.pptx`, Wunsch User), nichts gekürzt:
+- Dringend: Kicker „Hey {Vorname}, wir zählen auf dich!“, Satz „Für diese Veranstaltung brauchen wir dringend Unterstützung.“, bei geplanter Welle „Bitte antworte bis {Zeitpunkt}, ob du dabei bist. Wenn nicht, gib uns bitte Bescheid.“ (§2.5; ohne geplante Welle entfällt die Zeile, eine Frist gibt es sonst nicht).
+- Nächste Woche: Kicker „Hier brauchen wir deine Unterstützung!“, Satz „Schau dir die offenen Einsätze für nächste Woche an und melde dich für alle Tage, an denen du dabei sein kannst.“ Fußnote „Eine Meldung ist noch keine bestätigte Einteilung.“
+- Vier Wochen: Kicker „Sichere dir frühzeitig deine Einsätze!“, Satz „Wer zuerst reagiert, hat bessere Chancen auf passende Schichten – und damit auf die Stunden und den Verdienst, die du dir wünschst. Schau jetzt rein und melde dich für deine Wunschtermine.“ Fußnote „Keine Garantie auf eine Einteilung.“
+- Woche/Vierwochen/ohne Anlass bei geplanter Welle: „Bitte antworte bis {Zeitpunkt}“ wie bisher.
 Der Seitenkopf „Hallo {Name}“ bleibt.
 
 ## 9. Migration
