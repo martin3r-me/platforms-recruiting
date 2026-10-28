@@ -664,8 +664,36 @@ final class ThemenKlickHandlerTest extends TestCase
             $this->assertSame(['topic_agenda_anfordern', 'topic_agenda_ok'], array_map(fn ($b) => $b['reply']['id'], $i['action']['buttons']));
             $this->assertStringContainsString('Agenda', $i['body']['text']);
             $this->assertTrue($this->gesendet[0]['isAutoReply']);
-            $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+            $this->assertSame(RecConversationTopic::STATE_AGENDA_FRAGE, $topic->fresh()->state, 'eigener Vermerk statt „Login-Hinweis gesendet“');
         }
+    }
+
+    /** Review 28.10. (3) I1: alter Agenda-Knopf darf einen geparkten Lohn-Chat nicht entparken. */
+    public function test_alter_agenda_knopf_auf_geparkter_zeile_wird_ignoriert(): void
+    {
+        $this->mitarbeiter(portalV2: true, agenda: false);
+        [$thread, , $topic] = $this->gefragt();
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_GEPARKT, 'chosen_at' => date('Y-m-d H:i:s', time() - 60)])->save();
+
+        foreach (['topic_agenda_ok', 'topic_agenda_anfordern'] as $knopf) {
+            $this->assertSame('ignoriert:keine_agenda_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $knopf)));
+        }
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->fresh()->state);
+    }
+
+    /** Review 28.10. (3) M4: nach „Zugang anfordern“ ist die Frage beantwortet — kein zweites Mal, Vermerk bleibt. */
+    public function test_nach_dem_anfordern_sind_die_agenda_knoepfe_still(): void
+    {
+        $this->mitarbeiter(portalV2: true, agenda: false);
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -60));
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern', -30));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('ignoriert:keine_agenda_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_ok', -10)));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_AGENDA, $topic->fresh()->state);
     }
 
     public function test_zugang_anfordern_bestaetigt_und_vermerkt_fuer_hr(): void
@@ -705,7 +733,7 @@ final class ThemenKlickHandlerTest extends TestCase
     {
         [$thread, , $topic] = $this->gefragt();
 
-        $this->assertSame('ignoriert:kein_lohn_thema', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern')));
+        $this->assertSame('ignoriert:keine_agenda_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern')));
         $this->assertCount(0, $this->gesendet);
         $this->assertSame(RecConversationTopic::STATE_ASKED, $topic->fresh()->state);
     }

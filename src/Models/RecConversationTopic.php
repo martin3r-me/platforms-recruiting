@@ -31,6 +31,9 @@ class RecConversationTopic extends Model
     /** Lohn, Akte vollstaendig, Mitarbeiter hat Agenda-Zugangsdaten angefordert (28.10.2026). */
     public const STATE_AGENDA = 'agenda_requested';
 
+    /** Lohn, Akte vollstaendig, kein Agenda-Zugang: Frage „Zugang anfordern / Hab ich schon“ ist raus. */
+    public const STATE_AGENDA_FRAGE = 'agenda_asked';
+
     protected $table = 'rec_conversation_topics';
 
     protected $fillable = [

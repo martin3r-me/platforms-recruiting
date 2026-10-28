@@ -526,7 +526,7 @@ final class ThemenKlickHandler
             // Kein (oder unbekannter) Agenda-Zugang (Markus 28.10.2026): erst
             // fragen — die Anleitung hilft ohne Zugang nicht.
             $r = $this->sender()->knoepfe($channel, $phone, ThemenTexte::agendaFrage($duzen), ThemenTexte::agendaKnoepfe());
-            $state = RecConversationTopic::STATE_LOHN_INFO;
+            $state = RecConversationTopic::STATE_AGENDA_FRAGE;
         } else {
             $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
             $state = RecConversationTopic::STATE_LOHN_INFO;
@@ -547,8 +547,11 @@ final class ThemenKlickHandler
      */
     private function agendaGewaehlt(string $id, CommsChannel $channel, RecConversationTopic $topic, ?RecApplicantSettings $settings, bool $duzen, string $phone): string
     {
-        if ($topic->topic !== RecConversationTopic::TOPIC_LOHN) {
-            return 'ignoriert:kein_lohn_thema';
+        // Nur als Antwort auf die offene Agenda-Frage (Review 28.10. (3)):
+        // ein alter Knopf darf weder einen geparkten Lohn-Chat entparken noch
+        // nach dem Anfordern ein zweites Mal antworten.
+        if ($topic->topic !== RecConversationTopic::TOPIC_LOHN || $topic->state !== RecConversationTopic::STATE_AGENDA_FRAGE) {
+            return 'ignoriert:keine_agenda_frage';
         }
         if ($id === 'topic_agenda_ok') {
             $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
