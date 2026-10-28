@@ -728,6 +728,41 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame(RecConversationTopic::TOPIC_DISPO, $topic->fresh()->topic);
     }
 
+    /** Review 28.10. (2) I1: die Lohnfrage gehoert nicht zur Dispo — nur, was waehrend des Parkens getippt wurde. */
+    public function test_dispo_aus_der_erinnerung_nimmt_nicht_die_lohnfrage_mit(): void
+    {
+        [$thread, , $topic] = $this->gefragt('Wo ist mein Lohn vom September?');
+        $topic->forceFill([
+            'topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_GEPARKT,
+            'asked_at' => date('Y-m-d H:i:s', time() - 2 * 86400), 'chosen_at' => date('Y-m-d H:i:s', time() - 200),
+        ])->save();
+        $this->nachricht($thread, 'inbound', -120, body: 'Komme morgen später zum Einsatz');
+
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60));
+        $this->gesendet->exchangeArray([]);
+        $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -10)));
+
+        $url = $this->gesendet[0]['interactive']['action']['parameters']['url'];
+        $this->assertStringContainsString(rawurlencode('Komme morgen später zum Einsatz'), $url);
+        $this->assertStringNotContainsString(rawurlencode('Lohn'), $url);
+        $karte = RecConversationForward::query()->sole();
+        $this->assertNotContains((int) $topic->origin_message_id, array_map('intval', (array) $karte->message_ids));
+    }
+
+    /** Review 28.10. (2) M2/M3: alter Lohn-Knopf sendet nichts erneut; die Rettung schiebt asked_at nicht auf jetzt. */
+    public function test_geparkt_alter_lohn_knopf_wird_ignoriert_und_asked_at_bleibt(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $alt = date('Y-m-d H:i:s', time() - 2 * 86400);
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_GEPARKT, 'asked_at' => $alt, 'chosen_at' => $alt])->save();
+
+        $this->assertSame('ignoriert:schon_geparkt', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn')));
+        $this->assertCount(0, $this->gesendet);
+
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_hr'));
+        $this->assertLessThan(time() - 3600, $topic->fresh()->asked_at->getTimestamp(), 'Abwesenheitsnotiz/Ruhezeit unberuehrt');
+    }
+
     public function test_alte_nicht_geparkte_frage_bleibt_ausserhalb_der_ruhezeit_tot(): void
     {
         [$thread, , $topic] = $this->gefragt();

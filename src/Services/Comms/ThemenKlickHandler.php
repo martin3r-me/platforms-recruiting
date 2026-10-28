@@ -116,9 +116,12 @@ final class ThemenKlickHandler
             ->orderByDesc('asked_at')
             ->orderByDesc('id')
             ->first();
-        // Geparkter Lohn-Chat (28.10., Review I2 Variante b): die Erinnerung
-        // bietet Dispo/HR an, auch Tage nach der Frage. Nur die JUENGSTE Zeile
-        // und nur, wenn sie noch geparkt ist — alte Runden bleiben tot.
+        // Ausserhalb der Ruhezeit zaehlt nur noch die JUENGSTE Zeile, und nur,
+        // wenn sie (a) geparkt ist — die Lohn-Liste bietet Dispo/HR an, auch
+        // Tage spaeter (28.10., Review I2 Variante b) — oder (b) gerade erst
+        // gewaehlt wurde (Filiale nach so einer Disposition-Wahl). Alte Runden
+        // bleiben tot.
+        $gerettet = null;
         if ($topic === null) {
             $juengste = RecConversationTopic::query()
                 ->where('team_id', $teamId)
@@ -126,10 +129,16 @@ final class ThemenKlickHandler
                 ->orderByDesc('asked_at')
                 ->orderByDesc('id')
                 ->first();
-            $topic = $juengste?->state === RecConversationTopic::STATE_GEPARKT ? $juengste : null;
-            // Wieder aktuelle Frage: der Folgeklick (Filiale nach Disposition)
-            // muss sie innerhalb der Ruhezeit finden.
-            $topic?->forceFill(['asked_at' => Carbon::now()])->save();
+            if ($juengste?->state === RecConversationTopic::STATE_GEPARKT) {
+                // Lohn ist schon gewaehlt, die Liste ist raus — nichts erneut senden.
+                if ($id === 'topic_lohn') {
+                    return 'ignoriert:schon_geparkt';
+                }
+                $topic = $juengste;
+                $gerettet = $juengste->chosen_at;
+            } elseif ($juengste?->chosen_at !== null && $juengste->chosen_at->greaterThanOrEqualTo(Carbon::now()->subHours($ruheStunden))) {
+                $topic = $juengste;
+            }
         }
         if ($topic === null) {
             return 'ignoriert:keine_frage';
@@ -161,6 +170,13 @@ final class ThemenKlickHandler
 
         if (!str_starts_with($status, 'verarbeitet:')) {
             $this->freigeben($topic, (int) $message->id, $vorher);
+        } elseif ($gerettet !== null) {
+            // Aus dem Parken heraus gewaehlt: die Lohnfrage (origin) gehoert
+            // nicht zur Dispo. Grenze = Zeitpunkt der Lohn-Wahl; nur, was
+            // danach getippt wurde, wandert mit (getippteEingaenge). Ohne
+            // updated_at — das ist die Stunden-Bremse von LohnParken.
+            RecConversationTopic::query()->whereKey($topic->id)->toBase()
+                ->update(['origin_message_id' => null, 'asked_at' => $gerettet]);
         }
 
         return $status;
@@ -328,12 +344,17 @@ final class ThemenKlickHandler
             ->where('comms_whatsapp_thread_id', $threadId)
             ->value('handled_at');
 
+        // Aus dem Lohn-Parken gerettete Zeile (origin geleert, asked_at =
+        // Lohn-Wahl): nur, was danach getippt wurde (Review 28.10. (2) I1).
+        $gerettetSeit = $topic->origin_message_id === null && $topic->asked_at !== null ? $topic->asked_at : null;
+
         $eingaenge = CommsWhatsAppMessage::query()
             ->where('comms_whatsapp_thread_id', $threadId)
             ->where('direction', 'inbound')
             ->where('id', '>', $letzteAntwortId)
             ->where('id', '<', (int) $klick->id)
             ->when($stempelAt !== null, fn ($q) => $q->where('sent_at', '>', $stempelAt))
+            ->when($gerettetSeit !== null, fn ($q) => $q->where('sent_at', '>', $gerettetSeit))
             ->orderBy('id')
             ->get(['id', 'body', 'meta_payload'])
             ->reject(fn (CommsWhatsAppMessage $m) => QuickReply::isQuickReply($m->meta_payload))
