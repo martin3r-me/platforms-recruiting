@@ -91,6 +91,7 @@ final class InboxQuery
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
         // Themen-Auswahl aus → nichts geparkt, alles normal bei HR.
         $parkenAn = (bool) $settings->getSetting('comms_topic_enabled', false);
+        $hrAntwort = $parkenAn ? $this->hrAntwortZeitpunkte(self::geparkteIds($themen)) : [];
 
         $row = [
             'thread_id' => $id,
@@ -111,7 +112,7 @@ final class InboxQuery
             'siblings' => 0,
             'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
             ...self::themaFelder($themen[$id] ?? null),
-            'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $humanOutbound[$id] ?? null),
+            'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $hrAntwort[$id] ?? null),
             'followup' => $offen[$id] ?? null,
         ];
 
@@ -355,6 +356,7 @@ final class InboxQuery
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
         // Themen-Auswahl aus → nichts geparkt, alles normal bei HR.
         $parkenAn = (bool) $settings->getSetting('comms_topic_enabled', false);
+        $hrAntwort = $parkenAn ? $this->hrAntwortZeitpunkte(self::geparkteIds($themen)) : [];
 
         // Bewerbungen, aus denen ein aktiver Mitarbeiter wurde: deren Chats
         // haengen weiter an der Bewerbung, gehoeren im Filter aber zu
@@ -414,7 +416,7 @@ final class InboxQuery
                     $thread->context_model_id ? (int) $thread->context_model_id : null,
                 ),
                 ...self::themaFelder($themen[$id] ?? null),
-                'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $humanOutbound[$id] ?? null),
+                'parked' => $parkenAn && self::geparkt($themen[$id] ?? null, $hrAntwort[$id] ?? null),
                 'followup' => $offen[$id] ?? null,
             ];
         }
@@ -839,6 +841,43 @@ final class InboxQuery
             ->pluck('last_human_outbound_at', 'comms_whatsapp_thread_id')
             ->map(fn ($value) => \Carbon\Carbon::parse((string) $value)->getTimestamp())
             ->all();
+    }
+
+    /**
+     * Letzte Antwort einer PERSON je Thread (Absender gesetzt, kein Auto-Reply)
+     * — nur fuer das Parken. Einmalcode und Nachweis-Erinnerung gehen ohne
+     * auto-Flag, aber auch ohne Absender raus; sie duerfen einen geparkten
+     * Lohn-Chat nicht sichtbar machen (Review 28.10. I1). Gleiche Regel wie
+     * LohnParken::hrHatGeantwortet. Nur fuer geparkte Threads abgefragt.
+     *
+     * @param list<int> $threadIds
+     * @return array<int, int>
+     */
+    private function hrAntwortZeitpunkte(array $threadIds): array
+    {
+        if ($threadIds === []) {
+            return [];
+        }
+
+        return CommsWhatsAppMessage::query()
+            ->whereIn('comms_whatsapp_thread_id', $threadIds)
+            ->where('direction', 'outbound')
+            ->where('is_auto_reply', false)
+            ->whereNotNull('sent_by_user_id')
+            ->groupBy('comms_whatsapp_thread_id')
+            ->selectRaw('comms_whatsapp_thread_id, MAX(created_at) AS last_hr_at')
+            ->pluck('last_hr_at', 'comms_whatsapp_thread_id')
+            ->map(fn ($value) => \Carbon\Carbon::parse((string) $value)->getTimestamp())
+            ->all();
+    }
+
+    /**
+     * @param array<int, array{state: string}> $themen
+     * @return list<int>
+     */
+    private static function geparkteIds(array $themen): array
+    {
+        return array_keys(array_filter($themen, static fn (array $t) => $t['state'] === RecConversationTopic::STATE_GEPARKT));
     }
 
     /**

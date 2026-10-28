@@ -295,6 +295,17 @@ final class LohnParkenTest extends TestCase
         $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
     }
 
+    /** Review 28.10. I1: Einmalcode/Nachweis-Erinnerung gehen ohne Absender raus — das ist keine HR-Antwort. */
+    public function test_systemvorlage_ohne_absender_beendet_das_parken_nicht(): void
+    {
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        $this->hrAntwort($thread, vorSekunden: 3600, mensch: false);
+
+        $this->assertFalse(LohnParken::hrHatGeantwortet($topic->fresh()));
+        $this->assertSame('geparkt', $this->parken()->freigebenWennVollstaendig($topic));
+        $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->fresh()->state);
+    }
+
     public function test_lauf_hr_hat_geantwortet_gibt_frei_ohne_dank_und_ohne_ungelesen(): void
     {
         $this->luecken = [];
@@ -345,11 +356,13 @@ final class LohnParkenTest extends TestCase
         $this->assertSame([(int) $hier->id, (int) $dort->id], $ids);
     }
 
-    private function hrAntwort(CommsWhatsAppThread $thread, int $vorSekunden, bool $auto = false): void
+    /** $mensch = false: Systemvorlage (Einmalcode, Nachweis-Erinnerung) — kein Auto-Reply, aber auch kein Absender. */
+    private function hrAntwort(CommsWhatsAppThread $thread, int $vorSekunden, bool $auto = false, bool $mensch = true): void
     {
         $zeit = date('Y-m-d H:i:s', time() - $vorSekunden);
         Capsule::table('comms_whatsapp_messages')->insert([
             'comms_whatsapp_thread_id' => $thread->id, 'direction' => 'outbound', 'is_auto_reply' => $auto,
+            'sent_by_user_id' => ($mensch && !$auto) ? 1 : null,
             'body' => 'Wir schauen nach.', 'message_type' => 'text', 'sent_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
         ]);
     }

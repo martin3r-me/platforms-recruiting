@@ -173,7 +173,7 @@ class LohnParken
 
     /**
      * Menschliche Antwort von HR nach der Lohn-Wahl? Dieselbe Regel wie
-     * InboxQuery (is_auto_reply = false). chosen_at fehlt nie bei einer
+     * InboxQuery::hrAntwortZeitpunkte (kein Auto-Reply, mit Absender). chosen_at fehlt nie bei einer
      * geparkten Zeile; ohne gilt die Zeile als nicht beantwortet.
      */
     public static function hrHatGeantwortet(RecConversationTopic $topic): bool
@@ -186,6 +186,9 @@ class LohnParken
             ->where('comms_whatsapp_thread_id', (int) $topic->comms_whatsapp_thread_id)
             ->where('direction', 'outbound')
             ->where('is_auto_reply', false)
+            // Nur mit Absender: Einmalcode/Nachweis-Erinnerung gehen ohne
+            // auto-Flag, aber auch ohne Person raus (Review 28.10. I1).
+            ->whereNotNull('sent_by_user_id')
             ->where('created_at', '>', $topic->chosen_at)
             ->exists();
     }

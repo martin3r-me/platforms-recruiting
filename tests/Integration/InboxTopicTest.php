@@ -338,6 +338,7 @@ class InboxTopicTest extends TestCase
         $zeit = date('Y-m-d H:i:s', self::JETZT - 1_800);
         $id = Capsule::table('comms_whatsapp_messages')->insertGetId([
             'comms_whatsapp_thread_id' => self::$geparkt, 'direction' => 'outbound', 'is_auto_reply' => false,
+            'sent_by_user_id' => 1,
             'body' => 'Schauen wir uns an.', 'message_type' => 'text', 'sent_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
         ]);
         try {
@@ -348,6 +349,25 @@ class InboxTopicTest extends TestCase
 
         $this->assertSame(0, $counts['parked']);
         $this->assertSame(10, $counts['unread']);
+    }
+
+    public function test_systemvorlage_ohne_absender_laesst_den_chat_unsichtbar(): void
+    {
+        // Review 28.10. I1: Einmalcode fuers Portal nach „Zum Portal“ — keine HR-Antwort.
+        $zeit = date('Y-m-d H:i:s', self::JETZT - 1_800);
+        $id = Capsule::table('comms_whatsapp_messages')->insertGetId([
+            'comms_whatsapp_thread_id' => self::$geparkt, 'direction' => 'outbound', 'is_auto_reply' => false,
+            'sent_by_user_id' => null, 'template_name' => 'portal_code',
+            'body' => 'Dein Code: 123456', 'message_type' => 'template', 'sent_at' => $zeit, 'created_at' => $zeit, 'updated_at' => $zeit,
+        ]);
+        try {
+            $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
+        } finally {
+            Capsule::table('comms_whatsapp_messages')->where('id', $id)->delete();
+        }
+
+        $this->assertSame(1, $snap['counts']['parked']);
+        $this->assertNotContains(self::$geparkt, array_map(fn ($r) => $r->threadId, $snap['rows']));
     }
 
     private static function seed(): void
