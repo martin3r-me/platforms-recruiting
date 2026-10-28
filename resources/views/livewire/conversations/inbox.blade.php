@@ -496,30 +496,12 @@
                             @php
                                 $akteAmpel = $this->akteAmpel;
                                 $akteFehlt = $akteAmpel !== null ? implode(', ', $akteAmpel['luecken']) : '';
-                                $akteFensterOffen = $this->windowOpen;
-                                // Fenster zu + nur Profil-Angaben offen: keine Vorlage dafuer (erinnereAufgaben).
-                                $akteKnopfAus = $akteAmpel !== null && !$akteFensterOffen && $akteAmpel['nachweise'] === 0;
-                                $akteBestaetigung = $akteFensterOffen
-                                    ? 'Nachricht mit den fehlenden Punkten (' . $akteFehlt . ') und Knopf „Zum Portal“ jetzt senden?'
-                                    : 'Vorlage „Personalakte unvollständig“ jetzt senden?';
-                                $akteKnopfTitel = $akteFensterOffen
-                                    ? 'Nachricht mit den fehlenden Punkten und Knopf „Zum Portal“ senden'
-                                    : ($akteKnopfAus
-                                        ? 'Fenster zu und es fehlen nur Angaben im Profil — dafür gibt es keine Vorlage'
-                                        : 'Vorlage „Personalakte unvollständig“ senden (wie „Erneut erinnern“ in der Akte)');
                             @endphp
                             @if ($akteAmpel !== null)
                                 @if ($akteAmpel['gruen'])
                                     <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-emerald-700">● Akte vollständig</span>
                                 @else
                                     <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700" title="Fehlt: {{ $akteFehlt }}">● Akte unvollständig</span>
-                                    <button type="button" wire:click="akteHinweis" wire:loading.attr="disabled" wire:target="akteHinweis"
-                                            wire:confirm="{{ $akteBestaetigung }}"
-                                            @disabled($akteKnopfAus)
-                                            title="{{ $akteKnopfTitel }}"
-                                            class="rounded border border-red-200 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
-                                        Unterlagen anfordern
-                                    </button>
                                 @endif
                                 {{-- Agenda-Lohnportal (Markus 28.10.2026). Unbekannt = kein Chip. --}}
                                 @if ($akteAmpel['agenda'] === true)

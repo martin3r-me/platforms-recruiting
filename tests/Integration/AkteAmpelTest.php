@@ -57,27 +57,6 @@ final class AkteAmpelTest extends TestCase
         $this->assertStringContainsString("\$akteAmpel['agenda'] === false", $blade);
     }
 
-    public function test_entwurf_nennt_die_luecken_und_den_portal_link(): void
-    {
-        $ma = new RecEmployee();
-        $ma->portal_token = 'tok-erika';
-        $ma->portal_v2_since = '2026-10-20 10:00:00';
-
-        $text = AkteAmpel::entwurf($ma, true, null, ['IBAN', 'Personalausweis']);
-
-        $this->assertStringContainsString('• IBAN', $text);
-        $this->assertStringContainsString('• Personalausweis', $text);
-        $this->assertStringEndsWith('https://app.test/recruiting.public.employee-portal/tok-erika', $text);
-    }
-
-    public function test_entwurf_ohne_neues_portal_ohne_link(): void
-    {
-        $text = AkteAmpel::entwurf(new RecEmployee(), false, null, ['IBAN']);
-
-        $this->assertStringContainsString('Ihrer Akte', $text);
-        $this->assertStringNotContainsString('https://', $text);
-    }
-
     public function test_ampel_nur_fuer_pilot_solange_die_sperre_an_ist(): void
     {
         $capsule = new \Illuminate\Database\Capsule\Manager();
@@ -112,25 +91,23 @@ final class AkteAmpelTest extends TestCase
         Facade::clearResolvedInstances();
     }
 
-    public function test_chat_kopf_zeigt_ampel_und_knopf(): void
+    /** Markus 28.10. (Punkt 4b): Ampel bleibt, der Knopf „Unterlagen anfordern“ ist raus — der Lohn-Zweig schickt die Luecken selbst. */
+    public function test_chat_kopf_zeigt_ampel_ohne_knopf(): void
     {
         // Vertrag an der Quelle (Muster SharedPartialContractTest): Livewire-Render braucht den App-Boot.
         $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/conversations/inbox.blade.php');
         $this->assertStringContainsString('$this->akteAmpel', $blade);
-        $this->assertStringContainsString('wire:click="akteHinweis"', $blade);
         $this->assertStringContainsString('Akte vollständig', $blade);
         $this->assertStringContainsString('Akte unvollständig', $blade);
+        $this->assertStringNotContainsString('akteHinweis', $blade);
+        $this->assertStringNotContainsString('Unterlagen anfordern', $blade);
 
         $php = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Conversations/Inbox.php');
         $this->assertMatchesRegularExpression('/#\[Computed\]\s*public function akteAmpel\(\): \?array/', $php);
-        $this->assertStringContainsString('public function akteHinweis(): void', $php);
-        // 26.10.: Fenster offen → Knopf „Zum Portal“ als HR-Antwort statt Link im Text.
-        $this->assertStringContainsString("->linkKnopf(\$channel, \$phone, \$text, 'Zum Portal', \$url, Auth::user(), false)", $php);
-        $this->assertStringContainsString('wire:confirm="{{ $akteBestaetigung }}"', $blade);
+        $this->assertStringNotContainsString('function akteHinweis', $php);
         $this->assertStringContainsString('AkteAmpel::zeigen(', $php);
         // Chat ohne Zuordnung: Ampel ueber die Nummer wie Themen-Auswahl/Parken (26.10.).
         $this->assertStringContainsString('ThemenAuswahlEmpfaenger::class)->aktiverMitarbeiter($phone, $teamId)', $php);
-        $this->assertSame(2, substr_count($php, '$employee = $this->akteMitarbeiter();'));
         // Gemerkter Treffer wird gegen die Nummer der Akte geprueft (Review 26.10.).
         $this->assertStringContainsString('PhoneE164::normalize((string) $employee->phone) !== \\Platform\\Recruiting\\Support\\PhoneE164::normalize($phone)', $php);
     }

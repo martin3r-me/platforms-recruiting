@@ -3,14 +3,13 @@
 namespace Platform\Recruiting\Services\Comms;
 
 use Platform\Recruiting\Models\RecEmployee;
-use Platform\Recruiting\Support\Comms\ThemenTexte;
 use Platform\Recruiting\Support\PilotKreis;
 
 /**
  * Ampel im Chat-Kopf (Markus, HR allgemein, 26.10.2026): ist die Akte des
  * Mitarbeiters vollstaendig? Dieselbe Pruefung wie Portal-Start und
- * Lohn-Zweig (LohnLuecken). Bei Rot ein Entwurf fuer HR — HR liest und
- * schickt selbst, damit die Nachricht als menschliche Antwort zaehlt.
+ * Lohn-Zweig (LohnLuecken). Der Knopf „Unterlagen anfordern“ ist seit
+ * 28.10.2026 raus (Markus, Punkt 4b): der Lohn-Zweig schickt die Luecken selbst.
  */
 class AkteAmpel
 {
@@ -46,14 +45,5 @@ class AkteAmpel
         }
 
         return PilotKreis::istImPilot((int) $employee->id);
-    }
-
-    /** @param list<string> $luecken */
-    public static function entwurf(RecEmployee $employee, bool $duzen, ?string $teamText, array $luecken): string
-    {
-        $text = ThemenTexte::lohnOffen($duzen, $teamText, $luecken);
-        $url = LohnLuecken::portalUrl($employee);
-
-        return $url === null ? $text : $text . "\n\n" . $url;
     }
 }
