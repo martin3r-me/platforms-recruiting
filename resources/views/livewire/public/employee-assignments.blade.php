@@ -1,4 +1,8 @@
-<div class="rg-crew">
+@php
+    // Eingebettet im Portal: ohne Vollbild-Hoehe und eigenen Hintergrund (Hausregel: Klasse vorberechnen).
+    $crewKlasse = $eingebettet ? 'rg-crew eingebettet' : 'rg-crew';
+@endphp
+<div class="{{ $crewKlasse }}">
 {{-- Head-Assets: Fonts (bunny.net, wie im Guest-Layout) + gescopte Styles.
      wire:ignore, damit Livewire sie bei Updates nicht anfasst. Alles unter
      .rg-crew gescoped, damit nichts ins Guest-Layout / andere Public-Views leakt. --}}
@@ -20,12 +24,15 @@
     };
 @endphp
 
+{{-- Eingebettet im Portal-Reiter „Einsätze“: Kopf und Gruss hat das Portal schon. --}}
+@unless ($eingebettet)
 <div class="appbar">
     <div class="wordmark">Rhein<span>Gedeck</span></div>
     @unless ($tokenInvalid)
         <div class="avatar">{{ $avatarInitial }}</div>
     @endunless
 </div>
+@endunless
 
 <div class="wrap">
     @if ($tokenInvalid)
@@ -56,7 +63,9 @@
         @endphp
 
         <div class="greet">
-            <h1>Hey {{ $firstName }} 👋</h1>
+            @unless ($eingebettet)
+                <h1>Hey {{ $firstName }} 👋</h1>
+            @endunless
             <p>
                 @if ($groups === [])
                     Aktuell steht nichts an.

@@ -65,9 +65,18 @@ class EmployeeAssignments extends Component
 
     public bool $showPast = false;
 
-    public function mount(string $token): void
+    /**
+     * Im Portal-Reiter „Einsätze“ eingebettet (Pilot-Review 28.10.2026):
+     * ohne eigenen Kopf (Logo, „Hey Name“) — den hat das Portal schon. Nur
+     * vom Server beim Einbetten gesetzt.
+     */
+    #[Locked]
+    public bool $eingebettet = false;
+
+    public function mount(string $token, bool $eingebettet = false): void
     {
         $this->token = $token;
+        $this->eingebettet = $eingebettet;
 
         $employee = RecEmployee::query()->where('portal_token', $token)->first();
         if (!$employee) {

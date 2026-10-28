@@ -117,6 +117,39 @@ class DispoPortalConfirmTest extends TestCase
     }
 
 
+    /**
+     * Pilot-Review 28.10.2026: die Einsaetze ziehen in den Portal-Reiter
+     * „Einsaetze“ ein — dieselbe Komponente, eingebettet ohne eigenen Kopf.
+     * Bestaetigen funktioniert dort genauso.
+     */
+    public function test_eingebettet_im_portal_bestaetigt_genauso(): void
+    {
+        $employee = $this->employee('tok-eingebettet');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-EMB-1']);
+        $assignment = RecDispoAssignment::create([
+            'ds_ref' => 'DS-EMB-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA-tok-eingebettet',
+            'rec_employee_id' => $employee->id, 'datum' => now()->addDay()->toDateString(), 'von' => '08:00', 'bis' => '16:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => now()->subHour(),
+        ]);
+
+        $component = new EmployeeAssignments();
+        $component->mount('tok-eingebettet', eingebettet: true);
+        $this->assertTrue($component->eingebettet);
+        $this->assertCount(1, $component->eventGroups());
+
+        $component->confirm((int) $event->id);
+        $this->assertNotNull(Capsule::table('rec_dispo_assignments')->where('id', $assignment->id)->value('confirmed_at'));
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/employee-assignments.blade.php');
+        $this->assertStringContainsString('@unless ($eingebettet)', $blade, 'eigener Kopf nur auf der eigenstaendigen Seite');
+        $this->assertStringContainsString("\$eingebettet ? 'rg-crew eingebettet' : 'rg-crew'", $blade);
+        $stil = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/_crew-stil.blade.php');
+        $this->assertStringContainsString('.rg-crew.eingebettet{min-height:0', $stil, 'keine Vollbild-Hoehe im Reiter');
+        $shell = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
+        $this->assertStringContainsString('<livewire:recruiting.public.employee-assignments :token="$token" :eingebettet="true"', $shell);
+        $this->assertStringNotContainsString('Die Einsätze ziehen als Nächstes hier ein', $shell);
+    }
+
     public function test_declined_assignments_are_hidden_and_not_confirmable(): void
     {
         // Absage-Flow (Kunde 04.09.): die Dispo hat abgemeldet — der MA sieht den

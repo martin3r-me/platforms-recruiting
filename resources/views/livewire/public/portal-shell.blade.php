@@ -424,12 +424,13 @@
                     <h2>{{ $duzen ? 'Deine Einsätze' : 'Ihre Einsätze' }}</h2>
                     <p>Alles, was ansteht — und was schon gelaufen ist.</p>
                 </div>
-                <div class="card">
-                    <div class="leer">
-                        Die Einsätze ziehen als Nächstes hier ein. Bis dahin kommen sie
-                        wie gewohnt per WhatsApp.
-                    </div>
-                </div>
+                {{--
+                    Pilot-Review 28.10.2026: dieselbe Einsatz-Seite wie hinter dem
+                    WhatsApp-Link (/einsaetze/{token}), eingebettet ohne eigenen
+                    Kopf. Bestaetigen, Anhaenge, Vergangenes — alles von dort.
+                    lazy: laedt erst nach dem ersten Bild, Start bleibt schnell.
+                --}}
+                <livewire:recruiting.public.employee-assignments :token="$token" :eingebettet="true" lazy wire:key="einsaetze-im-portal" />
             </div>
 
             {{-- ---------------- DOKUMENTE ---------------- --}}

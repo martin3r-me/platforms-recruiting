@@ -41,6 +41,9 @@
 .rg-crew .avatar{width:32px; height:32px; border-radius:50%; background:var(--brand); color:#fff; display:grid; place-items:center; font-size:12.5px; font-weight:700}
 
 .rg-crew .wrap{max-width:460px; margin:0 auto; padding:20px 16px 48px; display:flex; flex-direction:column; gap:18px}
+/* Im Portal-Reiter „Einsätze“ (Pilot-Review 28.10.2026): das Portal liefert Rahmen und Hintergrund. */
+.rg-crew.eingebettet{min-height:0; background:transparent}
+.rg-crew.eingebettet .wrap{max-width:none; padding:0 0 24px}
 
 .rg-crew .greet h1{font-size:27px}
 .rg-crew .greet p{color:var(--ink-2); font-size:14px; margin-top:3px}
