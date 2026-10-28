@@ -23,6 +23,25 @@ final class ThemenTexte
         ];
     }
 
+    /**
+     * Zweite Nachricht zur Lohn-Liste (28.10.2026, Review I2 Variante b): der
+     * geparkte Chat ist fuer HR unsichtbar — wer eigentlich etwas anderes will,
+     * kommt hierueber zur Dispo bzw. zu HR. Meta erlaubt Link- ODER
+     * Antwortknoepfe je Nachricht, daher eine eigene Nachricht.
+     */
+    public static function andereThemen(bool $duzen): string
+    {
+        return $duzen
+            ? 'Geht es um etwas anderes? Dann wähl hier aus.'
+            : 'Geht es um etwas anderes? Dann wählen Sie hier aus.';
+    }
+
+    /** @return list<array{id:string, title:string}> */
+    public static function andereKnoepfe(): array
+    {
+        return array_values(array_filter(self::knoepfe(), static fn (array $k) => $k['id'] !== 'topic_lohn'));
+    }
+
     public static function frage(bool $duzen, ?string $teamText, ?string $oooVorspann): string
     {
         $text = self::oderVorgabe($teamText, $duzen

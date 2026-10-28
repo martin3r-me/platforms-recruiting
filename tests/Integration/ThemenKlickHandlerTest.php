@@ -581,7 +581,11 @@ final class ThemenKlickHandlerTest extends TestCase
 
         $this->assertSame('verarbeitet:topic_lohn', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn')));
 
-        $this->assertCount(1, $this->gesendet);
+        $this->assertCount(2, $this->gesendet, 'Liste + andere Themen (28.10.)');
+        $andere = $this->gesendet[1]['interactive'];
+        $this->assertSame('button', $andere['type']);
+        $this->assertSame(['topic_dispo', 'topic_hr'], array_map(fn ($b) => $b['reply']['id'], $andere['action']['buttons']));
+        $this->assertTrue($this->gesendet[1]['isAutoReply']);
         $i = $this->gesendet[0]['interactive'];
         $this->assertSame('cta_url', $i['type']);
         $this->assertSame('https://app.test/recruiting.public.employee-portal/tok-erika', $i['action']['parameters']['url']);
@@ -693,6 +697,44 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame(RecConversationTopic::TOPIC_HR, $topic->topic);
         $this->assertSame(RecConversationTopic::STATE_CHOSEN, $topic->state);
         $this->assertSame(0, RecConversationHandled::query()->count());
+    }
+
+    /**
+     * 28.10. (Review I2, Variante b): Erinnerung eines geparkten Lohn-Chats
+     * bietet Disposition/HR allgemein an — auch wenn die Frage laengst aelter
+     * als die Ruhezeit ist. Der Klick macht den Chat fuer HR sichtbar.
+     */
+    public function test_klick_aus_der_erinnerung_trifft_die_geparkte_zeile_auch_nach_der_ruhezeit(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $alt = date('Y-m-d H:i:s', time() - 2 * 86400);
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_GEPARKT, 'asked_at' => $alt, 'chosen_at' => $alt])->save();
+
+        $this->assertSame('verarbeitet:topic_hr', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_hr')));
+
+        $topic->refresh();
+        $this->assertSame(RecConversationTopic::TOPIC_HR, $topic->topic);
+        $this->assertSame(RecConversationTopic::STATE_CHOSEN, $topic->state);
+    }
+
+    public function test_dispo_aus_der_erinnerung_dann_filiale_klappt(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $alt = date('Y-m-d H:i:s', time() - 2 * 86400);
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_GEPARKT, 'asked_at' => $alt, 'chosen_at' => $alt])->save();
+
+        $this->assertSame('verarbeitet:topic_dispo', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -60)));
+        $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -10)));
+        $this->assertSame(RecConversationTopic::TOPIC_DISPO, $topic->fresh()->topic);
+    }
+
+    public function test_alte_nicht_geparkte_frage_bleibt_ausserhalb_der_ruhezeit_tot(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $alt = date('Y-m-d H:i:s', time() - 2 * 86400);
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => RecConversationTopic::STATE_FREIGEGEBEN, 'asked_at' => $alt, 'chosen_at' => $alt])->save();
+
+        $this->assertSame('ignoriert:keine_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_hr')));
     }
 
     public function test_klick_ohne_offene_frage_wird_ignoriert(): void

@@ -137,7 +137,11 @@ final class LohnParkenTest extends TestCase
 
         $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
 
-        $this->assertCount(1, $this->gesendet);
+        $this->assertCount(2, $this->gesendet, 'Liste + andere Themen (28.10., Review I2 Variante b)');
+        $andere = $this->gesendet[1]['interactive'];
+        $this->assertSame(['topic_dispo', 'topic_hr'], array_map(fn ($b) => $b['reply']['id'], $andere['action']['buttons']));
+        $this->assertStringContainsString('etwas anderes', $andere['body']['text']);
+        $this->assertTrue($this->gesendet[1]['isAutoReply']);
         $i = $this->gesendet[0]['interactive'];
         $this->assertSame('cta_url', $i['type']);
         $this->assertStringContainsString('• IBAN', $i['body']['text']);

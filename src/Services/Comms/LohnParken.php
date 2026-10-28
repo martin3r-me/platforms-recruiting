@@ -166,9 +166,21 @@ class LohnParken
         $body = ThemenTexte::lohnOffen($duzen, $settings?->getSetting('comms_topic_text_lohn_offen'), $luecken);
         $url = LohnLuecken::portalUrl($employee);
 
-        return $url !== null
+        $r = $url !== null
             ? $this->sender()->linkKnopf($channel, $phone, $body, 'Zum Portal', $url)
             : $this->sender()->knoepfe($channel, $phone, $body, [['id' => self::ACK, 'title' => 'Alles klar']]);
+        if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+            return $r;
+        }
+
+        // Ausweg zu Dispo/HR (28.10., Review I2 Variante b). Scheitert er,
+        // bleibt es beim Parken — die Liste ist raus, das Ergebnis zaehlt.
+        $andere = $this->sender()->knoepfe($channel, $phone, ThemenTexte::andereThemen($duzen), ThemenTexte::andereKnoepfe());
+        if ($andere['status'] !== InteraktivSender::STATUS_SENT) {
+            Log::info('recruiting.lohn_parken.andere_themen_nicht_gesendet', ['status' => $andere['status'], 'error' => $andere['error']]);
+        }
+
+        return $r;
     }
 
     /**

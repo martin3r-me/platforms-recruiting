@@ -116,6 +116,21 @@ final class ThemenKlickHandler
             ->orderByDesc('asked_at')
             ->orderByDesc('id')
             ->first();
+        // Geparkter Lohn-Chat (28.10., Review I2 Variante b): die Erinnerung
+        // bietet Dispo/HR an, auch Tage nach der Frage. Nur die JUENGSTE Zeile
+        // und nur, wenn sie noch geparkt ist — alte Runden bleiben tot.
+        if ($topic === null) {
+            $juengste = RecConversationTopic::query()
+                ->where('team_id', $teamId)
+                ->where('comms_whatsapp_thread_id', (int) $thread->id)
+                ->orderByDesc('asked_at')
+                ->orderByDesc('id')
+                ->first();
+            $topic = $juengste?->state === RecConversationTopic::STATE_GEPARKT ? $juengste : null;
+            // Wieder aktuelle Frage: der Folgeklick (Filiale nach Disposition)
+            // muss sie innerhalb der Ruhezeit finden.
+            $topic?->forceFill(['asked_at' => Carbon::now()])->save();
+        }
         if ($topic === null) {
             return 'ignoriert:keine_frage';
         }
