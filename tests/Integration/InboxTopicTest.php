@@ -303,6 +303,26 @@ class InboxTopicTest extends TestCase
         $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(topic: 'lohn'))));
     }
 
+    /** Markus 28.10.: auch Agenda-Frage und Pruefschritt sind fuer HR unsichtbar; erst „Ich habe eine Frage“ zeigt ihn. */
+    public function test_pruefschritt_unsichtbar_frage_sichtbar(): void
+    {
+        $zeile = RecConversationTopic::query()->where('comms_whatsapp_thread_id', self::$geparkt)->firstOrFail();
+        try {
+            foreach ([RecConversationTopic::STATE_AGENDA_FRAGE, RecConversationTopic::STATE_LOHN_PRUEFEN, RecConversationTopic::STATE_LOHN_ERLEDIGT] as $state) {
+                $zeile->forceFill(['state' => $state])->save();
+                $this->assertNotContains(self::$geparkt, array_keys($this->zeilen()), $state);
+            }
+            foreach ([RecConversationTopic::STATE_LOHN_FRAGE, RecConversationTopic::STATE_AGENDA] as $state) {
+                $zeile->forceFill(['state' => $state])->save();
+                $this->assertContains(self::$geparkt, array_keys($this->zeilen()), $state);
+            }
+            $zeile->forceFill(['state' => RecConversationTopic::STATE_LOHN_FRAGE])->save();
+            $this->assertSame('Lohnfrage nach Prüfung', $this->zeilen()[self::$geparkt]->topicNote);
+        } finally {
+            $zeile->forceFill(['state' => RecConversationTopic::STATE_GEPARKT])->save();
+        }
+    }
+
     public function test_themen_auswahl_aus_dann_ist_nichts_geparkt(): void
     {
         $zeile = RecApplicantSettings::query()->where('team_id', self::TEAM)->firstOrFail();

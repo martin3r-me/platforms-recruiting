@@ -75,6 +75,7 @@ final class LohnParkenTest extends TestCase
             $t->string('portal_token')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
             $t->boolean('is_active')->nullable();
+            $t->boolean('agenda_zugang')->nullable();
             $t->timestamps();
         });
         Capsule::table('comms_channels')->insert([
@@ -119,7 +120,7 @@ final class LohnParkenTest extends TestCase
         Capsule::table('rec_applicant_settings')->insert(['team_id' => self::TEAM, 'settings' => json_encode(['comms_topic_enabled' => true, 'use_informal_address' => true])]);
         Capsule::table('rec_employees')->insert([
             'id' => self::MA_ID, 'team_id' => self::TEAM, 'portal_token' => 'tok-erika',
-            'portal_v2_since' => date('Y-m-d H:i:s', time() - 86400), 'is_active' => true,
+            'portal_v2_since' => date('Y-m-d H:i:s', time() - 86400), 'is_active' => true, 'agenda_zugang' => true,
         ]);
         $this->kanal = CommsChannel::query()->findOrFail(self::HR_KANAL);
     }
@@ -163,17 +164,19 @@ final class LohnParkenTest extends TestCase
         $this->assertCount(0, $this->gesendet);
     }
 
-    public function test_weiterschreiben_akte_vollstaendig_gibt_frei_ohne_nachricht(): void
+    /** Markus 28.10.: auch nach nachgereichter Akte erst Anleitung + Pruefschritt, dann HR. */
+    public function test_weiterschreiben_akte_vollstaendig_fuehrt_zum_pruefschritt(): void
     {
         $this->luecken = [];
         [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
 
         $status = $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread));
 
-        $this->assertSame(LohnParken::FREIGEGEBEN, $status);
-        $this->assertFalse(LohnParken::antwortet($status), 'die Nachricht geht normal an HR');
-        $this->assertCount(0, $this->gesendet);
-        $this->assertSame(RecConversationTopic::STATE_FREIGEGEBEN, $topic->fresh()->state);
+        $this->assertSame('weiter:pruefen', $status);
+        $this->assertTrue(LohnParken::antwortet($status), 'Bot hat geantwortet, keine Abwesenheitsnotiz');
+        $this->assertCount(3, $this->gesendet, 'Dank, Hinweis, Pruef-Frage');
+        $this->assertSame(['topic_lohn_frage', 'topic_lohn_erledigt', 'topic_dispo'], $this->knoepfe(2));
+        $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state);
     }
 
     public function test_weiterschreiben_ohne_aktiven_ma_gibt_frei(): void
@@ -221,22 +224,78 @@ final class LohnParkenTest extends TestCase
         $this->assertSame(RecConversationTopic::STATE_GEPARKT, $topic->fresh()->state);
     }
 
-    public function test_lauf_akte_vollstaendig_dankt_und_gibt_frei_einmal(): void
+    public function test_lauf_akte_vollstaendig_dankt_und_fuehrt_zum_pruefschritt_einmal(): void
     {
         $this->luecken = [];
-        [, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+        $thread->forceFill(['is_unread' => false])->save();
 
-        $this->assertSame(LohnParken::FREIGEGEBEN, $this->parken()->freigebenWennVollstaendig($topic));
-        $this->assertCount(1, $this->gesendet);
+        $this->assertSame('weiter:pruefen', $this->parken()->freigebenWennVollstaendig($topic));
+        $this->assertCount(3, $this->gesendet);
         $this->assertStringContainsString('Akte ist jetzt vollständig', $this->gesendet[0]['interactive']['body']['text']);
-        $this->assertTrue($this->gesendet[0]['isAutoReply']);
-        $this->assertSame(RecConversationTopic::STATE_FREIGEGEBEN, $topic->fresh()->state);
+        $this->assertStringNotContainsString('schauen uns deine Frage an', $this->gesendet[0]['interactive']['body']['text']);
+        $this->assertSame(['topic_lohn_frage', 'topic_lohn_erledigt', 'topic_dispo'], $this->knoepfe(2));
+        foreach ($this->gesendet as $g) {
+            $this->assertTrue($g['isAutoReply']);
+        }
+        $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state, 'bleibt fuer HR unsichtbar');
+        $this->assertFalse((bool) $thread->fresh()->is_unread);
 
         // Zweiter Lauf auf derselben (veralteten) Instanz: kein zweiter Dank.
         $alt = RecConversationTopic::query()->find($topic->id);
         $alt->state = RecConversationTopic::STATE_GEPARKT;
         $this->assertSame('geparkt', $this->parken()->freigebenWennVollstaendig($alt));
-        $this->assertCount(1, $this->gesendet);
+        $this->assertCount(3, $this->gesendet);
+    }
+
+    public function test_lauf_akte_vollstaendig_ohne_agenda_zugang_fragt_nach_agenda(): void
+    {
+        $this->luecken = [];
+        Capsule::table('rec_employees')->update(['agenda_zugang' => null]);
+        [, $topic] = $this->geparkt(vorSekunden: 2 * 3600);
+
+        $this->assertSame('weiter:agenda', $this->parken()->freigebenWennVollstaendig($topic));
+        $this->assertCount(2, $this->gesendet);
+        $this->assertSame(['topic_agenda_anfordern', 'topic_agenda_ok'], $this->knoepfe(1));
+        $this->assertSame(RecConversationTopic::STATE_AGENDA_FRAGE, $topic->fresh()->state);
+    }
+
+    // ------------------------------------------------------------ Pruefschritt (Markus 28.10.)
+
+    public function test_getippt_im_pruefschritt_stellt_die_frage_erneut_und_bleibt_unsichtbar(): void
+    {
+        foreach ([RecConversationTopic::STATE_LOHN_PRUEFEN, RecConversationTopic::STATE_LOHN_ERLEDIGT] as $state) {
+            $this->gesendet->exchangeArray([]);
+            [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600, state: $state);
+
+            $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)), $state);
+            $this->assertCount(1, $this->gesendet);
+            $this->assertSame(['topic_lohn_frage', 'topic_lohn_erledigt', 'topic_dispo'], $this->knoepfe(0));
+            $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state);
+
+            // Innerhalb der Stunde still.
+            $this->assertSame(LohnParken::STILL, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
+            $this->assertCount(1, $this->gesendet);
+        }
+    }
+
+    public function test_getippt_bei_offener_agenda_frage_stellt_sie_erneut(): void
+    {
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600, state: RecConversationTopic::STATE_AGENDA_FRAGE);
+
+        $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
+        $this->assertSame(['topic_agenda_anfordern', 'topic_agenda_ok'], $this->knoepfe(0));
+        $this->assertSame(RecConversationTopic::STATE_AGENDA_FRAGE, $topic->fresh()->state);
+    }
+
+    public function test_hr_antwort_im_pruefschritt_macht_sichtbar(): void
+    {
+        [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600, state: RecConversationTopic::STATE_LOHN_PRUEFEN);
+        $this->hrAntwort($thread, vorSekunden: 3600);
+
+        $this->assertSame('freigegeben:hr_hat_geantwortet', $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
+        $this->assertSame(RecConversationTopic::STATE_FREIGEGEBEN, $topic->fresh()->state);
+        $this->assertCount(0, $this->gesendet);
     }
 
     public function test_lauf_gibt_frei_auch_wenn_meta_ablehnt(): void
@@ -334,7 +393,9 @@ final class LohnParkenTest extends TestCase
             'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->assertSame(LohnParken::FREIGEGEBEN, $this->parken()->freigebenWennVollstaendig($topic));
+        // Nur noch, wenn der Pruefschritt nicht zugestellt werden kann (Fenster zu).
+        $this->sendStatus = ['failed'];
+        $this->assertSame('freigegeben:ohne_nachricht', $this->parken()->freigebenWennVollstaendig($topic));
         $this->assertTrue((bool) $thread->fresh()->is_unread);
         $this->assertSame(0, Capsule::table('rec_conversation_handled')->count());
     }
@@ -372,6 +433,12 @@ final class LohnParkenTest extends TestCase
     }
 
     // ------------------------------------------------------------ Hilfen
+
+    /** @return list<string> Knopf-IDs der n-ten gesendeten Nachricht */
+    private function knoepfe(int $n): array
+    {
+        return array_map(fn ($b) => $b['reply']['id'], $this->gesendet[$n]['interactive']['action']['buttons'] ?? []);
+    }
 
     private function parken(): LohnParken
     {

@@ -34,6 +34,24 @@ class RecConversationTopic extends Model
     /** Lohn, Akte vollstaendig, kein Agenda-Zugang: Frage „Zugang anfordern / Hab ich schon“ ist raus. */
     public const STATE_AGENDA_FRAGE = 'agenda_asked';
 
+    /** Lohn, Anleitung raus, Frage „Ich habe eine Frage / Hat sich erledigt“ offen (Markus 28.10.2026). */
+    public const STATE_LOHN_PRUEFEN = 'lohn_check';
+
+    /** Lohn, Mitarbeiter hat geprueft und trotzdem eine Frage — jetzt bei HR. */
+    public const STATE_LOHN_FRAGE = 'lohn_question';
+
+    /** Lohn, Mitarbeiter: „Hat sich erledigt“. */
+    public const STATE_LOHN_ERLEDIGT = 'lohn_done';
+
+    /**
+     * Lohn-Zustaende, in denen der Chat fuer HR unsichtbar ist (Markus
+     * 28.10.2026: „gar nicht sichtbar fuer HR“, erst wenn alles geprueft ist).
+     * InboxQuery, LohnParken und ThemenKlickHandler lesen nur hier.
+     */
+    public const VERSTECKT = [
+        self::STATE_GEPARKT, self::STATE_AGENDA_FRAGE, self::STATE_LOHN_PRUEFEN, self::STATE_LOHN_ERLEDIGT,
+    ];
+
     protected $table = 'rec_conversation_topics';
 
     protected $fillable = [

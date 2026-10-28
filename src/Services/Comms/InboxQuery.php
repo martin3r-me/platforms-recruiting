@@ -877,7 +877,7 @@ final class InboxQuery
      */
     private static function geparkteIds(array $themen): array
     {
-        return array_keys(array_filter($themen, static fn (array $t) => $t['state'] === RecConversationTopic::STATE_GEPARKT));
+        return array_keys(array_filter($themen, static fn (array $t) => in_array($t['state'], RecConversationTopic::VERSTECKT, true)));
     }
 
     /**
@@ -980,7 +980,7 @@ final class InboxQuery
      */
     private static function geparkt(?array $thema, ?int $humanOutboundAt): bool
     {
-        if ($thema === null || $thema['state'] !== RecConversationTopic::STATE_GEPARKT) {
+        if ($thema === null || !in_array($thema['state'], RecConversationTopic::VERSTECKT, true)) {
             return false;
         }
 
@@ -1028,7 +1028,7 @@ final class InboxQuery
             RecConversationTopic::STATE_FREIGEGEBEN => 'Akte nachgereicht',
             RecConversationTopic::STATE_LOHN_INFO => 'Login-Hinweis gesendet',
             RecConversationTopic::STATE_AGENDA => 'Agenda-Zugang angefordert',
-            RecConversationTopic::STATE_AGENDA_FRAGE => 'Agenda-Frage gesendet',
+            RecConversationTopic::STATE_LOHN_FRAGE => 'Lohnfrage nach Prüfung',
             default => null,
         };
     }

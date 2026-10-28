@@ -22,14 +22,15 @@ use Platform\Recruiting\Support\PublicAddressStyle;
  * unter „Ungelesen“/Ampel und auch sonst nirgends in der Liste (InboxQuery, Markus 28.10.).
  * Die Nachrichten bleiben gespeichert; erst die Freigabe zeigt den Chat HR.
  *
- *  - beiEingang(): getippte Nachricht in einem geparkten Chat. Akte noch
- *    unvollstaendig → die Liste noch einmal (hoechstens einmal je Stunde,
- *    gemessen an updated_at der Zeile), Chat bleibt geparkt. Akte vollstaendig
- *    (oder kein aktiver MA mehr) → freigeben, die Nachricht geht normal an HR.
+ *  - beiEingang(): getippte Nachricht in einem unsichtbaren Lohn-Chat
+ *    (RecConversationTopic::VERSTECKT). Geparkt und Akte jetzt vollstaendig →
+ *    weiter wie unten. Sonst dieselbe offene Frage noch einmal (Liste,
+ *    Agenda-Frage oder Pruef-Frage; hoechstens einmal je Stunde, gemessen an
+ *    updated_at der Zeile). Kein aktiver MA mehr → freigeben.
  *  - freigebenWennVollstaendig(): Lauf recruiting:lohn-parken-freigeben.
- *    Akte vollstaendig → Dank an den MA und freigeben. Die Freigabe haengt NIE
- *    am Versand: ausserhalb des 24-h-Fensters lehnt Meta ab, der Chat muss
- *    trotzdem zu HR.
+ *    Akte vollstaendig → Dank, dann Agenda-Frage bzw. Anleitung + Pruef-Frage
+ *    (Markus 28.10.: erst „Ich habe eine Frage“ zeigt HR den Chat). Kommt
+ *    nichts an (24-h-Fenster zu), geht der Chat wie bisher zu HR.
  */
 class LohnParken
 {
@@ -49,7 +50,7 @@ class LohnParken
     /** Hat das Parken auf diesen Eingang reagiert? Dann keine Abwesenheitsnotiz dazu. */
     public static function antwortet(string $status): bool
     {
-        return $status === self::ERINNERT || $status === self::STILL;
+        return $status === self::ERINNERT || $status === self::STILL || str_starts_with($status, 'weiter:');
     }
 
     public function beiEingang(CommsChannel $channel, CommsWhatsAppThread $thread, CommsWhatsAppMessage $message): string
@@ -62,7 +63,7 @@ class LohnParken
         if (!self::schalterAn($settings)) {
             return 'ignoriert:schalter_aus';
         }
-        $topic = $this->geparkt($teamId, (int) $thread->id);
+        $topic = $this->versteckt($teamId, (int) $thread->id);
         if ($topic === null) {
             return 'ignoriert:nicht_geparkt';
         }
@@ -76,19 +77,36 @@ class LohnParken
 
         $phone = (string) ($thread->remote_phone_number ?? '');
         $employee = $this->mitarbeiter($phone, $teamId);
-        $luecken = $employee !== null ? $this->luecken()->fuer($employee) : [];
-        if ($employee === null || $luecken === []) {
+        if ($employee === null) {
             $this->freigeben($topic);
 
             return self::FREIGEGEBEN;
+        }
+        $duzen = PublicAddressStyle::informal($settings->getSetting('use_informal_address'));
+
+        // Akte inzwischen vollstaendig: weiter zum naechsten Schritt (Agenda
+        // bzw. Anleitung + Pruefschritt) statt direkt zu HR (Markus 28.10.).
+        if ($topic->state === RecConversationTopic::STATE_GEPARKT) {
+            $luecken = $this->luecken()->fuer($employee);
+            if ($luecken === []) {
+                return $this->weiterNachAkte($topic, $thread, $channel, $phone, $employee, $settings, $duzen);
+            }
         }
 
         if ($topic->updated_at !== null && $topic->updated_at->getTimestamp() > Carbon::now()->getTimestamp() - self::ERINNERUNG_SEKUNDEN) {
             return self::STILL;
         }
 
-        $duzen = PublicAddressStyle::informal($settings->getSetting('use_informal_address'));
-        $r = $this->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
+        // Dieselbe offene Frage noch einmal, hoechstens einmal je Stunde.
+        $neuerZustand = $topic->state;
+        if ($topic->state === RecConversationTopic::STATE_GEPARKT) {
+            $r = $this->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
+        } elseif ($topic->state === RecConversationTopic::STATE_AGENDA_FRAGE) {
+            $r = $this->sendeAgendaFrage($channel, $phone, $duzen);
+        } else {
+            $r = $this->sendePruefFrage($channel, $phone, $duzen);
+            $neuerZustand = RecConversationTopic::STATE_LOHN_PRUEFEN;
+        }
         if ($r['status'] !== InteraktivSender::STATUS_SENT) {
             Log::warning('recruiting.lohn_parken.erinnerung_nicht_gesendet', [
                 'topic_id' => $topic->id, 'status' => $r['status'], 'error' => $r['error'],
@@ -97,12 +115,12 @@ class LohnParken
             // Nicht STILL: dann darf die Abwesenheitsnotiz laufen (Review 26.10. m8).
             return 'ignoriert:send_' . $r['status'];
         }
-        $topic->touch();
+        $topic->forceFill(['state' => $neuerZustand, 'updated_at' => Carbon::now()])->save();
 
         return self::ERINNERT;
     }
 
-    /** @return string 'geparkt' | 'freigegeben' | 'freigegeben:<grund>' */
+    /** @return string 'geparkt' | 'weiter:<schritt>' | 'freigegeben' | 'freigegeben:<grund>' */
     public function freigebenWennVollstaendig(RecConversationTopic $topic): string
     {
         $teamId = (int) $topic->team_id;
@@ -127,31 +145,108 @@ class LohnParken
         if ($this->luecken()->fuer($employee) !== []) {
             return 'geparkt';
         }
-
-        // Erst beanspruchen, dann senden: zwei Laeufe schicken nicht zweimal Dank.
-        if (!$this->freigeben($topic, $thread)) {
-            return 'geparkt';
-        }
         $channel = CommsChannel::query()->find((int) $thread->comms_channel_id);
         if ($channel === null) {
-            return 'freigegeben:ohne_nachricht';
+            return $this->freigeben($topic, $thread) ? 'freigegeben:ohne_nachricht' : 'geparkt';
         }
         $duzen = PublicAddressStyle::informal($settings->getSetting('use_informal_address'));
-        $r = $this->sender()->knoepfe(
+
+        return $this->weiterNachAkte($topic, $thread, $channel, $phone, $employee, $settings, $duzen);
+    }
+
+    /**
+     * Akte nachgereicht (Lauf oder Weiterschreiben): Dank, dann derselbe Weg
+     * wie bei vollstaendiger Akte — Agenda-Frage bzw. Anleitung + Pruefschritt.
+     * Der Chat bleibt fuer HR unsichtbar (Markus 28.10.). Erst beanspruchen,
+     * dann senden: zwei Laeufe schicken nicht zweimal. Kommt nichts an
+     * (24-h-Fenster zu), geht der Chat wie bisher zu HR — die Freigabe haengt
+     * nie am Versand.
+     */
+    private function weiterNachAkte(RecConversationTopic $topic, CommsWhatsAppThread $thread, CommsChannel $channel, string $phone, RecEmployee $employee, ?RecApplicantSettings $settings, bool $duzen): string
+    {
+        $n = RecConversationTopic::query()
+            ->whereKey($topic->id)
+            ->where('state', RecConversationTopic::STATE_GEPARKT)
+            ->update(['state' => RecConversationTopic::STATE_LOHN_PRUEFEN, 'updated_at' => Carbon::now()]);
+        if ($n !== 1) {
+            return 'geparkt';
+        }
+        $topic->state = RecConversationTopic::STATE_LOHN_PRUEFEN;
+        $topic->syncOriginalAttribute('state');
+
+        $dank = $this->sender()->knoepfe(
             $channel,
             $phone,
-            ThemenTexte::lohnFrei($duzen, $settings->getSetting('comms_topic_text_lohn_frei')),
+            ThemenTexte::lohnFrei($duzen, $settings?->getSetting('comms_topic_text_lohn_frei')),
             [['id' => self::ACK, 'title' => 'Alles klar']],
         );
-        if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+        $schritt = $dank['status'] === InteraktivSender::STATUS_SENT
+            ? $this->naechsterSchritt($channel, $phone, $employee, $settings, $duzen)
+            : $dank + ['state' => null];
+        if ($schritt['status'] !== InteraktivSender::STATUS_SENT) {
             Log::info('recruiting.lohn_parken.dank_nicht_gesendet', [
-                'topic_id' => $topic->id, 'status' => $r['status'], 'error' => $r['error'],
+                'topic_id' => $topic->id, 'status' => $schritt['status'], 'error' => $schritt['error'],
             ]);
 
-            return 'freigegeben:ohne_nachricht';
+            return $this->freigeben($topic, $thread) ? 'freigegeben:ohne_nachricht' : 'geparkt';
+        }
+        RecConversationTopic::query()->whereKey($topic->id)->update(['state' => $schritt['state'], 'updated_at' => Carbon::now()]);
+        $topic->state = $schritt['state'];
+        $topic->syncOriginalAttribute('state');
+
+        return $schritt['state'] === RecConversationTopic::STATE_AGENDA_FRAGE ? 'weiter:agenda' : 'weiter:pruefen';
+    }
+
+    /**
+     * Akte vollstaendig: ohne (bekannten) Agenda-Zugang erst die Agenda-Frage,
+     * sonst Anleitung + Pruefschritt. Liefert den Zustand, den die Zeile danach hat.
+     *
+     * @return array{status:string, message_id:?int, error:?string, state:string}
+     */
+    public function naechsterSchritt(CommsChannel $channel, string $phone, RecEmployee $employee, ?RecApplicantSettings $settings, bool $duzen): array
+    {
+        if ($employee->agenda_zugang !== true) {
+            return $this->sendeAgendaFrage($channel, $phone, $duzen) + ['state' => RecConversationTopic::STATE_AGENDA_FRAGE];
         }
 
-        return self::FREIGEGEBEN;
+        return $this->hinweisUndPruefen($channel, $phone, $settings, $duzen) + ['state' => RecConversationTopic::STATE_LOHN_PRUEFEN];
+    }
+
+    /**
+     * Anleitung (Link-Knopf, ohne URL Quittung), danach die Pruef-Frage. Das
+     * Ergebnis ist das der Anleitung; scheitert nur die Pruef-Frage, bleibt
+     * es beim Pruefschritt — die stuendliche Erinnerung stellt sie erneut.
+     *
+     * @return array{status:string, message_id:?int, error:?string}
+     */
+    public function hinweisUndPruefen(CommsChannel $channel, string $phone, ?RecApplicantSettings $settings, bool $duzen): array
+    {
+        $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
+        $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
+        $r = $url !== ''
+            ? $this->sender()->linkKnopf($channel, $phone, $body, 'Anleitung', $url)
+            : $this->sender()->knoepfe($channel, $phone, $body, [['id' => self::ACK, 'title' => 'Alles klar']]);
+        if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+            return $r;
+        }
+        $frage = $this->sendePruefFrage($channel, $phone, $duzen);
+        if ($frage['status'] !== InteraktivSender::STATUS_SENT) {
+            Log::info('recruiting.lohn_parken.pruef_frage_nicht_gesendet', ['status' => $frage['status'], 'error' => $frage['error']]);
+        }
+
+        return $r;
+    }
+
+    /** @return array{status:string, message_id:?int, error:?string} */
+    public function sendeAgendaFrage(CommsChannel $channel, string $phone, bool $duzen): array
+    {
+        return $this->sender()->knoepfe($channel, $phone, ThemenTexte::agendaFrage($duzen), ThemenTexte::agendaKnoepfe());
+    }
+
+    /** @return array{status:string, message_id:?int, error:?string} */
+    private function sendePruefFrage(CommsChannel $channel, string $phone, bool $duzen): array
+    {
+        return $this->sender()->knoepfe($channel, $phone, ThemenTexte::lohnPruefen($duzen), ThemenTexte::pruefenKnoepfe());
     }
 
     /**
@@ -210,11 +305,11 @@ class LohnParken
         return $settings !== null && (bool) $settings->getSetting('comms_topic_enabled', false);
     }
 
-    /** Juengste Zeile des Threads, nur wenn sie geparkt ist. */
-    private function geparkt(int $teamId, int $threadId): ?RecConversationTopic
+    /** Juengste Zeile des Threads, nur wenn sie fuer HR unsichtbar ist (geparkt, Agenda-Frage, Pruefschritt). */
+    private function versteckt(int $teamId, int $threadId): ?RecConversationTopic
     {
         $zeile = RecConversationTopic::aktuelleJeThread($teamId, [$threadId])[$threadId] ?? null;
-        if ($zeile === null || $zeile->state !== RecConversationTopic::STATE_GEPARKT) {
+        if ($zeile === null || !in_array($zeile->state, RecConversationTopic::VERSTECKT, true)) {
             return null;
         }
 
@@ -234,7 +329,7 @@ class LohnParken
     {
         $n = RecConversationTopic::query()
             ->whereKey($topic->id)
-            ->where('state', RecConversationTopic::STATE_GEPARKT)
+            ->whereIn('state', RecConversationTopic::VERSTECKT)
             ->update(['state' => RecConversationTopic::STATE_FREIGEGEBEN, 'updated_at' => Carbon::now()]);
         if ($n === 1) {
             $topic->state = RecConversationTopic::STATE_FREIGEGEBEN;

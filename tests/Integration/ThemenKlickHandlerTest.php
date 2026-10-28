@@ -628,7 +628,10 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame('cta_url', $i['type']);
         $this->assertSame('https://app.test/anleitungen/abrechnung', $i['action']['parameters']['url']);
         $this->assertStringContainsString('Stundenübersicht', $i['body']['text']);
-        $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+        // Markus 28.10.: Pruefschritt — erst „Ich habe eine Frage“ zeigt den Chat HR.
+        $this->assertCount(2, $this->gesendet);
+        $this->assertSame(['topic_lohn_frage', 'topic_lohn_erledigt', 'topic_dispo'], array_map(fn ($b) => $b['reply']['id'], $this->gesendet[1]['interactive']['action']['buttons']));
+        $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state);
         $this->assertSame(0, RecConversationHandled::query()->count());
     }
 
@@ -642,7 +645,7 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame('button', $i['type']);
         $this->assertSame('topic_ack', $i['action']['buttons'][0]['reply']['id']);
         $this->assertStringNotContainsString('Knopf unten', $i['body']['text'], 'ohne Anleitung-URL kein Versprechen eines Knopfs (26.10.2026)');
-        $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state);
     }
 
     // ------------------------------------------------------------ Agenda-Zugang (Markus 28.10.2026)
@@ -726,7 +729,7 @@ final class ThemenKlickHandlerTest extends TestCase
         $i = $this->gesendet[0]['interactive'];
         $this->assertSame('cta_url', $i['type']);
         $this->assertSame('https://www.youtube.com/watch?v=xvHMBx1yRtc', $i['action']['parameters']['url']);
-        $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_PRUEFEN, $topic->fresh()->state);
     }
 
     public function test_agenda_knopf_ohne_lohn_wahl_wird_ignoriert(): void
@@ -736,6 +739,61 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame('ignoriert:keine_agenda_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern')));
         $this->assertCount(0, $this->gesendet);
         $this->assertSame(RecConversationTopic::STATE_ASKED, $topic->fresh()->state);
+    }
+
+    // ------------------------------------------------------------ Pruefschritt (Markus 28.10.2026)
+
+    /** @return RecConversationTopic Zeile im Pruefschritt, Frage laengst ausserhalb der Ruhezeit */
+    private function imPruefschritt(CommsWhatsAppThread $thread, RecConversationTopic $topic, string $state = RecConversationTopic::STATE_LOHN_PRUEFEN): RecConversationTopic
+    {
+        $alt = date('Y-m-d H:i:s', time() - 2 * 86400);
+        $topic->forceFill(['topic' => RecConversationTopic::TOPIC_LOHN, 'state' => $state, 'asked_at' => $alt, 'chosen_at' => $alt])->save();
+
+        return $topic;
+    }
+
+    public function test_ich_habe_eine_frage_macht_den_chat_sichtbar(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $this->imPruefschritt($thread, $topic);
+
+        $this->assertSame('verarbeitet:topic_lohn_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn_frage')));
+
+        $this->assertCount(1, $this->gesendet);
+        $this->assertStringContainsString('was nicht passt', $this->gesendet[0]['interactive']['body']['text']);
+        $this->assertTrue($this->gesendet[0]['isAutoReply']);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_FRAGE, $topic->fresh()->state);
+        $this->assertSame(0, RecConversationHandled::query()->count());
+    }
+
+    public function test_hat_sich_erledigt_bleibt_unsichtbar(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $this->imPruefschritt($thread, $topic);
+
+        $this->assertSame('verarbeitet:topic_lohn_erledigt', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn_erledigt')));
+
+        $this->assertCount(1, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_ERLEDIGT, $topic->fresh()->state);
+
+        // Danach doch eine Frage: geht auch aus „erledigt“.
+        $this->gesendet->exchangeArray([]);
+        $this->assertSame('verarbeitet:topic_lohn_frage', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn_frage', -1)));
+        $this->assertSame(RecConversationTopic::STATE_LOHN_FRAGE, $topic->fresh()->state);
+    }
+
+    public function test_pruef_knoepfe_ausserhalb_des_pruefschritts_still(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        foreach ([RecConversationTopic::STATE_GEPARKT, RecConversationTopic::STATE_AGENDA_FRAGE, RecConversationTopic::STATE_LOHN_FRAGE] as $state) {
+            $this->imPruefschritt($thread, $topic, $state);
+            foreach (['topic_lohn_frage', 'topic_lohn_erledigt'] as $knopf) {
+                // LOHN_FRAGE (sichtbar, Frage laengst alt) findet gar keine Zeile mehr — auch still.
+                $this->assertStringStartsWith('ignoriert:', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, $knopf)), $state . '/' . $knopf);
+            }
+            $this->assertSame($state, $topic->fresh()->state);
+        }
+        $this->assertCount(0, $this->gesendet);
     }
 
     /** 26.10.2026: fehlt eine lohnrelevante Angabe (z. B. IBAN), nennt der Lohn-Zweig sie — auch ohne offenen Nachweis. */

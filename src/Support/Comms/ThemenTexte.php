@@ -111,6 +111,36 @@ final class ThemenTexte
         ];
     }
 
+    /** Pruefschritt nach der Anleitung (Markus 28.10.2026): erst danach sieht HR den Lohn-Chat. */
+    public static function lohnPruefen(bool $duzen): string
+    {
+        return $duzen
+            ? 'Hast du deine Stundenübersicht und Abrechnung geprüft und es passt trotzdem etwas nicht?'
+            : 'Haben Sie Ihre Stundenübersicht und Abrechnung geprüft und es passt trotzdem etwas nicht?';
+    }
+
+    /** @return list<array{id:string, title:string}> */
+    public static function pruefenKnoepfe(): array
+    {
+        return [
+            ['id' => 'topic_lohn_frage',    'title' => 'Ich habe eine Frage'],
+            ['id' => 'topic_lohn_erledigt', 'title' => 'Hat sich erledigt'],
+            ['id' => 'topic_dispo',         'title' => 'Disposition'],
+        ];
+    }
+
+    public static function lohnFrageOffen(bool $duzen): string
+    {
+        return $duzen
+            ? 'Alles klar! Schreib uns genau, was nicht passt, z. B. Datum und fehlende Stunden.'
+            : 'Alles klar! Schreiben Sie uns genau, was nicht passt, z. B. Datum und fehlende Stunden.';
+    }
+
+    public static function lohnErledigt(bool $duzen): string
+    {
+        return 'Super, danke!';
+    }
+
     public static function agendaAngefordert(bool $duzen): string
     {
         return $duzen
@@ -122,8 +152,8 @@ final class ThemenTexte
     public static function lohnFrei(bool $duzen, ?string $teamText): string
     {
         return self::oderVorgabe($teamText, $duzen
-            ? 'Danke, deine Akte ist jetzt vollständig! Wir schauen uns deine Frage an und melden uns bei dir.'
-            : 'Danke, Ihre Akte ist jetzt vollständig! Wir schauen uns Ihre Frage an und melden uns bei Ihnen.');
+            ? 'Danke, deine Akte ist jetzt vollständig!'
+            : 'Danke, Ihre Akte ist jetzt vollständig!');
     }
 
     /**

@@ -129,7 +129,7 @@ final class ThemenKlickHandler
                 ->orderByDesc('asked_at')
                 ->orderByDesc('id')
                 ->first();
-            if ($juengste?->state === RecConversationTopic::STATE_GEPARKT) {
+            if ($juengste !== null && in_array($juengste->state, RecConversationTopic::VERSTECKT, true)) {
                 // Lohn ist schon gewaehlt, die Liste ist raus — nichts erneut senden.
                 if ($id === 'topic_lohn') {
                     return 'ignoriert:schon_geparkt';
@@ -203,6 +203,7 @@ final class ThemenKlickHandler
             'topic_lohn' => $this->lohnGewaehlt($channel, $topic, $settings, $teamId, $duzen, $phone),
             'topic_hr' => $this->themaSetzen($topic, RecConversationTopic::TOPIC_HR, RecConversationTopic::STATE_CHOSEN, 'topic_hr'),
             'topic_agenda_anfordern', 'topic_agenda_ok' => $this->agendaGewaehlt($id, $channel, $topic, $settings, $duzen, $phone),
+            'topic_lohn_frage', 'topic_lohn_erledigt' => $this->pruefGewaehlt($id, $channel, $topic, $duzen, $phone),
             default => 'ignoriert:unbekannte_auswahl',
         };
     }
@@ -522,14 +523,13 @@ final class ThemenKlickHandler
             // fuer HR unsichtbar, bis die Akte vollstaendig ist (LohnParken, 28.10.).
             $r = $this->parken()->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
             $state = RecConversationTopic::STATE_GEPARKT;
-        } elseif ($employee->agenda_zugang !== true) {
-            // Kein (oder unbekannter) Agenda-Zugang (Markus 28.10.2026): erst
-            // fragen — die Anleitung hilft ohne Zugang nicht.
-            $r = $this->sender()->knoepfe($channel, $phone, ThemenTexte::agendaFrage($duzen), ThemenTexte::agendaKnoepfe());
-            $state = RecConversationTopic::STATE_AGENDA_FRAGE;
         } else {
-            $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
-            $state = RecConversationTopic::STATE_LOHN_INFO;
+            // Akte vollstaendig (Markus 28.10.2026): ohne Agenda-Zugang erst die
+            // Agenda-Frage, sonst Anleitung + Pruefschritt. Beides fuer HR
+            // unsichtbar, bis der Mitarbeiter HR wirklich braucht.
+            $schritt = $this->parken()->naechsterSchritt($channel, $phone, $employee, $settings, $duzen);
+            $r = $schritt;
+            $state = $schritt['state'];
         }
         if ($r['status'] !== InteraktivSender::STATUS_SENT) {
             return $this->sendGescheitert('lohn', $topic, $r);
@@ -554,8 +554,8 @@ final class ThemenKlickHandler
             return 'ignoriert:keine_agenda_frage';
         }
         if ($id === 'topic_agenda_ok') {
-            $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
-            $state = RecConversationTopic::STATE_LOHN_INFO;
+            $r = $this->parken()->hinweisUndPruefen($channel, $phone, $settings, $duzen);
+            $state = RecConversationTopic::STATE_LOHN_PRUEFEN;
         } else {
             $r = $this->sendeHinweis($channel, $phone, ThemenTexte::agendaAngefordert($duzen), 'Alles klar', null);
             $state = RecConversationTopic::STATE_AGENDA;
@@ -567,13 +567,26 @@ final class ThemenKlickHandler
         return $this->themaSetzen($topic, RecConversationTopic::TOPIC_LOHN, $state, $id);
     }
 
-    /** @return array{status:string, message_id:?int, error:?string} */
-    private function sendeLohnHinweis(CommsChannel $channel, ?RecApplicantSettings $settings, bool $duzen, string $phone): array
+    /**
+     * Pruefschritt (Markus 28.10.2026): „Ich habe eine Frage“ zeigt den Chat
+     * HR (Vermerk „Lohnfrage nach Prüfung“), „Hat sich erledigt“ laesst ihn
+     * unsichtbar. Nur auf die offene Pruef-Frage (auch nach „erledigt“).
+     */
+    private function pruefGewaehlt(string $id, CommsChannel $channel, RecConversationTopic $topic, bool $duzen, string $phone): string
     {
-        $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
-        $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
+        $offen = [RecConversationTopic::STATE_LOHN_PRUEFEN, RecConversationTopic::STATE_LOHN_ERLEDIGT];
+        if ($topic->topic !== RecConversationTopic::TOPIC_LOHN || !in_array($topic->state, $offen, true)) {
+            return 'ignoriert:keine_pruef_frage';
+        }
+        [$text, $state] = $id === 'topic_lohn_frage'
+            ? [ThemenTexte::lohnFrageOffen($duzen), RecConversationTopic::STATE_LOHN_FRAGE]
+            : [ThemenTexte::lohnErledigt($duzen), RecConversationTopic::STATE_LOHN_ERLEDIGT];
+        $r = $this->sendeHinweis($channel, $phone, $text, 'Alles klar', null);
+        if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+            return $this->sendGescheitert('lohn_pruefen', $topic, $r);
+        }
 
-        return $this->sendeHinweis($channel, $phone, $body, 'Anleitung', $url !== '' ? $url : null);
+        return $this->themaSetzen($topic, RecConversationTopic::TOPIC_LOHN, $state, $id);
     }
 
     /**

@@ -1227,7 +1227,7 @@
                             <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
                         @enderror
                         <p class="text-xs text-[var(--ui-muted)] mt-1">
-                            Leer = Vorgabetext. Geht raus, wenn ein Lohn-Chat auf die Akte gewartet hat und sie jetzt vollständig ist — erst dann sieht HR den Chat.
+                            Leer = Vorgabetext („Danke, deine Akte ist jetzt vollständig!“). Geht raus, wenn ein Lohn-Chat auf die Akte gewartet hat. Danach folgen Agenda-Frage bzw. Anleitung und „Ich habe eine Frage“ — erst dieser Klick zeigt HR den Chat. Bitte nicht „wir melden uns“ versprechen.
                         </p>
                     </div>
                 </div>
