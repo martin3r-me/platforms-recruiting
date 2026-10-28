@@ -101,7 +101,7 @@ class HrDeskRoutingService
             schulungBesucht: $applicant->interviewBookings()->where('status', 'attended')->exists(),
             vertragRaus: $applicant->hasAnyContractSent(),
             nonEuFallAbgelehnt: $applicant->hrDeskCases()->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)->where('status', RecHrDeskCase::STATUS_REJECTED)->exists(),
-            aktiv: (bool) $applicant->is_active,
+            aktiv: (bool) $applicant->is_active && !$applicant->is_parked,   // geparkt = ruht (Review 28.10.)
         );
     }
 

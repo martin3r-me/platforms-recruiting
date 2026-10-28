@@ -691,6 +691,16 @@ final class VersandVormerkenTest extends TestCase
         $this->assertCount(0, $this->nichtEuFaelle());
     }
 
+    public function test_nachtraeglich_nein_bei_geparktem_bewerber_kein_fall(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['is_parked' => true]);
+        $this->euStatus(true);
+
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+
+        $this->assertCount(0, $this->nichtEuFaelle());
+    }
+
     public function test_nachtraeglich_nein_belebt_keinen_frueheren_fall_und_nicht_nach_dem_vertrag(): void
     {
         $this->euStatus(true);
