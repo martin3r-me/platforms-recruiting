@@ -482,7 +482,7 @@ final class ThemenKlickHandler
         $luecken = $this->lohnLuecken()->fuer($employee);
         if ($luecken !== []) {
             // Variante B (26.10.2026): der Chat wird geparkt — er wartet im
-            // Filter „Wartet auf Akte“, bis die Akte vollstaendig ist (LohnParken).
+            // fuer HR unsichtbar, bis die Akte vollstaendig ist (LohnParken, 28.10.).
             $r = $this->parken()->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
             $state = RecConversationTopic::STATE_GEPARKT;
         } else {

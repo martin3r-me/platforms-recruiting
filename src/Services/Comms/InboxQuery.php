@@ -173,6 +173,18 @@ final class InboxQuery
             $withFiliale || $filter->filiale !== 'all',
             $withFollowup || $filter->level === 'followup',
         );
+        // Geparkt (Lohn, Akte unvollstaendig): fuer HR unsichtbar — keine Liste,
+        // kein Zaehler, auch nicht unter „Alle“ (Markus 28.10.2026: „gar nicht
+        // sichtbar fuer HR, erst wenn die Akte vollstaendig ist“). Erst die
+        // Freigabe (LohnParken) bringt den Chat als ungelesen zurueck.
+        $geparkt = 0;
+        $scored['rows'] = array_values(array_filter($scored['rows'], static function (array $row) use (&$geparkt): bool {
+            if ($row['parked'] ?? false) {
+                $geparkt++;
+                return false;
+            }
+            return true;
+        }));
         $filialen = self::filialeCounts($scored['rows']);
 
         // Filiale schneidet VOR dem Zaehlen (Kunde 16.10.2026): bei "MGL" zeigen
@@ -182,6 +194,7 @@ final class InboxQuery
             ? $scored['rows']
             : array_values(array_filter($scored['rows'], fn (array $row) => self::matchesFiliale($row, $filter->filiale)));
         $counts = $this->countsFromScored($basis);
+        $counts['parked'] = $geparkt;   // nur Diagnose, die Oberflaeche zeigt ihn nicht
 
         // Owner und Namenssuche brauchen Bewerber-Daten, die die duenne Stufe
         // nicht hat — deshalb EINMAL vorab die erlaubten Bewerber-IDs holen
@@ -286,14 +299,6 @@ final class InboxQuery
             // deshalb VOR der is_unread-Pruefung.
             if (($row['followup'] ?? null) !== null) {
                 $counts['followup']++;
-            }
-            // Geparkt (Lohn, Akte unvollstaendig): eigener Zaehler statt
-            // Ungelesen/Ampel — auch nicht in der Seitenleiste (26.10.2026).
-            // Wie „Offen“ unabhaengig von gelesen: ein geoeffneter, noch
-            // wartender Chat darf nicht aus dem Filter fallen (Review 26.10. I1).
-            if ($row['parked'] ?? false) {
-                $counts['parked']++;
-                continue;
             }
             if (!$row['is_unread']) {
                 continue;
@@ -443,16 +448,7 @@ final class InboxQuery
             if (($row['followup'] ?? null) === null) {
                 return false;
             }
-        } elseif ($filter->level === 'parked') {
-            // „Wartet auf Akte“ (26.10.2026): geparkte Chats, auch gelesene.
-            if (!($row['parked'] ?? false)) {
-                return false;
-            }
         } else {
-            // Geparkte Chats stehen in keiner Ampel-/Ungelesen-Pille, nur unter "Alle".
-            if ($filter->level !== 'all' && ($row['parked'] ?? false)) {
-                return false;
-            }
             // Jede Pille ausser "Alle" zeigt nur offene Chats. Eine Ampelstufe
             // haben ohnehin nur offene (openState()), die Pruefung auf is_unread
             // steht trotzdem fuer alle Stufen da, damit beides nie auseinanderlaeuft.

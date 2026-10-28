@@ -19,8 +19,8 @@ use Platform\Recruiting\Support\PublicAddressStyle;
  * Sebastian 26.10.2026; Markus: „erst schreiben, wenn die Akte vollständig ist“).
  *
  * WhatsApp laesst sich nicht sperren — geparkt heisst: der Chat steht nicht
- * unter „Ungelesen“/Ampel, sondern im Filter „Wartet auf Akte“ (InboxQuery).
- * HR sieht ihn dort und kann jederzeit selbst antworten.
+ * unter „Ungelesen“/Ampel und auch sonst nirgends in der Liste (InboxQuery, Markus 28.10.).
+ * Die Nachrichten bleiben gespeichert; erst die Freigabe zeigt den Chat HR.
  *
  *  - beiEingang(): getippte Nachricht in einem geparkten Chat. Akte noch
  *    unvollstaendig → die Liste noch einmal (hoechstens einmal je Stunde,

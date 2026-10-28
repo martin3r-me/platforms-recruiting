@@ -194,7 +194,7 @@ class InboxTopicTest extends TestCase
     {
         $lohn = array_keys($this->zeilen(new InboxFilter(topic: 'lohn')));
         sort($lohn);
-        $erwartet = [self::$lohnMgl, self::$loginHinweis, self::$geparkt];
+        $erwartet = [self::$lohnMgl, self::$loginHinweis];   // der geparkte ist unsichtbar (28.10.)
         sort($erwartet);
         $this->assertSame($erwartet, $lohn);
 
@@ -215,12 +215,12 @@ class InboxTopicTest extends TestCase
     public function test_themen_zaehler_folgen_der_filiale_nicht_der_eigenen_auswahl(): void
     {
         $alle = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
-        $this->assertSame(['dispo' => 1, 'lohn' => 3, 'hr' => 3], $alle['topics']);
+        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $alle['topics'], 'der geparkte Lohn-Chat zaehlt nicht (28.10.)');
 
         $nurLohn = $this->query()->snapshot(self::TEAM, new InboxFilter(topic: 'lohn'), 50, 0, self::JETZT);
-        $this->assertSame(['dispo' => 1, 'lohn' => 3, 'hr' => 3], $nurLohn['counts']['topics']);
-        $this->assertSame(10, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
-        $this->assertSame(3, $nurLohn['total']);
+        $this->assertSame(['dispo' => 1, 'lohn' => 2, 'hr' => 3], $nurLohn['counts']['topics']);
+        $this->assertSame(9, $nurLohn['counts']['total'], 'Das Thema schneidet die uebrigen Zaehler nicht.');
+        $this->assertSame(2, $nurLohn['total']);
 
         $mgl = $this->query()->snapshot(self::TEAM, new InboxFilter(filiale: '200'), 50, 0, self::JETZT)['counts'];
         $this->assertSame(['dispo' => 0, 'lohn' => 1, 'hr' => 1], $mgl['topics']);
@@ -274,27 +274,33 @@ class InboxTopicTest extends TestCase
 
     // ------------------------------------------------------------ Parken (Variante B, 26.10.2026)
 
-    public function test_geparkter_lohn_chat_zaehlt_nicht_als_ungelesen(): void
+    /**
+     * Markus 28.10.: „Nachricht/Mitarbeiter gar nicht sichtbar fuer HR, erst
+     * wenn die Akte vollstaendig ist“ — kein Filter, kein Zaehler, auch nicht
+     * unter „Alle“. Die Daten bleiben in der DB.
+     */
+    public function test_geparkter_lohn_chat_ist_fuer_hr_unsichtbar(): void
     {
-        $counts = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT)['counts'];
+        $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
+        $counts = $snap['counts'];
 
-        $this->assertSame(1, $counts['parked']);
         $this->assertSame(9, $counts['unread'], '10 ungelesene Chats, der geparkte zaehlt nicht mit');
         $this->assertSame(9, $this->query()->counts(self::TEAM, self::JETZT)['unread'], 'auch nicht in der Seitenleiste');
-        $this->assertSame(10, $counts['total'], 'unter „Alle“ steht er weiter');
-        $this->assertSame('Wartet auf Akte', $this->zeilen()[self::$geparkt]->topicNote);
+        $this->assertSame(9, $counts['total'], 'auch nicht unter „Alle“');
+        $this->assertSame(9, $snap['total']);
+        $this->assertSame(1, CommsWhatsAppThread::query()->whereKey(self::$geparkt)->count(), 'Chat bleibt in der DB');
     }
 
-    public function test_filter_wartet_auf_akte(): void
+    public function test_geparkter_chat_in_keiner_liste(): void
     {
-        $this->assertSame([self::$geparkt], array_keys($this->zeilen(new InboxFilter(level: 'parked'))));
-        $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(level: 'unread'))));
-        $farben = [];
-        foreach (['green', 'yellow', 'red', 'missed'] as $stufe) {
-            $farben = [...$farben, ...array_keys($this->zeilen(new InboxFilter(level: $stufe)))];
+        $this->assertNotContains(self::$geparkt, array_keys($this->zeilen()));
+        foreach (['unread', 'green', 'yellow', 'red', 'missed', 'followup', 'parked'] as $stufe) {
+            $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(level: $stufe))), $stufe);
         }
-        $this->assertNotContains(self::$geparkt, $farben);
-        $this->assertContains(self::$geparkt, array_keys($this->zeilen()));
+        foreach (['applicants', 'employees'] as $art) {
+            $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(kind: $art))), $art);
+        }
+        $this->assertNotContains(self::$geparkt, array_keys($this->zeilen(new InboxFilter(topic: 'lohn'))));
     }
 
     public function test_themen_auswahl_aus_dann_ist_nichts_geparkt(): void
@@ -312,18 +318,18 @@ class InboxTopicTest extends TestCase
         $this->assertSame(10, $counts['unread']);
     }
 
-    public function test_geparkt_und_gelesen_bleibt_im_filter(): void
+    public function test_geparkt_und_gelesen_bleibt_unsichtbar(): void
     {
-        // Review 26.10. I1: HR oeffnet den Chat aus „Wartet auf Akte“ — er bleibt dort.
+        // HR hat den Chat vor dem Parken schon geoeffnet — er taucht trotzdem nirgends auf.
         CommsWhatsAppThread::query()->whereKey(self::$geparkt)->update(['is_unread' => false]);
         try {
-            $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(level: 'parked'), 50, 0, self::JETZT);
+            $snap = $this->query()->snapshot(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
         } finally {
             CommsWhatsAppThread::query()->whereKey(self::$geparkt)->update(['is_unread' => true]);
         }
 
-        $this->assertSame(1, $snap['counts']['parked']);
-        $this->assertSame([self::$geparkt], array_map(fn ($r) => $r->threadId, $snap['rows']));
+        $this->assertNotContains(self::$geparkt, array_map(fn ($r) => $r->threadId, $snap['rows']));
+        $this->assertSame(9, $snap['counts']['total']);
     }
 
     public function test_hr_antwort_nach_der_wahl_beendet_das_parken(): void

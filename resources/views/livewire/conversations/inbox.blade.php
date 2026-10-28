@@ -12,11 +12,7 @@
         ['key' => 'missed', 'label' => 'Verpasst',  'value' => $counts['missed'], 'class' => 'text-gray-700'],
         // „Offen lassen“ (Spec §3): markierte Chats, auch gelesene.
         ['key' => 'followup', 'label' => 'Offen',   'value' => $counts['followup'] ?? 0, 'class' => 'text-sky-700'],
-        // Lohn bei unvollstaendiger Akte (Variante B, 26.10.2026): nicht unter
-        // Ungelesen/Ampel. Pille nur, wenn es solche Chats gibt oder sie gewaehlt ist.
-        ['key' => 'parked', 'label' => 'Wartet auf Akte', 'value' => $counts['parked'] ?? 0, 'class' => 'text-rose-700'],
     ];
-    $pills = array_values(array_filter($pills, fn ($p) => $p['key'] !== 'parked' || $p['value'] > 0 || $level === 'parked'));
     // Chip „offen gelassen von Clara · 18:05“ — Vorname der markierenden
     // Person, Zeit in der Team-Zeitzone; aelter als heute mit Datum.
     $offenTz = $this->commsTimezone;
