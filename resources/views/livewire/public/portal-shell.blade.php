@@ -176,7 +176,7 @@
             {{-- ---------------- START ---------------- --}}
             <div class="pane" :class="tab === 'start' && 'on'">
                 <div class="greet">
-                    <h2>{{ $duzen ? 'Moin' : 'Guten Tag,' }} {{ $displayName }} 👋</h2>
+                    <h2>{{ $duzen ? 'Hey' : 'Guten Tag,' }} {{ $displayName }} 👋</h2>
                     <p>{{ $untertitel }}</p>
                 </div>
 

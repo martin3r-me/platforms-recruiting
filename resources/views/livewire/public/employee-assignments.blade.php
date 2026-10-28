@@ -56,7 +56,7 @@
         @endphp
 
         <div class="greet">
-            <h1>Moin {{ $firstName }} 👋</h1>
+            <h1>Hey {{ $firstName }} 👋</h1>
             <p>
                 @if ($groups === [])
                     Aktuell steht nichts an.
