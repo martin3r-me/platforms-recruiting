@@ -268,6 +268,10 @@
             border-radius: 16px 16px 0 0; padding: 20px 19px calc(19px + env(safe-area-inset-bottom));
             display: flex; flex-direction: column; gap: 13px;
             box-shadow: var(--shadow);
+            /* Pilot-Review 28.10.: hoeher als der Bildschirm (Adresse,
+               Unterschrift, offene Tastatur) ragte das Blatt oben hinaus —
+               Kopf und × unerreichbar. Jetzt scrollt es in sich. */
+            max-height: 90vh; max-height: 90dvh; overflow-y: auto; overscroll-behavior: contain;
         }
         @media (min-width: 900px) {
             .portal-body .upload-sheet { border-radius: 14px; padding: 24px }
