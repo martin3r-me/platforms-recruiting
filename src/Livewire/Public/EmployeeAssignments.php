@@ -309,8 +309,10 @@ class EmployeeAssignments extends Component
             ->limit(30)
             ->get()
             // Was oben noch als laufend steht (Schicht ueber Mitternacht), ist
-            // nicht gleichzeitig vergangen.
-            ->reject(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
+            // nicht gleichzeitig vergangen — Abgesagtes/Verschwundenes steht oben
+            // nie, darum bleibt es hier.
+            ->reject(fn ($a) => $a->declined_at === null && $a->missing_since === null && $a->deletion_marked_at === null
+                && DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
             ->values();
 
         // Kunde 28.10.: Anhaenge bleiben auch bei vergangenen Einsaetzen abrufbar
@@ -403,6 +405,7 @@ class EmployeeAssignments extends Component
         RecDispoAssignment::query()
             ->whereIn('id', $ids)
             ->whereNull('confirmed_at')
+            ->whereNull('declined_at')
             ->update([
                 'confirmed_at'          => now(),
                 // Runde 4 (#2): Zeiten zum Bestaetigungszeitpunkt merken — Vergleichsbasis

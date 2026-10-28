@@ -70,6 +70,15 @@ final class DispoEinsatzAktuellTest extends TestCase
         $this->assertFalse(DispoEinsatzAktuell::istAktuell('27.10.2026', '18:00', '02:00', self::um('2026-10-28 01:00:00')));
     }
 
+    public function test_aelter_als_der_vortag_ist_nie_aktuell_auch_bei_datenfehlern(): void
+    {
+        // 20:00–20:00 am 27.10.: Ende 28.10. 20:00 + 6 Std = 29.10. 02:00 — die
+        // Abfrage holt am 29.10. aber nur ab dem 28.10.; der Filter muss dieselbe
+        // Grenze ziehen, sonst ist der Einsatz nirgends zu sehen.
+        $this->assertFalse(DispoEinsatzAktuell::istAktuell('2026-10-27', '20:00', '20:00', self::um('2026-10-29 01:00:00')));
+        $this->assertTrue(DispoEinsatzAktuell::istAktuell('2026-10-27', '20:00', '20:00', self::um('2026-10-28 23:00:00')));
+    }
+
     public function test_abfrage_holt_ab_dem_vortag(): void
     {
         $this->assertSame('2026-10-27', DispoEinsatzAktuell::abDatum(self::um('2026-10-28 00:05:00')));

@@ -24,6 +24,11 @@ final class DispoEinsatzAktuell
         if ($datum >= $heute) {
             return true;
         }
+        // Aelter als der Vortag ist nie aktuell — auch bei Datenfehlern wie
+        // 20:00–20:00, deren Ende + Nachlauf sonst in den uebernaechsten Tag ragt.
+        if ($datum < self::abDatum($now)) {
+            return false;
+        }
 
         $ende = self::ende($datum, $von, $bis, $now->getTimezone());
         if ($ende === null) {
@@ -35,8 +40,8 @@ final class DispoEinsatzAktuell
 
     /**
      * Fruehestes Datum, das die Datenbank-Abfrage noch holen muss, damit der
-     * PHP-Filter entscheiden kann: der Vortag (laenger als Ende + Nachlauf
-     * ragt kein Einsatz ueber Mitternacht hinaus).
+     * PHP-Filter entscheiden kann: der Vortag. istAktuell() haelt sich an
+     * dieselbe Grenze, damit nichts zwischen oben und unten verloren geht.
      */
     public static function abDatum(\DateTimeInterface $now): string
     {

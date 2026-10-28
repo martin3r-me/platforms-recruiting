@@ -238,6 +238,25 @@ class DispoPortalConfirmTest extends TestCase
         $this->assertCount(1, $component->pastEventGroups());
     }
 
+    public function test_abgesagte_nachtschicht_vom_vortag_steht_sofort_unter_den_vergangenen(): void
+    {
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-28 01:00:00'));
+        $this->routeStub();
+
+        $employee = $this->employee('tok-nacht-abg');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-NACHT-ABG', 'name' => 'Gala']);
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-NACHT-ABG', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA-tok-nacht-abg',
+            'rec_employee_id' => $employee->id, 'datum' => '2026-10-27', 'von' => '18:00', 'bis' => '02:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => now()->subDay(),
+            'declined_at' => now()->subHours(5), 'declined_reason' => 'krank',
+        ]);
+
+        $component = $this->component('tok-nacht-abg');
+        $this->assertSame([], $component->eventGroups(), 'Abgesagtes steht nie oben.');
+        $this->assertCount(1, $component->pastEventGroups(), 'und darf waehrend der Nachlaufzeit nicht verschwinden');
+    }
+
     public function test_vergangener_einsatz_zeigt_seine_anhaenge_weiter(): void
     {
         \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-28 09:00:00'));
