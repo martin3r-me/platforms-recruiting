@@ -421,6 +421,29 @@ final class KontoAnlegenTest extends TestCase
         $this->seite('ZZZZZZZZ');
     }
 
+    /**
+     * Pilot-Review 28.10.2026: die 404 war die englische Standardseite ohne
+     * Weg zurueck. Jetzt eine eigene deutsche Seite — weiter Status 404 und
+     * fuer JEDEN ungueltigen Fall dieselbe Antwort (keine Auskunft, ob es den
+     * Token gibt).
+     */
+    public function test_ungueltiger_link_zeigt_eigene_seite_mit_weg_zurueck(): void
+    {
+        $this->einladung();
+        try {
+            $this->seite('ZZZZZZZZ');
+            $this->fail('keine Ausnahme');
+        } catch (\Platform\Recruiting\Exceptions\EinladungUngueltig $e) {
+            $this->assertSame(404, $e->getStatusCode());
+        }
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/public/einladung-ungueltig.blade.php');
+        $this->assertStringContainsString("route('recruiting.public.konto')", $blade, 'Weg zur Anmeldung');
+        $this->assertStringContainsString("route('recruiting.public.konto-anlegen-code')", $blade, 'Code neu eintippen');
+        $this->assertStringContainsString('nicht mehr gültig', $blade);
+        $this->assertStringNotContainsString('Not Found', $blade);
+    }
+
     public function test_abgelaufener_token_ist_404(): void
     {
         $token = $this->einladung();

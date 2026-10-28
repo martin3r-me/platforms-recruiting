@@ -182,7 +182,9 @@ class KontoAnlegen extends Component
         // diesen Menschen gibt es die Seite schlicht nicht. Bewusst 404 und
         // nicht "Token ungueltig", das waere die Auskunft, dass es ihn gibt.
         if ($personId === null || $this->zuVieleFehlversuche($lesbar)) {
-            abort(404);
+            // Weiter 404 (NotFoundHttpException), aber eigene deutsche Seite mit
+            // Weg zur Anmeldung / zum Code (Pilot-Review 28.10.2026).
+            throw new \Platform\Recruiting\Exceptions\EinladungUngueltig();
         }
 
         $this->merkeEinladung($lesbar, $personId);
