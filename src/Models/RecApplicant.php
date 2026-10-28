@@ -1588,11 +1588,13 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     /**
      * Sync eu_burger-extra_field → rec_applicant_legal_statuses.is_eu_citizen.
+     * Laeuft beim Phasenabschluss und seit 28.10.2026 auch, wenn HR die
+     * Bewerbung speichert (Fall Mina: Korrektur nach der Schulung).
      * Idempotent — schreibt nur wenn Wert sich aendert. Legt einen
      * legalStatus-Record an wenn noch keiner existiert. Ruft setEuCitizen()
      * auf, was intern den HrDeskRoutingService triggert.
      */
-    protected function syncEuCitizenFromExtraField(): void
+    public function syncEuCitizenFromExtraField(): void
     {
         $raw = $this->getExtraField('eu_burger');
         if ($raw === null || $raw === '') {

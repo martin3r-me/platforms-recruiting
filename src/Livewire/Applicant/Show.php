@@ -162,6 +162,16 @@ class Show extends Component
         $this->applicant->save();
         $this->saveExtraFieldValues($this->applicant);
 
+        // HR korrigiert „EU-Bürger“ (Fall Mina, 28.10.2026): sofort in den
+        // Rechtsstatus — Nein nach der Schulung legt den Nicht-EU-Fall an
+        // (HrDeskRoutingService), Ja schliesst ihn. Ein Fehler hier darf das
+        // Speichern nicht kippen.
+        try {
+            $this->applicant->fresh()?->syncEuCitizenFromExtraField();
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         // Same sync as on public form save — admin edits of address/birth date
         // must also land in canonical CRM storage so contract templates resolve.
         app(SyncApplicantExtraFieldsToCrm::class)->sync(

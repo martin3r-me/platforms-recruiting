@@ -651,6 +651,68 @@ final class VersandVormerkenTest extends TestCase
         $this->assertCount(1, $this->logs('hr_desk_approved'));
     }
 
+    // ------------------------------------------------------------ Nachtraeglich „kein EU-Buerger“ (Fall Mina, 28.10.2026)
+
+    private function euStatus(?bool $eu, ?string $geprueft = null): void
+    {
+        Capsule::table('rec_applicant_legal_statuses')->insert(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => $eu, 'legal_status_checked_at' => $geprueft, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+    }
+
+    private function nichtEuFaelle(): \Illuminate\Support\Collection
+    {
+        return Capsule::table('rec_hr_desk_cases')->where('rec_applicant_id', self::APPLICANT)->where('reason', 'non_eu_citizen')->get();
+    }
+
+    public function test_nachtraeglich_nein_nach_der_schulung_legt_den_nicht_eu_fall_an(): void
+    {
+        $this->euStatus(true);
+
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+
+        $faelle = $this->nichtEuFaelle();
+        $this->assertCount(1, $faelle);
+        $this->assertSame('open', $faelle[0]->status);
+        $this->assertStringContainsString('Rechtsstatus prüfen', (string) $faelle[0]->notes);
+        // Danach greift die bestehende Sperre: ungeprueft → kein Versand.
+        $this->assertTrue(RecApplicant::query()->findOrFail(self::APPLICANT)->isLegalStatusUnchecked());
+
+        // Zweimal Nein: kein zweiter Fall.
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+        $this->assertCount(1, $this->nichtEuFaelle());
+    }
+
+    public function test_nachtraeglich_nein_ohne_besuchte_schulung_wartet_auf_den_uebergang(): void
+    {
+        Capsule::table('rec_interview_bookings')->where('id', self::BOOKING)->update(['status' => 'confirmed']);
+        $this->euStatus(true);
+
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+
+        $this->assertCount(0, $this->nichtEuFaelle());
+    }
+
+    public function test_nachtraeglich_nein_belebt_keinen_frueheren_fall_und_nicht_nach_dem_vertrag(): void
+    {
+        $this->euStatus(true);
+        Capsule::table('rec_hr_desk_cases')->insert(['uuid' => 'vv-alt', 'rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'reason' => 'non_eu_citizen', 'status' => 'rejected', 'notes' => null, 'opened_at' => self::HEUTE, 'resolved_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+        $this->assertCount(1, $this->nichtEuFaelle(), 'nur der alte, abgelehnte');
+
+        // Frueher erledigter (nicht abgelehnter) Fall: die Pruefung ist durch den
+        // Wechsel zurueckgesetzt — es braucht wieder einen Ort zum Pruefen.
+        Capsule::table('rec_hr_desk_cases')->where('uuid', 'vv-alt')->update(['status' => 'approved']);
+        Capsule::table('rec_applicant_legal_statuses')->update(['is_eu_citizen' => true]);
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+        $this->assertCount(1, $this->nichtEuFaelle()->where('status', 'open'), 'neuer offener Fall neben dem erledigten');
+
+        Capsule::table('rec_hr_desk_cases')->delete();
+        Capsule::table('rec_applicant_legal_statuses')->update(['is_eu_citizen' => true]);
+        Capsule::table('rec_contracts')->insert(['uuid' => 'c-raus', 'team_id' => self::TEAM, 'rec_applicant_id' => self::APPLICANT, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+        RecApplicant::query()->findOrFail(self::APPLICANT)->legalStatus->setEuCitizen(false);
+        $this->assertCount(0, $this->nichtEuFaelle(), 'Vertrag schon raus');
+    }
+
     public function test_job_anderer_blockierender_fall_wartet_auch_bei_geprueftem_status(): void
     {
         $r = $this->vormerkung();

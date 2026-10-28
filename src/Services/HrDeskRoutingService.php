@@ -56,6 +56,15 @@ class HrDeskRoutingService
                 RecHrDeskCase::REASON_NON_EU_CITIZEN,
                 'Automatisch geschlossen: Bewerber ist jetzt als EU-Buerger gekennzeichnet.'
             );
+        } elseif ($this->nichtEuNachDerSchulung($applicant)) {
+            // Gegenrichtung (Fall Mina, 28.10.2026): erst NACH der Schulung als
+            // Nicht-EU erkannt — derselbe Fall wie beim Übergang zu 'attended'.
+            $this->routeIfNotAlreadyOpen(
+                $applicant,
+                RecHrDeskCase::REASON_NON_EU_CITIZEN,
+                $userId,
+                'Nach Schulung: Rechtsstatus prüfen + Verträge versenden.'
+            );
         }
 
         // Regel 2: Keine grundlegenden Deutschkenntnisse
@@ -75,6 +84,25 @@ class HrDeskRoutingService
         }
 
         // Weitere Regeln können hier ergänzt werden, z.B. minderjährig.
+    }
+
+    /** NonEuNachtraeglichGate mit den Daten dieses Bewerbers. */
+    private function nichtEuNachDerSchulung(RecApplicant $applicant): bool
+    {
+        $legal = $applicant->legalStatus;
+        if ($legal === null || $legal->is_eu_citizen !== false) {
+            return false;   // billige Faelle ohne weitere Abfragen
+        }
+
+        return NonEuNachtraeglichGate::shouldRoute(
+            hasLegalStatus: true,
+            isEuCitizen: false,
+            isChecked: $legal->legal_status_checked_at !== null,
+            schulungBesucht: $applicant->interviewBookings()->where('status', 'attended')->exists(),
+            vertragRaus: $applicant->hasAnyContractSent(),
+            nonEuFallAbgelehnt: $applicant->hrDeskCases()->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)->where('status', RecHrDeskCase::STATUS_REJECTED)->exists(),
+            aktiv: (bool) $applicant->is_active,
+        );
     }
 
     /**
