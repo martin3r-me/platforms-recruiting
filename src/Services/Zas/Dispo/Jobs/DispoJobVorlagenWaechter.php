@@ -41,10 +41,11 @@ final class DispoJobVorlagenWaechter
         }
         $fremd = array_values(array_filter(
             WhatsAppTemplateBodyVariables::names($list),
-            fn (string $n): bool => !in_array(strtolower($n), ['name', 'vorname', '1'], true)
+            // {{datum}} fuellt DispoJobOfferSender (fruehester Tag der Anfrage).
+            fn (string $n): bool => !in_array(strtolower($n), ['name', 'vorname', '1', 'datum'], true)
         ));
         if ($fremd !== []) {
-            return 'Die Vorlage hat Platzhalter außer dem Vornamen (' . implode(', ', $fremd) . ') — die könnten wir nicht füllen.';
+            return 'Die Vorlage hat Platzhalter außer Vorname und Datum (' . implode(', ', $fremd) . ') — die könnten wir nicht füllen.';
         }
 
         return null;

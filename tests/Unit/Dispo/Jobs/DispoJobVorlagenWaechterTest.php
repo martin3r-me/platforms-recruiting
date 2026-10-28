@@ -20,8 +20,15 @@ class DispoJobVorlagenWaechterTest extends TestCase
 
     public function testFremdePlatzhalter(): void
     {
-        $c = [['type' => 'BODY', 'text' => 'Hallo {{name}}, {{datum}}'], $this->button()];
-        $this->assertStringContainsString('datum', (string) DispoJobVorlagenWaechter::problem($c));
+        $c = [['type' => 'BODY', 'text' => 'Hallo {{name}}, {{ort}}'], $this->button()];
+        $this->assertStringContainsString('ort', (string) DispoJobVorlagenWaechter::problem($c));
+    }
+
+    /** 28.10.: Dringend-Vorlage traegt {{datum}}, der Sender fuellt es — der Waechter darf es nicht blocken. */
+    public function testDatumIstErlaubt(): void
+    {
+        $c = [['type' => 'BODY', 'text' => 'Hey {{name}}, für den {{datum}} brauchen wir dich'], $this->button()];
+        $this->assertNull(DispoJobVorlagenWaechter::problem($c));
     }
 
     public function testPasst(): void
