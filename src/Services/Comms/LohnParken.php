@@ -93,7 +93,8 @@ class LohnParken
             }
         }
 
-        if ($topic->updated_at !== null && $topic->updated_at->getTimestamp() > Carbon::now()->getTimestamp() - self::ERINNERUNG_SEKUNDEN) {
+        if ($topic->updated_at !== null && $topic->updated_at->getTimestamp() > Carbon::now()->getTimestamp() - self::ERINNERUNG_SEKUNDEN
+            && !$this->erstesTippenNachFrage($topic, $thread, $message)) {
             return self::STILL;
         }
 
@@ -235,6 +236,28 @@ class LohnParken
         }
 
         return $r;
+    }
+
+    /**
+     * Agenda- oder Pruef-Frage gerade erst gestellt und das ist die erste
+     * getippte Nachricht danach (Review 28.10. (4) M1): sofort einmal die
+     * Knoepfe wieder statt Stille — wer direkt sein Problem tippt, soll
+     * erfahren, dass der Klick fehlt. Die Liste (geparkt) bleibt bei der
+     * Stunden-Bremse wie bisher.
+     */
+    private function erstesTippenNachFrage(RecConversationTopic $topic, CommsWhatsAppThread $thread, CommsWhatsAppMessage $message): bool
+    {
+        if ($topic->state === RecConversationTopic::STATE_GEPARKT || $topic->updated_at === null) {
+            return false;
+        }
+
+        return !CommsWhatsAppMessage::query()
+            ->where('comms_whatsapp_thread_id', (int) $thread->id)
+            ->where('direction', 'inbound')
+            ->where('id', '<', (int) $message->id)
+            ->where('sent_at', '>=', $topic->updated_at)
+            ->get(['id', 'meta_payload'])
+            ->contains(fn (CommsWhatsAppMessage $m) => !QuickReply::isQuickReply($m->meta_payload));
     }
 
     /** @return array{status:string, message_id:?int, error:?string} */

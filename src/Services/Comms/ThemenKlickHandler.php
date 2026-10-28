@@ -130,12 +130,7 @@ final class ThemenKlickHandler
                 ->orderByDesc('id')
                 ->first();
             if ($juengste !== null && in_array($juengste->state, RecConversationTopic::VERSTECKT, true)) {
-                // Lohn ist schon gewaehlt, die Liste ist raus — nichts erneut senden.
-                if ($id === 'topic_lohn') {
-                    return 'ignoriert:schon_geparkt';
-                }
                 $topic = $juengste;
-                $gerettet = $juengste->chosen_at;
             } elseif ($juengste?->chosen_at !== null && $juengste->chosen_at->greaterThanOrEqualTo(Carbon::now()->subHours($ruheStunden))) {
                 $topic = $juengste;
             }
@@ -143,6 +138,15 @@ final class ThemenKlickHandler
         if ($topic === null) {
             return 'ignoriert:keine_frage';
         }
+        // Lohn ist schon gewaehlt: ein alter „Lohn & Gehalt“-Knopf sendet nichts
+        // erneut und versteckt keinen Chat, der schon bei HR ist (Review 28.10. (4) I2).
+        if ($id === 'topic_lohn' && $topic->topic === RecConversationTopic::TOPIC_LOHN) {
+            return in_array($topic->state, RecConversationTopic::VERSTECKT, true) ? 'ignoriert:schon_geparkt' : 'ignoriert:schon_lohn';
+        }
+        // Wahl aus einem unsichtbaren Lohn-Chat heraus (Liste, Agenda-, Pruef-
+        // Frage) — egal ob innerhalb der Ruhezeit: Grenze fuer die Dispo-
+        // Vorbelegung ist die Lohn-Wahl (Review 28.10. (4) I1).
+        $gerettet = in_array($topic->state, RecConversationTopic::VERSTECKT, true) ? $topic->chosen_at : null;
 
         $vorher = $topic->last_click_message_id !== null ? (int) $topic->last_click_message_id : null;
         if ($vorher !== null && $vorher >= (int) $message->id) {

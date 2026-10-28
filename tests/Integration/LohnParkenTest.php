@@ -279,6 +279,17 @@ final class LohnParkenTest extends TestCase
         }
     }
 
+    /** Review 28.10. (4) M1: wer direkt nach der Pruef-Frage tippt, bekommt sie einmal sofort wieder — nicht Stille. */
+    public function test_erstes_tippen_direkt_nach_der_pruef_frage_bekommt_antwort(): void
+    {
+        [$thread, $topic] = $this->geparkt(vorSekunden: 60, state: RecConversationTopic::STATE_LOHN_PRUEFEN);
+
+        $this->assertSame(LohnParken::ERINNERT, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)));
+        $this->assertSame(['topic_lohn_frage', 'topic_lohn_erledigt', 'topic_dispo'], $this->knoepfe(0));
+        $this->assertSame(LohnParken::STILL, $this->parken()->beiEingang($this->kanal, $thread, $this->getippt($thread)), 'danach Stunden-Bremse');
+        $this->assertCount(1, $this->gesendet);
+    }
+
     public function test_getippt_bei_offener_agenda_frage_stellt_sie_erneut(): void
     {
         [$thread, $topic] = $this->geparkt(vorSekunden: 2 * 3600, state: RecConversationTopic::STATE_AGENDA_FRAGE);

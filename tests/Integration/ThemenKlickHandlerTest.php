@@ -782,6 +782,31 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame(RecConversationTopic::STATE_LOHN_FRAGE, $topic->fresh()->state);
     }
 
+    /** Review 28.10. (4) I1: Disposition aus der Pruef-Frage innerhalb der Ruhezeit — die Lohnfrage bleibt draussen. */
+    public function test_dispo_aus_der_pruef_frage_nimmt_nicht_die_lohnfrage_mit(): void
+    {
+        [$thread] = $this->gefragt('Wo ist mein Lohn vom September?');
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -60));
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_dispo', -30));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('verarbeitet:dispo_7', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'dispo_7', -10)));
+        $this->assertStringNotContainsString(rawurlencode('Lohn'), $this->gesendet[0]['interactive']['action']['parameters']['url']);
+    }
+
+    /** Review 28.10. (4) I2: alter „Lohn & Gehalt“-Knopf versteckt keinen Chat, der schon bei HR ist. */
+    public function test_alter_lohn_knopf_nach_der_frage_versteckt_nichts(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -60));
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn_frage', -30));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertStringStartsWith('ignoriert:', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -10)));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_FRAGE, $topic->fresh()->state);
+    }
+
     public function test_pruef_knoepfe_ausserhalb_des_pruefschritts_still(): void
     {
         [$thread, , $topic] = $this->gefragt();
