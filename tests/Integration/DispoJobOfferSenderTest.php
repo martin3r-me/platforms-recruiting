@@ -247,7 +247,7 @@ class DispoJobOfferSenderTest extends TestCase
 
         $this->assertSame(1, $r['sent']);
         $this->assertSame([
-            ['type' => 'text', 'parameter_name' => 'datum', 'text' => 'Sa, 31.10.'],
+            ['type' => 'text', 'parameter_name' => 'datum', 'text' => '31.10.2026'],
             ['type' => 'text', 'parameter_name' => 'name', 'text' => 'Anna'],
         ], $this->stub->log[0]['components'][0]['parameters']);
 

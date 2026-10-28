@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEinsatzAktuell;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
@@ -114,21 +115,20 @@ class EmployeeAssignments extends Component
             // Absage (Kunde 04.09.): abgemeldete Einsaetze verschwinden von der
             // Einsatz-Seite — gleiche Behandlung wie die Stufe-3-Rausnahme.
             ->whereNull('declined_at')
-            ->whereDate('datum', '>=', now()->toDateString())
-            
+            // Kunde 28.10.: Ein Einsatz bleibt oben, bis die Schicht wirklich vorbei
+            // ist (Ende + Nachlauf, auch nach Mitternacht) — nicht nur bis zum Tag.
+            // Die Datenbank holt ab dem Vortag, der Filter entscheidet je Zeile.
+            ->whereDate('datum', '>=', DispoEinsatzAktuell::abDatum(now()))
             // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
             // Einsaetze — exakt das, was RG versendet hat, nicht den ganzen Dispo-Bestand.
             // Nicht versendete Einbuchungen bleiben unsichtbar, bis HR den Versand ausloest.
             ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
             ->orderBy('datum')->orderBy('von')
-            ->get();
-
-        $attachments = RecDispoAttachment::query()
-            ->whereIn('rec_employee_id', $this->employeeIds)
-            ->whereIn('rec_dispo_event_id', $assignments->pluck('rec_dispo_event_id')->unique()->all())
-            ->orderBy('id')
             ->get()
-            ->groupBy('rec_dispo_event_id');
+            ->filter(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
+            ->values();
+
+        $attachments = $this->attachmentsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->all());
 
         $leadsByEvent = $this->teamLeadsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->values()->all());
 
@@ -152,11 +152,7 @@ class EmployeeAssignments extends Component
                 // Standard = disponierte Teamleitung (live), manuelle Eingabe gewinnt.
                 'contact_line' => DispoContactResolver::effective($event->ansprechpartner, $leadsByEvent[$event->id] ?? [])['label'],
                 'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
-                'attachments'  => ($attachments[$event->id] ?? collect())->map(fn ($att) => [
-                    'name'   => (string) $att->original_filename,
-                    'url'    => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $att->uuid]),
-                    'is_new' => $this->isNewSince($att->created_at),
-                ])->values()->all(),
+                'attachments'  => $attachments[$event->id] ?? [],
                 'all_confirmed' => true,
                 'has_reconfirm' => false,
                 'days'         => [],
@@ -311,7 +307,15 @@ class EmployeeAssignments extends Component
             ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
             ->orderByDesc('datum')->orderByDesc('von')
             ->limit(30)
-            ->get();
+            ->get()
+            // Was oben noch als laufend steht (Schicht ueber Mitternacht), ist
+            // nicht gleichzeitig vergangen.
+            ->reject(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
+            ->values();
+
+        // Kunde 28.10.: Anhaenge bleiben auch bei vergangenen Einsaetzen abrufbar
+        // (Berichte nach dem Check-out). Der Download prueft nur Person und Sperre.
+        $attachments = $this->attachmentsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->all());
 
         $groups = [];
         foreach ($assignments as $assignment) {
@@ -319,8 +323,9 @@ class EmployeeAssignments extends Component
             $key = $event->id;
 
             $groups[$key] ??= [
-                'name' => $event->name ?? $event->einsatz_ref,
-                'days' => [],
+                'name'        => $event->name ?? $event->einsatz_ref,
+                'attachments' => $attachments[$event->id] ?? [],
+                'days'        => [],
             ];
 
             $groups[$key]['days'][] = [
@@ -330,6 +335,33 @@ class EmployeeAssignments extends Component
         }
 
         return array_values($groups);
+    }
+
+    /**
+     * Download-Links je VA (Dateien der ganzen Identitaets-Gruppe), fuer die
+     * laufenden und die vergangenen Einsaetze gleich.
+     *
+     * @param list<int> $eventIds
+     * @return array<int, list<array{name: string, url: string, is_new: bool}>>
+     */
+    private function attachmentsByEvent(array $eventIds): array
+    {
+        if ($eventIds === []) {
+            return [];
+        }
+
+        return RecDispoAttachment::query()
+            ->whereIn('rec_employee_id', $this->employeeIds)
+            ->whereIn('rec_dispo_event_id', $eventIds)
+            ->orderBy('id')
+            ->get()
+            ->groupBy('rec_dispo_event_id')
+            ->map(fn ($atts) => $atts->map(fn ($att) => [
+                'name'   => (string) $att->original_filename,
+                'url'    => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $att->uuid]),
+                'is_new' => $this->isNewSince($att->created_at),
+            ])->values()->all())
+            ->all();
     }
 
     /** Sammel-Bestaetigen: ALLE kommenden Auftrags-Einsaetze dieser VA (idempotent). */
@@ -348,7 +380,9 @@ class EmployeeAssignments extends Component
             return;
         }
 
-        RecDispoAssignment::query()
+        // Spiegel zu eventGroups(): bestaetigbar ist genau, was oben steht —
+        // auch die Schicht vom Vortag, solange sie noch laeuft (Kunde 28.10.).
+        $ids = RecDispoAssignment::query()
             ->where('rec_dispo_event_id', $eventId)
             ->whereIn('rec_employee_id', $this->employeeIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
@@ -358,9 +392,17 @@ class EmployeeAssignments extends Component
             // kann einen abgemeldeten Einsatz nicht mehr bestaetigen.
             ->whereNull('declined_at')
             ->whereNull('confirmed_at')
-            ->whereDate('datum', '>=', now()->toDateString())
+            ->whereDate('datum', '>=', DispoEinsatzAktuell::abDatum(now()))
             // Nur Angeschriebenes ist bestaetigbar (Kunde 01.09., Spiegel zu eventGroups).
             ->whereNotNull('reminder_sent_at')
+            ->get(['id', 'datum', 'von', 'bis'])
+            ->filter(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
+            ->pluck('id')
+            ->all();
+
+        RecDispoAssignment::query()
+            ->whereIn('id', $ids)
+            ->whereNull('confirmed_at')
             ->update([
                 'confirmed_at'          => now(),
                 // Runde 4 (#2): Zeiten zum Bestaetigungszeitpunkt merken — Vergleichsbasis

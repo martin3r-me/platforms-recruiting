@@ -101,6 +101,8 @@
 .rg-crew .pastrow:last-child{border-bottom:none}
 .rg-crew .pastrow .n{font-size:14px; font-weight:600; color:var(--ink-2)}
 .rg-crew .pastrow .d{margin-top:2px; display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.rg-crew .pastrow .pastfiles a{color:var(--brand-mid); font-weight:600; text-decoration:none}
+.rg-crew .pastrow .pastfiles a:hover{text-decoration:underline}
 
 .rg-crew .state{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden}
 .rg-crew .state .bar{height:5px; background:var(--crit)}

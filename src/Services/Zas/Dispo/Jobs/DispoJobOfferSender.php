@@ -68,7 +68,7 @@ class DispoJobOfferSender
                 if ($variablen !== []) {
                     $werte = [
                         'name'  => trim((string) $r['first_name']) !== '' ? trim((string) $r['first_name']) : 'zusammen',
-                        // Dringend-Vorlage (Folie 1): fruehester angebotener Tag, „Sa, 31.10.“
+                        // Dringend-Vorlage (Folie 1): fruehester angebotener Tag, „31.10.2026“
                         'datum' => self::datumText((string) ($r['datum'] ?? '')),
                     ];
                     $components[] = [
@@ -135,15 +135,13 @@ class DispoJobOfferSender
         return [];
     }
 
-    /** „Sa, 31.10.“ aus Y-m-d; leer bleibt leer (Meta lehnt leere Parameter ab — dann steht „bald“). */
+    /** „31.10.2026“ aus Y-m-d (User 28.10.: volles Datum wie in der Meta-Vorlage); leer → „bald“ (Meta lehnt leere Parameter ab). */
     public static function datumText(string $ymd): string
     {
         if ($ymd === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
             return 'bald';
         }
-        $c = \Carbon\Carbon::parse($ymd);
-        $wd = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
-        return $wd[$c->dayOfWeek] . ', ' . $c->format('d.m.');
+        return \Carbon\Carbon::parse($ymd)->format('d.m.Y');
     }
 }

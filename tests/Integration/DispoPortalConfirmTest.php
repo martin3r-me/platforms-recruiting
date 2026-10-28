@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Livewire\Public\EmployeeAssignments;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecEmployee;
 
@@ -64,6 +65,7 @@ class DispoPortalConfirmTest extends TestCase
     protected function setUp(): void
     {
         Capsule::table('rec_dispo_assignments')->delete();
+        Capsule::table('rec_dispo_attachments')->delete();
         Capsule::table('rec_dispo_events')->delete();
         Capsule::table('rec_employees')->delete();
     }
@@ -176,6 +178,93 @@ class DispoPortalConfirmTest extends TestCase
         $this->assertNull($row->confirmed_datum);
     }
 
+    // --- Kunde 28.10.: Anhaenge waren um 00:00 Uhr weg, Check-out war danach ---
+
+    protected function tearDown(): void
+    {
+        \Carbon\Carbon::setTestNow(null);
+        Container::getInstance()->forgetInstance('url');
+        parent::tearDown();
+    }
+
+    private function routeStub(): void
+    {
+        Container::getInstance()->instance('url', new class {
+            public function route($name, $parameters = [], $absolute = true): string
+            {
+                return '/' . $name . '/' . implode('/', (array) $parameters);
+            }
+        });
+    }
+
+    private function attachment(RecDispoEvent $event, RecEmployee $employee, string $name): RecDispoAttachment
+    {
+        return RecDispoAttachment::create([
+            'uuid' => 'att-' . $name, 'rec_dispo_event_id' => $event->id, 'rec_employee_id' => $employee->id,
+            'disk' => 'local', 'stored_path' => 'zas-dispo-attachments/' . $event->id . '/' . $name,
+            'original_filename' => $name, 'mime_type' => 'application/pdf', 'size_bytes' => 3,
+        ]);
+    }
+
+    public function test_schicht_ueber_mitternacht_bleibt_nach_null_uhr_oben_mit_anhang_und_ist_bestaetigbar(): void
+    {
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-28 01:00:00'));
+        $this->routeStub();
+
+        $employee = $this->employee('tok-nacht-1');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-NACHT-1', 'name' => 'Gala']);
+        $assignment = RecDispoAssignment::create([
+            'ds_ref' => 'DS-NACHT-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA-tok-nacht-1',
+            'rec_employee_id' => $employee->id, 'datum' => '2026-10-27', 'von' => '18:00', 'bis' => '02:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => now()->subDay(),
+        ]);
+        $this->attachment($event, $employee, 'einteilung.pdf');
+
+        $component = $this->component('tok-nacht-1');
+        $groups = $component->eventGroups();
+        $this->assertCount(1, $groups, 'Die laufende Nachtschicht steht nach Mitternacht noch oben.');
+        $this->assertSame(['einteilung.pdf'], array_column($groups[0]['attachments'], 'name'));
+        $this->assertStringContainsString('att-einteilung.pdf', $groups[0]['attachments'][0]['url']);
+        $this->assertSame([], $component->pastEventGroups(), 'und nicht gleichzeitig unter den vergangenen');
+
+        $component->confirm((int) $event->id);
+        $row = Capsule::table('rec_dispo_assignments')->where('id', $assignment->id)->first();
+        $this->assertNotNull($row->confirmed_at, 'Was oben steht, ist bestaetigbar.');
+
+        // Mutationsprobe: nach Ende + Nachlauf (02:00 + 6 Std) ist sie vergangen.
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-28 08:00:00'));
+        $component = $this->component('tok-nacht-1');
+        $this->assertSame([], $component->eventGroups());
+        $this->assertCount(1, $component->pastEventGroups());
+    }
+
+    public function test_vergangener_einsatz_zeigt_seine_anhaenge_weiter(): void
+    {
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-28 09:00:00'));
+        $this->routeStub();
+
+        $employee = $this->employee('tok-past-1');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-PAST-1', 'name' => 'Messe']);
+        $assignment = RecDispoAssignment::create([
+            'ds_ref' => 'DS-PAST-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA-tok-past-1',
+            'rec_employee_id' => $employee->id, 'datum' => '2026-10-25', 'von' => '10:00', 'bis' => '16:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => now()->subDays(4),
+        ]);
+        $this->attachment($event, $employee, 'bericht.pdf');
+        $this->attachment($event, $employee, 'zugang.png');
+
+        $component = $this->component('tok-past-1');
+        $this->assertSame([], $component->eventGroups());
+        $past = $component->pastEventGroups();
+        $this->assertCount(1, $past);
+        $this->assertSame(['bericht.pdf', 'zugang.png'], array_column($past[0]['attachments'], 'name'), 'Anhaenge bleiben bei vergangenen Einsaetzen abrufbar.');
+        $this->assertStringContainsString('recruiting.public.employee-assignments.attachment', $past[0]['attachments'][0]['url']);
+
+        // Vergangenes bleibt nicht bestaetigbar.
+        $component->confirm((int) $event->id);
+        $this->assertNull(Capsule::table('rec_dispo_assignments')->where('id', $assignment->id)->value('confirmed_at'));
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
@@ -198,6 +287,10 @@ class DispoPortalConfirmTest extends TestCase
             [$own, 'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php'],
             [$own, 'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
+            // Kunde 28.10.: eventGroups() laeuft jetzt mit echten Zeilen durch → Waeschepakete.
+            [$own, 'database/migrations/2026_09_30_000001_create_rec_dispo_dress_packages_table.php'],
+            [$own, 'database/migrations/2026_09_30_000002_create_rec_dispo_event_dress_table.php'],
+            [$own, 'database/migrations/2026_09_30_000003_add_dress_fields_to_dispo_tables.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

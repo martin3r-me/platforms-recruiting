@@ -288,6 +288,13 @@
                                         <span>{{ $day['datum'] }}@if ($day['confirmed']) ✓@endif</span>
                                     @endforeach
                                 </div>
+                                @if (!empty($group['attachments']))
+                                    <div class="d pastfiles">
+                                        @foreach ($group['attachments'] as $att)
+                                            <a href="{{ $att['url'] }}" target="_blank" rel="noopener">📎 {{ $att['name'] }}</a>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
                         @endforeach
                     </div>

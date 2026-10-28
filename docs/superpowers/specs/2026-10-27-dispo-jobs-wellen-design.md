@@ -77,7 +77,7 @@ Steht an der Anfrage ein Abstand und ist die nächste Welle geplant, zeigt die K
 
 ## 7. Dringend = eine Veranstaltung, ein Tag (Folie 1, Runde 1)
 - `DispoJobCreateState`: bei `anlass = dringend` genau eine Veranstaltung und genau ein Tag mit gesucht > 0, sonst „Bei „Dringend“ geht es um eine Veranstaltung an einem Tag. Für mehrere nimm „Nächste Woche“.“ Prüfung in Schritt 3 (der Anlass wird dort gewählt).
-- Nachricht: `DispoJobOfferSender` füllt im Body zusätzlich die benannte Variable `{{datum}}`, wenn die Vorlage sie trägt: frühester Tag der angebotenen Schichten, Format „Sa, 31.10.“. Hinweis an den User für die Meta-Vorlage: benannte Variablen `{{name}}` und `{{datum}}` verwenden, nicht `{{1}}`/`{{2}}`.
+- Nachricht: `DispoJobOfferSender` füllt im Body zusätzlich die benannte Variable `{{datum}}`, wenn die Vorlage sie trägt: frühester Tag der angebotenen Schichten, Format „31.10.2026“ (28.10. umgestellt von „Sa, 31.10.“, Wunsch User). Hinweis an den User für die Meta-Vorlage: benannte Variablen `{{name}}` und `{{datum}}` verwenden, nicht `{{1}}`/`{{2}}`.
 
 ## 8. Mitarbeiterseite — Text je Anlass (Folien 1–3)
 Je Veranstaltungskarte nach Anlass der Anfrage (bei gebündelten Schichten mehrerer Anfragen gewinnt Dringend > Woche > Vierwochen):
