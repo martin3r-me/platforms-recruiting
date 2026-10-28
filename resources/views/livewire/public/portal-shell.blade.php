@@ -575,8 +575,9 @@
                                     $dokText = 'Begonnen, aber noch nicht abgeschlossen';
                                     $dokDatum = null;
                                 } else {
+                                    // Kein roher Status (z. B. „pending“) beim Mitarbeiter (Pilot-Review 28.10.).
                                     $dokChip = 'chip info';
-                                    $dokText = $dok['status'];
+                                    $dokText = 'In Vorbereitung';
                                     $dokDatum = null;
                                 }
                                 $dokSub = $dokDatum ? $dokText . ' am ' . \Carbon\Carbon::parse($dokDatum)->format('d.m.Y') : $dokText;
@@ -744,7 +745,7 @@
                                     <span class="dot {{ $gruppe['punkt'] }}" style="margin-top:0"></span>
                                 @endif
                                 <div>
-                                    <div class="n">{{ $name }}</div>
+                                    <div class="n">{{ \Platform\Recruiting\Livewire\Public\PortalShell::gruppenTitel($name) }}</div>
                                     <div class="v">{{ $gruppe['zeile'] }}</div>
                                 </div>
                                 <span class="chev">›</span>
@@ -965,7 +966,7 @@
                 <div class="upload-overlay" wire:click.self="schliesseGruppe">
                     <form class="upload-sheet" wire:submit="speichereGruppe">
                         <div class="upload-head">
-                            <h3>{{ $profilGruppe }}</h3>
+                            <h3>{{ \Platform\Recruiting\Livewire\Public\PortalShell::gruppenTitel($profilGruppe) }}</h3>
                             <button type="button" class="upload-close" wire:click="schliesseGruppe" aria-label="Schließen">&times;</button>
                         </div>
                         @if ($profilHinweis !== null)

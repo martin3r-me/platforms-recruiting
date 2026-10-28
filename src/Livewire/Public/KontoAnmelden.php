@@ -137,8 +137,8 @@ class KontoAnmelden extends Component
      * vergeht, und ohne den Satz sucht ein Gesperrter den Fehler bei sich.
      * Gesagt wird er allen gleichermassen.
      */
-    public const MELDUNG = 'Das hat nicht geklappt. Bitte prüfe Handynummer und Passwort '
-        . 'und versuche es in einigen Minuten noch einmal.';
+    public const MELDUNG = 'Das hat nicht geklappt. Bitte prüfe Handynummer und Passwort. '
+        . 'Klappt es mehrmals nicht, warte ein paar Minuten und versuche es dann erneut.';
 
     /**
      * EINE Meldung fuer jeden Fehlschlag auf den Wegen zurueck.

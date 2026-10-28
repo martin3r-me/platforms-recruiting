@@ -341,7 +341,7 @@ class KontoAnlegen extends Component
         if ($lesbar === '') {
             // Ueber die eigene, leere Eingabe darf die Seite reden — diese
             // Meldung haengt an nichts Gespeichertem.
-            $this->fehler = 'Bitte tippen Sie Ihren Einladungscode ein.';
+            $this->fehler = 'Bitte tippe deinen Einladungscode ein.';
 
             return;
         }

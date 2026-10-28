@@ -53,17 +53,17 @@
     // uebernimmt danach ueber wire:model) und der Hinweis. Die Seite duzt.
     $bleibenHaken = $angemeldetBleiben ? 'checked' : '';
     $bleibenHinweis = 'Nur auf deinem eigenen Handy. Du bleibst 180 Tage angemeldet, '
-        . 'solange du das Konto in dieser Zeit nutzen.';
+        . 'solange du das Konto in dieser Zeit nutzt.';
 
     $passwortHinweis = sprintf(
-        'Mindestens %d Zeichen. Laenge zaehlt mehr als Sonderzeichen.',
+        'Mindestens %d Zeichen. Länge zählt mehr als Sonderzeichen.',
         \Platform\Recruiting\Support\PasswortRegeln::MINDESTLAENGE,
     );
 
     // Weg 1+2 (Spec 5): alte Nummer, Passwort, neue Nummer.
     $nummerTitel = 'Neue Handynummer eintragen';
     $nummerText = 'Melde dich mit deiner bisherigen Nummer und deinem Passwort an. '
-        . 'Den Bestaetigungscode schicken wir an die neue Nummer.';
+        . 'Den Bestätigungscode schicken wir an die neue Nummer.';
     $nummerCodeTitel = 'Code eingeben';
     $nummerCodeText = 'Wir haben einen Code an deine neue Handynummer geschickt.';
 
@@ -76,13 +76,13 @@
     // Nummer gibt.
     $vergessenCodeTitel = 'Code und Geburtsdatum';
     $vergessenCodeText = 'Falls wir diese Handynummer kennen, haben wir dir gerade einen Code '
-        . 'geschickt. Bitte gib ihn zusammen mit deinem Geburtsdatum ein und waehle '
+        . 'geschickt. Bitte gib ihn zusammen mit deinem Geburtsdatum ein und wähle '
         . 'ein neues Passwort.';
 
     // Weg 4 (Spec 5): Nummer weg UND Passwort vergessen.
     $notfallTitel = 'Nummer und Passwort weg';
     $notfallText = 'Damit wir sicher sind, dass du es bist, brauchen wir dein Geburtsdatum und '
-        . 'die letzten vier Ziffern deiner Ausweisnummer. Den Bestaetigungscode schicken wir an '
+        . 'die letzten vier Stellen deiner Ausweisnummer. Den Bestätigungscode schicken wir an '
         . 'die neue Nummer.';
     // AUCH DIESER TEXT SAGT "Falls": er steht genauso da, wenn die Nachweise
     // nicht gestimmt haben. Sonst waeren die Ausweisziffern ein Orakel.
@@ -91,7 +91,7 @@
         . 'Handynummer geschickt.';
 
     $fertigTitel = match ($fertigGrund) {
-        'nummer'  => 'Deine Handynummer ist geaendert',
+        'nummer'  => 'Deine Handynummer ist geändert',
         'notfall' => 'Wir haben deine Meldung',
         default   => 'Dein Passwort steht',
     };
@@ -100,8 +100,8 @@
         // Der Antrag wirkt erst nach der Frist, und danach fehlt immer noch
         // das Passwort - beides gehoert hier gesagt, sonst wartet der Mensch
         // auf etwas anderes, als passiert.
-        'notfall' => 'Deine neue Handynummer wird am ' . $wirksamAb . ' uebernommen. '
-            . 'Danach waehlst du ueber "Passwort vergessen" ein neues Passwort. '
+        'notfall' => 'Deine neue Handynummer wird am ' . $wirksamAb . ' übernommen. '
+            . 'Danach wählst du über „Passwort vergessen“ ein neues Passwort. '
             . 'Wenn du das nicht selbst veranlasst hast, melde dich bitte sofort bei '
             . 'deiner Ansprechperson bei RheinGedeck.',
         default   => 'Ab jetzt meldest du dich mit deiner Handynummer und dem neuen Passwort an.',
@@ -205,7 +205,7 @@
                     </div>
                 @endif
 
-                <button type="submit" class="btn primary" wire:loading.attr="disabled">Nummer aendern</button>
+                <button type="submit" class="btn primary" wire:loading.attr="disabled">Nummer ändern</button>
             </form>
 
             <div class="wege">
@@ -313,7 +313,7 @@
                 </label>
 
                 <label class="feld">
-                    <span class="n">Die letzten vier Ziffern deiner Ausweisnummer</span>
+                    <span class="n">Die letzten vier Stellen deiner Ausweisnummer</span>
                     {{--
                         Bewusst KEIN Attribut, das am Handy die reine
                         Zahlentastatur erzwingt: Ausweisnummern enthalten

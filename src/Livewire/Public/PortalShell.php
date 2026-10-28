@@ -845,6 +845,19 @@ class PortalShell extends Component
      * @return list<array{feld:string, code:string, label:string, punkt:string, text:string, offen:bool}>
      */
     /**
+     * Anzeigename einer Profil-Gruppe. Der Schluessel bleibt (er ist
+     * Kennung in oeffneGruppe, Tests und der HR-Akte); nur der sichtbare
+     * Titel bekommt seine Umlaute (Pilot-Review 28.10.2026).
+     */
+    public static function gruppenTitel(string $gruppe): string
+    {
+        return match ($gruppe) {
+            'Persoenliches' => 'Persönliches',
+            default         => $gruppe,
+        };
+    }
+
+    /**
      * Lohnrelevante Angaben (IBAN, Steuer-ID ...) als Zeilen fuer „Das fehlt
      * noch“ — dieselben Punkte, die die WhatsApp-Lohn-Liste nennt (Pilot-
      * Review 28.10.2026). Bisher nur im Start-Kasten, und nur wenn alle

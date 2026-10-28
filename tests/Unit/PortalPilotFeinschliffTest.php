@@ -58,4 +58,28 @@ class PortalPilotFeinschliffTest extends TestCase
         $this->assertStringContainsString('PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen)', $blade);
         $this->assertStringContainsString('@foreach ($lohnAufgaben as $aufgabe)', $blade);
     }
+
+    /** Sichtbare Texte ohne ae/oe/ue-Ersatz, „Stellen“ statt „Ziffern“, kein roher Vertragsstatus. */
+    public function test_sichtbare_texte_sind_sauber(): void
+    {
+        $anmelden = self::datei('resources/views/livewire/public/konto-anmelden.blade.php');
+        $anlegen = self::datei('resources/views/livewire/public/konto-anlegen.blade.php');
+        foreach (["'Mindestens %d Zeichen. Laenge", 'Bestaetigungscode schicken', 'und waehle', 'ist geaendert', "uebernommen. '", '>Nummer aendern<', 'vier Ziffern deiner Ausweisnummer', 'Konto in dieser Zeit nutzen.'] as $alt) {
+            $this->assertStringNotContainsString($alt, $anmelden . $anlegen, $alt);
+        }
+        $this->assertStringContainsString('vier Stellen deiner Ausweisnummer', $anmelden);
+        $this->assertStringNotContainsString("'Sie haben von uns einen kurzen Code", $anlegen, 'Code-Maske duzt wie die Anmeldung');
+
+        $model = self::datei('src/Models/RecEmployee.php');
+        $this->assertStringContainsString("'label' => 'Straße'", $model);
+        $this->assertStringContainsString("'label' => 'E-Mail'", $model);
+
+        $portal = self::datei('resources/views/livewire/public/portal-shell.blade.php');
+        $this->assertStringNotContainsString("\$dokText = \$dok['status'];", $portal, 'kein roher Status wie „pending“');
+        $this->assertStringContainsString('PortalShell::gruppenTitel(', $portal);
+        $this->assertSame('Persönliches', \Platform\Recruiting\Livewire\Public\PortalShell::gruppenTitel('Persoenliches'));
+        $this->assertSame('Adresse', \Platform\Recruiting\Livewire\Public\PortalShell::gruppenTitel('Adresse'));
+
+        $this->assertStringNotContainsString('in einigen Minuten noch einmal', \Platform\Recruiting\Livewire\Public\KontoAnmelden::MELDUNG, 'klingt nach Sperre nach einem Tippfehler');
+    }
 }

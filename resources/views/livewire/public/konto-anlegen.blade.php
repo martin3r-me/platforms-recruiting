@@ -36,21 +36,23 @@
     $labelPasswort = $duzen ? 'Dein neues Passwort' : 'Ihr neues Passwort';
     $labelWiederholung = 'Passwort wiederholen';
     $passwortHinweis = sprintf(
-        'Mindestens %d Zeichen. Laenge zaehlt mehr als Sonderzeichen.',
+        'Mindestens %d Zeichen. Länge zählt mehr als Sonderzeichen.',
         \Platform\Recruiting\Support\PasswortRegeln::MINDESTLAENGE,
     );
     // Die tokenlose Tuer (Ruling GD-4): ein Feld, sonst nichts.
     $codeTitel = 'Einladungscode eingeben';
-    $codeText = 'Sie haben von uns einen kurzen Code bekommen. Gross- und Kleinschreibung, '
+    // Duzt wie die Anmeldung (konto-anmelden): die Person ist hier noch
+    // unbekannt, die Team-Anrede also nicht greifbar (Pilot-Review 28.10.).
+    $codeText = 'Du hast von uns einen kurzen Code bekommen. Groß- und Kleinschreibung, '
         . 'Leerzeichen und Bindestriche sind egal.';
-    $labelCode = 'Ihr Einladungscode';
+    $labelCode = 'Dein Einladungscode';
     $fertigTitel = 'Das Konto steht';
     $anmeldeHinweis = $duzen
         ? 'Künftig meldest du dich hier an — speichere die Seite am besten als Lesezeichen oder auf deinem Startbildschirm:'
         : 'Künftig melden Sie sich hier an — speichern Sie die Seite am besten als Lesezeichen oder auf Ihrem Startbildschirm:';
     $fertigText = $duzen
-        ? 'Ab jetzt meldest du dich mit deiner Rufnummer und diesem Passwort an.'
-        : 'Ab jetzt melden Sie sich mit Ihrer Rufnummer und diesem Passwort an.';
+        ? 'Ab jetzt meldest du dich mit deiner Rufnummer (der, auf der du unsere WhatsApp-Nachrichten bekommst) und diesem Passwort an.'
+        : 'Ab jetzt melden Sie sich mit Ihrer Rufnummer (der, auf der Sie unsere WhatsApp-Nachrichten bekommen) und diesem Passwort an.';
 @endphp
 
 <div class="screen anmeldung konto">
