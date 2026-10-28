@@ -352,9 +352,13 @@
                 @endif
 
                 <div class="bcols">
-                @if (count($pflichtAufgaben) > 0)
+                @php
+                    $lohnAufgaben = \Platform\Recruiting\Livewire\Public\PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen);
+                    $fehltNochZahl = count($pflichtAufgaben) + count($lohnAufgaben);
+                @endphp
+                @if ($fehltNochZahl > 0)
                     <div>
-                        <div class="sec-label">Das fehlt noch <span class="count">{{ count($pflichtAufgaben) }}</span></div>
+                        <div class="sec-label">Das fehlt noch <span class="count">{{ $fehltNochZahl }}</span></div>
                         <div class="card" style="margin-top:11px">
                             {{--
                                 Ganz oben, noch vor jedem Nachweis: die
@@ -372,6 +376,17 @@
                             @foreach ($pflichtAufgaben as $aufgabe)
                                 <button type="button" class="task tap" wire:click="oeffneAngabe('{{ $aufgabe['feld'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
+                                    <div>
+                                        <div class="t">{{ $aufgabe['label'] }}</div>
+                                        <div class="s">{{ $aufgabe['text'] }}</div>
+                                    </div>
+                                    <span class="chev">›</span>
+                                </button>
+                            @endforeach
+                            {{-- Lohnrelevante Angaben: dieselben Punkte wie die WhatsApp-Lohn-Liste (Pilot-Review 28.10.2026). --}}
+                            @foreach ($lohnAufgaben as $aufgabe)
+                                <button type="button" class="task tap" wire:click="oeffneAngabe('{{ $aufgabe['feld'] }}')">
+                                    <span class="dot warn"></span>
                                     <div>
                                         <div class="t">{{ $aufgabe['label'] }}</div>
                                         <div class="s">{{ $aufgabe['text'] }}</div>

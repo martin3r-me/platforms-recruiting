@@ -34,4 +34,28 @@ class PortalPilotFeinschliffTest extends TestCase
         $this->assertStringContainsString('wire:target="speichereNachweis,uploadDatei,uploadDateiRueckseite"', $blade);
         $this->assertGreaterThanOrEqual(2, substr_count($blade, '{{ $nachweisMeldung }}'), 'Start und Profil');
     }
+
+    /**
+     * WhatsApp nennt in der Lohn-Liste auch IBAN, Steuer-ID & Co. Die
+     * Startseite zeigte sie nur, wenn alle Nachweise da waren — wer auf
+     * „Zum Portal“ tippte, fand den Punkt nicht. Jetzt immer unter
+     * „Das fehlt noch“, ohne Doppel mit den Pflichtangaben.
+     */
+    public function test_lohnangaben_stehen_immer_unter_das_fehlt_noch(): void
+    {
+        $pflicht = [['feld' => 'nationality', 'label' => 'Staatsangehörigkeit']];
+        $zeilen = \Platform\Recruiting\Livewire\Public\PortalShell::lohnAufgaben(
+            ['nationality' => 'Staatsangehörigkeit', 'iban' => 'IBAN', 'steuer_id' => 'Steuer-ID'],
+            $pflicht,
+            true,
+        );
+
+        $this->assertSame(['iban', 'steuer_id'], array_column($zeilen, 'feld'));
+        $this->assertSame('IBAN', $zeilen[0]['label']);
+        $this->assertStringContainsString('Abrechnung', $zeilen[0]['text']);
+
+        $blade = self::datei('resources/views/livewire/public/portal-shell.blade.php');
+        $this->assertStringContainsString('PortalShell::lohnAufgaben($lohnFehlt ?? [], $pflichtAufgaben, $duzen)', $blade);
+        $this->assertStringContainsString('@foreach ($lohnAufgaben as $aufgabe)', $blade);
+    }
 }

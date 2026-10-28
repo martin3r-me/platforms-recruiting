@@ -844,6 +844,35 @@ class PortalShell extends Component
      * @param list<array{feld:string, gruppe:string, label:string}> $pflicht
      * @return list<array{feld:string, code:string, label:string, punkt:string, text:string, offen:bool}>
      */
+    /**
+     * Lohnrelevante Angaben (IBAN, Steuer-ID ...) als Zeilen fuer „Das fehlt
+     * noch“ — dieselben Punkte, die die WhatsApp-Lohn-Liste nennt (Pilot-
+     * Review 28.10.2026). Bisher nur im Start-Kasten, und nur wenn alle
+     * Nachweise da waren. Was schon als Pflichtangabe dasteht, kommt nicht
+     * doppelt.
+     *
+     * @param array<string, string> $lohnFehlt Feld => Beschriftung (LohnrelevanteFelder::fehlend)
+     * @param list<array{feld:string}> $pflichtAufgaben
+     * @return list<array{feld:string, label:string, text:string}>
+     */
+    public static function lohnAufgaben(array $lohnFehlt, array $pflichtAufgaben, bool $duzen): array
+    {
+        $schonDa = array_column($pflichtAufgaben, 'feld');
+        $zeilen = [];
+        foreach ($lohnFehlt as $feld => $label) {
+            if (in_array($feld, $schonDa, true)) {
+                continue;
+            }
+            $zeilen[] = [
+                'feld'  => (string) $feld,
+                'label' => (string) $label,
+                'text'  => $duzen ? 'Für deine Abrechnung nötig' : 'Für Ihre Abrechnung nötig',
+            ];
+        }
+
+        return $zeilen;
+    }
+
     public static function pflichtAufgaben(array $pflicht, bool $duzen): array
     {
         return array_map(static function (array $eintrag) use ($duzen): array {

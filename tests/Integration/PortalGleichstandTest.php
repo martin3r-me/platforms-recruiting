@@ -1526,6 +1526,7 @@ final class PortalGleichstandTest extends TestCase
             'profilWerte'           => 'die Eingaben des offenen Gruppen-Blatts',
             'profilFehler'          => 'nur eine Anzeige',
             'profilMeldung'         => 'nur eine Anzeige',
+            'nachweisMeldung'       => 'nur eine Anzeige (Bestaetigung nach dem Upload, Pilot-Review 28.10.)',
             'dokumentId'            => 'Empfaenger-ID des offenen Dokument-Blatts; jede Aktion prueft sie ueber DokumentLeser::empfaenger() gegen den Scope',
             'dokumentGelesen'       => 'der Haken des Menschen',
             'dokumentUnterschrift'  => 'die Unterschrift des Menschen',
