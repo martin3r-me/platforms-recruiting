@@ -1027,6 +1027,7 @@ final class InboxQuery
             RecConversationTopic::STATE_GEPARKT => 'Wartet auf Akte',
             RecConversationTopic::STATE_FREIGEGEBEN => 'Akte nachgereicht',
             RecConversationTopic::STATE_LOHN_INFO => 'Login-Hinweis gesendet',
+            RecConversationTopic::STATE_AGENDA => 'Agenda-Zugang angefordert',
             default => null,
         };
     }

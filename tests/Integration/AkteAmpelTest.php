@@ -33,12 +33,28 @@ final class AkteAmpelTest extends TestCase
 
     public function test_gruen_ohne_luecken_rot_mit_luecken(): void
     {
-        $this->assertSame(['gruen' => true, 'luecken' => [], 'nachweise' => 0], (new AkteAmpel($this->luecken([], [])))->fuer(new RecEmployee()));
+        $this->assertSame(['gruen' => true, 'luecken' => [], 'nachweise' => 0, 'agenda' => null], (new AkteAmpel($this->luecken([], [])))->fuer(new RecEmployee()));
         $this->assertSame(
-            ['gruen' => false, 'luecken' => ['Personalausweis', 'IBAN'], 'nachweise' => 1],
+            ['gruen' => false, 'luecken' => ['Personalausweis', 'IBAN'], 'nachweise' => 1, 'agenda' => null],
             (new AkteAmpel($this->luecken(['Personalausweis'], ['IBAN'])))->fuer(new RecEmployee()),
         );
-        $this->assertSame(['gruen' => false, 'luecken' => ['IBAN'], 'nachweise' => 0], (new AkteAmpel($this->luecken([], ['IBAN'])))->fuer(new RecEmployee()));
+        $this->assertSame(['gruen' => false, 'luecken' => ['IBAN'], 'nachweise' => 0, 'agenda' => null], (new AkteAmpel($this->luecken([], ['IBAN'])))->fuer(new RecEmployee()));
+    }
+
+    /** Markus 28.10.: im Chat-Kopf auch sichtbar, ob Agenda aktiv ist. Unbekannt = kein Chip (lieber leer als falsch). */
+    public function test_agenda_zugang_steht_in_der_ampel(): void
+    {
+        $mit = new RecEmployee();
+        $mit->agenda_zugang = true;
+        $ohne = new RecEmployee();
+        $ohne->agenda_zugang = false;
+
+        $this->assertTrue((new AkteAmpel($this->luecken([], [])))->fuer($mit)['agenda']);
+        $this->assertFalse((new AkteAmpel($this->luecken([], [])))->fuer($ohne)['agenda']);
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/conversations/inbox.blade.php');
+        $this->assertStringContainsString("\$akteAmpel['agenda'] === true", $blade);
+        $this->assertStringContainsString("\$akteAmpel['agenda'] === false", $blade);
     }
 
     public function test_entwurf_nennt_die_luecken_und_den_portal_link(): void

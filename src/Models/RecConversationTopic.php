@@ -28,6 +28,9 @@ class RecConversationTopic extends Model
     /** Akte nachgereicht — der Chat ist wieder normal bei HR. */
     public const STATE_FREIGEGEBEN = 'lohn_released';
 
+    /** Lohn, Akte vollstaendig, Mitarbeiter hat Agenda-Zugangsdaten angefordert (28.10.2026). */
+    public const STATE_AGENDA = 'agenda_requested';
+
     protected $table = 'rec_conversation_topics';
 
     protected $fillable = [

@@ -202,6 +202,7 @@ final class ThemenKlickHandler
             'topic_dispo' => $this->dispoGewaehlt($channel, $topic, $teamId, $duzen, $phone),
             'topic_lohn' => $this->lohnGewaehlt($channel, $topic, $settings, $teamId, $duzen, $phone),
             'topic_hr' => $this->themaSetzen($topic, RecConversationTopic::TOPIC_HR, RecConversationTopic::STATE_CHOSEN, 'topic_hr'),
+            'topic_agenda_anfordern', 'topic_agenda_ok' => $this->agendaGewaehlt($id, $channel, $topic, $settings, $duzen, $phone),
             default => 'ignoriert:unbekannte_auswahl',
         };
     }
@@ -521,10 +522,13 @@ final class ThemenKlickHandler
             // fuer HR unsichtbar, bis die Akte vollstaendig ist (LohnParken, 28.10.).
             $r = $this->parken()->sendeListe($channel, $phone, $employee, $settings, $duzen, $luecken);
             $state = RecConversationTopic::STATE_GEPARKT;
+        } elseif ($employee->agenda_zugang !== true) {
+            // Kein (oder unbekannter) Agenda-Zugang (Markus 28.10.2026): erst
+            // fragen — die Anleitung hilft ohne Zugang nicht.
+            $r = $this->sender()->knoepfe($channel, $phone, ThemenTexte::agendaFrage($duzen), ThemenTexte::agendaKnoepfe());
+            $state = RecConversationTopic::STATE_LOHN_INFO;
         } else {
-            $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
-            $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
-            $r = $this->sendeHinweis($channel, $phone, $body, 'Anleitung', $url !== '' ? $url : null);
+            $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
             $state = RecConversationTopic::STATE_LOHN_INFO;
         }
         if ($r['status'] !== InteraktivSender::STATUS_SENT) {
@@ -534,6 +538,39 @@ final class ThemenKlickHandler
         // Kein Stempel: geparkt haelt InboxQuery aus „Ungelesen“ heraus, der
         // Login-Hinweis bleibt bei HR offen (§2.4).
         return $this->themaSetzen($topic, RecConversationTopic::TOPIC_LOHN, $state, 'topic_lohn');
+    }
+
+    /**
+     * Antwort auf die Agenda-Frage. „Zugang anfordern“: Bestaetigung an den
+     * Mitarbeiter, Vermerk fuer HR (Chat bleibt offen, HR schickt die
+     * Zugangsdaten aus Agenda). „Hab ich schon“: der normale Lohn-Hinweis.
+     */
+    private function agendaGewaehlt(string $id, CommsChannel $channel, RecConversationTopic $topic, ?RecApplicantSettings $settings, bool $duzen, string $phone): string
+    {
+        if ($topic->topic !== RecConversationTopic::TOPIC_LOHN) {
+            return 'ignoriert:kein_lohn_thema';
+        }
+        if ($id === 'topic_agenda_ok') {
+            $r = $this->sendeLohnHinweis($channel, $settings, $duzen, $phone);
+            $state = RecConversationTopic::STATE_LOHN_INFO;
+        } else {
+            $r = $this->sendeHinweis($channel, $phone, ThemenTexte::agendaAngefordert($duzen), 'Alles klar', null);
+            $state = RecConversationTopic::STATE_AGENDA;
+        }
+        if ($r['status'] !== InteraktivSender::STATUS_SENT) {
+            return $this->sendGescheitert('agenda', $topic, $r);
+        }
+
+        return $this->themaSetzen($topic, RecConversationTopic::TOPIC_LOHN, $state, $id);
+    }
+
+    /** @return array{status:string, message_id:?int, error:?string} */
+    private function sendeLohnHinweis(CommsChannel $channel, ?RecApplicantSettings $settings, bool $duzen, string $phone): array
+    {
+        $url = trim((string) ($settings?->getSetting('comms_topic_lohn_url') ?? ''));
+        $body = ThemenTexte::lohnOk($duzen, $settings?->getSetting('comms_topic_text_lohn_ok'), $url !== '');
+
+        return $this->sendeHinweis($channel, $phone, $body, 'Anleitung', $url !== '' ? $url : null);
     }
 
     /**

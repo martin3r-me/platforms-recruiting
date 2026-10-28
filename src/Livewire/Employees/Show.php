@@ -1325,6 +1325,8 @@ class Show extends Component
             'Sonstiges' => [
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
                 'has_car' => ['type' => 'bool', 'label' => 'PKW vorhanden'],
+                // Agenda-Lohnportal (Markus 28.10.2026): HR setzt den Haken, wenn die Zugangsdaten raus sind.
+                'agenda_zugang' => ['type' => 'bool', 'label' => 'Zugang Agenda-Lohnportal'],
                 'recruited_by_personnel_number' => ['type' => 'text', 'label' => 'Geworben von (Personalnummer)'],
             ],
             'Lifecycle' => [

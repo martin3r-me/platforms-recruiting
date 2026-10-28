@@ -16,13 +16,19 @@ class AkteAmpel
 {
     public function __construct(private readonly ?LohnLuecken $luecken = null) {}
 
-    /** @return array{gruen: bool, luecken: list<string>, nachweise: int} nachweise = Zahl offener Nachweise */
+    /**
+     * nachweise = Zahl offener Nachweise; agenda = Zugang zum Agenda-Lohnportal
+     * (Markus 28.10.2026), null = unbekannt.
+     *
+     * @return array{gruen: bool, luecken: list<string>, nachweise: int, agenda: ?bool}
+     */
     public function fuer(RecEmployee $employee): array
     {
         $g = ($this->luecken ?? app(LohnLuecken::class))->getrennt($employee);
         $luecken = array_values(array_unique([...$g['nachweise'], ...$g['angaben']]));
+        $agenda = $employee->agenda_zugang;
 
-        return ['gruen' => $luecken === [], 'luecken' => $luecken, 'nachweise' => count($g['nachweise'])];
+        return ['gruen' => $luecken === [], 'luecken' => $luecken, 'nachweise' => count($g['nachweise']), 'agenda' => $agenda === null ? null : (bool) $agenda];
     }
 
     /**

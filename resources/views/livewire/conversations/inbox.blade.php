@@ -521,6 +521,12 @@
                                         Unterlagen anfordern
                                     </button>
                                 @endif
+                                {{-- Agenda-Lohnportal (Markus 28.10.2026). Unbekannt = kein Chip. --}}
+                                @if ($akteAmpel['agenda'] === true)
+                                    <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-emerald-700" title="Zugang zum Agenda-Lohnportal laut Agenda-Liste">Agenda ✓</span>
+                                @elseif ($akteAmpel['agenda'] === false)
+                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-700" title="Kein Zugang zum Agenda-Lohnportal laut Agenda-Liste">Kein Agenda-Zugang</span>
+                                @endif
                             @endif
                         </div>
                         @if ($akteAmpel !== null && !$akteAmpel['gruen'])

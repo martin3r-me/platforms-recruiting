@@ -90,6 +90,34 @@ final class ThemenTexte
             : 'Haben Sie Ihre Stundenübersicht und Abrechnung schon kontrolliert? Dann können Sie uns gezielt sagen, was nicht passt.') . $knopf);
     }
 
+    /**
+     * Akte vollstaendig, aber laut Agenda-Liste kein Zugang zum Lohnportal
+     * (Markus 28.10.2026: Nachricht an HR „nur dann“). „Laut unseren
+     * Unterlagen“, weil die Liste veralten kann — dafuer „Hab ich schon“.
+     */
+    public static function agendaFrage(bool $duzen): string
+    {
+        return $duzen
+            ? 'Deine Abrechnungen findest du im Agenda-Lohnportal. Laut unseren Unterlagen hast du dort noch keinen Zugang. Sollen wir dir die Zugangsdaten schicken?'
+            : 'Ihre Abrechnungen finden Sie im Agenda-Lohnportal. Laut unseren Unterlagen haben Sie dort noch keinen Zugang. Sollen wir Ihnen die Zugangsdaten schicken?';
+    }
+
+    /** @return list<array{id:string, title:string}> */
+    public static function agendaKnoepfe(): array
+    {
+        return [
+            ['id' => 'topic_agenda_anfordern', 'title' => 'Zugang anfordern'],
+            ['id' => 'topic_agenda_ok',        'title' => 'Hab ich schon'],
+        ];
+    }
+
+    public static function agendaAngefordert(bool $duzen): string
+    {
+        return $duzen
+            ? 'Alles klar, wir schicken dir deine Zugangsdaten für das Agenda-Lohnportal.'
+            : 'Alles klar, wir schicken Ihnen Ihre Zugangsdaten für das Agenda-Lohnportal.';
+    }
+
     /** Akte nachgereicht, der geparkte Lohn-Chat geht an HR (Variante B, 26.10.2026). */
     public static function lohnFrei(bool $duzen, ?string $teamText): string
     {

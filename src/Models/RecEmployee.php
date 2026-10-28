@@ -136,6 +136,7 @@ class RecEmployee extends Model
 
         'is_active',
         'is_test',
+        'agenda_zugang',
         'employed_since',
         'employment_ended_at',
 
@@ -175,6 +176,7 @@ class RecEmployee extends Model
         'is_eu_citizen'             => 'boolean',
         'is_active'                 => 'boolean',
         'is_test'                   => 'boolean',
+        'agenda_zugang'             => 'boolean',
         'has_car'                   => 'boolean',
         'employed_since'            => 'date',
         'employment_ended_at'       => 'datetime',

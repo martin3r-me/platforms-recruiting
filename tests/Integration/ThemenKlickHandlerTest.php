@@ -93,6 +93,7 @@ final class ThemenKlickHandlerTest extends TestCase
             $t->string('portal_token')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
             $t->boolean('is_active')->nullable();
+            $t->boolean('agenda_zugang')->nullable();
             $t->timestamps();
         });
 
@@ -644,6 +645,71 @@ final class ThemenKlickHandlerTest extends TestCase
         $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
     }
 
+    // ------------------------------------------------------------ Agenda-Zugang (Markus 28.10.2026)
+
+    /** Akte vollstaendig, aber kein Agenda-Zugang (oder unbekannt): erst fragen, ob er die Zugangsdaten braucht. */
+    public function test_lohn_ohne_agenda_zugang_fragt_nach_dem_zugang(): void
+    {
+        foreach ([false, null] as $agenda) {
+            $this->mitarbeiter(portalV2: true, agenda: $agenda);
+            $this->gesendet->exchangeArray([]);
+            Capsule::table('rec_conversation_topics')->delete();
+            [$thread, , $topic] = $this->gefragt();
+
+            $this->assertSame('verarbeitet:topic_lohn', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn')));
+
+            $this->assertCount(1, $this->gesendet);
+            $i = $this->gesendet[0]['interactive'];
+            $this->assertSame('button', $i['type']);
+            $this->assertSame(['topic_agenda_anfordern', 'topic_agenda_ok'], array_map(fn ($b) => $b['reply']['id'], $i['action']['buttons']));
+            $this->assertStringContainsString('Agenda', $i['body']['text']);
+            $this->assertTrue($this->gesendet[0]['isAutoReply']);
+            $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+        }
+    }
+
+    public function test_zugang_anfordern_bestaetigt_und_vermerkt_fuer_hr(): void
+    {
+        $this->mitarbeiter(portalV2: true, agenda: false);
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -60));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('verarbeitet:topic_agenda_anfordern', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern', -10)));
+
+        $this->assertCount(1, $this->gesendet);
+        $this->assertStringContainsString('Zugangsdaten', $this->gesendet[0]['interactive']['body']['text']);
+        $this->assertTrue($this->gesendet[0]['isAutoReply']);
+        $this->assertSame(RecConversationTopic::STATE_AGENDA, $topic->fresh()->state);
+        $this->assertSame(RecConversationTopic::TOPIC_LOHN, $topic->fresh()->topic);
+        $this->assertSame(0, RecConversationHandled::query()->count(), 'bleibt offen bei HR');
+    }
+
+    public function test_hab_ich_schon_schickt_den_normalen_lohn_hinweis(): void
+    {
+        $this->einstellungen(['comms_topic_enabled' => true, 'use_informal_address' => true, 'comms_topic_lohn_url' => 'https://www.youtube.com/watch?v=xvHMBx1yRtc']);
+        $this->mitarbeiter(portalV2: true, agenda: null);
+        [$thread, , $topic] = $this->gefragt();
+        $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_lohn', -60));
+        $this->gesendet->exchangeArray([]);
+
+        $this->assertSame('verarbeitet:topic_agenda_ok', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_ok', -10)));
+
+        $i = $this->gesendet[0]['interactive'];
+        $this->assertSame('cta_url', $i['type']);
+        $this->assertSame('https://www.youtube.com/watch?v=xvHMBx1yRtc', $i['action']['parameters']['url']);
+        $this->assertSame(RecConversationTopic::STATE_LOHN_INFO, $topic->fresh()->state);
+    }
+
+    public function test_agenda_knopf_ohne_lohn_wahl_wird_ignoriert(): void
+    {
+        [$thread, , $topic] = $this->gefragt();
+
+        $this->assertSame('ignoriert:kein_lohn_thema', $this->handler()->beiEingang($this->kanal, $thread, $this->klick($thread, 'topic_agenda_anfordern')));
+        $this->assertCount(0, $this->gesendet);
+        $this->assertSame(RecConversationTopic::STATE_ASKED, $topic->fresh()->state);
+    }
+
     /** 26.10.2026: fehlt eine lohnrelevante Angabe (z. B. IBAN), nennt der Lohn-Zweig sie — auch ohne offenen Nachweis. */
     public function test_topic_lohn_nennt_lohnrelevante_luecken(): void
     {
@@ -906,13 +972,14 @@ final class ThemenKlickHandlerTest extends TestCase
         Capsule::table('rec_applicant_settings')->insert(['team_id' => self::TEAM, 'settings' => json_encode($settings)]);
     }
 
-    private function mitarbeiter(bool $portalV2): void
+    /** $agenda: Zugang zum Agenda-Lohnportal (Agenda-Liste, 28.10.2026); Vorgabe true = bisheriger Lohn-Zweig. */
+    private function mitarbeiter(bool $portalV2, ?bool $agenda = true): void
     {
         Capsule::table('rec_employees')->delete();
         Capsule::table('rec_employees')->insert([
             'id' => self::MA_ID, 'team_id' => self::TEAM, 'first_name' => 'Erika', 'last_name' => 'Muster',
             'portal_token' => 'tok-erika', 'portal_v2_since' => $portalV2 ? date('Y-m-d H:i:s', time() - 86400) : null,
-            'is_active' => true,
+            'is_active' => true, 'agenda_zugang' => $agenda,
         ]);
     }
 
