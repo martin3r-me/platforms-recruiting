@@ -63,6 +63,33 @@ final class DokumentLeserTest extends TestCase
         $this->assertTrue($liste[0]['offen']);
     }
 
+    /**
+     * Sicherung beim Anzeigen (29.10.): dasselbe Dokument an beiden
+     * Anstellungen eines Menschen (Altbestand, Zusammenfuehren) steht EINMAL
+     * da — die weiter fortgeschrittene Zustellung, und offene Punkte
+     * zaehlen es nicht doppelt.
+     */
+    public function test_dasselbe_dokument_an_beiden_anstellungen_steht_einmal_da(): void
+    {
+        $rg = $this->anstellung(['rec_person_id' => 1, 'company' => 'RG']);
+        $ma = $this->anstellung(['rec_person_id' => 1, 'company' => 'MA']);
+        $d = $this->dokument(['title' => 'Doppelt']);
+        $offen = $this->zustellung($d, $rg->id);
+        $unterschrieben = $this->zustellung($d, $ma->id, ['signed_at' => '2026-10-20 10:00:00']);
+        $nochEins = $this->dokument(['title' => 'Offen doppelt']);
+        $this->zustellung($nochEins, $rg->id);
+        $this->zustellung($nochEins, $ma->id);
+
+        $leser = new DokumentLeser();
+        $liste = $leser->fuerMitarbeiter($rg);
+
+        $this->assertSame(['Offen doppelt', 'Doppelt'], array_column($liste, 'title'));
+        $this->assertSame($unterschrieben->id, $liste[1]['recipient_id'], 'die unterschriebene gewinnt');
+        $this->assertCount(1, $leser->offenePunkte($rg), 'offen nur einmal gezaehlt');
+        // Ein alter WhatsApp-Link auf die verdeckte Zustellung fuehrt trotzdem ans Dokument.
+        $this->assertSame($offen->id, $leser->empfaenger($rg, $offen->id)?->id);
+    }
+
     public function test_zurueckgezogene_und_geloeschte_fehlen(): void
     {
         $e = $this->anstellung();

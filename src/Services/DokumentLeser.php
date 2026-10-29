@@ -32,7 +32,9 @@ class DokumentLeser
 
     public function empfaenger(RecEmployee $employee, int $recipientId): ?RecDocumentRecipient
     {
-        return $this->sichtbare($employee)->firstWhere('id', $recipientId);
+        // Ueber ALLE Zustellungen der Person, auch eine beim Anzeigen
+        // verdeckte Doppelte: ein alter WhatsApp-Link darauf fuehrt weiter ans Dokument.
+        return $this->alleSichtbaren($employee)->firstWhere('id', $recipientId);
     }
 
     /**
@@ -119,8 +121,44 @@ class DokumentLeser
         return $punkte;
     }
 
-    /** @return \Illuminate\Support\Collection<int, RecDocumentRecipient> neueste zuerst, Dokument geladen */
+    /**
+     * Wie alleSichtbaren(), aber jedes Dokument EINMAL je Mensch (29.10.2026):
+     * liegt dasselbe Dokument an beiden Anstellungen (Altbestand vor der
+     * Entdopplung, zusammengefuehrte Personen), zeigt das Portal die weiter
+     * fortgeschrittene Zustellung — unterschrieben vor bestaetigt vor
+     * gesehen vor offen, bei Gleichstand die kleinere id.
+     *
+     * @return \Illuminate\Support\Collection<int, RecDocumentRecipient> neueste zuerst, Dokument geladen
+     */
     private function sichtbare(RecEmployee $employee)
+    {
+        $alle = $this->alleSichtbaren($employee);
+        $gewinner = [];
+        foreach ($alle as $z) {
+            $doc = (int) $z->rec_document_id;
+            $bisher = $gewinner[$doc] ?? null;
+            if ($bisher === null || self::fortschritt($z) > self::fortschritt($bisher)
+                || (self::fortschritt($z) === self::fortschritt($bisher) && $z->id < $bisher->id)) {
+                $gewinner[$doc] = $z;
+            }
+        }
+        $ids = array_map(fn (RecDocumentRecipient $z) => (int) $z->id, $gewinner);
+
+        return $alle->filter(fn (RecDocumentRecipient $z) => in_array((int) $z->id, $ids, true))->values();
+    }
+
+    private static function fortschritt(RecDocumentRecipient $z): int
+    {
+        return match (true) {
+            $z->signed_at !== null       => 3,
+            $z->acknowledged_at !== null => 2,
+            $z->first_viewed_at !== null => 1,
+            default                      => 0,
+        };
+    }
+
+    /** @return \Illuminate\Support\Collection<int, RecDocumentRecipient> neueste zuerst, Dokument geladen */
+    private function alleSichtbaren(RecEmployee $employee)
     {
         $ids = $this->scope->forEmployee($employee)['ids'];
 
