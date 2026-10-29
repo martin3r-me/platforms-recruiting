@@ -119,6 +119,7 @@ final class SendProofRemindersTest extends TestCase
             $t->integer('team_id')->nullable();
             $t->integer('rec_applicant_id')->nullable();
             $t->string('person_key', 64)->nullable();
+            $t->integer('rec_person_id')->nullable();
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
             $t->string('portal_token', 64)->nullable();
@@ -981,6 +982,22 @@ final class SendProofRemindersTest extends TestCase
         $this->assertNotNull($this->remindedAtOf($dringend));
         // Markus 12.10.2026: gebuendelt ueber beide Anstellungen hinweg.
         $this->assertNotNull($this->remindedAtOf($spaeter), 'Der Nachweis der zweiten Anstellung ist mit erinnert.');
+    }
+
+    /** Zusammengefuehrte Person (29.10.): gleiche rec_person_id, alte verschiedene Schluessel — eine WhatsApp. */
+    public function test_zusammengefuehrte_person_ergibt_eine_whatsapp(): void
+    {
+        $rg = $this->ma(['person_key' => 'alt-a']);
+        $dringend = $this->proof($rg, 'ausweis', now()->addDays(3)->toDateString());
+        $maGmbh = $this->ma(['person_key' => 'alt-b']);
+        $spaeter = $this->proof($maGmbh, 'aufenthaltstitel', now()->addDays(20)->toDateString());
+        Capsule::table('rec_employees')->whereIn('id', [$rg->id, $maGmbh->id])->update(['rec_person_id' => 77]);
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls, 'Eine WhatsApp je Mensch, auch nach dem Zusammenfuehren.');
+        $this->assertNotNull($this->remindedAtOf($dringend));
+        $this->assertNotNull($this->remindedAtOf($spaeter));
     }
 
     public function test_ohne_personen_marker_zaehlt_die_anstellung(): void

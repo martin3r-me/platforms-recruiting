@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\ProofReminderSender;
+use Platform\Recruiting\Support\EmpfaengerEntdoppler;
 use Platform\Recruiting\Support\ProofReminderPlanner;
 use Platform\Recruiting\Support\ProofTypes;
 
@@ -60,7 +61,7 @@ use Platform\Recruiting\Support\ProofTypes;
  * Ablauf automatisch auf BAR". --limit zaehlt weiter Personen.
  *
  * PERSON heisst PERSON, nicht Anstellung (Schlusspruefung M5): entdoppelt
- * wird ueber `rec_employees.person_key`. Wer bei RHEINGEDECK und MA arbeitet,
+ * wird ueber `rec_person_id` oder `person_key` (seit 29.10.). Wer bei RG und MA arbeitet,
  * hat zwei Anstellungen, meist am selben CRM-Kontakt und damit an derselben
  * Nummer — vorher bekam er zwei Nachrichten. Ist die Paarung noch nicht durch
  * und der Marker leer, bleibt die Anstellung der Schluessel: zwei Menschen
@@ -391,26 +392,25 @@ class SendProofReminders extends Command
     /**
      * Unter welchem Schluessel zaehlt „eine Nachricht je Person"?
      *
-     * Der Personen-Marker, wenn er gesetzt ist — sonst die Anstellung selbst.
-     * Der Rueckfall ist wichtig: `person_key` ist im Bestand noch nicht
-     * ueberall gesetzt (die Paarung laeuft), und ein leerer Marker darf nicht
-     * dazu fuehren, dass alle ungepaarten Menschen als EINE Person gelten und
-     * nur einer von ihnen seine Erinnerung bekommt.
+     * Derselbe Mensch ist, wer dieselbe rec_person_id ODER denselben
+     * person_key traegt (EmpfaengerEntdoppler, 29.10.2026: nach dem
+     * Zusammenfuehren zweier Personen behalten die Anstellungen ihre alten
+     * Schluessel). Ohne beide Merkmale zaehlt die Anstellung selbst — ein
+     * leerer Marker darf nicht dazu fuehren, dass alle ungepaarten Menschen
+     * als EINE Person gelten und nur einer von ihnen seine Erinnerung bekommt.
      *
-     * @param  list<array{rec_employee_id:int, person_key:?string}>  $nachweise
+     * @param  list<array{rec_employee_id:int, person_key:?string, rec_person_id:?int}>  $nachweise
      * @return array<int, string>
      */
     private function personenSchluessel(array $nachweise): array
     {
-        $schluessel = [];
+        $gruppen = EmpfaengerEntdoppler::gruppen(array_map(fn (array $n) => [
+            'id'            => (int) $n['rec_employee_id'],
+            'person_key'    => $n['person_key'] ?? null,
+            'rec_person_id' => $n['rec_person_id'] ?? null,
+        ], $nachweise));
 
-        foreach ($nachweise as $n) {
-            $id = (int) $n['rec_employee_id'];
-            $marker = trim((string) ($n['person_key'] ?? ''));
-            $schluessel[$id] = $marker !== '' ? 'person:' . $marker : 'ma:' . $id;
-        }
-
-        return $schluessel;
+        return array_map(fn (int $g) => 'mensch:' . $g, $gruppen);
     }
 
     /** Y-m-d, echtes Kalenderdatum — 2026-13-40 oder 2026-9-24 zaehlen NICHT. */
@@ -425,7 +425,7 @@ class SendProofReminders extends Command
      * aktive Mitarbeiter und — IMMER, ohne Ausnahme (Fixrunde 2, C2) — auf das
      * neue Portal. Reine Lesequery, Query Builder.
      *
-     * @return list<array{id:int, rec_employee_id:int, person_key:?string,
+     * @return list<array{id:int, rec_employee_id:int, person_key:?string, rec_person_id:?int,
      *                     proof_type_code:string, valid_until:?string,
      *                     reminded_at:?string, superseded_at:?string}>
      */
@@ -453,12 +453,13 @@ class SendProofReminders extends Command
             // Paarung kann sich danach noch ergeben haben (M5).
             ->get([
                 'p.id', 'p.rec_employee_id', 'p.proof_type_code', 'p.valid_until',
-                'p.reminded_at', 'p.superseded_at', 'e.person_key',
+                'p.reminded_at', 'p.superseded_at', 'e.person_key', 'e.rec_person_id',
             ])
             ->map(fn ($row) => [
                 'id'              => (int) $row->id,
                 'rec_employee_id' => (int) $row->rec_employee_id,
                 'person_key'      => $row->person_key,
+                'rec_person_id'   => $row->rec_person_id === null ? null : (int) $row->rec_person_id,
                 'proof_type_code' => (string) $row->proof_type_code,
                 'valid_until'     => $row->valid_until,
                 'reminded_at'     => $row->reminded_at,
