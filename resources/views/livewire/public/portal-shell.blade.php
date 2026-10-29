@@ -230,11 +230,47 @@
                                 ? 'Wir haben alles, was wir von dir brauchen. Läuft etwas ab, melden wir uns rechtzeitig.'
                                 : 'Wir haben alles, was wir von Ihnen brauchen. Läuft etwas ab, melden wir uns rechtzeitig.' }}
                         </div>
+                        {{-- Die Nachweisliste lebt unter "Dokumente & Infos" (29.10.2026), hier nur der Sprung. --}}
+                        <button type="button" class="btn" @click="tab = 'docs'">{{ $duzen ? 'Zu deinen Unterlagen' : 'Zu Ihren Unterlagen' }}</button>
                     @else
                         <h3>{{ $offenGesamt === 1 ? 'Ein Punkt offen' : $offenGesamt . ' Punkte offen' }}</h3>
                         @if ($ersteAufgabe !== null)
                             <div class="when">{{ $ersteAufgabe['label'] }} — {{ $ersteAufgabe['text'] }}</div>
                         @endif
+                    @endif
+                </div>
+
+                {{--
+                    Naechster Einsatz (29.10.2026): kurz — wann, Zeit, wo, Status.
+                    Details und Bestaetigen im Reiter "Einsaetze" (dieselbe Abfrage,
+                    EmployeeAssignments::sichtbareEinsaetze).
+                --}}
+                <div class="sec-label">{{ $duzen ? 'Dein nächster Einsatz' : 'Ihr nächster Einsatz' }}</div>
+                <div class="card" style="margin-top:11px">
+                    @if ($naechsterEinsatz !== null)
+                        @php
+                            [$einsatzPunkt, $einsatzStatus] = match ($naechsterEinsatz['status']) {
+                                'bestaetigt' => ['ok', 'Bestätigt'],
+                                'geaendert'  => ['crit', $duzen ? 'Zeit geändert — bitte neu bestätigen' : 'Zeit geändert — bitte neu bestätigen'],
+                                default      => ['warn', $duzen ? 'Wartet auf deine Zusage' : 'Wartet auf Ihre Zusage'],
+                            };
+                            $einsatzWeitere = $naechsterEinsatz['weitere'] > 0
+                                ? ' · und ' . $naechsterEinsatz['weitere'] . ' ' . ($naechsterEinsatz['weitere'] === 1 ? 'weiterer' : 'weitere')
+                                : '';
+                        @endphp
+                        <button type="button" class="task tap" @click="tab = 'jobs'">
+                            <span class="dot {{ $einsatzPunkt }}"></span>
+                            <div>
+                                <div class="t">{{ $naechsterEinsatz['tag'] }} · {{ $naechsterEinsatz['zeit'] }}</div>
+                                <div class="s">{{ $naechsterEinsatz['name'] }}</div>
+                                <div class="s">{{ $einsatzStatus }}{{ $einsatzWeitere }}</div>
+                            </div>
+                            <span class="chev">›</span>
+                        </button>
+                    @else
+                        <div class="leer">{{ $duzen
+                            ? 'Aktuell steht kein Einsatz an. Neue Einsätze erscheinen hier, sobald die Dispo dich einplant.'
+                            : 'Aktuell steht kein Einsatz an. Neue Einsätze erscheinen hier, sobald die Dispo Sie einplant.' }}</div>
                     @endif
                 </div>
 
@@ -404,23 +440,41 @@
                     </div>
                 @endif
 
-                @if (count($erledigt) > 0)
-                    <div>
-                        <div class="sec-label">Liegt vor <span class="count">{{ count($erledigt) }}</span></div>
-                        <div class="card flat" style="margin-top:11px">
-                            @foreach ($erledigt as $aufgabe)
-                                <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
-                                    <span class="dot ok"></span>
-                                    <div>
-                                        <div class="t">{{ $aufgabe['label'] }}</div>
-                                        <div class="s">{{ $aufgabe['text'] }}</div>
-                                    </div>
-                                    <span class="chev">›</span>
-                                </div>
-                            @endforeach
-                        </div>
+                {{-- Ende "Das fehlt noch". Die Nachweisliste ("Liegt vor") lebt seit 29.10.2026 nur unter "Dokumente & Infos". --}}
+                </div>
+                {{-- Lohn & Abrechnung (29.10.2026): die haeufigste Frage, bevor sie im Chat landet. --}}
+                <div class="sec-label" style="margin-top:18px">Lohn &amp; Abrechnung</div>
+                <div class="card" style="margin-top:11px">
+                    <p class="hint" style="margin:0">{{ $duzen
+                        ? 'Deine Abrechnungen findest du im Agenda-Lohnportal. Ausgezahlt wird in der Regel zum 15. des Folgemonats.'
+                        : 'Ihre Abrechnungen finden Sie im Agenda-Lohnportal. Ausgezahlt wird in der Regel zum 15. des Folgemonats.' }}</p>
+                    @if ($lohnAnleitungUrl !== null)
+                        <a href="{{ $lohnAnleitungUrl }}" target="_blank" rel="noopener" class="btn" style="margin-top:11px">{{ $duzen ? 'So kommst du rein' : 'So kommen Sie rein' }}</a>
+                    @endif
+                </div>
+
+                @if ($schreibUnsUrl !== null)
+                    <div class="card" style="margin-top:11px">
+                        <p class="hint" style="margin:0">{{ $duzen ? 'Fragen? Schreib uns — für die Dispo wählst du dort einfach „Disposition“.' : 'Fragen? Schreiben Sie uns — für die Dispo wählen Sie dort einfach „Disposition“.' }}</p>
+                        <a href="{{ $schreibUnsUrl }}" target="_blank" rel="noopener" class="btn primary" style="margin-top:11px">{{ $duzen ? 'Schreib uns auf WhatsApp' : 'Schreiben Sie uns auf WhatsApp' }}</a>
                     </div>
                 @endif
+
+                {{--
+                    Einmaliger Hinweis "auf den Startbildschirm legen" (29.10.2026).
+                    Nur im Browser gemerkt (localStorage, try/catch); nicht, wenn das
+                    Portal schon als App laeuft (display-mode: standalone).
+                --}}
+                <div class="alert ok" style="margin-top:11px" x-cloak x-data="{ zeigen: false }"
+                     x-init="try { zeigen = !window.matchMedia('(display-mode: standalone)').matches && !localStorage.getItem('rg-portal-startbildschirm') } catch (e) { zeigen = false }"
+                     x-show="zeigen">
+                    <span class="dot ok" style="margin-top:6px"></span>
+                    <div class="txt">
+                        {{ $duzen ? 'Tipp: Leg dir das Portal auf den Startbildschirm.' : 'Tipp: Legen Sie sich das Portal auf den Startbildschirm.' }}
+                        iPhone: Teilen › „Zum Home-Bildschirm“. Android: Menü ⋮ › „Zum Startbildschirm hinzufügen“.
+                        <button type="button" class="mini" style="margin-top:6px"
+                                @click="zeigen = false; try { localStorage.setItem('rg-portal-startbildschirm', '1') } catch (e) {}">Verstanden</button>
+                    </div>
                 </div>
             </div>
 

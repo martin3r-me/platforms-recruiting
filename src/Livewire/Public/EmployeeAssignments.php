@@ -115,27 +115,7 @@ class EmployeeAssignments extends Component
             return [];
         }
 
-        $assignments = RecDispoAssignment::query()
-            ->with('event')
-            ->whereIn('rec_employee_id', $this->employeeIds)
-            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
-            ->whereNull('missing_since')
-            ->whereNull('deletion_marked_at')
-            // Absage (Kunde 04.09.): abgemeldete Einsaetze verschwinden von der
-            // Einsatz-Seite — gleiche Behandlung wie die Stufe-3-Rausnahme.
-            ->whereNull('declined_at')
-            // Kunde 28.10.: Ein Einsatz bleibt oben, bis die Schicht wirklich vorbei
-            // ist (Ende + Nachlauf, auch nach Mitternacht) — nicht nur bis zum Tag.
-            // Die Datenbank holt ab dem Vortag, der Filter entscheidet je Zeile.
-            ->whereDate('datum', '>=', DispoEinsatzAktuell::abDatum(now()))
-            // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
-            // Einsaetze — exakt das, was RG versendet hat, nicht den ganzen Dispo-Bestand.
-            // Nicht versendete Einbuchungen bleiben unsichtbar, bis HR den Versand ausloest.
-            ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
-            ->orderBy('datum')->orderBy('von')
-            ->get()
-            ->filter(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, now()))
-            ->values();
+        $assignments = self::sichtbareEinsaetze($this->employeeIds, now());
 
         $attachments = $this->attachmentsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->all());
 
@@ -427,6 +407,39 @@ class EmployeeAssignments extends Component
             ]);
 
         unset($this->eventGroups);
+    }
+
+    /**
+     * Die Einsaetze, die der Mitarbeiter sieht — EINE Regel fuer die
+     * Einsatz-Seite (eventGroups) und die Kachel „Nächster Einsatz“ auf der
+     * Portal-Startseite (29.10.2026), damit beide nie Verschiedenes sagen.
+     *
+     * @param list<int> $employeeIds Identitaets-Gruppe (DispoIdentityResolver::groupFor)
+     * @return \Illuminate\Support\Collection<int, RecDispoAssignment>
+     */
+    public static function sichtbareEinsaetze(array $employeeIds, \DateTimeInterface $jetzt): \Illuminate\Support\Collection
+    {
+        return RecDispoAssignment::query()
+            ->with('event')
+            ->whereIn('rec_employee_id', $employeeIds)
+            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
+            ->whereNull('missing_since')
+            ->whereNull('deletion_marked_at')
+            // Absage (Kunde 04.09.): abgemeldete Einsaetze verschwinden von der
+            // Einsatz-Seite — gleiche Behandlung wie die Stufe-3-Rausnahme.
+            ->whereNull('declined_at')
+            // Kunde 28.10.: Ein Einsatz bleibt oben, bis die Schicht wirklich vorbei
+            // ist (Ende + Nachlauf, auch nach Mitternacht) — nicht nur bis zum Tag.
+            // Die Datenbank holt ab dem Vortag, der Filter entscheidet je Zeile.
+            ->whereDate('datum', '>=', DispoEinsatzAktuell::abDatum($jetzt))
+            // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
+            // Einsaetze — exakt das, was RG versendet hat, nicht den ganzen Dispo-Bestand.
+            // Nicht versendete Einbuchungen bleiben unsichtbar, bis HR den Versand ausloest.
+            ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
+            ->orderBy('datum')->orderBy('von')
+            ->get()
+            ->filter(fn ($a) => DispoEinsatzAktuell::istAktuell($a->datum->format('Y-m-d'), $a->von, $a->bis, $jetzt))
+            ->values();
     }
 
     public function render()

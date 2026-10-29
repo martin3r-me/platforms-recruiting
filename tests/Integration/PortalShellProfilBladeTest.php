@@ -175,13 +175,13 @@ class PortalShellProfilBladeTest extends TestCase
         $this->assertSame(0, $code, implode("\n", $ausgabe));
     }
 
-    /** Der Block "Das fehlt noch" -- von der Ueberschrift bis "Liegt vor". */
+    /** Der Block "Das fehlt noch" -- von der Ueberschrift bis zu seiner Ende-Marke. */
     private function fehltNochBlock(): string
     {
         $blade = $this->blade();
         $start = strpos($blade, 'Das fehlt noch <span');
         $this->assertNotFalse($start, 'Kein Block "Das fehlt noch" im Blade.');
-        $ende = strpos($blade, 'Liegt vor <span', $start);
+        $ende = strpos($blade, 'Ende "Das fehlt noch"', $start);
         $this->assertNotFalse($ende);
 
         return substr($blade, $start, $ende - $start);
