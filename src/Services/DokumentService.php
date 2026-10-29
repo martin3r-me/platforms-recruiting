@@ -283,34 +283,34 @@ class DokumentService
             throw new \InvalidArgumentException('Bitte mindestens einen Empfänger wählen.');
         }
 
-        $vorhanden = DB::table('rec_document_recipients as r')
-            ->join('rec_employees as e', 'e.id', '=', 'r.rec_employee_id')
-            ->where('r.rec_document_id', $dokument->id)
-            ->get(['r.id', 'r.rec_employee_id', 'r.withdrawn_at', 'e.person_key', 'e.rec_person_id']);
-        $zeile = fn ($r) => ['id' => (int) $r->rec_employee_id, 'person_key' => $r->person_key, 'rec_person_id' => $r->rec_person_id === null ? null : (int) $r->rec_person_id];
-        $aktiv = $vorhanden->whereNull('withdrawn_at')->map($zeile)->values()->all();
-        $neueZeilen = array_values(array_map(fn (int $id) => $aufgeloest['anstellungen'][$id], $aufgeloest['ids']));
-
-        $gruppe = EmpfaengerEntdoppler::gruppen(array_merge($neueZeilen, $aktiv, $this->geschwister($teamId, $neueZeilen)));
-        $hatEs = [];
-        foreach ($aktiv as $a) {
-            $hatEs[$gruppe[$a['id']]] = true;
-        }
+        // "Hat es schon" heisst: eine AKTIVE Zustellung liegt im Portal-Umfang
+        // dieser Person (PersonScopeResolver) — genau das, was sie sieht
+        // (Review 29.10.). Eine Gruppierung ueber Schluessel koennte eine
+        // Zustellung mitzaehlen, die das Portal der Person gar nicht zeigt.
+        $vorhanden = DB::table('rec_document_recipients')
+            ->where('rec_document_id', $dokument->id)
+            ->get(['id', 'rec_employee_id', 'withdrawn_at']);
+        $aktiv = $vorhanden->whereNull('withdrawn_at')->mapWithKeys(fn ($r) => [(int) $r->rec_employee_id => true])->all();
         $zurueckgezogen = $vorhanden->whereNotNull('withdrawn_at')->keyBy(fn ($r) => (int) $r->rec_employee_id);
+        $scope = new PersonScopeResolver();
+        $mitarbeiter = RecEmployee::query()->whereIn('id', $aufgeloest['ids'])->get()->keyBy('id');
 
         $neu = 0;
         $schon = 0;
-        DB::transaction(function () use ($dokument, $teamId, $aufgeloest, $gruppe, &$hatEs, $zurueckgezogen, &$neu, &$schon) {
-            foreach ($aufgeloest['ids'] as $id) {
-                if (isset($hatEs[$gruppe[$id]])) {
-                    $schon++;
-                    continue;
-                }
-                $hatEs[$gruppe[$id]] = true;
-                $alt = $zurueckgezogen->get($id);
+        foreach ($aufgeloest['ids'] as $id) {
+            $employee = $mitarbeiter->get($id);
+            $umfang = $employee !== null ? $scope->forEmployee($employee)['ids'] : [$id];
+            if (array_intersect_key(array_flip($umfang), $aktiv) !== []) {
+                $schon++;
+                continue;
+            }
+            $alt = $zurueckgezogen->get($id);
+            try {
                 if ($alt !== null) {
+                    // Frische Zustellung: auch "gesehen"/"bestaetigt" von vor dem Zurueckziehen faellt weg.
                     DB::table('rec_document_recipients')->where('id', $alt->id)->update([
-                        'withdrawn_at' => null, 'notified_at' => null, 'notify_error' => null, 'updated_at' => now(),
+                        'withdrawn_at' => null, 'notified_at' => null, 'notify_error' => null,
+                        'first_viewed_at' => null, 'acknowledged_at' => null, 'updated_at' => now(),
                     ]);
                 } else {
                     RecDocumentRecipient::create([
@@ -320,9 +320,14 @@ class DokumentService
                         'person_key'      => $aufgeloest['anstellungen'][$id]['person_key'] ?? null,
                     ]);
                 }
-                $neu++;
+            } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+                // Eine zweite HR-Sitzung war schneller (Review 29.10.) — dann hat er es.
+                $schon++;
+                continue;
             }
-        });
+            $aktiv[$id] = true;
+            $neu++;
+        }
 
         DokumentVerlauf::schreibe($teamId, (int) $dokument->id, null, DokumentVerlauf::NACHGETRAGEN, $userId, ['neu' => $neu, 'schon' => $schon]);
 

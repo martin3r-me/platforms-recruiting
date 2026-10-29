@@ -283,6 +283,34 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame(1, RecDocumentRecipient::count());
     }
 
+    /** Review 29.10.: aktive Zustellung liegt auf einer ungebundenen Anstellung, die das Portal der Person nicht zeigt → nachtragen. */
+    public function test_empfaenger_nachtragen_zaehlt_nur_was_das_portal_zeigt(): void
+    {
+        $x = $this->ma(['person_key' => 'K']);
+        $this->ma(['person_key' => 'K', 'rec_person_id' => 8]);
+        $y = $this->ma(['rec_person_id' => 8]);
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$x->id], null);
+
+        $e = $this->service()->empfaengerNachtragen($r['dokument'], [$y->id], null);
+
+        $this->assertSame(1, $e['neu']);
+        $this->assertSame(0, $e['schon']);
+    }
+
+    /** Review 29.10.: wer sie wiederbekommt, bekommt sie frisch — nicht schon „gesehen“. */
+    public function test_empfaenger_nachtragen_setzt_gesehen_zurueck(): void
+    {
+        $a = $this->ma(['rec_person_id' => 9]);
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$a->id], null);
+        DB::table('rec_document_recipients')->update(['withdrawn_at' => '2026-10-29 10:00:00', 'first_viewed_at' => '2026-10-29 09:00:00', 'acknowledged_at' => '2026-10-29 09:00:00']);
+
+        $this->service()->empfaengerNachtragen($r['dokument'], [$a->id], null);
+
+        $z = RecDocumentRecipient::first();
+        $this->assertNull($z->first_viewed_at);
+        $this->assertNull($z->acknowledged_at);
+    }
+
     public function test_empfaenger_nachtragen_an_geloeschtes_dokument_wird_abgelehnt(): void
     {
         $a = $this->ma();
