@@ -43,4 +43,23 @@ class PortalStartUebersichtTest extends TestCase
         $this->assertStringContainsString("localStorage", $s, 'Startbildschirm-Hinweis nur einmal');
         $this->assertStringContainsString('display-mode: standalone', $s, 'nicht zeigen, wenn schon installiert');
     }
+
+    /**
+     * Sichttest 29.10.: Text in den Kacheln war unsichtbar (.hint ist am Rechner
+     * weiss, fuer den dunklen Login-Hintergrund), Knoepfe klebten am Rand.
+     * Dazu: ohne Agenda-Zugang „Zugang anfordern“ mit vorgefuelltem Text.
+     */
+    public function test_kacheln_lesbar_und_agenda_zugang_anfordern(): void
+    {
+        $s = self::start();
+        $this->assertStringNotContainsString('<p class="hint"', $s);
+        $this->assertSame(2, substr_count($s, '<div class="card kachel"'), 'Lohn und Kontakt mit Innenabstand');
+        $this->assertStringContainsString('@if ($agendaZugang !== true && $schreibUnsUrl !== null)', $s);
+        $this->assertStringContainsString("rawurlencode(", $s);
+        $this->assertStringContainsString('Zugang anfordern', $s);
+
+        $css = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
+        $this->assertStringContainsString('.portal-body .card.kachel', $css);
+        $this->assertStringContainsString('.portal-body a.btn', $css);
+    }
 }

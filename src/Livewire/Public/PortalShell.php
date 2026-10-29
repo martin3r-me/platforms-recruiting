@@ -1215,6 +1215,7 @@ class PortalShell extends Component
             'naechsterEinsatz'  => $employee !== null ? $this->naechsterEinsatz($employee) : null,
             'schreibUnsUrl'     => $employee !== null ? self::schreibUnsUrl((int) $employee->team_id) : null,
             'lohnAnleitungUrl'  => $employee !== null ? self::lohnAnleitungUrl((int) $employee->team_id) : null,
+            'agendaZugang'      => $employee?->agenda_zugang === null ? null : (bool) $employee->agenda_zugang,
             'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
             'uploadHinterlegt'  => $employee !== null && $this->uploadCode !== null ? $this->hinterlegt($employee, $this->uploadCode) : null,
             'uploadHatAblauf'   => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),

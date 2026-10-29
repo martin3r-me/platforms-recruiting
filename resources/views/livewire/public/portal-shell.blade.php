@@ -447,19 +447,32 @@
                 </div>
                 {{-- Lohn & Abrechnung (29.10.2026): die haeufigste Frage, bevor sie im Chat landet. --}}
                 <div class="sec-label" style="margin-top:18px">Lohn &amp; Abrechnung</div>
-                <div class="card" style="margin-top:11px">
-                    <p class="hint" style="margin:0">{{ $duzen
+                <div class="card kachel" style="margin-top:11px">
+                    <p>{{ $duzen
                         ? 'Deine Abrechnungen findest du im Agenda-Lohnportal. Ausgezahlt wird in der Regel zum 15. des Folgemonats.'
                         : 'Ihre Abrechnungen finden Sie im Agenda-Lohnportal. Ausgezahlt wird in der Regel zum 15. des Folgemonats.' }}</p>
                     @if ($lohnAnleitungUrl !== null)
-                        <a href="{{ $lohnAnleitungUrl }}" target="_blank" rel="noopener" class="btn" style="margin-top:11px">{{ $duzen ? 'So kommst du rein' : 'So kommen Sie rein' }}</a>
+                        <a href="{{ $lohnAnleitungUrl }}" target="_blank" rel="noopener" class="btn">{{ $duzen ? 'So kommst du rein' : 'So kommen Sie rein' }}</a>
+                    @endif
+                    {{--
+                        Kein (bekannter) Agenda-Zugang (29.10.2026): WhatsApp an HR mit
+                        vorgefuelltem Text. Danach kommt die Themen-Frage; „Lohn &
+                        Gehalt“ fuehrt in den Agenda-Weg, „HR allgemein“ direkt zu HR.
+                    --}}
+                    @if ($agendaZugang !== true && $schreibUnsUrl !== null)
+                        @php
+                            $agendaText = 'Hallo, ich habe noch keinen Zugang zum Agenda-Lohnportal. Könnt ihr mir bitte die Zugangsdaten schicken?';
+                            $agendaUrl = $schreibUnsUrl . '?text=' . rawurlencode($agendaText);
+                        @endphp
+                        <p class="klein">Noch keinen Zugang?</p>
+                        <a href="{{ $agendaUrl }}" target="_blank" rel="noopener" class="btn">Zugang anfordern</a>
                     @endif
                 </div>
 
                 @if ($schreibUnsUrl !== null)
-                    <div class="card" style="margin-top:11px">
-                        <p class="hint" style="margin:0">{{ $duzen ? 'Fragen? Schreib uns — für die Dispo wählst du dort einfach „Disposition“.' : 'Fragen? Schreiben Sie uns — für die Dispo wählen Sie dort einfach „Disposition“.' }}</p>
-                        <a href="{{ $schreibUnsUrl }}" target="_blank" rel="noopener" class="btn primary" style="margin-top:11px">{{ $duzen ? 'Schreib uns auf WhatsApp' : 'Schreiben Sie uns auf WhatsApp' }}</a>
+                    <div class="card kachel" style="margin-top:11px">
+                        <p>{{ $duzen ? 'Fragen? Schreib uns — für die Dispo wählst du dort einfach „Disposition“.' : 'Fragen? Schreiben Sie uns — für die Dispo wählen Sie dort einfach „Disposition“.' }}</p>
+                        <a href="{{ $schreibUnsUrl }}" target="_blank" rel="noopener" class="btn primary">{{ $duzen ? 'Schreib uns auf WhatsApp' : 'Schreiben Sie uns auf WhatsApp' }}</a>
                     </div>
                 @endif
 

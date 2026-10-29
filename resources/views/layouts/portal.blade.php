@@ -260,6 +260,11 @@
            Gruppen-Blatt steht spaeter im DOM und gewaenne -- deshalb eins
            hoeher. */
         .portal-body .upload-overlay.nachweis-overlay { z-index: 21 }
+        /* Kacheln der Startseite (29.10.2026): Innenabstand, lesbarer Text; Links als Knopf ohne Unterstrich. */
+        .portal-body .card.kachel { padding: 17px; display: flex; flex-direction: column; gap: 11px }
+        .portal-body .card.kachel p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.5 }
+        .portal-body .card.kachel p.klein { color: var(--ink-3); font-size: 13px }
+        .portal-body a.btn { text-decoration: none }
         /* Alpine: nichts aufblitzen lassen, bevor x-show entschieden hat (Startbildschirm-Hinweis). */
         [x-cloak] { display: none !important }
         /* Einklappbare Bereiche in "Dokumente & Infos" (Portal-Feinschliff 29.10.2026). */
