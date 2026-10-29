@@ -249,13 +249,16 @@
                 <div class="card" style="margin-top:11px">
                     @if ($naechsterEinsatz !== null)
                         @php
+                            // Review 29.10.: kein gruenes „Bestätigt“, solange spaetere Tage offen sind.
                             [$einsatzPunkt, $einsatzStatus] = match ($naechsterEinsatz['status']) {
                                 'bestaetigt' => ['ok', 'Bestätigt'],
-                                'geaendert'  => ['crit', $duzen ? 'Zeit geändert — bitte neu bestätigen' : 'Zeit geändert — bitte neu bestätigen'],
+                                'teilweise'  => ['warn', 'Bestätigt · ' . $naechsterEinsatz['unbestaetigt'] . ' ' . ($naechsterEinsatz['unbestaetigt'] === 1 ? 'Tag' : 'Tage') . ' noch offen'],
+                                'geaendert'  => ['crit', 'Zeit geändert — bitte neu bestätigen'],
                                 default      => ['warn', $duzen ? 'Wartet auf deine Zusage' : 'Wartet auf Ihre Zusage'],
                             };
+                            // „weitere“ = weitere Einsaetze (Veranstaltungen), nicht Tage.
                             $einsatzWeitere = $naechsterEinsatz['weitere'] > 0
-                                ? ' · und ' . $naechsterEinsatz['weitere'] . ' ' . ($naechsterEinsatz['weitere'] === 1 ? 'weiterer' : 'weitere')
+                                ? ' · und ' . $naechsterEinsatz['weitere'] . ' ' . ($naechsterEinsatz['weitere'] === 1 ? 'weiterer Einsatz' : 'weitere Einsätze')
                                 : '';
                         @endphp
                         <button type="button" class="task tap" @click="tab = 'jobs'">
@@ -466,7 +469,7 @@
                     Portal schon als App laeuft (display-mode: standalone).
                 --}}
                 <div class="alert ok" style="margin-top:11px" x-cloak x-data="{ zeigen: false }"
-                     x-init="try { zeigen = !window.matchMedia('(display-mode: standalone)').matches && !localStorage.getItem('rg-portal-startbildschirm') } catch (e) { zeigen = false }"
+                     x-init="try { zeigen = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(display-mode: standalone)').matches && !localStorage.getItem('rg-portal-startbildschirm') } catch (e) { zeigen = false }"
                      x-show="zeigen">
                     <span class="dot ok" style="margin-top:6px"></span>
                     <div class="txt">

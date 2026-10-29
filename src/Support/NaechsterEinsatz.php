@@ -18,7 +18,8 @@ final class NaechsterEinsatz
     /**
      * @param iterable<object> $einsaetze sortiert nach Datum/Beginn; je mit datum (Carbon), von, bis, confirmed_at, reconfirm_required_at, event
      * @return ?array{tag:string, zeit:string, name:string, status:string, weitere:int, unbestaetigt:int}
-     *         status: bestaetigt | offen | geaendert (Zeit geaendert, neu bestaetigen)
+     *         status: bestaetigt | teilweise (erster bestaetigt, spaetere offen) | offen | geaendert (Zeit geaendert, neu bestaetigen)
+     *         weitere: weitere EINSAETZE (Veranstaltungen), nicht Tage — wie die Einsatz-Seite gruppiert
      */
     public static function aus(iterable $einsaetze, Carbon $jetzt): ?array
     {
@@ -45,9 +46,15 @@ final class NaechsterEinsatz
 
         $status = match (true) {
             $erster->reconfirm_required_at !== null => 'geaendert',
+            $erster->confirmed_at !== null && $unbestaetigt > 0 => 'teilweise',
             $erster->confirmed_at !== null          => 'bestaetigt',
             default                                 => 'offen',
         };
+
+        $events = [];
+        foreach ($liste as $e) {
+            $events[(string) ($e->rec_dispo_event_id ?? spl_object_id($e))] = true;
+        }
 
         $bis = trim((string) ($erster->bis ?? ''));
 
@@ -56,7 +63,7 @@ final class NaechsterEinsatz
             'zeit'         => trim((string) $erster->von) . ($bis !== '' ? '–' . $bis : ''),
             'name'         => (string) ($erster->event->name ?? $erster->event->einsatz_ref ?? ''),
             'status'       => $status,
-            'weitere'      => count($liste) - 1,
+            'weitere'      => count($events) - 1,
             'unbestaetigt' => $unbestaetigt,
         ];
     }

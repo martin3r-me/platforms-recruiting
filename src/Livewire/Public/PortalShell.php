@@ -933,97 +933,6 @@ class PortalShell extends Component
     }
 
     /**
-     * Vertraege und Zertifikate des angemeldeten Mitarbeiters, in EINER
-     * Liste — der Weg zur Unterschrift. Ohne diese Methode war das alte
-     * Portal (EmployeePortal) der einzige Ort, an dem ein umgestellter
-     * Mensch seinen Arbeitsvertrag ueberhaupt unterschreiben konnte.
-     *
-     * Rumpf WOERTLICH aus EmployeePortal::contracts() (658–701) samt
-     * certificateRows() (718–730) uebernommen, nicht neu erfunden — dieselbe
-     * Form (list<array{id,display_name,status,signed_at,completed_at,
-     * sign_url,pdf_url}>), damit das Blade seine Statuszweige unveraendert
-     * uebernehmen kann (siehe portal-shell.blade.php, docs-Bereich).
-     *
-     * Anlegen von CorePublicFormLink-Zeilen beim ANZEIGEN: je eine pro
-     * Vertrag mit Status 'sent' (Signierlink) bzw. 'completed' (PDF-Link) —
-     * beide ueber den VERTRAGS-Token. Der Bewerber-Token des alten Portals
-     * wird seit Vertrag aus der Akte nicht mehr gebraucht; 'pending' bekommt
-     * keinen Link (er liefe ins Leere).
-     *
-     * KEINE eigene berechtigterMitarbeiter()-Pruefung hier: der Aufrufer
-     * (render()) uebergibt bereits den durch berechtigterMitarbeiter()
-     * geprueften Mitarbeiter (dasselbe Muster wie profilDaten()). Ein
-     * fremder Vertrag ist strukturell nicht erreichbar — die Liste kommt
-     * ausschliesslich ueber VertragLeser::vertraege() (Personen-Umfang),
-     * nie ueber eine ID aus der Anfrage.
-     *
-     * Vertraege DER PERSON (Spec Vertrag aus der Akte §2.5): alle Anstellungen
-     * des Personen-Umfangs, nicht storniert — ein Vertrag aus der MA-Akte
-     * erscheint auch im Portal der RG-Anstellung, dann mit Gesellschaft im
-     * Namen ("Arbeitsvertrag · MA"). Keine Bewerbung noetig.
-     * sign_url nur bei 'sent' (pending lief ins Leere); pdf_url ueber den
-     * VERTRAGS-Token und die Sitzungspruefung von VertragPdfController.
-     *
-     * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
-     */
-    /**
-     * Kachel „Nächster Einsatz“: dieselben Einsaetze wie die Einsatz-Seite
-     * (EmployeeAssignments::sichtbareEinsaetze), ueber die ganze Person.
-     * Fehler (z. B. Deploy ohne Dispo-Tabellen) kosten nur die Kachel.
-     */
-    private function naechsterEinsatz(RecEmployee $employee): ?array
-    {
-        try {
-            $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
-
-            return \Platform\Recruiting\Support\NaechsterEinsatz::aus(
-                \Platform\Recruiting\Livewire\Public\EmployeeAssignments::sichtbareEinsaetze($ids, now()),
-                now(),
-            );
-        } catch (\Throwable $e) {
-            try {
-                \Illuminate\Support\Facades\Log::warning('recruiting.portal.naechster_einsatz_fehlgeschlagen', ['employee_id' => $employee->id, 'exception' => $e]);
-            } catch (\Throwable) {
-                // ohne Log (Test-Container) bleibt nur die leere Kachel
-            }
-
-            return null;
-        }
-    }
-
-    /**
-     * „Schreib uns“: WhatsApp an die HR-Nummer (das Konto der Themen-
-     * Auswahl). Wer zur Dispo will, waehlt dort „Disposition“ und seine
-     * Filiale — keine zweite Nummernliste hier.
-     */
-    private static function schreibUnsUrl(int $teamId): ?string
-    {
-        try {
-            $kanalId = \Platform\Recruiting\Services\Comms\RecruitingChannelResolver::channelIds($teamId)[0] ?? null;
-            $nummer = $kanalId !== null
-                ? (string) \Platform\Crm\Models\CommsChannel::query()->whereKey($kanalId)->value('sender_identifier')
-                : '';
-            $ziffern = preg_replace('/\D+/', '', $nummer);
-
-            return $ziffern !== '' ? 'https://wa.me/' . $ziffern : null;
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    /** Anleitung zur Abrechnung (Einstellung „Lohn — Anleitung“, z. B. das Agenda-Video). */
-    private static function lohnAnleitungUrl(int $teamId): ?string
-    {
-        try {
-            $url = trim((string) (\Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $teamId)->first()?->getSetting('comms_topic_lohn_url') ?? ''));
-
-            return $url !== '' ? $url : null;
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    /**
      * Was zu dieser Nachweisart schon hinterlegt ist (Portal-Feinschliff
      * 29.10.2026): das Blatt sagte vorher nichts, „Liegt vor“ wirkte wie ein
      * leeres Formular. Nur Datum und Gueltigkeit, keine Datei — die Vorschau
@@ -1065,6 +974,40 @@ class PortalShell extends Component
         }
     }
 
+    /**
+     * Vertraege und Zertifikate des angemeldeten Mitarbeiters, in EINER
+     * Liste — der Weg zur Unterschrift. Ohne diese Methode war das alte
+     * Portal (EmployeePortal) der einzige Ort, an dem ein umgestellter
+     * Mensch seinen Arbeitsvertrag ueberhaupt unterschreiben konnte.
+     *
+     * Rumpf WOERTLICH aus EmployeePortal::contracts() (658–701) samt
+     * certificateRows() (718–730) uebernommen, nicht neu erfunden — dieselbe
+     * Form (list<array{id,display_name,status,signed_at,completed_at,
+     * sign_url,pdf_url}>), damit das Blade seine Statuszweige unveraendert
+     * uebernehmen kann (siehe portal-shell.blade.php, docs-Bereich).
+     *
+     * Anlegen von CorePublicFormLink-Zeilen beim ANZEIGEN: je eine pro
+     * Vertrag mit Status 'sent' (Signierlink) bzw. 'completed' (PDF-Link) —
+     * beide ueber den VERTRAGS-Token. Der Bewerber-Token des alten Portals
+     * wird seit Vertrag aus der Akte nicht mehr gebraucht; 'pending' bekommt
+     * keinen Link (er liefe ins Leere).
+     *
+     * KEINE eigene berechtigterMitarbeiter()-Pruefung hier: der Aufrufer
+     * (render()) uebergibt bereits den durch berechtigterMitarbeiter()
+     * geprueften Mitarbeiter (dasselbe Muster wie profilDaten()). Ein
+     * fremder Vertrag ist strukturell nicht erreichbar — die Liste kommt
+     * ausschliesslich ueber VertragLeser::vertraege() (Personen-Umfang),
+     * nie ueber eine ID aus der Anfrage.
+     *
+     * Vertraege DER PERSON (Spec Vertrag aus der Akte §2.5): alle Anstellungen
+     * des Personen-Umfangs, nicht storniert — ein Vertrag aus der MA-Akte
+     * erscheint auch im Portal der RG-Anstellung, dann mit Gesellschaft im
+     * Namen ("Arbeitsvertrag · MA"). Keine Bewerbung noetig.
+     * sign_url nur bei 'sent' (pending lief ins Leere); pdf_url ueber den
+     * VERTRAGS-Token und die Sitzungspruefung von VertragPdfController.
+     *
+     * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
+     */
     private function dokumente(RecEmployee $employee): array
     {
         $leser = app(VertragLeser::class);
@@ -1104,6 +1047,82 @@ class PortalShell extends Component
             $contractRows,
             $this->zertifikatZeilen((int) $employee->applicant->id)
         );
+    }
+
+    /**
+     * Kachel „Nächster Einsatz“: dieselben Einsaetze wie die Einsatz-Seite
+     * (EmployeeAssignments::sichtbareEinsaetze), ueber die ganze Person —
+     * und dieselbe Sperre: ist irgendein Datensatz der Gruppe gesperrt,
+     * zeigt die Einsatz-Seite den Sperr-Bildschirm, also auch keine Kachel
+     * (Review 29.10.). Fehler kosten nur die Kachel.
+     */
+    private function naechsterEinsatz(RecEmployee $employee): ?array
+    {
+        try {
+            $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
+            if (RecEmployee::query()->whereIn('id', $ids)->whereNotNull('portal_locked_at')->exists()) {
+                return null;
+            }
+
+            return \Platform\Recruiting\Support\NaechsterEinsatz::aus(
+                \Platform\Recruiting\Livewire\Public\EmployeeAssignments::sichtbareEinsaetze($ids, now()),
+                now(),
+            );
+        } catch (\Throwable $e) {
+            try {
+                \Illuminate\Support\Facades\Log::warning('recruiting.portal.naechster_einsatz_fehlgeschlagen', ['employee_id' => $employee->id, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die leere Kachel
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * „Schreib uns“: WhatsApp an die HR-Nummer = die Nummer des Kontos der
+     * Themen-Auswahl (auto_pilot_wa_account_id). Nicht ein beliebiger Kanal
+     * des Kontos (Review 29.10.). Wer zur Dispo will, waehlt dort
+     * „Disposition“ und seine Filiale — keine zweite Nummernliste hier.
+     * Zehn Minuten gemerkt: ansichtsDaten laeuft bei jeder Livewire-Anfrage.
+     */
+    private static function schreibUnsUrl(int $teamId): ?string
+    {
+        return self::gemerkt('recruiting.portal.schreib_uns.' . $teamId, static function () use ($teamId): ?string {
+            $kontoId = (int) (\Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $teamId)->first()?->getSetting('auto_pilot_wa_account_id') ?: 0);
+            if ($kontoId === 0 || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+                return null;
+            }
+            $konto = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($kontoId);
+            $e164 = $konto && $konto->active ? \Platform\Recruiting\Support\PhoneE164::normalize((string) $konto->phone_number) : null;
+            $ziffern = $e164 !== null ? ltrim($e164, '+') : '';
+
+            return $ziffern !== '' ? 'https://wa.me/' . $ziffern : null;
+        });
+    }
+
+    /** Anleitung zur Abrechnung (Einstellung „Lohn — Anleitung“, z. B. das Agenda-Video). */
+    private static function lohnAnleitungUrl(int $teamId): ?string
+    {
+        return self::gemerkt('recruiting.portal.lohn_anleitung.' . $teamId, static function () use ($teamId): ?string {
+            $url = trim((string) (\Platform\Recruiting\Models\RecApplicantSettings::query()->where('team_id', $teamId)->first()?->getSetting('comms_topic_lohn_url') ?? ''));
+
+            return $url !== '' ? $url : null;
+        });
+    }
+
+    /** Cache fuer zehn Minuten; ohne Cache (Test-Container) oder bei Fehlern direkt, nie mit Ausnahme. */
+    private static function gemerkt(string $schluessel, \Closure $wert): ?string
+    {
+        try {
+            return \Illuminate\Support\Facades\Cache::remember($schluessel, 600, $wert);
+        } catch (\Throwable) {
+            try {
+                return $wert();
+            } catch (\Throwable) {
+                return null;
+            }
+        }
     }
 
     /**
