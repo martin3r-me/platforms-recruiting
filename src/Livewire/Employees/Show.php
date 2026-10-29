@@ -1305,7 +1305,7 @@ class Show extends Component
             'Schul-/Immatrikulationsbescheinigung' => [
                 'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Immatrikulationsbescheinigung'],
                 'schulbescheinigung_file_id'      => ['type' => 'file', 'label' => 'Schulbescheinigung'],
-                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
+                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gültig bis'],
             ],
             'Gesundheit' => [
                 'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
@@ -1323,7 +1323,7 @@ class Show extends Component
             ],
             'Legal-Status (EU/Non-EU)' => $legalStatusFields,
             'Sonstiges' => [
-                'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
+                'drivers_license_class' => ['type' => 'text', 'label' => 'Führerschein-Klasse'],
                 'has_car' => ['type' => 'bool', 'label' => 'PKW vorhanden'],
                 // Agenda-Lohnportal (Markus 28.10.2026): HR setzt den Haken, wenn die Zugangsdaten raus sind.
                 'agenda_zugang' => ['type' => 'bool', 'label' => 'Zugang Agenda-Lohnportal'],

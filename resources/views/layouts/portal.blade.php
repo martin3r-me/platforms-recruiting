@@ -267,6 +267,9 @@
         .portal-body .card.kachel p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.5 }
         .portal-body .card.kachel p.klein { color: var(--ink-3); font-size: 13px }
         .portal-body a.btn { text-decoration: none }
+        /* Profil-Ring auf Start als Knopf (29.10.2026): Browser-Knopfstil zuruecksetzen. */
+        .portal-body button.ring-row { width: 100%; border: none; text-align: left; font: inherit; color: inherit; cursor: pointer }
+        .portal-body button.ring-row .chev { margin-left: auto; color: var(--ink-3) }
         /* Sichttest 29.10.2026 (hell/dunkel, Handy):
            - .kicker (spaeter in der Vorlage) faerbte die Kasten-Ueberschrift
              dunkeltuerkis auf dunkeltuerkis — im hellen Modus unlesbar.

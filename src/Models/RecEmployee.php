@@ -543,7 +543,7 @@ class RecEmployee extends Model
             'Schul-/Immatrikulationsbescheinigung' => [
                 'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Immatrikulationsbescheinigung'],
                 'schulbescheinigung_file_id'      => ['type' => 'file', 'label' => 'Schulbescheinigung'],
-                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
+                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gültig bis'],
             ],
             // 'upload_if' (nur das neue Portal, PortalShell): solange die
             // Bedingung gilt -- gegen den FORMULARstand, also schon vor dem
@@ -568,7 +568,7 @@ class RecEmployee extends Model
             'Arbeitsschutz' => [
                 'is_first_aider' => [
                     'type'  => 'bool',
-                    'label' => 'Ersthelfer (gueltiger Erste-Hilfe-Schein)',
+                    'label' => 'Ersthelfer (gültiger Erste-Hilfe-Schein)',
                     'live'  => true,
                 ],
                 // required_if: erst Pflicht, wenn oben "Ja" steht. Bei "Nein"
@@ -589,11 +589,11 @@ class RecEmployee extends Model
             ],
             'Arbeitskleidung' => [
                 'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
-                'pants_size' => ['type' => 'text', 'label' => 'Hosengroesse (Zahl)'],
-                'shoe_size'  => ['type' => 'text', 'label' => 'Schuhgroesse (Zahl)'],
+                'pants_size' => ['type' => 'text', 'label' => 'Hosengröße (Zahl)'],
+                'shoe_size'  => ['type' => 'text', 'label' => 'Schuhgröße (Zahl)'],
             ],
             'Sonstiges' => [
-                'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
+                'drivers_license_class' => ['type' => 'text', 'label' => 'Führerschein-Klasse'],
                 'has_car'               => ['type' => 'bool', 'label' => 'PKW vorhanden'],
             ],
         ];

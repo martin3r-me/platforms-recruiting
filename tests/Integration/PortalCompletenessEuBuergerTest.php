@@ -213,7 +213,7 @@ final class PortalCompletenessEuBuergerTest extends TestCase
         $stand = $this->stand($employee);
 
         $this->assertLessThan(100, $stand['prozent']);
-        $this->assertContains('Schuhgroesse (Zahl)', $stand['fehlend']);
+        $this->assertContains('Schuhgröße (Zahl)', $stand['fehlend']);
     }
 
     public function test_non_eu_felder_zaehlen_bei_einem_eu_buerger_gar_nicht_erst_mit(): void

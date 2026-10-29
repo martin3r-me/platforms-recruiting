@@ -445,6 +445,31 @@
 
                 {{-- Ende "Das fehlt noch". Die Nachweisliste ("Liegt vor") lebt seit 29.10.2026 nur unter "Dokumente & Infos". --}}
                 </div>
+
+                {{--
+                    Profil unter 100 % (Sebastian 29.10.2026): derselbe Ring wie im
+                    Profil, auch fuer freiwillige Angaben (Kleidergroessen ...), damit
+                    man immer sieht, dass noch etwas fehlt. Tipp oeffnet das Profil.
+                --}}
+                @if ($profilStand['prozent'] < 100)
+                    @php
+                        $startRingProzent = $profilStand['prozent'];
+                        $startRingStil = 'background: conic-gradient(var(--brand) 0 ' . $startRingProzent
+                            . '%, var(--surface-3) ' . $startRingProzent . '% 100%)';
+                        $startRingNamen = array_values($profilStand['fehlend']);
+                        $startRingText = 'Es fehlen noch: ' . implode(', ', array_slice($startRingNamen, 0, 3))
+                            . (count($startRingNamen) > 3 ? ' und weitere' : '') . '.';
+                    @endphp
+                    <button type="button" class="ring-row tap" @click="tab = 'me'">
+                        <div class="ring" style="{{ $startRingStil }}"><b>{{ $startRingProzent }}%</b></div>
+                        <div class="txt">
+                            <div class="t">{{ $duzen ? 'Dein Profil ergänzen' : 'Ihr Profil ergänzen' }}</div>
+                            <div class="s">{{ $startRingText }}</div>
+                        </div>
+                        <span class="chev">›</span>
+                    </button>
+                @endif
+
                 {{-- Lohn & Abrechnung (29.10.2026): die haeufigste Frage, bevor sie im Chat landet. --}}
                 <div class="sec-label" style="margin-top:18px">Lohn &amp; Abrechnung</div>
                 <div class="card kachel" style="margin-top:11px">

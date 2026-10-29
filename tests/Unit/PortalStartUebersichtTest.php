@@ -38,6 +38,7 @@ class PortalStartUebersichtTest extends TestCase
     {
         $s = self::start();
         $this->assertStringContainsString('$lohnAnleitungUrl', $s);
+        // Sebastian 29.10.: Auszahlungssatz bleibt (aus Claras Vorlage).
         $this->assertStringContainsString('zum 15. des Folgemonats', $s);
         $this->assertStringContainsString('$schreibUnsUrl', $s);
         $this->assertStringContainsString("localStorage", $s, 'Startbildschirm-Hinweis nur einmal');
@@ -76,5 +77,16 @@ class PortalStartUebersichtTest extends TestCase
 
         $css = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
         $this->assertStringContainsString('.portal-body .tab { white-space: nowrap', $css);
+    }
+
+    /** Sebastian 29.10.: Profil unter 100 % — der Ring steht auch auf Start, Tipp oeffnet das Profil. */
+    public function test_profil_ring_auf_start_unter_hundert_prozent(): void
+    {
+        $s = self::start();
+        $this->assertStringContainsString("@if (\$profilStand['prozent'] < 100)", $s);
+        $this->assertStringContainsString('<button type="button" class="ring-row tap" @click="tab = \'me\'"', $s);
+
+        $css = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
+        $this->assertStringContainsString('.portal-body button.ring-row', $css);
     }
 }
