@@ -284,7 +284,49 @@ class DokumentService
             }
         }
 
-        return ['ids' => EmpfaengerEntdoppler::aufPersonen($geordnet), 'anstellungen' => $anstellungen];
+        // Gruppiert wird mit ALLEN Geschwistern (Review 29.10.): nur ueber die
+        // Auswahl gerechnet, fuehrt ein Schluessel, der zu zwei Personen
+        // gehoert, scheinbar zu einer — und eine ungebundene Anstellung, die
+        // die Liste als eigenen Menschen zeigte, fiele still weg. Getragen wird
+        // aber nur von einer AUSGEWAEHLTEN Anstellung (die HR gewaehlt hat).
+        $gruppe = EmpfaengerEntdoppler::gruppen(array_merge($geordnet, $this->geschwister($teamId, $geordnet)));
+        $traeger = EmpfaengerEntdoppler::traeger($geordnet, $gruppe);
+        $behalten = [];
+        foreach ($geordnet as $a) {
+            $g = $gruppe[$a['id']];
+            $behalten[$g] ??= $traeger[$g];
+        }
+
+        return ['ids' => array_values($behalten), 'anstellungen' => $anstellungen];
+    }
+
+    /**
+     * @param  list<array{id:int, person_key:?string, rec_person_id:?int}> $auswahl
+     * @return list<array{id:int, person_key:?string, rec_person_id:?int}> weitere Anstellungen derselben Personen/Schluessel
+     */
+    private function geschwister(int $teamId, array $auswahl): array
+    {
+        $personen = array_values(array_unique(array_filter(array_column($auswahl, 'rec_person_id'))));
+        $schluessel = array_values(array_unique(array_filter(array_map(fn ($a) => trim((string) $a['person_key']), $auswahl))));
+        if ($personen === [] && $schluessel === []) {
+            return [];
+        }
+        $schon = array_flip(array_column($auswahl, 'id'));
+
+        return DB::table('rec_employees')->where('team_id', $teamId)
+            ->where(function ($w) use ($personen, $schluessel) {
+                foreach (array_chunk($personen, 900) as $p) {
+                    $w->orWhereIn('rec_person_id', $p);
+                }
+                foreach (array_chunk($schluessel, 900) as $k) {
+                    $w->orWhereIn('person_key', $k);
+                }
+            })
+            ->get(['id', 'person_key', 'rec_person_id'])
+            ->reject(fn ($r) => isset($schon[(int) $r->id]))
+            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key, 'rec_person_id' => $r->rec_person_id === null ? null : (int) $r->rec_person_id])
+            ->values()
+            ->all();
     }
 
     /**

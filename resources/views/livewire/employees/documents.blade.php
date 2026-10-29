@@ -253,7 +253,9 @@
                                 <input type="checkbox" wire:click="toggle({{ $k['id'] }})" @checked($kAn)>
                                 <span class="flex-1">{{ $k['name'] }}</span>
                                 <span class="text-xs text-[var(--ui-muted)]">{{ $k['nummern'] }}</span>
-                                @if (!$k['hat_portal'])
+                                @if ($k['traeger_inaktiv'])
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">inaktiv</span>
+                                @elseif (!$k['hat_portal'])
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
                                 @endif
                             </label>
@@ -272,14 +274,16 @@
                         @endif
                     </div>
                     @if ($ohnePortal > 0)
-                        <div class="mb-1 px-1 text-xs text-amber-700">{{ $ohnePortal }} davon im alten Portal — bekommen keine WhatsApp</div>
+                        <div class="mb-1 px-1 text-xs text-amber-700">{{ $ohnePortal }} davon im alten Portal oder inaktiv — bekommen keine WhatsApp</div>
                     @endif
                     <div class="max-h-96 overflow-y-auto border border-[var(--ui-border)] rounded-md divide-y divide-[var(--ui-border)]/60">
                         @forelse ($auswahlZeilen as $w)
                             <div wire:key="auswahl-{{ $w['id'] }}" class="flex items-center gap-3 px-3 py-1.5 text-sm">
                                 <span class="flex-1">{{ $w['name'] }}</span>
                                 <span class="text-xs text-[var(--ui-muted)]" title="Läuft über diese Anstellung">{{ $w['traeger_nummer'] }}</span>
-                                @if (!$w['hat_portal'])
+                                @if ($w['traeger_inaktiv'])
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">inaktiv</span>
+                                @elseif (!$w['hat_portal'])
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
                                 @endif
                                 <button type="button" wire:click="entfernen({{ $w['id'] }})" class="text-[var(--ui-muted)] hover:text-red-700" title="Entfernen" aria-label="Entfernen">✕</button>
@@ -455,7 +459,7 @@
                 @if (!$whatsappHinweis)
                     <p>Ohne WhatsApp — das Dokument steht beim nächsten Öffnen im Portal.</p>
                 @elseif ($ohnePortal > 0)
-                    <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).</p>
+                    <p class="text-amber-700">{{ $ohnePortal }} davon im alten Portal oder inaktiv (keine WhatsApp).</p>
                 @endif
                 <p>Der Mitarbeiter soll: {{ $aktionLabel }}.</p>
             @endif

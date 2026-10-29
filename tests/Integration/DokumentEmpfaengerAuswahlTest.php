@@ -179,6 +179,20 @@ final class DokumentEmpfaengerAuswahlTest extends TestCase
         $this->assertSame([], $s->gewaehlteIds());
     }
 
+    /** Review 29.10.: "Alle Treffer" unter Firma MA uebernimmt die MA-Anstellung, auch wenn die Person vorher ueber RG gewaehlt war. */
+    public function test_alle_treffer_uebernimmt_die_wahl_des_filters(): void
+    {
+        $rg = $this->anstellung(['first_name' => 'Mia', 'company' => 'RG', 'rec_person_id' => 9]);
+        $ma = $this->anstellung(['first_name' => 'Mia', 'company' => 'MA', 'rec_person_id' => 9]);
+        $s = $this->seite();
+        $s->toggle((int) $rg->id);
+        $s->firma = 'MA';
+        $s->updated('firma');
+        $s->alleTrefferAn();
+
+        $this->assertSame([(int) $ma->id], $s->gewaehlteIds());
+    }
+
     public function test_alle_treffer_an_und_ab_betrifft_nur_die_sichtbaren_treffer(): void
     {
         $anna = $this->anstellung();
@@ -318,12 +332,12 @@ final class DokumentEmpfaengerAuswahlTest extends TestCase
         $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/documents.blade.php');
         $this->assertStringContainsString('<x-ui-modal wire:model="bestaetigungOffen"', $blade);
         $this->assertStringContainsString('„{{ $bestaetigungTitel }}“ an {{ $gewaehlt }} Personen bereitstellen?', $blade);
-        $this->assertStringContainsString('{{ $ohnePortal }} davon im alten Portal (keine WhatsApp).', $blade);
+        $this->assertStringContainsString('{{ $ohnePortal }} davon im alten Portal oder inaktiv (keine WhatsApp).', $blade);
         $this->assertStringContainsString('Der Mitarbeiter soll: {{ $aktionLabel }}.', $blade);
         $this->assertStringContainsString('wire:click="bereitstellen"', $blade);
         $this->assertStringContainsString("wire:click=\"\$set('bestaetigungOffen', false)\">Abbrechen", $blade);
         $this->assertStringContainsString('Alle Treffer auswählen', $blade);
         $this->assertStringContainsString('Auswahl leeren', $blade);
-        $this->assertStringContainsString('davon im alten Portal — bekommen keine WhatsApp', $blade);
+        $this->assertStringContainsString('davon im alten Portal oder inaktiv — bekommen keine WhatsApp', $blade);
     }
 }

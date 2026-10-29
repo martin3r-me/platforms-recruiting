@@ -171,7 +171,7 @@ class Documents extends Component
             : [...$this->auswahl(), $id]);
     }
 
-    /** "Alle Treffer auswaehlen" — gesperrt, solange die Liste abgeschnitten ist. Schon Gewaehlte behalten ihre Anstellung. */
+    /** "Alle Treffer auswaehlen" — gesperrt, solange die Liste abgeschnitten ist. */
     public function alleTrefferAn(): void
     {
         $g = $this->kandidatenMitGrenze();
@@ -180,9 +180,11 @@ class Documents extends Component
 
             return;
         }
-        $auswahl = $this->auswahl();
-        $neu = array_column(array_filter($g['treffer'], fn (array $t) => array_intersect($t['ids'], $auswahl) === []), 'id');
-        $this->auswahlSetzen([...$auswahl, ...$neu]);
+        // Die Wahl dieses Filters gewinnt (Review 29.10.): wer unter "Veranstaltung"
+        // alle anhakt, meint die dort eingebuchten Anstellungen, auch wenn die
+        // Person vorher ueber eine andere gewaehlt war.
+        $alleIds = array_merge([], ...array_column($g['treffer'], 'ids'));
+        $this->auswahlSetzen([...array_diff($this->auswahl(), $alleIds), ...array_column($g['treffer'], 'id')]);
     }
 
     /** Alle sichtbaren Treffer abwaehlen (ganze Personen); Auswahl aus frueheren Suchen bleibt. */
@@ -233,7 +235,7 @@ class Documents extends Component
      * Die angehakten Personen, frisch und team-geprueft (fremde/unbekannte ids
      * fallen weg). Anzeige UND Versand gehen hierueber.
      *
-     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}>
      */
     #[Computed]
     public function ausgewaehltZeilen(): array
@@ -241,13 +243,13 @@ class Documents extends Component
         return $this->gepruefteAuswahl();
     }
 
-    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}> */
     private function gepruefteAuswahl(): array
     {
         return DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), $this->auswahl());
     }
 
-    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}> */
     #[Computed]
     public function kandidaten(): array
     {

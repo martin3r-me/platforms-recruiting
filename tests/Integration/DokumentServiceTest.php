@@ -226,6 +226,29 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame([$rg->id], RecDocumentRecipient::pluck('rec_employee_id')->map(fn ($v) => (int) $v)->all());
     }
 
+    /** Review 29.10.: Schluessel gehoert zwei Personen; die ungebundene Anstellung ist ein eigener Mensch und faellt nicht weg. */
+    public function test_geteilter_schluessel_verschluckt_keinen_empfaenger(): void
+    {
+        $a = $this->ma(['person_key' => 'K', 'rec_person_id' => 1]);
+        $this->ma(['person_key' => 'K', 'rec_person_id' => 2]);
+        $u = $this->ma(['person_key' => 'K']);
+
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$a->id, $u->id], null);
+
+        $this->assertSame(2, $r['empfaenger']);
+    }
+
+    /** Die von HR gewaehlte Anstellung traegt, auch wenn ein Geschwister die kleinere id hat. */
+    public function test_gewaehlte_anstellung_traegt(): void
+    {
+        $this->ma(['rec_person_id' => 4, 'company' => 'RG']);
+        $ma = $this->ma(['rec_person_id' => 4, 'company' => 'MA']);
+
+        $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$ma->id], null);
+
+        $this->assertSame([$ma->id], RecDocumentRecipient::pluck('rec_employee_id')->map(fn ($v) => (int) $v)->all());
+    }
+
     public function test_fremdes_team_wird_stumm_uebersprungen(): void
     {
         $eigen = $this->ma();

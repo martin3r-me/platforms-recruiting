@@ -23,7 +23,7 @@ final class DokumentEmpfaengerSuche
 
     /**
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}>
      */
     public static function finde(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -35,7 +35,7 @@ final class DokumentEmpfaengerSuche
      * darf eine Liste nie stillschweigend abschneiden und dann "an alle" senden.
      *
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return array{treffer: list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>, abgeschnitten: bool}
+     * @return array{treffer: list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}>, abgeschnitten: bool}
      */
     public static function findeMitGrenze(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -95,7 +95,7 @@ final class DokumentEmpfaengerSuche
      * ids aus dem Browser ungeprueft weiterreichen.
      *
      * @param  list<int> $ids
-     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}>
      */
     public static function zeilenFuerIds(int $teamId, array $ids): array
     {
@@ -126,7 +126,7 @@ final class DokumentEmpfaengerSuche
      *
      * @param  list<object> $roh
      * @param  string $aktiv 'active' | 'inactive' | 'all' — welche Nummern die Zeile zeigt
-     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool, traeger_inaktiv:bool}>
      */
     private static function jePerson(int $teamId, array $roh, string $aktiv): array
     {
@@ -188,7 +188,9 @@ final class DokumentEmpfaengerSuche
                 'traeger_nummer' => trim((string) $traegerZeile->personnel_number) ?: '—',
                 'name'           => trim((string) $traegerZeile->first_name . ' ' . (string) $traegerZeile->last_name) ?: ('Mitarbeiter #' . $traegerZeile->id),
                 'nummern'        => $nummern === [] ? '—' : implode(' · ', $nummern),
-                'hat_portal'     => array_filter($teil, fn ($m) => $m->portal_v2_since !== null) !== [],
+                // Wie DokumentHinweisSender::sende(): nur die TRAGENDE Anstellung zaehlt (Review 29.10.).
+                'hat_portal'     => $traegerZeile->portal_v2_since !== null && (bool) $traegerZeile->is_active,
+                'traeger_inaktiv' => !$traegerZeile->is_active,
             ];
         }
 

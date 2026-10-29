@@ -108,6 +108,23 @@ final class DokumentEmpfaengerSucheTest extends TestCase
         $this->assertSame('MA143424', DokumentEmpfaengerSuche::zeilenFuerIds(3, [$ma->id])[0]['traeger_nummer']);
     }
 
+    /** Review 29.10.: "altes Portal"/inaktiv richtet sich nach der TRAGENDEN Anstellung, wie der Versand. */
+    public function test_portal_flag_folgt_der_tragenden_anstellung(): void
+    {
+        $this->anstellung(['first_name' => 'Ida', 'company' => 'RG', 'personnel_number' => 'RG3', 'rec_person_id' => 12]);
+        $this->anstellung(['first_name' => 'Ida', 'company' => 'MA', 'personnel_number' => 'MA3', 'rec_person_id' => 12, 'portal_v2_since' => null]);
+
+        $this->assertTrue(DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Ida']))[0]['hat_portal']);
+        $ma = DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Ida', 'firma' => 'MA']))[0];
+        $this->assertSame('MA3', $ma['traeger_nummer']);
+        $this->assertFalse($ma['hat_portal'], 'MA traegt und ist im alten Portal → keine WhatsApp');
+
+        $this->anstellung(['first_name' => 'Ole', 'company' => 'RG', 'personnel_number' => 'RG4', 'rec_person_id' => 13, 'is_active' => false]);
+        $ole = DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Ole', 'aktiv' => 'all']))[0];
+        $this->assertTrue($ole['traeger_inaktiv']);
+        $this->assertFalse($ole['hat_portal']);
+    }
+
     public function test_taetigkeit_filtert_ueber_den_zas_katalog(): void
     {
         $a = $this->anstellung(['first_name' => 'Anna', 'last_name' => 'A']);
