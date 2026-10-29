@@ -966,6 +966,28 @@ class PortalShell extends Component
      *
      * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
      */
+    /**
+     * Was zu dieser Nachweisart schon hinterlegt ist (Portal-Feinschliff
+     * 29.10.2026): das Blatt sagte vorher nichts, „Liegt vor“ wirkte wie ein
+     * leeres Formular. Nur Datum und Gueltigkeit, keine Datei — die Vorschau
+     * braucht einen eigenen, abgesicherten Abruf (spaeter).
+     *
+     * @return ?array{am:string, bis:?string}
+     */
+    private function hinterlegt(RecEmployee $employee, string $code): ?array
+    {
+        $proof = app(ProofReader::class)->current($employee)
+            ->first(fn ($p) => $p->proof_type_code === $code);
+        if ($proof === null) {
+            return null;
+        }
+
+        return [
+            'am'  => $proof->created_at?->format('d.m.Y') ?? '',
+            'bis' => $proof->valid_until?->format('d.m.Y'),
+        ];
+    }
+
     /** „01.11.2026 – 31.10.2027“ aus den Vertragsfeldern, sonst null (lieber leer als falsch). */
     private static function vertragsZeitraum(RecContract $c): ?string
     {
@@ -1114,6 +1136,7 @@ class PortalShell extends Component
             'pflichtAufgaben'   => $pflichtAufgaben,
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
+            'uploadHinterlegt'  => $employee !== null && $this->uploadCode !== null ? $this->hinterlegt($employee, $this->uploadCode) : null,
             'uploadHatAblauf'   => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
             // Zwei Altspalten = Vorder- und Rueckseite. Der Katalog ist die
             // einzige Stelle, die das weiss — keine zweite Liste hier.

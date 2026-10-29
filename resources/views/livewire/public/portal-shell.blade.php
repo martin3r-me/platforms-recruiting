@@ -927,6 +927,19 @@
                         </div>
                         <p class="upload-sub">{{ $uploadEinleitung }}</p>
 
+                        {{-- Was schon da ist (Portal-Feinschliff 29.10.2026); ein neues Hochladen ersetzt es. --}}
+                        @if ($uploadHinterlegt !== null)
+                            @php
+                                $hinterlegtText = 'Hinterlegt: hochgeladen am ' . $uploadHinterlegt['am']
+                                    . ($uploadHinterlegt['bis'] !== null ? ' · gültig bis ' . $uploadHinterlegt['bis'] : '')
+                                    . '. ' . ($duzen ? 'Lädst du neu hoch, ersetzt das den alten Nachweis.' : 'Laden Sie neu hoch, ersetzt das den alten Nachweis.');
+                            @endphp
+                            <div class="alert ok">
+                                <span class="dot ok" style="margin-top:6px"></span>
+                                <div class="txt">{{ $hinterlegtText }}</div>
+                            </div>
+                        @endif
+
                         @if ($uploadHatAblauf)
                             <label class="feld">
                                 <span class="n">Gültig bis</span>

@@ -230,6 +230,38 @@ final class PortalShellUploadTest extends TestCase
         $this->assertSame('', $shell->nachweisMeldung);
     }
 
+    /** Portal-Feinschliff 29.10.: das Blatt sagt, was schon hinterlegt ist — sonst wirkt „Liegt vor“ wie ein leeres Formular. */
+    public function test_blatt_nennt_was_hinterlegt_ist(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        $shell = $this->shell($ma);
+
+        $shell->oeffneUpload('ausweis');
+        $this->assertNull($this->hinterlegt($shell, $ma, 'ausweis'), 'noch nichts da');
+
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('ausweis.jpg');
+        $shell->speichereNachweis();
+
+        $shell->oeffneUpload('ausweis');
+        $hinterlegt = $this->hinterlegt($shell, $ma, 'ausweis');
+        $this->assertSame(now()->format('d.m.Y'), $hinterlegt['am']);
+        $this->assertSame('31.01.2032', $hinterlegt['bis']);
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
+        $this->assertStringContainsString('@if ($uploadHinterlegt !== null)', $blade);
+        $php = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Public/PortalShell.php');
+        $this->assertStringContainsString("'uploadHinterlegt'  => \$employee !== null && \$this->uploadCode !== null ? \$this->hinterlegt(\$employee, \$this->uploadCode) : null", $php);
+    }
+
+    private function hinterlegt(\Platform\Recruiting\Livewire\Public\PortalShell $shell, $ma, string $code): ?array
+    {
+        $m = new \ReflectionMethod($shell, 'hinterlegt');
+        $m->setAccessible(true);
+
+        return $m->invoke($shell, $ma->fresh(), $code);
+    }
+
     public function test_fehlgeschlagener_upload_bestaetigt_nichts(): void
     {
         $ma = $this->angemeldeterMitarbeiter();
