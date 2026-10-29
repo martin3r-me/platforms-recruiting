@@ -265,6 +265,13 @@
         .portal-body .card.kachel p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.5 }
         .portal-body .card.kachel p.klein { color: var(--ink-3); font-size: 13px }
         .portal-body a.btn { text-decoration: none }
+        /* Sichttest 29.10.2026 (hell/dunkel, Handy):
+           - .kicker (spaeter in der Vorlage) faerbte die Kasten-Ueberschrift
+             dunkeltuerkis auf dunkeltuerkis — im hellen Modus unlesbar.
+           - <button class="mini"> erbt keine Schriftfarbe (Browser-Vorgabe
+             schwarz) — im dunklen Modus schwarz auf dunkel. */
+        .portal-body .next .kicker { color: var(--brand-light); opacity: 1 }
+        .portal-body .mini:not(.primary) { color: var(--ink) }
         /* Alpine: nichts aufblitzen lassen, bevor x-show entschieden hat (Startbildschirm-Hinweis). */
         [x-cloak] { display: none !important }
         /* Einklappbare Bereiche in "Dokumente & Infos" (Portal-Feinschliff 29.10.2026). */

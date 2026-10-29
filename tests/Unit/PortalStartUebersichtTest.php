@@ -61,5 +61,8 @@ class PortalStartUebersichtTest extends TestCase
         $css = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
         $this->assertStringContainsString('.portal-body .card.kachel', $css);
         $this->assertStringContainsString('.portal-body a.btn', $css);
+        // Sichttest hell/dunkel: Kasten-Ueberschrift lesbar, Mini-Knoepfe mit eigener Schriftfarbe.
+        $this->assertStringContainsString('.portal-body .next .kicker { color: var(--brand-light)', $css);
+        $this->assertStringContainsString('.portal-body .mini:not(.primary) { color: var(--ink) }', $css);
     }
 }
