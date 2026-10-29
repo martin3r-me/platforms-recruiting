@@ -48,6 +48,44 @@ final class DokumentEmpfaengerSucheTest extends TestCase
         $this->assertSame(['Anna Zwei'], array_column(DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'zwei'])), 'name'));
     }
 
+    /** 29.10.: ein Mensch mit drei Anstellungen ist EINE Zeile mit allen Nummern; getragen von der gebundenen. */
+    public function test_eine_zeile_je_person_mit_allen_nummern(): void
+    {
+        $rg = $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Domes', 'company' => 'RG', 'personnel_number' => 'RG14280', 'rec_person_id' => 5]);
+        $ma1 = $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Domes', 'company' => 'MA', 'personnel_number' => 'MA14912', 'rec_person_id' => 5]);
+        $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Domes', 'company' => 'MA', 'personnel_number' => 'MA18696', 'rec_person_id' => 5]);
+        $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Setzkorn', 'company' => 'RG', 'personnel_number' => 'RG9894']);
+
+        $treffer = DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'clara']));
+        $this->assertSame(['Clara Domes', 'Clara Setzkorn'], array_column($treffer, 'name'));
+        $this->assertSame($rg->id, $treffer[0]['id'], 'Traeger: kleinste gebundene Anstellung');
+        $this->assertSame('RG14280 · MA14912 · MA18696', $treffer[0]['nummern']);
+        $this->assertSame('RG9894', $treffer[1]['nummern']);
+
+        // Firma MA trifft die Person ueber eine ihrer Anstellungen — mit allen Nummern, eine Zeile.
+        $ma = DokumentEmpfaengerSuche::finde(3, $this->filter(['firma' => 'MA']));
+        $this->assertCount(1, $ma);
+        $this->assertSame($rg->id, $ma[0]['id']);
+
+        // Die Auswahl, egal ueber welche Anstellung angehakt, ist dieselbe eine Zeile.
+        $auswahl = DokumentEmpfaengerSuche::zeilenFuerIds(3, [$ma1->id, $rg->id]);
+        $this->assertCount(1, $auswahl);
+        $this->assertSame($rg->id, $auswahl[0]['id']);
+    }
+
+    /** Treffer- und Auswahlliste tragen dieselbe id, auch wenn eine inaktive Anstellung die kleinere id hat. */
+    public function test_traeger_ist_unabhaengig_vom_filter(): void
+    {
+        $alt = $this->anstellung(['first_name' => 'Eva', 'last_name' => 'Alt', 'company' => 'RG', 'personnel_number' => 'RG1', 'rec_person_id' => 6, 'is_active' => false]);
+        $neu = $this->anstellung(['first_name' => 'Eva', 'last_name' => 'Alt', 'company' => 'MA', 'personnel_number' => 'MA2', 'rec_person_id' => 6]);
+
+        $treffer = DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Eva']));
+        $this->assertSame($neu->id, $treffer[0]['id'], 'aktive gebundene vor inaktiver');
+        $this->assertSame('MA2', $treffer[0]['nummern'], 'aktiv-Filter: nur aktive Nummern');
+        $this->assertSame($neu->id, DokumentEmpfaengerSuche::zeilenFuerIds(3, [$alt->id])[0]['id']);
+        $this->assertSame('RG1 · MA2', DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Eva', 'aktiv' => 'all']))[0]['nummern']);
+    }
+
     public function test_taetigkeit_filtert_ueber_den_zas_katalog(): void
     {
         $a = $this->anstellung(['first_name' => 'Anna', 'last_name' => 'A']);

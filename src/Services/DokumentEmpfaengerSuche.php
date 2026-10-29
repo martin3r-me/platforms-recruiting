@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services;
 
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
+use Platform\Recruiting\Support\EmpfaengerEntdoppler;
 
 /**
  * Kandidaten fuer den Empfaengerwaehler der Seite Dokumente (Spec §3.4).
@@ -22,7 +23,7 @@ final class DokumentEmpfaengerSuche
 
     /**
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
      */
     public static function finde(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -34,7 +35,7 @@ final class DokumentEmpfaengerSuche
      * darf eine Liste nie stillschweigend abschneiden und dann "an alle" senden.
      *
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return array{treffer: list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>, abgeschnitten: bool}
+     * @return array{treffer: list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>, abgeschnitten: bool}
      */
     public static function findeMitGrenze(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -76,14 +77,14 @@ final class DokumentEmpfaengerSuche
             $q->whereIn('id', EingebuchteFuerDokument::ids((int) $eventId));
         }
 
-        $zeilen = $q->orderBy('last_name')->orderBy('first_name')->limit($limit + 1)
+        $roh = $q->orderBy('last_name')->orderBy('first_name')->orderBy('id')->limit($limit + 1)
             ->get(self::SPALTEN)
-            ->map(fn ($r) => self::zeile($r))
             ->all();
 
-        $abgeschnitten = count($zeilen) > $limit;
+        $abgeschnitten = count($roh) > $limit;
+        $roh = array_slice($roh, 0, $limit);
 
-        return ['treffer' => array_slice($zeilen, 0, $limit), 'abgeschnitten' => $abgeschnitten];
+        return ['treffer' => self::jePerson($teamId, $roh, $aktiv), 'abgeschnitten' => $abgeschnitten];
     }
 
     /**
@@ -94,7 +95,7 @@ final class DokumentEmpfaengerSuche
      * ids aus dem Browser ungeprueft weiterreichen.
      *
      * @param  list<int> $ids
-     * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
      */
     public static function zeilenFuerIds(int $teamId, array $ids): array
     {
@@ -110,22 +111,102 @@ final class DokumentEmpfaengerSuche
         }
         usort($zeilen, fn ($a, $b) => [(string) $a->last_name, (string) $a->first_name, (int) $a->id] <=> [(string) $b->last_name, (string) $b->first_name, (int) $b->id]);
 
-        return array_map(fn ($r) => self::zeile($r), $zeilen);
+        return self::jePerson($teamId, $zeilen, 'all');
     }
 
-    private const SPALTEN = ['id', 'first_name', 'last_name', 'personnel_number', 'company', 'person_key', 'portal_v2_since'];
+    private const SPALTEN = ['id', 'first_name', 'last_name', 'personnel_number', 'company', 'person_key', 'rec_person_id', 'portal_v2_since', 'is_active'];
 
-    /** @return array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool} */
-    private static function zeile(object $r): array
+    /**
+     * Anstellungen → EINE Zeile je Mensch (29.10.2026): HR waehlt Menschen,
+     * nicht Anstellungen. Die Geschwister der Treffer werden nachgeladen,
+     * damit die Zeile alle Personalnummern zeigt und die Zustellung von
+     * derselben Anstellung getragen wird wie beim Bereitstellen
+     * (EmpfaengerEntdoppler: kleinste gebundene id). Reihenfolge = erste
+     * Nennung in $roh.
+     *
+     * @param  list<object> $roh
+     * @param  string $aktiv 'active' | 'inactive' | 'all' — welche Nummern die Zeile zeigt
+     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
+     */
+    private static function jePerson(int $teamId, array $roh, string $aktiv): array
     {
-        return [
-            'id'               => (int) $r->id,
-            'name'             => trim((string) $r->first_name . ' ' . (string) $r->last_name) ?: ('Mitarbeiter #' . $r->id),
-            'personnel_number' => $r->personnel_number,
-            'company'          => $r->company,
-            'person_key'       => $r->person_key,
-            'hat_portal'       => $r->portal_v2_since !== null,
-        ];
+        if ($roh === []) {
+            return [];
+        }
+        $alle = [];
+        foreach ($roh as $r) {
+            $alle[(int) $r->id] = $r;
+        }
+        $personen = array_values(array_unique(array_filter(array_map(fn ($r) => (int) $r->rec_person_id, $roh))));
+        $schluessel = array_values(array_unique(array_filter(array_map(fn ($r) => trim((string) $r->person_key), $roh))));
+        if ($personen !== [] || $schluessel !== []) {
+            $q = DB::table('rec_employees')->where('team_id', $teamId)
+                ->where(function ($w) use ($personen, $schluessel) {
+                    foreach (array_chunk($personen, 900) as $p) {
+                        $w->orWhereIn('rec_person_id', $p);
+                    }
+                    foreach (array_chunk($schluessel, 900) as $k) {
+                        $w->orWhereIn('person_key', $k);
+                    }
+                });
+            foreach ($q->get(self::SPALTEN) as $r) {
+                $alle[(int) $r->id] ??= $r;
+            }
+        }
+
+        $anstellungen = array_map(fn ($r) => [
+            'id' => (int) $r->id, 'person_key' => $r->person_key, 'rec_person_id' => $r->rec_person_id === null ? null : (int) $r->rec_person_id,
+        ], array_values($alle));
+        $gruppe = EmpfaengerEntdoppler::gruppen($anstellungen);
+
+        $mitglieder = [];
+        foreach ($alle as $id => $r) {
+            $mitglieder[$gruppe[$id]][] = $r;
+        }
+
+        $out = [];
+        foreach ($roh as $r) {
+            $g = $gruppe[(int) $r->id];
+            if (isset($out[$g])) {
+                continue;
+            }
+            $traegerZeile = self::traeger($mitglieder[$g]);
+            // Angezeigt werden die Nummern, die zum Statusfilter passen; getragen wird immer gleich.
+            $teil = array_values(array_filter($mitglieder[$g], fn ($m) => match ($aktiv) {
+                'active'   => (bool) $m->is_active,
+                'inactive' => !$m->is_active,
+                default    => true,
+            }));
+            usort($teil, fn ($a, $b) => [strtoupper((string) $a->company) === 'RG' ? 0 : 1, (string) $a->personnel_number, (int) $a->id]
+                <=> [strtoupper((string) $b->company) === 'RG' ? 0 : 1, (string) $b->personnel_number, (int) $b->id]);
+            $nummern = array_values(array_filter(array_map(fn ($m) => trim((string) $m->personnel_number), $teil)));
+            $out[$g] = [
+                'id'         => (int) $traegerZeile->id,
+                'ids'        => array_map(fn ($m) => (int) $m->id, $teil),
+                'name'       => trim((string) $traegerZeile->first_name . ' ' . (string) $traegerZeile->last_name) ?: ('Mitarbeiter #' . $traegerZeile->id),
+                'nummern'    => $nummern === [] ? '—' : implode(' · ', $nummern),
+                'hat_portal' => array_filter($teil, fn ($m) => $m->portal_v2_since !== null) !== [],
+            ];
+        }
+
+        return array_values($out);
+    }
+
+    /**
+     * Traeger einer Personen-Gruppe, unabhaengig von Suche und Filter (sonst
+     * zeigten Treffer- und Auswahlliste verschiedene ids und der Haken stuende
+     * falsch): kleinste gebundene AKTIVE Anstellung, dann gebundene, dann
+     * aktive, dann irgendeine. Gebunden zuerst, weil nur deren Portal-Umfang
+     * die ganze Person sieht (EmpfaengerEntdoppler).
+     *
+     * @param list<object> $mitglieder
+     */
+    private static function traeger(array $mitglieder): object
+    {
+        usort($mitglieder, fn ($a, $b) => [$a->rec_person_id === null ? 1 : 0, $a->is_active ? 0 : 1, (int) $a->id]
+            <=> [$b->rec_person_id === null ? 1 : 0, $b->is_active ? 0 : 1, (int) $b->id]);
+
+        return $mitglieder[0];
     }
 
     /** @return list<string> der ganze ZAS-Katalog, natuerlich sortiert */

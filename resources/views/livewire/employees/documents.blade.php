@@ -237,7 +237,7 @@
                             <input type="checkbox" data-test="alle-treffer" wire:click="{{ $kopfAktion }}" x-init="$el.indeterminate = {{ $kopfTeilweiseJs }}" @checked($alleTrefferGewaehlt) @disabled($kopfGesperrt)>
                             Alle Treffer auswählen
                         </label>
-                        <span class="text-xs text-[var(--ui-muted)]">{{ count($kandidaten) }} Treffer · {{ $trefferGewaehlt }} davon ausgewählt</span>
+                        <span class="text-xs text-[var(--ui-muted)]">{{ count($kandidaten) }} {{ count($kandidaten) === 1 ? 'Person' : 'Personen' }} · {{ $trefferGewaehlt }} davon ausgewählt</span>
                     </div>
                     @if ($abgeschnitten)
                         <div class="mb-1 px-1 text-xs font-medium text-red-700">Mehr als {{ \Platform\Recruiting\Services\DokumentEmpfaengerSuche::LIMIT }} Treffer, nur die ersten werden gezeigt — „Alle Treffer“ geht erst nach dem Eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).</div>
@@ -251,7 +251,7 @@
                             <label wire:key="{{ $kSchluessel }}" class="flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--ui-muted-5)]">
                                 <input type="checkbox" wire:click="toggle({{ $k['id'] }})" @checked($kAn)>
                                 <span class="flex-1">{{ $k['name'] }}</span>
-                                <span class="text-xs text-[var(--ui-muted)]">{{ $k['personnel_number'] ?? '—' }} · {{ $k['company'] ?? '—' }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $k['nummern'] }}</span>
                                 @if (!$k['hat_portal'])
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
                                 @endif
@@ -277,7 +277,7 @@
                         @forelse ($auswahlZeilen as $w)
                             <div wire:key="auswahl-{{ $w['id'] }}" class="flex items-center gap-3 px-3 py-1.5 text-sm">
                                 <span class="flex-1">{{ $w['name'] }}</span>
-                                <span class="text-xs text-[var(--ui-muted)]">{{ $w['personnel_number'] ?? '—' }} · {{ $w['company'] ?? '—' }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $w['nummern'] }}</span>
                                 @if (!$w['hat_portal'])
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
                                 @endif

@@ -157,7 +157,7 @@ class Documents extends Component
         }
     }
 
-    /** Haken an einer Person setzen oder entfernen. */
+    /** Haken an einer Person setzen oder entfernen ($id = Traeger aus der Trefferliste). */
     public function toggle(int $id): void
     {
         $this->auswahlSetzen(in_array($id, $this->auswahl(), true)
@@ -206,7 +206,10 @@ class Documents extends Component
         foreach ($ids as $id) {
             $liste[] = (int) $id;
         }
-        $this->ausgewaehlt = array_values(array_unique(array_filter($liste, fn (int $id) => $id > 0)));
+        $liste = array_values(array_unique(array_filter($liste, fn (int $id) => $id > 0)));
+        // Je Mensch EINE id, die seines Traegers (29.10.2026): egal ueber welche
+        // Anstellung angehakt wurde, Haken, Entfernen und Versand treffen die ganze Person.
+        $this->ausgewaehlt = $liste === [] ? [] : array_column(DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), $liste), 'id');
         $this->bestaetigungOffen = false;
         unset($this->ausgewaehltZeilen);
     }
@@ -215,7 +218,7 @@ class Documents extends Component
      * Die angehakten Personen, frisch und team-geprueft (fremde/unbekannte ids
      * fallen weg). Anzeige UND Versand gehen hierueber.
      *
-     * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
      */
     #[Computed]
     public function ausgewaehltZeilen(): array
@@ -223,13 +226,13 @@ class Documents extends Component
         return $this->gepruefteAuswahl();
     }
 
-    /** @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}> */
     private function gepruefteAuswahl(): array
     {
         return DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), $this->auswahl());
     }
 
-    /** @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}> */
     #[Computed]
     public function kandidaten(): array
     {

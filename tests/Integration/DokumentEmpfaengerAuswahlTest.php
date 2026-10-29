@@ -137,6 +137,25 @@ final class DokumentEmpfaengerAuswahlTest extends TestCase
         $this->assertSame([(int) $a->id], $s->gewaehlteIds());
     }
 
+    /** 29.10.: ein Mensch mit RG und MA ist ein Haken; Anhaken ueber die zweite Anstellung landet beim Traeger. */
+    public function test_ein_mensch_ist_ein_haken(): void
+    {
+        $rg = $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Domes', 'company' => 'RG', 'personnel_number' => 'RG1', 'rec_person_id' => 5]);
+        $ma = $this->anstellung(['first_name' => 'Clara', 'last_name' => 'Domes', 'company' => 'MA', 'personnel_number' => 'MA2', 'rec_person_id' => 5]);
+        $s = $this->seite();
+
+        $this->assertCount(1, $s->kandidaten());
+        $s->ausgewaehlt = [(int) $ma->id, (int) $rg->id];
+        $s->updated('ausgewaehlt');
+        $this->assertSame([(int) $rg->id], $s->gewaehlteIds());
+        $this->assertCount(1, $s->ausgewaehltZeilen());
+        $s->toggle((int) $rg->id);
+        $this->assertSame([], $s->gewaehlteIds(), 'Abhaken nimmt die ganze Person heraus');
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/documents.blade.php');
+        $this->assertStringContainsString("{{ \$k['nummern'] }}", $blade);
+    }
+
     public function test_alle_treffer_an_und_ab_betrifft_nur_die_sichtbaren_treffer(): void
     {
         $anna = $this->anstellung();
