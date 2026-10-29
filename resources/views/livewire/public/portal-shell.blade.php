@@ -963,11 +963,12 @@
                         <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
                     </span>Einsätze
                 </button>
-                <button class="tab" role="tab" type="button" @click="tab = 'docs'"
+                {{-- Unten kurz „Dokumente“: „Dokumente & Infos“ brach am Handy in drei Zeilen um (29.10.2026). --}}
+                <button class="tab" role="tab" type="button" @click="tab = 'docs'" aria-label="Dokumente & Infos"
                         :aria-selected="tab === 'docs'" :class="tab === 'docs' && 'on'">
                     <span class="ico">
                         <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
-                    </span>Dokumente <span class="amp">&amp;</span> Infos
+                    </span>Dokumente
                 </button>
                 <button class="tab" role="tab" type="button" @click="tab = 'me'"
                         :aria-selected="tab === 'me'" :class="tab === 'me' && 'on'">

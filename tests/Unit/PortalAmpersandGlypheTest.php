@@ -20,7 +20,8 @@ final class PortalAmpersandGlypheTest extends TestCase
     {
         $blade = $this->datei('livewire/public/portal-shell.blade.php');
 
-        $this->assertSame(3, substr_count($blade, 'Dokumente <span class="amp">&amp;</span> Infos'));
+        // Seitenleiste und Ueberschrift; die Reiterleiste unten sagt seit 29.10.2026 nur „Dokumente“ (brach sonst um).
+        $this->assertSame(2, substr_count($blade, 'Dokumente <span class="amp">&amp;</span> Infos'));
         $this->assertSame(0, substr_count($blade, 'Dokumente &amp; Infos'), 'keine Stelle vergessen');
     }
 

@@ -67,6 +67,8 @@
         }
         /* Fusszeile ueber der Heimtaste des iPhones freihalten. */
         .portal-body .tabbar { padding-bottom: calc(13px + env(safe-area-inset-bottom)) }
+        /* Reiter-Beschriftung einzeilig (29.10.2026). */
+        .portal-body .tab { white-space: nowrap; font-size: 11px }
 
         /* Solange Alpine noch nicht wach ist, ist kein Bereich markiert —
            dann zeigt der erste. Ohne das blitzt beim Laden eine leere Seite. */

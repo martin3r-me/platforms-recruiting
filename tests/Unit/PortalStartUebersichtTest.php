@@ -65,4 +65,16 @@ class PortalStartUebersichtTest extends TestCase
         $this->assertStringContainsString('.portal-body .next .kicker { color: var(--brand-light)', $css);
         $this->assertStringContainsString('.portal-body .mini:not(.primary) { color: var(--ink) }', $css);
     }
+
+    /** Sichttest 29.10.: „Dokumente & Infos“ brach in der Reiterleiste unten in drei Zeilen um. */
+    public function test_reiterleiste_unten_bricht_nicht_um(): void
+    {
+        $b = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
+        $leiste = substr($b, (int) strpos($b, '<button class="tab" role="tab"'));
+        $this->assertStringNotContainsString('</span>Dokumente <span class="amp">&amp;</span> Infos', $leiste, 'unten kurz: „Dokumente“');
+        $this->assertStringContainsString('aria-label="Dokumente & Infos"', $leiste, 'Vorleser bekommt den vollen Namen');
+
+        $css = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php');
+        $this->assertStringContainsString('.portal-body .tab { white-space: nowrap', $css);
+    }
 }
