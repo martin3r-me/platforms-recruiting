@@ -62,10 +62,11 @@ final class DokumentEmpfaengerSucheTest extends TestCase
         $this->assertSame('RG14280 · MA14912 · MA18696', $treffer[0]['nummern']);
         $this->assertSame('RG9894', $treffer[1]['nummern']);
 
-        // Firma MA trifft die Person ueber eine ihrer Anstellungen — mit allen Nummern, eine Zeile.
+        // Firma MA trifft die Person ueber eine ihrer Anstellungen — mit allen Nummern, eine Zeile, getragen von MA.
         $ma = DokumentEmpfaengerSuche::finde(3, $this->filter(['firma' => 'MA']));
         $this->assertCount(1, $ma);
-        $this->assertSame($rg->id, $ma[0]['id']);
+        $this->assertSame($ma1->id, $ma[0]['id']);
+        $this->assertSame('RG14280 · MA14912 · MA18696', $ma[0]['nummern']);
 
         // Die Auswahl, egal ueber welche Anstellung angehakt, ist dieselbe eine Zeile.
         $auswahl = DokumentEmpfaengerSuche::zeilenFuerIds(3, [$ma1->id, $rg->id]);
@@ -73,7 +74,7 @@ final class DokumentEmpfaengerSucheTest extends TestCase
         $this->assertSame($rg->id, $auswahl[0]['id']);
     }
 
-    /** Treffer- und Auswahlliste tragen dieselbe id, auch wenn eine inaktive Anstellung die kleinere id hat. */
+    /** Ohne Filter traegt die aktive gebundene Anstellung, auch wenn eine inaktive die kleinere id hat. */
     public function test_traeger_ist_unabhaengig_vom_filter(): void
     {
         $alt = $this->anstellung(['first_name' => 'Eva', 'last_name' => 'Alt', 'company' => 'RG', 'personnel_number' => 'RG1', 'rec_person_id' => 6, 'is_active' => false]);
@@ -82,8 +83,29 @@ final class DokumentEmpfaengerSucheTest extends TestCase
         $treffer = DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Eva']));
         $this->assertSame($neu->id, $treffer[0]['id'], 'aktive gebundene vor inaktiver');
         $this->assertSame('MA2', $treffer[0]['nummern'], 'aktiv-Filter: nur aktive Nummern');
-        $this->assertSame($neu->id, DokumentEmpfaengerSuche::zeilenFuerIds(3, [$alt->id])[0]['id']);
+        $this->assertSame($alt->id, DokumentEmpfaengerSuche::zeilenFuerIds(3, [$alt->id])[0]['id'], 'die gewaehlte Anstellung bleibt');
         $this->assertSame('RG1 · MA2', DokumentEmpfaengerSuche::finde(3, $this->filter(['suche' => 'Eva', 'aktiv' => 'all']))[0]['nummern']);
+    }
+
+    /** Sebastian 29.10.: als MA eingebucht → die MA-Anstellung traegt (Unterschrift gehoert zu dieser Anstellung). */
+    public function test_filter_bestimmt_die_tragende_anstellung(): void
+    {
+        $rg = $this->anstellung(['first_name' => 'Mia', 'last_name' => 'Zwei', 'company' => 'RG', 'personnel_number' => 'RG7', 'rec_person_id' => 9]);
+        $ma = $this->anstellung(['first_name' => 'Mia', 'last_name' => 'Zwei', 'company' => 'MA', 'personnel_number' => 'MA143424', 'rec_person_id' => 9]);
+        $eventId = DB::table('rec_dispo_events')->insertGetId(['uuid' => 'ev-m', 'einsatz_ref' => 'E-M', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('rec_dispo_assignments')->insert(['uuid' => 'as-m', 'ds_ref' => 'DS-M', 'rec_dispo_event_id' => $eventId, 'rec_employee_id' => $ma->id, 'pnr_raw' => 'MA143424', 'datum' => '2026-12-31', 'status_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        $ev = DokumentEmpfaengerSuche::finde(3, $this->filter(['event_id' => $eventId]));
+        $this->assertSame($ma->id, $ev[0]['id'], 'eingebuchte Anstellung traegt');
+        $this->assertSame('MA143424', $ev[0]['traeger_nummer']);
+        $this->assertSame('RG7 · MA143424', $ev[0]['nummern']);
+
+        $this->assertSame($ma->id, DokumentEmpfaengerSuche::finde(3, $this->filter(['firma' => 'MA']))[0]['id']);
+        $this->assertSame($rg->id, DokumentEmpfaengerSuche::finde(3, $this->filter())[0]['id'], 'ohne Filter: Standardregel');
+
+        // Die Auswahl behaelt die gewaehlte Anstellung.
+        $this->assertSame($ma->id, DokumentEmpfaengerSuche::zeilenFuerIds(3, [$ma->id])[0]['id']);
+        $this->assertSame('MA143424', DokumentEmpfaengerSuche::zeilenFuerIds(3, [$ma->id])[0]['traeger_nummer']);
     }
 
     public function test_taetigkeit_filtert_ueber_den_zas_katalog(): void

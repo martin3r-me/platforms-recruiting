@@ -156,6 +156,29 @@ final class DokumentEmpfaengerAuswahlTest extends TestCase
         $this->assertStringContainsString("{{ \$k['nummern'] }}", $blade);
     }
 
+    /** Unter „Firma: MA“ angehakt → bleibt die MA-Anstellung, auch nach dem Filterwechsel; der Haken steht trotzdem. */
+    public function test_gewaehlte_anstellung_bleibt_ueber_filterwechsel(): void
+    {
+        $rg = $this->anstellung(['first_name' => 'Mia', 'company' => 'RG', 'personnel_number' => 'RG7', 'rec_person_id' => 9]);
+        $ma = $this->anstellung(['first_name' => 'Mia', 'company' => 'MA', 'personnel_number' => 'MA143424', 'rec_person_id' => 9]);
+        $s = $this->seite();
+        $s->firma = 'MA';
+        $s->updated('firma');
+        $s->toggle((int) $s->kandidaten()[0]['id']);
+        $this->assertSame([(int) $ma->id], $s->gewaehlteIds());
+
+        $s->firma = '';
+        $s->updated('firma');
+        $this->assertSame([(int) $ma->id], $s->gewaehlteIds(), 'Filterwechsel aendert die Wahl nicht');
+        $this->assertSame((int) $rg->id, $s->kandidaten()[0]['id']);
+        $s->toggle((int) $rg->id);
+        $this->assertSame([], $s->gewaehlteIds(), 'Haken ueber die andere Anstellung nimmt die Person heraus');
+
+        $s->toggle((int) $rg->id);
+        $s->entfernen((int) $rg->id);
+        $this->assertSame([], $s->gewaehlteIds());
+    }
+
     public function test_alle_treffer_an_und_ab_betrifft_nur_die_sichtbaren_treffer(): void
     {
         $anna = $this->anstellung();

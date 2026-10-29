@@ -157,15 +157,21 @@ class Documents extends Component
         }
     }
 
-    /** Haken an einer Person setzen oder entfernen ($id = Traeger aus der Trefferliste). */
+    /**
+     * Haken an einer Person setzen oder entfernen. $id ist die Anstellung,
+     * die der Filter gerade zeigt — sie traegt dann die Zustellung. Ist die
+     * Person schon ueber eine andere Anstellung gewaehlt, nimmt der Klick sie
+     * heraus (ein Mensch, ein Haken).
+     */
     public function toggle(int $id): void
     {
-        $this->auswahlSetzen(in_array($id, $this->auswahl(), true)
-            ? array_diff($this->auswahl(), [$id])
+        $person = $this->personIds($id);
+        $this->auswahlSetzen(array_intersect($person, $this->auswahl()) !== []
+            ? array_diff($this->auswahl(), $person)
             : [...$this->auswahl(), $id]);
     }
 
-    /** "Alle Treffer auswaehlen" — gesperrt, solange die Liste abgeschnitten ist. */
+    /** "Alle Treffer auswaehlen" — gesperrt, solange die Liste abgeschnitten ist. Schon Gewaehlte behalten ihre Anstellung. */
     public function alleTrefferAn(): void
     {
         $g = $this->kandidatenMitGrenze();
@@ -174,18 +180,27 @@ class Documents extends Component
 
             return;
         }
-        $this->auswahlSetzen([...$this->auswahl(), ...array_column($g['treffer'], 'id')]);
+        $auswahl = $this->auswahl();
+        $neu = array_column(array_filter($g['treffer'], fn (array $t) => array_intersect($t['ids'], $auswahl) === []), 'id');
+        $this->auswahlSetzen([...$auswahl, ...$neu]);
     }
 
-    /** Alle sichtbaren Treffer abwaehlen; Auswahl aus frueheren Suchen bleibt. */
+    /** Alle sichtbaren Treffer abwaehlen (ganze Personen); Auswahl aus frueheren Suchen bleibt. */
     public function alleTrefferAb(): void
     {
-        $this->auswahlSetzen(array_diff($this->auswahl(), array_column($this->kandidatenMitGrenze()['treffer'], 'id')));
+        $ids = array_merge([], ...array_column($this->kandidatenMitGrenze()['treffer'], 'ids'));
+        $this->auswahlSetzen(array_diff($this->auswahl(), $ids));
     }
 
     public function entfernen(int $id): void
     {
-        $this->auswahlSetzen(array_diff($this->auswahl(), [$id]));
+        $this->auswahlSetzen(array_diff($this->auswahl(), $this->personIds($id)));
+    }
+
+    /** @return list<int> alle Anstellungen des Menschen hinter $id (mindestens $id selbst) */
+    private function personIds(int $id): array
+    {
+        return DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), [$id])[0]['ids'] ?? [$id];
     }
 
     public function auswahlLeeren(): void
@@ -218,7 +233,7 @@ class Documents extends Component
      * Die angehakten Personen, frisch und team-geprueft (fremde/unbekannte ids
      * fallen weg). Anzeige UND Versand gehen hierueber.
      *
-     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
      */
     #[Computed]
     public function ausgewaehltZeilen(): array
@@ -226,13 +241,13 @@ class Documents extends Component
         return $this->gepruefteAuswahl();
     }
 
-    /** @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}> */
     private function gepruefteAuswahl(): array
     {
         return DokumentEmpfaengerSuche::zeilenFuerIds($this->teamId(), $this->auswahl());
     }
 
-    /** @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}> */
+    /** @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}> */
     #[Computed]
     public function kandidaten(): array
     {

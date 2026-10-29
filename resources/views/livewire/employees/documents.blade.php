@@ -17,7 +17,8 @@
     // Nur wer im neuen Portal ist, bekommt die WhatsApp (Review Task 5, M2: zwei Aussagen statt "davon … ohne").
     $mitWhatsApp = max(0, $gewaehlt - $ohnePortal);
     $trefferIds = array_column($kandidaten, 'id');
-    $trefferGewaehlt = count(array_intersect($trefferIds, $auswahlIds));
+    // Je Mensch ein Haken: gewaehlt, wenn irgendeine seiner Anstellungen in der Auswahl steht.
+    $trefferGewaehlt = count(array_filter($kandidaten, fn ($k) => array_intersect($k['ids'], $auswahlIds) !== []));
     $alleTrefferGewaehlt = count($trefferIds) > 0 && $trefferGewaehlt === count($trefferIds);
     $kopfTeilweise = $trefferGewaehlt > 0 && !$alleTrefferGewaehlt;
     $kopfAktion = $alleTrefferGewaehlt ? 'alleTrefferAb' : 'alleTrefferAn';
@@ -245,7 +246,7 @@
                     <div class="max-h-96 overflow-y-auto border border-[var(--ui-border)] rounded-md divide-y divide-[var(--ui-border)]/60">
                         @forelse ($kandidaten as $k)
                             @php
-                                $kAn = in_array($k['id'], $auswahlIds, true);
+                                $kAn = array_intersect($k['ids'], $auswahlIds) !== [];
                                 $kSchluessel = 'treffer-' . $k['id'] . '-' . ($kAn ? 'an' : 'aus');
                             @endphp
                             <label wire:key="{{ $kSchluessel }}" class="flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--ui-muted-5)]">
@@ -277,7 +278,7 @@
                         @forelse ($auswahlZeilen as $w)
                             <div wire:key="auswahl-{{ $w['id'] }}" class="flex items-center gap-3 px-3 py-1.5 text-sm">
                                 <span class="flex-1">{{ $w['name'] }}</span>
-                                <span class="text-xs text-[var(--ui-muted)]">{{ $w['nummern'] }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]" title="Läuft über diese Anstellung">{{ $w['traeger_nummer'] }}</span>
                                 @if (!$w['hat_portal'])
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">altes Portal</span>
                                 @endif

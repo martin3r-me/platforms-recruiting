@@ -23,7 +23,7 @@ final class DokumentEmpfaengerSuche
 
     /**
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
      */
     public static function finde(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -35,7 +35,7 @@ final class DokumentEmpfaengerSuche
      * darf eine Liste nie stillschweigend abschneiden und dann "an alle" senden.
      *
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
-     * @return array{treffer: list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>, abgeschnitten: bool}
+     * @return array{treffer: list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>, abgeschnitten: bool}
      */
     public static function findeMitGrenze(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
@@ -95,7 +95,7 @@ final class DokumentEmpfaengerSuche
      * ids aus dem Browser ungeprueft weiterreichen.
      *
      * @param  list<int> $ids
-     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
      */
     public static function zeilenFuerIds(int $teamId, array $ids): array
     {
@@ -126,7 +126,7 @@ final class DokumentEmpfaengerSuche
      *
      * @param  list<object> $roh
      * @param  string $aktiv 'active' | 'inactive' | 'all' — welche Nummern die Zeile zeigt
-     * @return list<array{id:int, ids:list<int>, name:string, nummern:string, hat_portal:bool}>
+     * @return list<array{id:int, ids:list<int>, traeger_nummer:string, name:string, nummern:string, hat_portal:bool}>
      */
     private static function jePerson(int $teamId, array $roh, string $aktiv): array
     {
@@ -134,8 +134,10 @@ final class DokumentEmpfaengerSuche
             return [];
         }
         $alle = [];
+        $passend = [];   // die Anstellungen, die Suche/Filter (bzw. die Auswahl) selbst getroffen haben
         foreach ($roh as $r) {
             $alle[(int) $r->id] = $r;
+            $passend[(int) $r->id] = true;
         }
         $personen = array_values(array_unique(array_filter(array_map(fn ($r) => (int) $r->rec_person_id, $roh))));
         $schluessel = array_values(array_unique(array_filter(array_map(fn ($r) => trim((string) $r->person_key), $roh))));
@@ -170,7 +172,7 @@ final class DokumentEmpfaengerSuche
             if (isset($out[$g])) {
                 continue;
             }
-            $traegerZeile = self::traeger($mitglieder[$g]);
+            $traegerZeile = self::traeger($mitglieder[$g], $passend);
             // Angezeigt werden die Nummern, die zum Statusfilter passen; getragen wird immer gleich.
             $teil = array_values(array_filter($mitglieder[$g], fn ($m) => match ($aktiv) {
                 'active'   => (bool) $m->is_active,
@@ -181,11 +183,12 @@ final class DokumentEmpfaengerSuche
                 <=> [strtoupper((string) $b->company) === 'RG' ? 0 : 1, (string) $b->personnel_number, (int) $b->id]);
             $nummern = array_values(array_filter(array_map(fn ($m) => trim((string) $m->personnel_number), $teil)));
             $out[$g] = [
-                'id'         => (int) $traegerZeile->id,
-                'ids'        => array_map(fn ($m) => (int) $m->id, $teil),
-                'name'       => trim((string) $traegerZeile->first_name . ' ' . (string) $traegerZeile->last_name) ?: ('Mitarbeiter #' . $traegerZeile->id),
-                'nummern'    => $nummern === [] ? '—' : implode(' · ', $nummern),
-                'hat_portal' => array_filter($teil, fn ($m) => $m->portal_v2_since !== null) !== [],
+                'id'             => (int) $traegerZeile->id,
+                'ids'            => array_map(fn ($m) => (int) $m->id, $mitglieder[$g]),
+                'traeger_nummer' => trim((string) $traegerZeile->personnel_number) ?: '—',
+                'name'           => trim((string) $traegerZeile->first_name . ' ' . (string) $traegerZeile->last_name) ?: ('Mitarbeiter #' . $traegerZeile->id),
+                'nummern'        => $nummern === [] ? '—' : implode(' · ', $nummern),
+                'hat_portal'     => array_filter($teil, fn ($m) => $m->portal_v2_since !== null) !== [],
             ];
         }
 
@@ -193,18 +196,19 @@ final class DokumentEmpfaengerSuche
     }
 
     /**
-     * Traeger einer Personen-Gruppe, unabhaengig von Suche und Filter (sonst
-     * zeigten Treffer- und Auswahlliste verschiedene ids und der Haken stuende
-     * falsch): kleinste gebundene AKTIVE Anstellung, dann gebundene, dann
-     * aktive, dann irgendeine. Gebunden zuerst, weil nur deren Portal-Umfang
-     * die ganze Person sieht (EmpfaengerEntdoppler).
+     * Welche Anstellung traegt die Zustellung? Die, die der Filter getroffen
+     * hat — wer als MA143424 eingebucht ist, unterschreibt fuer die
+     * MA-Anstellung (Sebastian 29.10.2026); in der Auswahl ist das die
+     * angehakte. Davor nur: gebunden, denn nur deren Portal-Umfang sieht die
+     * ganze Person (EmpfaengerEntdoppler). Danach aktiv, dann kleinste id.
      *
      * @param list<object> $mitglieder
+     * @param array<int, true> $passend
      */
-    private static function traeger(array $mitglieder): object
+    private static function traeger(array $mitglieder, array $passend): object
     {
-        usort($mitglieder, fn ($a, $b) => [$a->rec_person_id === null ? 1 : 0, $a->is_active ? 0 : 1, (int) $a->id]
-            <=> [$b->rec_person_id === null ? 1 : 0, $b->is_active ? 0 : 1, (int) $b->id]);
+        $rang = fn ($m) => [$m->rec_person_id === null ? 1 : 0, isset($passend[(int) $m->id]) ? 0 : 1, $m->is_active ? 0 : 1, (int) $m->id];
+        usort($mitglieder, fn ($a, $b) => $rang($a) <=> $rang($b));
 
         return $mitglieder[0];
     }
