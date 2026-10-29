@@ -143,7 +143,11 @@
                 @endif
             </article>
         @empty
-            <div class="empty">Gerade gibt es keine offenen Einsätze für dich.</div>
+            @if ($anfrageId !== null)
+                <div class="empty">Für diese Anfrage gibt es gerade nichts mehr zu besetzen.</div>
+            @else
+                <div class="empty">Gerade gibt es keine offenen Einsätze für dich.</div>
+            @endif
         @endforelse
     @endif
 </div>

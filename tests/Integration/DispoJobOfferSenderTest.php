@@ -107,13 +107,14 @@ class DispoJobOfferSenderTest extends TestCase
     public function test_legt_angebote_an_und_sendet_name_und_token(): void
     {
         $templateId = $this->template('Hi {{name}}');
-        [, $wave, $shift] = $this->anfrageMitWelle();
+        [$request, $wave, $shift] = $this->anfrageMitWelle();
 
         $r = (new DispoJobOfferSender())->send($wave, [$this->recipient($shift->id)], $templateId);
 
         $this->assertSame(1, $r['sent']);
         $this->assertSame([['type' => 'text', 'parameter_name' => 'name', 'text' => 'Anna']], $this->stub->log[0]['components'][0]['parameters']);
-        $this->assertSame([['type' => 'text', 'text' => 'tok5']], $this->stub->log[0]['components'][1]['parameters']);
+        // Link-Suffix = Token + Anfrage (29.10.): die Seite zeigt nur diese Anfrage.
+        $this->assertSame([['type' => 'text', 'text' => 'tok5.' . $request->id]], $this->stub->log[0]['components'][1]['parameters']);
         $offer = RecDispoJobOffer::where('wave_id', $wave->id)->first();
         $this->assertSame(5, (int) $offer->anchor_employee_id);
         $this->assertNotNull($offer->sent_at);

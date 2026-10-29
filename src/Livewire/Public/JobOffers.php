@@ -19,6 +19,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZugang;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersAbsage;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersLink;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersTexte;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
@@ -43,6 +44,9 @@ class JobOffers extends Component
     public bool $tokenInvalid = false;
     #[Locked]
     public bool $portalLocked = false;
+    /** Anfrage aus dem Link („{token}.{anfrage}“, 29.10.): gesetzt → Seite zeigt nur diese Anfrage. Alte Links: null = alles. */
+    #[Locked]
+    public ?int $anfrageId = null;
 
     /** Rueckmeldung nach „Ich bin dabei“ (nur serverseitig gesetzt). */
     #[Locked]
@@ -57,7 +61,9 @@ class JobOffers extends Component
 
     public function mount(string $token): void
     {
-        $this->token = $token;
+        ['token' => $token, 'anfrage' => $anfrage] = JobOffersLink::lesen($token);
+        $this->token     = $token;
+        $this->anfrageId = $anfrage;
 
         $employee = RecEmployee::query()->where('portal_token', $token)->first();
         if (!$employee) {
@@ -92,12 +98,28 @@ class JobOffers extends Component
             return [];
         }
 
-        $offerShifts = RecDispoJobOfferShift::query()
+        $alle = RecDispoJobOfferShift::query()
             ->with(['offer', 'shift.event', 'shift.request'])
             ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $this->employeeIds))
             ->whereHas('shift', fn ($q) => $q->whereDate('datum', '>=', now()->toDateString()))
             ->whereHas('shift.request', fn ($q) => $q->where('status', RecDispoJobRequest::STATUS_LAEUFT)->whereNull('closed_at'))
             ->get();
+
+        // Einmal pro Tag (§6) gilt ueber ALLE Anfragen — auch wenn die Seite nur
+        // eine zeigt (29.10.): Zusage auf der Wochen-Seite sperrt den Tag auf der
+        // Dringend-Seite. Schwestern (gleicher Schluessel) ausgenommen.
+        $zugesagtTage = [];
+        $zugesagtSchluessel = [];
+        foreach ($alle as $os) {
+            if ($os->accepted_at !== null && $os->declined_at === null) {
+                $zugesagtTage[$os->shift->datum->toDateString()] = true;
+                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->taetigkeit)] = true;
+            }
+        }
+
+        $offerShifts = $this->anfrageId === null
+            ? $alle
+            : $alle->filter(fn ($os) => (int) $os->shift->request_id === $this->anfrageId)->values();
         if ($offerShifts->isEmpty()) {
             return [];
         }
@@ -125,15 +147,6 @@ class JobOffers extends Component
             ->selectRaw('shift_id, count(*) as n')->groupBy('shift_id')
             ->pluck('n', 'shift_id');
 
-        // Einmal pro Tag (§6): Tage mit eigener Zusage, Schwestern (gleicher Schluessel) ausgenommen.
-        $zugesagtTage = [];
-        $zugesagtSchluessel = [];
-        foreach ($offerShifts as $os) {
-            if ($os->accepted_at !== null && $os->declined_at === null) {
-                $zugesagtTage[$os->shift->datum->toDateString()] = true;
-                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->taetigkeit)] = true;
-            }
-        }
         // „Bitte antworte bis“ (§2.5): naechste wartende automatische Welle je Anfrage.
         $naechsteWelle = RecDispoJobWave::query()
             ->whereIn('request_id', $offerShifts->map(fn ($os) => (int) $os->shift->request_id)->unique()->all())

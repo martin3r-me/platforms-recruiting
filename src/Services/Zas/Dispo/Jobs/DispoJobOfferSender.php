@@ -80,7 +80,8 @@ class DispoJobOfferSender
                     'type'       => 'button',
                     'sub_type'   => 'url',
                     'index'      => 0,
-                    'parameters' => [['type' => 'text', 'text' => $r['portal_token']]],
+                    // Token + Anfrage: die Seite zeigt nur diese Anfrage (29.10.).
+                    'parameters' => [['type' => 'text', 'text' => JobOffersLink::suffix((string) $r['portal_token'], (int) $request->id)]],
                 ];
 
                 $message = $service->sendTemplate(
