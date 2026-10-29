@@ -130,4 +130,71 @@ class ZasDispoImportPlannerTest extends TestCase
         $plan = $this->planner->plan([], $dispo2, [], '2026-04-01');
         $this->assertSame('Neuer Name', $plan['events']['RG19063']['name']);
     }
+
+    // ----- Bedarfsliste (Spec 2026-10-29) -----
+
+    /** @return list<array<string,string>> */
+    private static function dispo2Zeile(array $o = []): array
+    {
+        return $o + [
+            'datum' => '14.09.2026', 'text' => 'Halle 18', 'einsatz_id' => 'RG19729',
+            'taetigkeit_von_bis' => 'Broich Cateringhilfe 08:30-16:45', 'anzahl' => '2', 'dispoposten_id' => '120988',
+            'projektbezeichnung' => 'Broich', 'filiale' => 'DUS', 'filial_nr' => '100',
+            'taetigk_id' => 'RG27', 'von' => '08:30', 'bis' => '16:45', 'ort' => '', 'einsatzfirma' => 'BHG',
+            'mitarbeiter_info' => '', 'status_id' => '1', 'taetigkeit' => 'Broich Cateringhilfe', 'interne_bem' => '', 'id_firma' => '1',
+        ];
+    }
+
+    public function test_bedarf_fasst_zeitvarianten_desselben_postens_zusammen(): void
+    {
+        $plan = $this->planner->plan([], [
+            self::dispo2Zeile(['von' => '08:45', 'bis' => '16:45']),
+            self::dispo2Zeile(['von' => '08:30', 'bis' => '16:45']),
+            self::dispo2Zeile(['von' => '08:30', 'bis' => '16:45']), // Dublette
+        ], [], '2026-09-01');
+
+        $this->assertCount(1, $plan['bedarfe']);
+        $b = $plan['bedarfe']['120988'];
+        $this->assertSame('120988', $b['dispoposten_id'], 'als Text im Eintrag — der Schluessel wird von PHP zu int');
+        $this->assertSame('RG19729', $b['einsatz_ref']);
+        $this->assertSame('2026-09-14', $b['datum']);
+        $this->assertSame('08:30', $b['von'], 'frueheste Variante');
+        $this->assertSame('16:45', $b['bis']);
+        $this->assertSame([['von' => '08:30', 'bis' => '16:45'], ['von' => '08:45', 'bis' => '16:45']], $b['zeiten']);
+        $this->assertSame('Broich Cateringhilfe', $b['taetigkeit']);
+        $this->assertSame('RG27', $b['taetigkeit_id']);
+        $this->assertSame(2, $b['anzahl'], 'Anzahl ist je Posten, nicht je Zeile');
+        $this->assertSame(1, $b['status_id']);
+    }
+
+    public function test_bedarf_zeilen_ohne_nummer_einsatz_oder_datum_werden_uebersprungen(): void
+    {
+        $plan = $this->planner->plan([], [
+            self::dispo2Zeile(['dispoposten_id' => '']),
+            self::dispo2Zeile(['dispoposten_id' => '1', 'einsatz_id' => '']),
+            self::dispo2Zeile(['dispoposten_id' => '2', 'datum' => 'kaputt']),
+            self::dispo2Zeile(['dispoposten_id' => '3']),
+        ], [], '2026-09-01');
+
+        $this->assertSame(['3'], array_map('strval', array_keys($plan['bedarfe'])));
+        $this->assertSame('3', $plan['bedarfe']['3']['dispoposten_id']);
+        $this->assertSame(3, $plan['stats']['skipped_bedarf_rows']);
+        // Die Kopfdaten der VA kommen trotzdem aus allen Zeilen mit Einsatz-ID.
+        $this->assertArrayHasKey('RG19729', $plan['events']);
+    }
+
+    public function test_bedarf_ohne_zeiten_und_mit_leerer_anzahl(): void
+    {
+        $plan = $this->planner->plan([], [
+            self::dispo2Zeile(['dispoposten_id' => '9', 'von' => '', 'bis' => '', 'anzahl' => '', 'taetigk_id' => '', 'status_id' => '']),
+        ], [], '2026-09-01');
+
+        $b = $plan['bedarfe']['9'];
+        $this->assertSame('', $b['von']);
+        $this->assertSame('', $b['bis']);
+        $this->assertSame([], $b['zeiten']);
+        $this->assertSame(0, $b['anzahl']);
+        $this->assertNull($b['taetigkeit_id']);
+        $this->assertSame(0, $b['status_id']);
+    }
 }

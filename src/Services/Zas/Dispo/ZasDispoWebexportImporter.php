@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoBedarf;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecZasDispoInboundFile;
 use Platform\Recruiting\Support\CsvEncodingNormalizer;
@@ -66,6 +67,8 @@ class ZasDispoWebexportImporter
             'assignments_created' => 0, 'assignments_updated' => 0,
             'matched' => 0, 'unmatched' => 0, 'ambiguous' => 0,
             'missing_marked' => 0, 'rematched_open' => 0,
+            // Bedarfsliste (Spec 2026-10-29): ein Datensatz je Dispoposten.
+            'bedarfe_created' => 0, 'bedarfe_updated' => 0, 'bedarfe_missing_marked' => 0,
             'reconfirm_marked' => 0,
             // ET-18: wieder aufgetauchte Einbuchungen, deren
             // Erinnerungs-Stempel geraeumt wurde.
@@ -174,6 +177,16 @@ class ZasDispoWebexportImporter
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
                 $summary['erinnerung_entstempelt'] = $this->toteStempel(array_keys($plan['assignments']))->count();
 
+                if ($plan['bedarfe'] !== []) {
+                    $bekannt = RecDispoBedarf::query()
+                        ->whereIn('dispoposten_id', self::postenNummern($plan['bedarfe']))
+                        ->pluck('dispoposten_id')->map(fn ($v) => (string) $v)->flip()->all();
+                    foreach ($plan['bedarfe'] as $b) {
+                        isset($bekannt[$b['dispoposten_id']]) ? $summary['bedarfe_updated']++ : $summary['bedarfe_created']++;
+                    }
+                }
+                $summary['bedarfe_missing_marked'] = $dispo2Rows === [] ? 0 : $this->verschwundeneBedarfe($plan['bedarfe'])->count();
+
                 // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
                 // aber rein lesend und ohne die in dieser Lieferung bereits
                 // gezaehlten Assignments doppelt zu betrachten.
@@ -195,7 +208,7 @@ class ZasDispoWebexportImporter
                 return $summary;
             }
 
-            DB::transaction(function () use ($plan, $matcher, $veraltet, &$summary) {
+            DB::transaction(function () use ($plan, $matcher, $veraltet, $dispo2Rows, &$summary) {
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -307,6 +320,34 @@ class ZasDispoWebexportImporter
                         ->update(['missing_since' => now()]);
                 }
 
+                // Bedarfsliste: Upsert je Posten; verschwundene zukuenftige Posten
+                // markieren — aber nur, wenn die Lieferung ueberhaupt eine
+                // Bedarfsliste hatte (sonst wuerde eine Teillieferung alles leeren).
+                foreach ($plan['bedarfe'] as $b) {
+                    if (!isset($eventIds[$b['einsatz_ref']])) {
+                        continue; // kann nicht passieren: jede Dispo2-Zeile mit Einsatz-ID erzeugt ihr Event
+                    }
+                    RecDispoBedarf::updateOrCreate(
+                        ['dispoposten_id' => $b['dispoposten_id']],
+                        [
+                            'rec_dispo_event_id' => $eventIds[$b['einsatz_ref']],
+                            'datum'              => $b['datum'],
+                            'von'                => $b['von'],
+                            'bis'                => $b['bis'],
+                            'zeiten'             => $b['zeiten'],
+                            'taetigkeit'         => mb_substr($b['taetigkeit'], 0, 190),
+                            'taetigkeit_id'      => $b['taetigkeit_id'] !== null ? mb_substr($b['taetigkeit_id'], 0, 32) : null,
+                            'anzahl'             => $b['anzahl'],
+                            'status_id'          => $b['status_id'],
+                            'last_seen_at'       => now(),
+                            'missing_since'      => null,
+                        ]
+                    )->wasRecentlyCreated ? $summary['bedarfe_created']++ : $summary['bedarfe_updated']++;
+                }
+                if ($dispo2Rows !== []) {
+                    $summary['bedarfe_missing_marked'] = $this->verschwundeneBedarfe($plan['bedarfe'])->update(['missing_since' => now()]);
+                }
+
                 // Nachzuegler-Matching: ALLE offenen Zuordnungen erneut versuchen
                 // (deckt Assignments ab, die nicht Teil dieser Lieferung waren).
                 RecDispoAssignment::query()
@@ -365,7 +406,7 @@ class ZasDispoWebexportImporter
                 // Die Zaehler oben liefen bereits mit, aber ein Fehler in der
                 // DB::transaction() rollt alle Writes zurueck — die In-Memory-
                 // Zaehler wuerden sonst erfolgreiche Schreibvorgaenge vorspiegeln.
-                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open', 'reconfirm_marked', 'personenwechsel'] as $k) {
+                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open', 'reconfirm_marked', 'personenwechsel', 'bedarfe_created', 'bedarfe_updated', 'bedarfe_missing_marked'] as $k) {
                     $summary[$k] = 0;
                 }
                 $summary['personenwechsel_liste'] = [];
@@ -386,6 +427,30 @@ class ZasDispoWebexportImporter
         }
 
         return $summary;
+    }
+
+    /**
+     * Zukuenftige Bedarfsposten, die in dieser Lieferung fehlen. Die Nummern
+     * gehen als TEXT in die Abfrage (ds_ref-Hotfix 22.10.: MySQL vergleicht
+     * sonst die Textspalte als Zahl).
+     *
+     * @param array<string, array<string, mixed>> $bedarfe aus dem Plan
+     */
+    private function verschwundeneBedarfe(array $bedarfe): \Illuminate\Database\Eloquent\Builder
+    {
+        return RecDispoBedarf::query()
+            ->where('datum', '>=', now()->toDateString())
+            ->whereNull('missing_since')
+            ->whereNotIn('dispoposten_id', self::postenNummern($bedarfe));
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $bedarfe
+     * @return list<string>
+     */
+    private static function postenNummern(array $bedarfe): array
+    {
+        return array_values(array_map(fn ($b) => (string) $b['dispoposten_id'], $bedarfe));
     }
 
     /**

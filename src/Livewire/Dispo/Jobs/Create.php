@@ -11,6 +11,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoBedarf;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
@@ -42,6 +43,9 @@ class Create extends Component
 
     /** Spalten der Einbuchungen fuer die Schicht-Optionen (Schritt 2) — 'bis' liefert die Endzeit aus ZAS. */
     public const SCHICHT_SPALTEN = ['rec_dispo_event_id', 'datum', 'von', 'bis', 'taetigkeit', 'pnr_raw', 'missing_since', 'deletion_marked_at'];
+
+    /** Bedarfsposten (Spec 2026-10-29) — `zeiten` fuer die Zuordnung der Personen, `anzahl` fuer „offen“. */
+    public const BEDARF_SPALTEN = ['rec_dispo_event_id', 'dispoposten_id', 'datum', 'von', 'bis', 'zeiten', 'taetigkeit', 'anzahl', 'status_id', 'missing_since'];
 
     #[Url]
     public ?int $event = null;
@@ -355,10 +359,14 @@ class Create extends Component
         }
         $scope = fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at')
             ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis);
+        // Bedarfsliste (Spec 2026-10-29): eine VA mit offenen Posten, aber noch
+        // ohne eine einzige Person, muss waehlbar sein.
+        $bedarfScope = fn ($q) => $q->whereNull('missing_since')->where('status_id', '!=', RecDispoBedarf::STATUS_STORNO)
+            ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis);
 
         return RecDispoEvent::query()
             ->where('filial_nr', (int) $this->filialNr)
-            ->whereHas('assignments', $scope)
+            ->where(fn ($q) => $q->whereHas('assignments', $scope)->orWhereHas('bedarfe', $bedarfScope))
             ->withCount(['assignments as einbuchungen' => $scope])
             ->orderByRaw('starts_on IS NULL, starts_on ASC')
             ->get()
@@ -387,11 +395,17 @@ class Create extends Component
             ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis)
             ->get(self::SCHICHT_SPALTEN)
             ->groupBy('rec_dispo_event_id');
+        $bedarfe = RecDispoBedarf::query()
+            ->whereIn('rec_dispo_event_id', $ids)
+            ->whereNull('missing_since')->where('status_id', '!=', RecDispoBedarf::STATUS_STORNO)
+            ->whereDate('datum', '>=', $this->von)->whereDate('datum', '<=', $this->bis)
+            ->get(self::BEDARF_SPALTEN)
+            ->groupBy('rec_dispo_event_id');
 
         $out = [];
         foreach ($ids as $id) {
             $out[$id] = [];
-            foreach (DispoJobSchichten::optionen($rows->get($id, collect()), []) as $datum => $schichten) {
+            foreach (DispoJobSchichten::optionen($rows->get($id, collect()), [], $bedarfe->get($id, collect())) as $datum => $schichten) {
                 $out[$id][$datum] = array_map(
                     fn ($s) => ['key' => DispoJobSchichten::schluessel($id, $datum, $s['von'], $s['taetigkeit'])] + $s,
                     $schichten
@@ -448,7 +462,7 @@ class Create extends Component
      * Alle Schichten der aktuellen Auswahl (ZAS-Schichten der aktiven Tage + andere),
      * auch mit gesucht 0 — DispoJobAnfrageAnlegen filtert.
      *
-     * @return list<array{event:int, datum:string, von:string, bis:string, taetigkeit:string, gesucht:int}>
+     * @return list<array{event:int, datum:string, von:string, bis:string, taetigkeit:string, dispoposten?:?string, gesucht:int}>
      */
     #[Computed]
     public function gewaehlteSchichten(): array
@@ -462,7 +476,7 @@ class Create extends Component
                 }
                 foreach ($schichten as $s) {
                     $out[] = ['event' => (int) $eventId, 'datum' => $datum, 'von' => $s['von'], 'bis' => $s['bis'], 'taetigkeit' => $s['taetigkeit'],
-                        'gesucht' => self::zahl($this->gesucht[$s['key']] ?? '')];
+                        'dispoposten' => $s['dispoposten'] ?? null, 'gesucht' => self::zahl($this->gesucht[$s['key']] ?? '')];
                 }
             }
         }

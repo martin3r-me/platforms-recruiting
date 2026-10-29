@@ -148,6 +148,8 @@ class JobOffersAnfrageSeiteTest extends TestCase
             [$own, 'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
             [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
             [$own, 'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php'],
+            [$own, 'database/migrations/2026_10_29_000001_create_rec_dispo_bedarfe_table.php'],
+            [$own, 'database/migrations/2026_10_29_000002_add_dispoposten_id_to_rec_dispo_job_shifts.php'],
         ];
         foreach ($files as [$root, $relative]) {
             $path = $root . '/' . $relative;

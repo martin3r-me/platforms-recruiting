@@ -63,6 +63,12 @@ class RecDispoEvent extends Model
         return $this->hasMany(RecDispoAssignment::class, 'rec_dispo_event_id');
     }
 
+    /** Bedarfsposten aus der ZAS-Bedarfsliste (Spec 2026-10-29). */
+    public function bedarfe(): HasMany
+    {
+        return $this->hasMany(RecDispoBedarf::class, 'rec_dispo_event_id');
+    }
+
     /** Anhaenge pro Mitarbeiter (Runde 3, #8). */
     public function attachments(): HasMany
     {

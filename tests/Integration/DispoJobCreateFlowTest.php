@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Dispo\Jobs\Create;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoBedarf;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
@@ -46,6 +47,8 @@ class DispoJobCreateFlowTest extends TestCase
             'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
             'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
+            'database/migrations/2026_10_29_000001_create_rec_dispo_bedarfe_table.php',
+            'database/migrations/2026_10_29_000002_add_dispoposten_id_to_rec_dispo_job_shifts.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }
@@ -195,5 +198,39 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame(RecDispoJobRequest::STATUS_LAEUFT, $heute->refresh()->status, 'letzter Tag heute = noch offen');
         $this->assertNull($fremd->refresh()->closed_at, 'anderes Team bleibt unberuehrt');
         $this->assertSame(0, DispoJobAnfragen::abgelaufeneSchliessen(3), 'zweiter Lauf aendert nichts');
+    }
+
+    /** Bedarfsliste (Spec 2026-10-29): ein Posten ohne Person erscheint in Schritt 2 — ueber genau die Spaltenliste der Komponente. */
+    public function test_schicht_optionen_zeigen_posten_ohne_person_aus_der_bedarfsliste(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'BED1']);
+        RecDispoAssignment::create(['ds_ref' => 'bed-a', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG18424', 'datum' => '2026-11-03',
+            'von' => '07:30', 'bis' => '14:00', 'taetigkeit' => 'Servicekräfte', 'status_id' => 1]);
+        RecDispoBedarf::create(['rec_dispo_event_id' => $event->id, 'dispoposten_id' => '126158', 'datum' => '2026-11-03', 'von' => '07:30', 'bis' => '14:00',
+            'zeiten' => [['von' => '07:30', 'bis' => '14:00']], 'taetigkeit' => 'Servicekräfte', 'anzahl' => 1, 'status_id' => 1]);
+        RecDispoBedarf::create(['rec_dispo_event_id' => $event->id, 'dispoposten_id' => '126159', 'datum' => '2026-11-03', 'von' => '14:00', 'bis' => '23:30',
+            'zeiten' => [['von' => '14:00', 'bis' => '23:30']], 'taetigkeit' => 'Servicekräfte', 'anzahl' => 6, 'status_id' => 1]);
+        RecDispoBedarf::create(['rec_dispo_event_id' => $event->id, 'dispoposten_id' => '126999', 'datum' => '2026-11-03', 'von' => '14:00', 'bis' => '23:30',
+            'zeiten' => [], 'taetigkeit' => 'Storniert', 'anzahl' => 6, 'status_id' => RecDispoBedarf::STATUS_STORNO]);
+
+        $rows = RecDispoAssignment::query()->where('rec_dispo_event_id', $event->id)->get(Create::SCHICHT_SPALTEN);
+        $bedarfe = RecDispoBedarf::query()->where('rec_dispo_event_id', $event->id)->where('status_id', '!=', RecDispoBedarf::STATUS_STORNO)->get(Create::BEDARF_SPALTEN);
+        $optionen = DispoJobSchichten::optionen($rows, [], $bedarfe);
+
+        $this->assertSame(
+            [['07:30', 'Servicekräfte', 1, 0, '126158'], ['14:00', 'Servicekräfte', 0, 6, '126159']],
+            array_map(fn ($s) => [$s['von'], $s['taetigkeit'], $s['zeilen'], $s['offen'], $s['dispoposten']], $optionen['2026-11-03']),
+        );
+    }
+
+    public function test_posten_nummer_landet_an_der_job_schicht(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['schichten' => [
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer', 'dispoposten' => '126159', 'gesucht' => 2],
+            ['event' => 5, 'datum' => '2026-10-25', 'von' => '', 'taetigkeit' => 'Service', 'gesucht' => 3], // andere Schicht: kein Posten
+        ]]), 3, 42);
+
+        $shifts = RecDispoJobShift::query()->where('request_id', $request->id)->orderBy('datum')->get();
+        $this->assertSame(['126159', null], $shifts->pluck('dispoposten_id')->all());
     }
 }

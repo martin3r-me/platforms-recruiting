@@ -155,8 +155,10 @@
                                                 <td class="py-1 pr-3 tabular-nums">{{ $spanne !== '' ? $spanne : '–' }}</td>
                                                 <td class="py-1 pr-3">{{ $s['taetigkeit'] !== '' ? $s['taetigkeit'] : '–' }}</td>
                                                 <td class="py-1 pr-3 tabular-nums">{{ $s['zeilen'] }}</td>
-                                                <td class="py-1 pr-3 text-xs text-amber-700">
-                                                    @if ($s['platzhalter'] > 0)
+                                                <td class="py-1 pr-3 text-xs {{ ($s['offen'] ?? null) === 0 ? 'text-gray-400' : 'text-amber-700' }}">
+                                                    @if (($s['offen'] ?? null) !== null)
+                                                        laut ZAS {{ $s['offen'] }} offen
+                                                    @elseif ($s['platzhalter'] > 0)
                                                         laut ZAS {{ $s['platzhalter'] }} unbesetzt
                                                     @endif
                                                 </td>

@@ -17,7 +17,7 @@ final class DispoJobAnfrageAnlegen
 {
     /**
      * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
-     *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, gesucht:int|string}>,
+     *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, dispoposten?:?string, gesucht:int|string}>,
      *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, firmen?: ?list<string>, welle_max?: int, welle_abstand_minuten?: int, minuten: int} $daten
      * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
      * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
@@ -99,7 +99,7 @@ final class DispoJobAnfrageAnlegen
      * gesucht > 0, leerer Beginn als '' (Spalte NOT NULL), doppelte
      * (VA, Tag, Beginn, Taetigkeit) zusammengefasst — die letzte Zahl gewinnt.
      *
-     * @return list<array{rec_dispo_event_id:int, datum:string, von:string, bis:string, taetigkeit:string, gesucht:int}>
+     * @return list<array{rec_dispo_event_id:int, datum:string, von:string, bis:string, taetigkeit:string, dispoposten_id:?string, gesucht:int}>
      */
     private static function schichten(array $rows): array
     {
@@ -113,6 +113,7 @@ final class DispoJobAnfrageAnlegen
                 $bis = '';
             }
             $taet = mb_substr(trim((string) ($r['taetigkeit'] ?? '')), 0, 190);
+            $posten = trim((string) ($r['dispoposten'] ?? ''));
             $gesucht = (int) ($r['gesucht'] ?? 0);
             if ($event <= 0 || $datum === '' || $taet === '') {
                 continue;
@@ -123,7 +124,8 @@ final class DispoJobAnfrageAnlegen
                 continue;
             }
             unset($out[$key]); // ans Ende: Reihenfolge der letzten Eingabe
-            $out[$key] = ['rec_dispo_event_id' => $event, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'gesucht' => $gesucht];
+            $out[$key] = ['rec_dispo_event_id' => $event, 'datum' => $datum, 'von' => $von, 'bis' => $bis, 'taetigkeit' => $taet,
+                'dispoposten_id' => $posten !== '' ? mb_substr($posten, 0, 32) : null, 'gesucht' => $gesucht];
         }
 
         return array_values($out);

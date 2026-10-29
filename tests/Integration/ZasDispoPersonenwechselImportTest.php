@@ -463,6 +463,7 @@ class ZasDispoPersonenwechselImportTest extends TestCase
             [$own,  'database/migrations/2026_08_12_000003_add_processed_at_to_rec_zas_dispo_inbound_files.php'],
             [$own,  'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
             [$own,  'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php'],
+            [$own,  'database/migrations/2026_10_29_000001_create_rec_dispo_bedarfe_table.php'],
             [$own,  'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
             [$own,  'database/migrations/2026_08_14_000002_add_vorlauf_minuten_to_rec_dispo_events.php'],
             [$own,  'database/migrations/2026_08_19_000001_add_ansprechpartner_to_rec_dispo_events.php'],

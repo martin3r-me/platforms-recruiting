@@ -19,7 +19,7 @@ class ZasDispoImportPlanner
      * @param list<array<string, string>> $dispoRows
      * @param list<array<string, string>> $dispo2Rows
      * @param list<string> $existingFutureDsRefs
-     * @return array{events: array<string, array<string, mixed>>, assignments: array<string, array<string, mixed>>, missing_ds_refs: list<string>, stats: array<string, int>}
+     * @return array{events: array<string, array<string, mixed>>, assignments: array<string, array<string, mixed>>, bedarfe: array<string, array<string, mixed>>, missing_ds_refs: list<string>, stats: array<string, int>}
      */
     public function plan(array $dispoRows, array $dispo2Rows, array $existingFutureDsRefs, string $today): array
     {
@@ -115,8 +115,54 @@ class ZasDispoImportPlanner
             ];
         }
 
+        // --- Bedarfe aus {Dispo2} (Spec 2026-10-29): ein Eintrag je Dispoposten,
+        // mehrere Zeilen derselben Nummer = Zeitvarianten; anzahl aus der ersten.
+        $bedarfe = [];
+        $stats['skipped_bedarf_rows'] = 0;
+        foreach ($dispo2Rows as $row) {
+            $posten = trim($row['dispoposten_id'] ?? '');
+            $ref = trim($row['einsatz_id'] ?? '');
+            $datum = ZasDispoFieldParser::date($row['datum'] ?? null);
+            if ($posten === '' || $ref === '' || $datum === null) {
+                $stats['skipped_bedarf_rows']++;
+                continue;
+            }
+            $von = ZasDispoFieldParser::time($row['von'] ?? null) ?? '';
+            $bis = ZasDispoFieldParser::time($row['bis'] ?? null) ?? '';
+
+            // Numerische Schluessel macht PHP zu int (siehe ds_ref-Hotfix 22.10.);
+            // der Importer nimmt deshalb NUR dieses Feld, nie den Schluessel.
+            $b = $bedarfe[$posten] ?? [
+                'dispoposten_id' => $posten,
+                'einsatz_ref'   => $ref,
+                'datum'         => $datum,
+                'von'           => $von,
+                'bis'           => $bis,
+                'zeiten'        => [],
+                'taetigkeit'    => ZasDispoFieldParser::text($row['taetigkeit'] ?? null) ?? '',
+                'taetigkeit_id' => ZasDispoFieldParser::text($row['taetigk_id'] ?? null),
+                'anzahl'        => max(0, ZasDispoFieldParser::int($row['anzahl'] ?? null) ?? 0),
+                'status_id'     => ZasDispoFieldParser::int($row['status_id'] ?? null) ?? 0,
+            ];
+            if ($von !== '' || $bis !== '') {
+                $b['zeiten'][$von . '|' . $bis] = ['von' => $von, 'bis' => $bis];
+            }
+            $bedarfe[$posten] = $b;
+        }
+        foreach ($bedarfe as $posten => $b) {
+            $zeiten = array_values($b['zeiten']);
+            usort($zeiten, fn ($x, $y) => [$x['von'], $x['bis']] <=> [$y['von'], $y['bis']]);
+            $b['zeiten'] = $zeiten;
+            if ($zeiten !== []) {
+                $b['von'] = $zeiten[0]['von'];
+                $b['bis'] = $zeiten[0]['bis'];
+            }
+            $bedarfe[$posten] = $b;
+        }
+
         $stats['events'] = count($events);
         $stats['assignments'] = count($assignments);
+        $stats['bedarfe'] = count($bedarfe);
 
         // --- Missing: existierende zukuenftige ds_refs, die die Lieferung nicht enthaelt ---
         $missing = array_values(array_diff($existingFutureDsRefs, array_keys($assignments)));
@@ -124,6 +170,7 @@ class ZasDispoImportPlanner
         return [
             'events' => $events,
             'assignments' => $assignments,
+            'bedarfe' => $bedarfe,
             'missing_ds_refs' => $missing,
             'stats' => $stats,
         ];

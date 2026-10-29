@@ -38,6 +38,8 @@ class DispoJobUebersichtZahlenTest extends TestCase
             'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php',
             'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
             'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
+            'database/migrations/2026_10_29_000001_create_rec_dispo_bedarfe_table.php',
+            'database/migrations/2026_10_29_000002_add_dispoposten_id_to_rec_dispo_job_shifts.php',
         ] as $rel) {
             (require $own . '/' . $rel)->up();
         }

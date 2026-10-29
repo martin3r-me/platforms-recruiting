@@ -230,6 +230,8 @@ class DispoJobZusagenInfoTest extends TestCase
             [$own, 'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
             [$own, 'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php'],
             [$own, 'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php'],
+            [$own, 'database/migrations/2026_10_29_000001_create_rec_dispo_bedarfe_table.php'],
+            [$own, 'database/migrations/2026_10_29_000002_add_dispoposten_id_to_rec_dispo_job_shifts.php'],
             [$own, 'database/migrations/2026_08_05_000002_add_ratings_to_rec_employee_hr_data.php'],
             [$own, 'database/migrations/2026_09_15_000001_add_dispo_taetigkeiten_to_hr_data.php'],
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
