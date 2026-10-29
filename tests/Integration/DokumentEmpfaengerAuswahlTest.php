@@ -193,6 +193,30 @@ final class DokumentEmpfaengerAuswahlTest extends TestCase
         $this->assertSame([(int) $ma->id], $s->gewaehlteIds());
     }
 
+    /** 29.10.: angehakte Personen zu einer bestehenden Info nachtragen; ohne Auswahl ein Hinweis statt nichts. */
+    public function test_empfaenger_nachtragen_ueber_die_seite(): void
+    {
+        $a = $this->anstellung(['first_name' => 'Anna', 'rec_person_id' => 31]);
+        $b = $this->anstellung(['first_name' => 'Ben', 'rec_person_id' => 32]);
+        $r = app(DokumentService::class)->bereitstellenText(3, ['title' => 'Pilot', 'notify_mode' => 'none'], 'Hallo', [$a->id], null);
+        $s = $this->seite();
+
+        $s->empfaengerNachtragen((int) $r['dokument']->id);
+        $this->assertStringContainsString('Personen anhaken', (string) $s->flashError);
+
+        $s->toggle((int) $a->id);
+        $s->toggle((int) $b->id);
+        $s->empfaengerNachtragen((int) $r['dokument']->id);
+
+        $this->assertNull($s->flashError);
+        $this->assertSame('„Pilot“: 1 Empfänger hinzugefügt, 1 hatten es schon.', $s->flash);
+        $this->assertSame([], $s->gewaehlteIds(), 'Auswahl ist danach leer');
+        $this->assertSame(2, \Platform\Recruiting\Models\RecDocumentRecipient::count());
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/documents.blade.php');
+        $this->assertStringContainsString('wire:click="empfaengerNachtragen({{ $dok[\'id\'] }})"', $blade);
+    }
+
     public function test_alle_treffer_an_und_ab_betrifft_nur_die_sichtbaren_treffer(): void
     {
         $anna = $this->anstellung();

@@ -261,6 +261,79 @@ class DokumentService
     }
 
     /**
+     * Empfaenger zu einem schon bereitgestellten Dokument/einer Info
+     * nachtragen (Sebastian 29.10.2026). Je Mensch hoechstens eine aktive
+     * Zustellung: wer es schon hat — auch ueber eine andere Anstellung —,
+     * wird uebersprungen. Eine fruehere, zurueckgezogene Zustellung derselben
+     * Anstellung wird wieder aktiv (Unique-Index Dokument+Anstellung) und
+     * bekommt den Hinweis neu. Die WhatsApp folgt der Einstellung des
+     * Dokuments; den Versand startet der Aufrufer bei versand_noetig.
+     *
+     * @param  list<int> $employeeIds
+     * @return array{neu:int, schon:int, versand_noetig:bool}
+     */
+    public function empfaengerNachtragen(RecDocument $dokument, array $employeeIds, ?int $userId): array
+    {
+        if ($dokument->trashed()) {
+            throw new \InvalidArgumentException('Das Dokument ist zurückgezogen und kann niemandem mehr zugestellt werden.');
+        }
+        $teamId = (int) $dokument->team_id;
+        $aufgeloest = $this->empfaengerAufloesen($teamId, $employeeIds);
+        if ($aufgeloest['ids'] === []) {
+            throw new \InvalidArgumentException('Bitte mindestens einen Empfänger wählen.');
+        }
+
+        $vorhanden = DB::table('rec_document_recipients as r')
+            ->join('rec_employees as e', 'e.id', '=', 'r.rec_employee_id')
+            ->where('r.rec_document_id', $dokument->id)
+            ->get(['r.id', 'r.rec_employee_id', 'r.withdrawn_at', 'e.person_key', 'e.rec_person_id']);
+        $zeile = fn ($r) => ['id' => (int) $r->rec_employee_id, 'person_key' => $r->person_key, 'rec_person_id' => $r->rec_person_id === null ? null : (int) $r->rec_person_id];
+        $aktiv = $vorhanden->whereNull('withdrawn_at')->map($zeile)->values()->all();
+        $neueZeilen = array_values(array_map(fn (int $id) => $aufgeloest['anstellungen'][$id], $aufgeloest['ids']));
+
+        $gruppe = EmpfaengerEntdoppler::gruppen(array_merge($neueZeilen, $aktiv, $this->geschwister($teamId, $neueZeilen)));
+        $hatEs = [];
+        foreach ($aktiv as $a) {
+            $hatEs[$gruppe[$a['id']]] = true;
+        }
+        $zurueckgezogen = $vorhanden->whereNotNull('withdrawn_at')->keyBy(fn ($r) => (int) $r->rec_employee_id);
+
+        $neu = 0;
+        $schon = 0;
+        DB::transaction(function () use ($dokument, $teamId, $aufgeloest, $gruppe, &$hatEs, $zurueckgezogen, &$neu, &$schon) {
+            foreach ($aufgeloest['ids'] as $id) {
+                if (isset($hatEs[$gruppe[$id]])) {
+                    $schon++;
+                    continue;
+                }
+                $hatEs[$gruppe[$id]] = true;
+                $alt = $zurueckgezogen->get($id);
+                if ($alt !== null) {
+                    DB::table('rec_document_recipients')->where('id', $alt->id)->update([
+                        'withdrawn_at' => null, 'notified_at' => null, 'notify_error' => null, 'updated_at' => now(),
+                    ]);
+                } else {
+                    RecDocumentRecipient::create([
+                        'team_id'         => $teamId,
+                        'rec_document_id' => $dokument->id,
+                        'rec_employee_id' => $id,
+                        'person_key'      => $aufgeloest['anstellungen'][$id]['person_key'] ?? null,
+                    ]);
+                }
+                $neu++;
+            }
+        });
+
+        DokumentVerlauf::schreibe($teamId, (int) $dokument->id, null, DokumentVerlauf::NACHGETRAGEN, $userId, ['neu' => $neu, 'schon' => $schon]);
+
+        return [
+            'neu'            => $neu,
+            'schon'          => $schon,
+            'versand_noetig' => $neu > 0 && self::hinweisFaellig((string) $dokument->category, (string) $dokument->action, $dokument->notify_mode),
+        ];
+    }
+
+    /**
      * Team-gepruefte, entdoppelte Empfaenger (Eingabereihenfolge bleibt,
      * fremde/unbekannte ids stumm uebergangen). Gemeinsam fuer PDF und Text.
      *

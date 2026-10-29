@@ -249,6 +249,50 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame([$ma->id], RecDocumentRecipient::pluck('rec_employee_id')->map(fn ($v) => (int) $v)->all());
     }
 
+    /** 29.10.: Empfaenger nachtragen — Neue bekommen eine Zustellung, wer es (auch ueber ein Geschwister) hat, wird uebersprungen. */
+    public function test_empfaenger_nachtragen_ueberspringt_wer_es_hat(): void
+    {
+        $alt = $this->ma(['rec_person_id' => 1, 'company' => 'RG']);
+        $altMa = $this->ma(['rec_person_id' => 1, 'company' => 'MA']);
+        $neu = $this->ma(['rec_person_id' => 2]);
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info', 'notify_mode' => 'none'], 'Hallo', [$alt->id], null);
+
+        $e = $this->service()->empfaengerNachtragen($r['dokument'], [$altMa->id, $neu->id], 5);
+
+        $this->assertSame(1, $e['neu']);
+        $this->assertSame(1, $e['schon']);
+        $this->assertFalse($e['versand_noetig'], 'Info ohne WhatsApp bleibt ohne WhatsApp');
+        $this->assertSame([$alt->id, $neu->id], RecDocumentRecipient::orderBy('id')->pluck('rec_employee_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame(1, DB::table('rec_document_events')->where('aktion', 'nachgetragen')->count());
+    }
+
+    public function test_empfaenger_nachtragen_holt_zurueckgezogene_zurueck(): void
+    {
+        $a = $this->ma(['rec_person_id' => 3]);
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$a->id], null);
+        $z = RecDocumentRecipient::first();
+        DB::table('rec_document_recipients')->where('id', $z->id)->update(['withdrawn_at' => '2026-10-29 10:00:00', 'notified_at' => '2026-10-29 09:00:00']);
+
+        $e = $this->service()->empfaengerNachtragen($r['dokument'], [$a->id], null);
+
+        $this->assertSame(1, $e['neu']);
+        $this->assertTrue($e['versand_noetig']);
+        $frisch = RecDocumentRecipient::find($z->id);
+        $this->assertNull($frisch->withdrawn_at);
+        $this->assertNull($frisch->notified_at, 'bekommt den Hinweis neu');
+        $this->assertSame(1, RecDocumentRecipient::count());
+    }
+
+    public function test_empfaenger_nachtragen_an_geloeschtes_dokument_wird_abgelehnt(): void
+    {
+        $a = $this->ma();
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$a->id], null);
+        $r['dokument']->delete();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->service()->empfaengerNachtragen($r['dokument'], [$this->ma()->id], null);
+    }
+
     public function test_fremdes_team_wird_stumm_uebersprungen(): void
     {
         $eigen = $this->ma();

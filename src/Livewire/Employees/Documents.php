@@ -557,6 +557,44 @@ class Documents extends Component
         unset($this->dokumente);
     }
 
+    /**
+     * Die oben angehakten Personen zu einem schon bereitgestellten Dokument
+     * nachtragen (Sebastian 29.10.2026). Wer es schon hat, wird uebersprungen;
+     * die WhatsApp folgt der Einstellung des Dokuments.
+     */
+    public function empfaengerNachtragen(int $documentId): void
+    {
+        $d = RecDocument::query()->where('team_id', $this->teamId())->find($documentId);
+        if ($d === null) {
+            return;
+        }
+        $ids = $this->gewaehlteIds();
+        if ($ids === []) {
+            $this->flash = null;
+            $this->flashError = 'Bitte zuerst oben unter „Empfänger“ die Personen anhaken, dann hier hinzufügen.';
+
+            return;
+        }
+        try {
+            $e = app(DokumentService::class)->empfaengerNachtragen($d, $ids, auth()->id());
+        } catch (\InvalidArgumentException $ex) {
+            $this->flash = null;
+            $this->flashError = $ex->getMessage();
+
+            return;
+        }
+        if ($e['versand_noetig']) {
+            DokumentHinweiseVersenden::starten($d);
+        }
+        $this->auswahlSetzen([]);
+        $this->aufgeklappt = (int) $d->id;
+        $this->flashError = null;
+        $this->flash = "„{$d->title}“: {$e['neu']} Empfänger hinzugefügt"
+            . ($e['schon'] > 0 ? ", {$e['schon']} hatten es schon" : '')
+            . ($e['versand_noetig'] ? ', WhatsApp geht raus.' : '.');
+        unset($this->dokumente);
+    }
+
     public function dokumentZurueckziehen(int $documentId): void
     {
         $d = RecDocument::query()->where('team_id', $this->teamId())->find($documentId);

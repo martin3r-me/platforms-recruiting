@@ -384,6 +384,14 @@
                             @if ($dok['auto'])
                                 <button type="button" wire:click="automatikBeenden({{ $dok['id'] }})" wire:confirm="Automatik für „{{ $dok['title'] }}“ beenden? Neue bekommen die Info dann nicht mehr, wer sie schon hat, behält sie." class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Automatik beenden</button>
                             @endif
+                            {{-- Nachtragen (29.10.2026): die oben angehakten Personen bekommen es zusaetzlich; wer es hat, wird uebersprungen. --}}
+                            @if (!$dok['geloescht'])
+                                @if ($gewaehlt > 0)
+                                    <button type="button" wire:click="empfaengerNachtragen({{ $dok['id'] }})" wire:confirm="{{ $gewaehlt }} {{ $gewaehlt === 1 ? 'Person' : 'Personen' }} zu „{{ $dok['title'] }}“ hinzufügen? Wer es schon hat, wird übersprungen." class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Auswahl hinzufügen ({{ $gewaehlt }})</button>
+                                @else
+                                    <button type="button" wire:click="empfaengerNachtragen({{ $dok['id'] }})" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]" title="Oben unter „Empfänger“ Personen anhaken, dann hier hinzufügen">Empfänger hinzufügen</button>
+                                @endif
+                            @endif
                             @if ($dok['zurueckziehbar'])
                                 <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="{{ $dokZurueckFrage }}" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
                             @endif

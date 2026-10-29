@@ -29,6 +29,7 @@ final class DokumentVerlauf
     public const ZURUECKGEZOGEN    = 'zurueckgezogen';
     public const AUTOMATIK_BEENDET = 'automatik_beendet';
     public const AUTO_ZUGESTELLT   = 'auto_zugestellt';
+    public const NACHGETRAGEN      = 'nachgetragen';
 
     private const LABELS = [
         self::BEREITGESTELLT    => 'bereitgestellt',
@@ -39,6 +40,7 @@ final class DokumentVerlauf
         self::ZURUECKGEZOGEN    => 'zurückgezogen',
         self::AUTOMATIK_BEENDET => 'Automatik beendet',
         self::AUTO_ZUGESTELLT   => 'automatisch zugestellt',
+        self::NACHGETRAGEN      => 'Empfänger nachgetragen',
     ];
 
     private const EINSTIEGE = [
@@ -148,6 +150,8 @@ final class DokumentVerlauf
                     . (!empty($d['geloescht']) ? 'Dokument entfernt' : 'Dokument bleibt als Nachweis') . ')',
             self::AUTOMATIK_BEENDET => 'Automatik „an neue Mitarbeiter“ beendet',
             self::AUTO_ZUGESTELLT   => 'automatisch zugestellt' . ($empfaenger !== null ? ' an ' . $empfaenger : ''),
+            self::NACHGETRAGEN      => (int) ($d['neu'] ?? 0) . ' Empfänger nachgetragen'
+                . (!empty($d['schon']) ? ' (' . (int) $d['schon'] . ' hatten es schon)' : ''),
             default                 => self::label($aktion),
         };
     }
