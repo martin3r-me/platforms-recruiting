@@ -367,7 +367,7 @@ class Create extends Component
         return RecDispoEvent::query()
             ->where('filial_nr', (int) $this->filialNr)
             ->where(fn ($q) => $q->whereHas('assignments', $scope)->orWhereHas('bedarfe', $bedarfScope))
-            ->withCount(['assignments as einbuchungen' => $scope])
+            ->withCount(['assignments as einbuchungen' => $scope, 'bedarfe as posten' => $bedarfScope])
             ->orderByRaw('starts_on IS NULL, starts_on ASC')
             ->get()
             ->keyBy('id');
@@ -407,7 +407,7 @@ class Create extends Component
             $out[$id] = [];
             foreach (DispoJobSchichten::optionen($rows->get($id, collect()), [], $bedarfe->get($id, collect())) as $datum => $schichten) {
                 $out[$id][$datum] = array_map(
-                    fn ($s) => ['key' => DispoJobSchichten::schluessel($id, $datum, $s['von'], $s['taetigkeit'])] + $s,
+                    fn ($s) => ['key' => DispoJobSchichten::schluessel($id, $datum, $s['von'], $s['taetigkeit'], $s['dispoposten'])] + $s,
                     $schichten
                 );
             }

@@ -87,7 +87,9 @@
                                     $vaDatum = $va->starts_on->format('d.m.') . '–' . $va->ends_on->format('d.m.Y');
                                 }
                                 $vaOrt = $va->ort ?: $va->venue_text;
-                                $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen')]));
+                                $vaPosten = (int) ($va->posten ?? 0);
+                                $vaZeile = implode(' · ', array_filter([$vaDatum, $vaOrt, $va->einbuchungen . ' ' . ($va->einbuchungen === 1 ? 'Einbuchung' : 'Einbuchungen'),
+                                    $vaPosten > 0 ? $vaPosten . ' Posten laut ZAS' : '']));
                             @endphp
                             <label wire:key="va-{{ $va->id }}" class="flex cursor-pointer items-start gap-3 py-2 text-sm">
                                 <input type="checkbox" value="{{ $va->id }}" wire:model="eventIds" class="mt-0.5 rounded border-gray-300">

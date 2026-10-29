@@ -239,4 +239,67 @@ final class DispoJobSchichtenTest extends TestCase
         $this->assertSame([['07:30', 'Logistik'], ['07:30', 'Servicekräfte'], ['14:00', 'Servicekräfte']],
             array_map(fn ($r) => [$r['von'], $r['taetigkeit']], $out['2026-11-03']));
     }
+
+    // ----- Review 29.10. (I-1, M-2) -----
+
+    public function testZweiPostenGleicherBeginnUndTaetigkeitBleibenGetrenntUndPersonenGehenZumPostenMitMehrOffen(): void
+    {
+        // Posten 1: 14:00–23:30 Anzahl 1, Posten 2: 14:00–18:00 Anzahl 3 — drei Personen um 14:00.
+        $out = DispoJobSchichten::optionen([
+            self::zeile('2026-11-03', '14:00', 'Service'),
+            self::zeile('2026-11-03', '14:00', 'Service'),
+            self::zeile('2026-11-03', '14:00', 'Service'),
+        ], ['2026-11-03'], [
+            self::posten('1', '2026-11-03', '14:00', '23:30', 'Service', 1),
+            self::posten('2', '2026-11-03', '14:00', '18:00', 'Service', 3),
+        ]);
+
+        $this->assertCount(2, $out['2026-11-03'], 'zwei Posten = zwei Zeilen, kein Zusammenfallen');
+        $this->assertSame([['1', 1, 0], ['2', 2, 1]], array_map(fn ($r) => [$r['dispoposten'], $r['zeilen'], $r['offen']], $out['2026-11-03']),
+            'erste Person zum Posten mit mehr offen (2), dann 1, dann wieder 2');
+
+        $a = DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service', '1');
+        $b = DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service', '2');
+        $this->assertNotSame($a, $b, 'eigenes Eingabefeld je Posten');
+        $this->assertSame(DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service'), DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service', null), 'ohne Posten wie bisher');
+        $this->assertSame(DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service'), DispoJobSchichten::schluessel(5, '2026-11-03', '14:00', 'Service', ''), 'leer = kein Posten');
+    }
+
+    public function testPersonPasstZumZweitenPosten(): void
+    {
+        $out = DispoJobSchichten::optionen([
+            self::zeile('2026-11-03', '14:00', 'Servicekräfte'),
+        ], ['2026-11-03'], [
+            self::posten('126158', '2026-11-03', '07:30', '14:00', 'Servicekräfte', 1),
+            self::posten('126159', '2026-11-03', '14:00', '23:30', 'Servicekräfte', 6),
+            self::posten('126205', '2026-11-03', '18:00', '22:00', 'Servicekräfte', 6),
+        ]);
+
+        $this->assertSame([1, 5, 6], array_column($out['2026-11-03'], 'offen'));
+        $this->assertSame([0, 1, 0], array_column($out['2026-11-03'], 'zeilen'));
+    }
+
+    public function testPersonOhneBeginn(): void
+    {
+        // Ein Posten der Taetigkeit → Fallback greift.
+        $out = DispoJobSchichten::optionen([self::zeile('2026-11-03', null, 'Theke')], ['2026-11-03'],
+            [self::posten('1', '2026-11-03', '07:30', '18:00', 'Theke', 2)]);
+        $this->assertCount(1, $out['2026-11-03']);
+        $this->assertSame(1, $out['2026-11-03'][0]['offen']);
+
+        // Zwei Posten der Taetigkeit → eigene Zeile „–“, Posten bleiben voll.
+        $out = DispoJobSchichten::optionen([self::zeile('2026-11-03', null, 'Theke')], ['2026-11-03'], [
+            self::posten('1', '2026-11-03', '07:30', '18:00', 'Theke', 2),
+            self::posten('2', '2026-11-03', '18:00', '00:00', 'Theke', 4),
+        ]);
+        $this->assertSame(['', '07:30', '18:00'], array_column($out['2026-11-03'], 'von'));
+        $this->assertSame([null, 2, 4], array_column($out['2026-11-03'], 'offen'));
+
+        // Posten ohne Beginn nimmt Personen ohne Beginn ueber den Beginn-Treffer.
+        $out = DispoJobSchichten::optionen([self::zeile('2026-11-03', null, 'Theke'), self::zeile('2026-11-03', '09:00', 'Theke')], ['2026-11-03'], [
+            self::posten('1', '2026-11-03', '', '', 'Theke', 2, ['zeiten' => []]),
+            self::posten('2', '2026-11-03', '18:00', '00:00', 'Theke', 4),
+        ]);
+        $this->assertSame([['', 1, 1], ['09:00', 1, null], ['18:00', 0, 4]], array_map(fn ($r) => [$r['von'], $r['zeilen'], $r['offen']], $out['2026-11-03']));
+    }
 }

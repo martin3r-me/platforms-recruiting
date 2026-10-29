@@ -180,6 +180,21 @@ final class DispoImportBedarfeTest extends TestCase
         $this->assertNull(DB::table('rec_dispo_bedarfe')->where('dispoposten_id', '126159')->value('missing_since'));
     }
 
+    /** Review M-1: eine Bedarfsliste, deren Zeilen alle uebersprungen werden, darf den Bestand nicht leeren. */
+    public function test_bedarfsliste_ohne_brauchbaren_posten_markiert_nichts(): void
+    {
+        $this->importiere([self::bedarf('126159', '03.11.2026', 'Servicekräfte', '14:00', '23:30', 6)]);
+
+        $z = $this->importiere([self::bedarf('', '03.11.2026', 'Servicekräfte', '14:00', '23:30', 6)]);
+
+        $this->assertSame(1, $z['stats']['skipped_bedarf_rows']);
+        $this->assertSame(0, $z['bedarfe_missing_marked']);
+        $this->assertNull(DB::table('rec_dispo_bedarfe')->where('dispoposten_id', '126159')->value('missing_since'));
+
+        $z = $this->importiere([self::bedarf('', '03.11.2026', 'Servicekräfte', '14:00', '23:30', 6)], dryRun: true);
+        $this->assertSame(0, $z['bedarfe_missing_marked'], 'Trockenlauf zaehlt dasselbe');
+    }
+
     public function test_trockenlauf_zaehlt_und_schreibt_nicht(): void
     {
         $this->importiere([self::bedarf('126159', '03.11.2026', 'Servicekräfte', '14:00', '23:30', 6)]);

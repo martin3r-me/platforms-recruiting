@@ -233,4 +233,17 @@ class DispoJobCreateFlowTest extends TestCase
         $shifts = RecDispoJobShift::query()->where('request_id', $request->id)->orderBy('datum')->get();
         $this->assertSame(['126159', null], $shifts->pluck('dispoposten_id')->all());
     }
+
+    /** Review I-1: zwei Posten mit gleichem Beginn und gleicher Taetigkeit sind zwei Schichten — der Unique-Index traegt die Posten-Nummer. */
+    public function test_zwei_posten_gleicher_beginn_werden_zwei_schichten(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['schichten' => [
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '14:00', 'bis' => '23:30', 'taetigkeit' => 'Service', 'dispoposten' => '1', 'gesucht' => 1],
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '14:00', 'bis' => '18:00', 'taetigkeit' => 'Service', 'dispoposten' => '2', 'gesucht' => 3],
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '14:00', 'bis' => '', 'taetigkeit' => 'Service', 'gesucht' => 2], // ohne Posten: eigene Schicht
+        ]]), 3, 42);
+
+        $shifts = RecDispoJobShift::query()->where('request_id', $request->id)->orderBy('id')->get();
+        $this->assertSame([['1', 1], ['2', 3], [null, 2]], $shifts->map(fn ($s) => [$s->dispoposten_id, $s->gesucht])->all());
+    }
 }

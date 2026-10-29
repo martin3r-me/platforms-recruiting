@@ -97,7 +97,7 @@ final class DispoJobAnfrageAnlegen
 
     /**
      * gesucht > 0, leerer Beginn als '' (Spalte NOT NULL), doppelte
-     * (VA, Tag, Beginn, Taetigkeit) zusammengefasst — die letzte Zahl gewinnt.
+     * (VA, Tag, Beginn, Taetigkeit, Posten) zusammengefasst — die letzte Zahl gewinnt.
      *
      * @return list<array{rec_dispo_event_id:int, datum:string, von:string, bis:string, taetigkeit:string, dispoposten_id:?string, gesucht:int}>
      */
@@ -118,7 +118,9 @@ final class DispoJobAnfrageAnlegen
             if ($event <= 0 || $datum === '' || $taet === '') {
                 continue;
             }
-            $key = $event . '|' . $datum . '|' . $von . '|' . mb_strtolower($taet);
+            // Posten-Nummer im Schluessel: zwei Posten mit gleichem Beginn und gleicher
+            // Taetigkeit bleiben zwei Schichten (Review I-1), Zeilen ohne Posten wie bisher.
+            $key = $event . '|' . $datum . '|' . $von . '|' . mb_strtolower($taet) . '|' . $posten;
             if ($gesucht <= 0) {
                 unset($out[$key]);
                 continue;

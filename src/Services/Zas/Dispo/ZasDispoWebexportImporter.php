@@ -185,7 +185,9 @@ class ZasDispoWebexportImporter
                         isset($bekannt[$b['dispoposten_id']]) ? $summary['bedarfe_updated']++ : $summary['bedarfe_created']++;
                     }
                 }
-                $summary['bedarfe_missing_marked'] = $dispo2Rows === [] ? 0 : $this->verschwundeneBedarfe($plan['bedarfe'])->count();
+                // Nur mit mindestens einem brauchbaren Posten: sonst wuerde eine Lieferung,
+                // deren Bedarfszeilen alle uebersprungen werden, den ganzen Bestand leeren (Review M-1).
+                $summary['bedarfe_missing_marked'] = $plan['bedarfe'] === [] ? 0 : $this->verschwundeneBedarfe($plan['bedarfe'])->count();
 
                 // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
                 // aber rein lesend und ohne die in dieser Lieferung bereits
@@ -208,7 +210,7 @@ class ZasDispoWebexportImporter
                 return $summary;
             }
 
-            DB::transaction(function () use ($plan, $matcher, $veraltet, $dispo2Rows, &$summary) {
+            DB::transaction(function () use ($plan, $matcher, $veraltet, &$summary) {
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -321,8 +323,8 @@ class ZasDispoWebexportImporter
                 }
 
                 // Bedarfsliste: Upsert je Posten; verschwundene zukuenftige Posten
-                // markieren — aber nur, wenn die Lieferung ueberhaupt eine
-                // Bedarfsliste hatte (sonst wuerde eine Teillieferung alles leeren).
+                // markieren — aber nur, wenn die Lieferung mindestens einen brauchbaren
+                // Posten hatte (sonst wuerde eine Teillieferung alles leeren, Review M-1).
                 foreach ($plan['bedarfe'] as $b) {
                     if (!isset($eventIds[$b['einsatz_ref']])) {
                         continue; // kann nicht passieren: jede Dispo2-Zeile mit Einsatz-ID erzeugt ihr Event
@@ -344,7 +346,7 @@ class ZasDispoWebexportImporter
                         ]
                     )->wasRecentlyCreated ? $summary['bedarfe_created']++ : $summary['bedarfe_updated']++;
                 }
-                if ($dispo2Rows !== []) {
+                if ($plan['bedarfe'] !== []) {
                     $summary['bedarfe_missing_marked'] = $this->verschwundeneBedarfe($plan['bedarfe'])->update(['missing_since' => now()]);
                 }
 

@@ -73,12 +73,19 @@ final class DispoJobSchichten
             $taet = trim((string) self::feld($a, 'taetigkeit'));
             $istPlatzhalter = isset($platzhalter[mb_strtoupper(trim((string) self::feld($a, 'pnr_raw')))]);
 
+            // Passende Posten (Beginn = eine Zeitvariante): bei mehreren gewinnt der
+            // mit den meisten noch offenen Plaetzen (Review I-1), bei Gleichstand der erste.
             $ziel = null;
+            $rest = null;
             $kandidaten = $postenJeTaetigkeit[$datum][self::norm($taet)] ?? [];
             foreach ($kandidaten as $k) {
-                if (isset($out[$datum][$k]['_vons'][$von])) {
+                if (!isset($out[$datum][$k]['_vons'][$von])) {
+                    continue;
+                }
+                $offen = $out[$datum][$k]['_anzahl'] - $out[$datum][$k]['_echte'];
+                if ($rest === null || $offen > $rest) {
                     $ziel = $k;
-                    break;
+                    $rest = $offen;
                 }
             }
             if ($ziel === null && count($kandidaten) === 1) {
@@ -136,11 +143,15 @@ final class DispoJobSchichten
 
     /**
      * Stabiler, wire:model-tauglicher Schluessel einer Schicht (keine Punkte,
-     * keine Leerzeichen — Taetigkeiten koennen beides enthalten).
+     * keine Leerzeichen — Taetigkeiten koennen beides enthalten). Postenzeilen
+     * tragen die Posten-Nummer mit: zwei Posten mit gleichem Beginn und gleicher
+     * Taetigkeit am selben Tag duerfen nicht dasselbe Eingabefeld teilen (Review I-1).
      */
-    public static function schluessel(int $eventId, string $datum, string $von, string $taetigkeit): string
+    public static function schluessel(int $eventId, string $datum, string $von, string $taetigkeit, ?string $posten = null): string
     {
-        return 's' . substr(sha1($eventId . '|' . $datum . '|' . trim($von) . '|' . trim($taetigkeit)), 0, 16);
+        $posten = trim((string) $posten);
+
+        return 's' . substr(sha1($eventId . '|' . $datum . '|' . trim($von) . '|' . trim($taetigkeit) . ($posten !== '' ? '|' . $posten : '')), 0, 16);
     }
 
     private static function feld(mixed $a, string $name): mixed
