@@ -966,12 +966,35 @@ class PortalShell extends Component
      *
      * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
      */
+    /** „01.11.2026 – 31.10.2027“ aus den Vertragsfeldern, sonst null (lieber leer als falsch). */
+    private static function vertragsZeitraum(RecContract $c): ?string
+    {
+        try {
+            $d = RecContract::resolveContractDates(
+                $c->getExtraField('vertragsbeginn') !== null ? (string) $c->getExtraField('vertragsbeginn') : null,
+                $c->getExtraField('vertragsende') !== null ? (string) $c->getExtraField('vertragsende') : null,
+            );
+            if ($d['vertragsbeginn'] === null) {
+                return null;
+            }
+            $von = \Carbon\Carbon::parse($d['vertragsbeginn'])->format('d.m.Y');
+            $bis = $d['vertragsende'] !== null ? \Carbon\Carbon::parse($d['vertragsende'])->format('d.m.Y') : null;
+
+            return $bis !== null ? $von . ' – ' . $bis : 'ab ' . $von;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     private function dokumente(RecEmployee $employee): array
     {
         $leser = app(VertragLeser::class);
         $mehrere = $leser->anstellungsAnzahl($employee) > 1;
 
         $contractRows = $leser->vertraege($employee)
+            // Durch Neu-Ausstellen ersetzt (Portal-Feinschliff 29.10.2026): der
+            // Mitarbeiter braucht nur die gueltige Fassung, HR hat beide.
+            ->filter(fn (RecContract $c) => $c->superseded_by_contract_id === null)
             ->map(function (RecContract $c) use ($mehrere) {
                 $firma = trim((string) $c->contractTemplate?->company);
 
@@ -980,6 +1003,7 @@ class PortalShell extends Component
                     'display_name' => VertragLeser::anzeigename($c->contractTemplate?->code, $c->contractTemplate?->name)
                         . ($mehrere && $firma !== '' ? ' · ' . $firma : ''),
                     'status'       => $c->status,
+                    'zeitraum'     => self::vertragsZeitraum($c),
                     'signed_at'    => $c->signed_at,
                     'completed_at' => $c->completed_at,
                     'sign_url'     => $c->status === 'sent'

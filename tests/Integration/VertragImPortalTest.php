@@ -74,6 +74,26 @@ final class VertragImPortalTest extends TestCase
         $this->assertSame('Arbeitsvertrag', $zeilen[0]['display_name'], 'eine Anstellung: ohne Gesellschaft');
     }
 
+    /**
+     * Portal-Feinschliff 29.10.2026: fuenfmal „Arbeitsvertrag“ half niemandem.
+     * Jetzt mit Laufzeit; ein durch Neu-Ausstellen ersetzter Vertrag
+     * (superseded_by_contract_id) faellt beim Mitarbeiter weg.
+     */
+    public function test_vertrag_zeigt_laufzeit_und_ersetzte_fallen_weg(): void
+    {
+        $ma = $this->anstellung();
+        $neu = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['status' => 'completed', 'signed_at' => '2026-10-23 12:00:00', 'completed_at' => '2026-10-23 12:00:00'],
+            ['vertragsbeginn' => '2026-11-01', 'vertragsende' => '2027-10-31']);
+        $alt = $this->vertragAn($ma, $this->vorlage('AV-MA-ZAP'), ['status' => 'completed', 'signed_at' => '2026-10-22 12:00:00', 'completed_at' => '2026-10-22 12:00:00',
+            'superseded_by_contract_id' => null]);
+        $alt->forceFill(['superseded_by_contract_id' => $neu->id])->save();
+
+        $zeilen = $this->dokumente($ma);
+
+        $this->assertSame([$neu->id], array_column($zeilen, 'id'), 'ersetzter Vertrag bleibt weg');
+        $this->assertSame('01.11.2026 – 31.10.2027', $zeilen[0]['zeitraum']);
+    }
+
     public function test_pdf_link_fuer_unterschriebene_ueber_den_vertragstoken(): void
     {
         $ma = $this->anstellung();

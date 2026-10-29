@@ -260,6 +260,18 @@
            Gruppen-Blatt steht spaeter im DOM und gewaenne -- deshalb eins
            hoeher. */
         .portal-body .upload-overlay.nachweis-overlay { z-index: 21 }
+        /* Einklappbare Bereiche in "Dokumente & Infos" (Portal-Feinschliff 29.10.2026). */
+        .portal-body details.klapp > summary {
+            cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+            min-height: 36px;
+        }
+        .portal-body details.klapp > summary::-webkit-details-marker { display: none }
+        .portal-body details.klapp > summary::after {
+            content: '›'; margin-left: auto; font-size: 18px; line-height: 1;
+            transform: rotate(90deg); transition: transform .15s;
+        }
+        .portal-body details.klapp[open] > summary::after { transform: rotate(-90deg) }
+        .portal-body details.klapp .klapp-kurz { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3) }
         @media (min-width: 900px) {
             .portal-body .upload-overlay { align-items: center }
         }

@@ -559,8 +559,21 @@
                     </div>
                 </div>
 
-                <div>
-                    <div class="sec-label">{{ $duzen ? 'Deine Verträge' : 'Ihre Verträge' }} <span class="count">{{ count($dokumente) }}</span></div>
+                @php
+                    // Einklappen (Portal-Feinschliff 29.10.2026): zu, wenn nichts zu tun ist;
+                    // offen, sobald ein Vertrag auf Unterschrift wartet. Vorberechnet (Hausregel).
+                    $vertraegeOffen = collect($dokumente)->contains(fn ($d) => !empty($d['sign_url']) || ($d['status'] ?? '') === 'in_progress');
+                    $vertraegeAttr = $vertraegeOffen ? 'open' : '';
+                    $vertraegeKurz = $vertraegeOffen
+                        ? ($duzen ? 'wartet auf dich' : 'wartet auf Sie')
+                        : (count($dokumente) > 0 ? 'alles erledigt' : '');
+                @endphp
+                <details class="klapp" wire:ignore.self {!! $vertraegeAttr !!}>
+                    <summary class="sec-label">{{ $duzen ? 'Deine Verträge' : 'Ihre Verträge' }} <span class="count">{{ count($dokumente) }}</span>
+                        @if ($vertraegeKurz !== '')
+                            <span class="klapp-kurz">{{ $vertraegeKurz }}</span>
+                        @endif
+                    </summary>
                     <div class="card" style="margin-top:11px">
                         @forelse ($dokumente as $dok)
                             @php
@@ -588,6 +601,9 @@
                                     $dokDatum = null;
                                 }
                                 $dokSub = $dokDatum ? $dokText . ' am ' . \Carbon\Carbon::parse($dokDatum)->format('d.m.Y') : $dokText;
+                                // Laufzeit vorn (Portal-Feinschliff 29.10.): fuenfmal „Arbeitsvertrag“ allein half niemandem.
+                                $dokZeitraum = $dok['zeitraum'] ?? null;
+                                $dokSub = $dokZeitraum !== null ? $dokZeitraum . ' · ' . $dokSub : $dokSub;
                                 $dokZeigtUnterschreiben = !$dok['signed_at'] && !empty($dok['sign_url']);
                             @endphp
                             <div class="doc">
@@ -610,10 +626,20 @@
                             <div class="leer">Hier liegen noch keine Verträge vor.</div>
                         @endforelse
                     </div>
-                </div>
+                </details>
 
-                <div>
-                    <div class="sec-label">{{ $duzen ? 'Deine Nachweise' : 'Ihre Nachweise' }} <span class="count">{{ count($aufgaben) }}</span></div>
+                @php
+                    // Offen, sobald ein Nachweis fehlt, abgelaufen ist oder bald ablaeuft.
+                    $nachweiseOffen = collect($aufgaben)->contains(fn ($a) => $a['offen'] || $a['punkt'] !== 'ok');
+                    $nachweiseAttr = $nachweiseOffen ? 'open' : '';
+                    $nachweiseKurz = $nachweiseOffen ? '' : (count($aufgaben) > 0 ? 'alles da' : '');
+                @endphp
+                <details class="klapp" wire:ignore.self {!! $nachweiseAttr !!}>
+                    <summary class="sec-label">{{ $duzen ? 'Deine Nachweise' : 'Ihre Nachweise' }} <span class="count">{{ count($aufgaben) }}</span>
+                        @if ($nachweiseKurz !== '')
+                            <span class="klapp-kurz">{{ $nachweiseKurz }}</span>
+                        @endif
+                    </summary>
                     <div class="card" style="margin-top:11px">
                         @forelse ($aufgaben as $aufgabe)
                             <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
@@ -628,7 +654,7 @@
                             <div class="leer">Hier ist noch nichts hinterlegt.</div>
                         @endforelse
                     </div>
-                </div>
+                </details>
             </div>
 
             {{-- ---------------- PROFIL ---------------- --}}
