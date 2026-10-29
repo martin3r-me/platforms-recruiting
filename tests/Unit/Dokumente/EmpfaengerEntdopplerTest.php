@@ -84,4 +84,36 @@ final class EmpfaengerEntdopplerTest extends TestCase
         ]);
         $this->assertSame([70, 71, 72], $ids);
     }
+
+    /** Review 29.10.: die ungebundene Anstellung hat die kleinste id — getragen wird trotzdem von der gebundenen (Portal-Umfang). */
+    public function test_traeger_ist_immer_eine_gebundene_anstellung(): void
+    {
+        $ids = EmpfaengerEntdoppler::aufPersonen([
+            ['id' => 10, 'person_key' => 'K1', 'rec_person_id' => 1],
+            ['id' => 20, 'person_key' => 'K2', 'rec_person_id' => 1],
+            ['id' => 5, 'person_key' => 'K2', 'rec_person_id' => null],
+        ]);
+        $this->assertSame([10], $ids);
+    }
+
+    /** Zwei verschiedene Personen verschmelzen nie ueber einen gemeinsamen Schluessel. */
+    public function test_verschiedene_personen_mit_gleichem_schluessel_bleiben_getrennt(): void
+    {
+        $ids = EmpfaengerEntdoppler::aufPersonen([
+            ['id' => 30, 'person_key' => 'K', 'rec_person_id' => 1],
+            ['id' => 31, 'person_key' => 'K', 'rec_person_id' => 2],
+        ]);
+        $this->assertSame([30, 31], $ids);
+    }
+
+    /** Ungebundene mit einem Schluessel, der zu zwei Personen fuehrt: nicht raten, eigene Gruppe. */
+    public function test_mehrdeutiger_schluessel_haengt_nichts_an(): void
+    {
+        $ids = EmpfaengerEntdoppler::aufPersonen([
+            ['id' => 40, 'person_key' => 'K', 'rec_person_id' => 1],
+            ['id' => 41, 'person_key' => 'K', 'rec_person_id' => 2],
+            ['id' => 42, 'person_key' => 'K', 'rec_person_id' => null],
+        ]);
+        $this->assertSame([40, 41, 42], $ids);
+    }
 }

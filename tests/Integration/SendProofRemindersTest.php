@@ -1000,6 +1000,21 @@ final class SendProofRemindersTest extends TestCase
         $this->assertNotNull($this->remindedAtOf($spaeter));
     }
 
+    /** Review 29.10.: ungebundene Anstellung mit dringenderem Nachweis — die WhatsApp geht trotzdem an die gebundene. */
+    public function test_erinnerung_geht_an_die_gebundene_anstellung(): void
+    {
+        $ungebunden = $this->ma(['person_key' => 'K2']);
+        $this->proof($ungebunden, 'ausweis', now()->addDays(2)->toDateString());
+        $gebunden = $this->ma(['person_key' => 'K2']);
+        $this->proof($gebunden, 'aufenthaltstitel', now()->addDays(20)->toDateString());
+        Capsule::table('rec_employees')->where('id', $gebunden->id)->update(['rec_person_id' => 5]);
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertSame($this->phoneFor($gebunden->id), $this->meta->calls[0]['to']);
+    }
+
     public function test_ohne_personen_marker_zaehlt_die_anstellung(): void
     {
         // Rueckfall: solange die Paarung nicht durch ist, gibt es keinen

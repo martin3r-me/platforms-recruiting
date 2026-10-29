@@ -99,13 +99,24 @@ class DokumentLeser
             ? null
             : \Carbon\Carbon::parse($heute ?? now()->toDateString())->subDays($ohneFrischGemeldeteTage);
         $punkte = [];
+        $alle = $this->alleSichtbaren($employee);
+        // Frisch gemeldet zaehlt ueber ALLE Zustellungen desselben Dokuments:
+        // hat die verdeckte Doppelte die WhatsApp bekommen, gilt es als gemeldet (Review 29.10.).
+        $gemeldet = [];
+        foreach ($alle as $z) {
+            if ($z->notified_at !== null) {
+                $doc = (int) $z->rec_document_id;
+                $gemeldet[$doc] = isset($gemeldet[$doc]) && $gemeldet[$doc]->greaterThan($z->notified_at) ? $gemeldet[$doc] : $z->notified_at;
+            }
+        }
         // Punkte aeltestes zuerst (die Liste in fuerMitarbeiter() ist neueste zuerst).
-        foreach ($this->sichtbare($employee)->reverse() as $z) {
+        foreach ($this->sichtbare($employee, $alle)->reverse() as $z) {
             $aktion = (string) $z->document->action;
             if (!DokumentKategorie::brauchtHandlung($aktion) || DokumentStatus::istErledigt($z->zeitstempel(), $aktion)) {
                 continue;
             }
-            if ($grenze !== null && $z->notified_at !== null && $z->notified_at->greaterThan($grenze)) {
+            $zuletzt = $gemeldet[(int) $z->rec_document_id] ?? null;
+            if ($grenze !== null && $zuletzt !== null && $zuletzt->greaterThan($grenze)) {
                 continue;
             }
             $punkte[] = [
@@ -130,9 +141,9 @@ class DokumentLeser
      *
      * @return \Illuminate\Support\Collection<int, RecDocumentRecipient> neueste zuerst, Dokument geladen
      */
-    private function sichtbare(RecEmployee $employee)
+    private function sichtbare(RecEmployee $employee, ?\Illuminate\Support\Collection $alle = null)
     {
-        $alle = $this->alleSichtbaren($employee);
+        $alle ??= $this->alleSichtbaren($employee);
         $gewinner = [];
         foreach ($alle as $z) {
             $doc = (int) $z->rec_document_id;

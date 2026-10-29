@@ -90,6 +90,20 @@ final class DokumentLeserTest extends TestCase
         $this->assertSame($offen->id, $leser->empfaenger($rg, $offen->id)?->id);
     }
 
+    /** Review 29.10.: die verdeckte Doppelte hat die WhatsApp bekommen — der Einsatz-Trigger meldet nicht nochmal. */
+    public function test_frisch_gemeldet_gilt_auch_ueber_die_verdeckte_doppelte(): void
+    {
+        $rg = $this->anstellung(['rec_person_id' => 1, 'company' => 'RG']);
+        $ma = $this->anstellung(['rec_person_id' => 1, 'company' => 'MA']);
+        $d = $this->dokument();
+        $this->zustellung($d, $rg->id, ['notified_at' => '2026-10-28 09:00:00']);
+        $this->zustellung($d, $ma->id, ['first_viewed_at' => '2026-10-28 12:00:00']);
+
+        $leser = new DokumentLeser();
+        $this->assertSame([], $leser->offenePunkte($rg, 3, '2026-10-29'));
+        $this->assertCount(1, $leser->offenePunkte($rg));
+    }
+
     public function test_zurueckgezogene_und_geloeschte_fehlen(): void
     {
         $e = $this->anstellung();

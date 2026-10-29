@@ -210,10 +210,19 @@ class SendProofReminders extends Command
         // sortiert — also steht die dringendste Person vorn und in jedem
         // Buendel der dringendste Eintrag zuerst. Der Schluessel ist der
         // Personen-Marker, nicht die Anstellung (M5, siehe Klassen-Docblock).
-        $personenSchluessel = $this->personenSchluessel($nachweise);
+        // Gesendet wird an die Anstellung, die den Menschen im Portal traegt
+        // (gebunden, Review 29.10.) — deren Umfang sieht alle Nachweise des Buendels.
+        [$personenSchluessel, $traeger] = $this->personenSchluessel($nachweise);
         $jeEmployee = collect($plan)
             ->groupBy(fn (array $e) => $personenSchluessel[$e['rec_employee_id']] ?? ('ma:' . $e['rec_employee_id']))
-            ->map(fn ($buendel) => $this->alsBuendel($buendel->values()->all()))
+            ->map(function ($buendel, $schluessel) use ($traeger) {
+                $b = $this->alsBuendel($buendel->values()->all());
+                if (str_starts_with((string) $schluessel, 'p:')) {
+                    $b['rec_employee_id'] = $traeger[$schluessel];
+                }
+
+                return $b;
+            })
             ->values();
         if ($limit !== null) {
             $jeEmployee = $jeEmployee->take(max(0, $limit));
@@ -400,17 +409,18 @@ class SendProofReminders extends Command
      * als EINE Person gelten und nur einer von ihnen seine Erinnerung bekommt.
      *
      * @param  list<array{rec_employee_id:int, person_key:?string, rec_person_id:?int}>  $nachweise
-     * @return array<int, string>
+     * @return array{0: array<int, string>, 1: array<string, int>} Schluessel je Anstellung, Traeger je Schluessel
      */
     private function personenSchluessel(array $nachweise): array
     {
-        $gruppen = EmpfaengerEntdoppler::gruppen(array_map(fn (array $n) => [
+        $anstellungen = array_map(fn (array $n) => [
             'id'            => (int) $n['rec_employee_id'],
             'person_key'    => $n['person_key'] ?? null,
             'rec_person_id' => $n['rec_person_id'] ?? null,
-        ], $nachweise));
+        ], $nachweise);
+        $gruppen = EmpfaengerEntdoppler::gruppen($anstellungen);
 
-        return array_map(fn (int $g) => 'mensch:' . $g, $gruppen);
+        return [$gruppen, EmpfaengerEntdoppler::traeger($anstellungen, $gruppen)];
     }
 
     /** Y-m-d, echtes Kalenderdatum — 2026-13-40 oder 2026-9-24 zaehlen NICHT. */
