@@ -273,8 +273,8 @@ class DokumentService
         $anstellungen = $ids === [] ? [] : DB::table('rec_employees')
             ->where('team_id', $teamId)
             ->whereIn('id', $ids)
-            ->get(['id', 'person_key'])
-            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key])
+            ->get(['id', 'person_key', 'rec_person_id'])
+            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key, 'rec_person_id' => $r->rec_person_id === null ? null : (int) $r->rec_person_id])
             ->keyBy('id')
             ->all();
         $geordnet = [];

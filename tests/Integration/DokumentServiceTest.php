@@ -214,6 +214,18 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame('p-1', RecDocumentRecipient::first()->person_key);
     }
 
+    /** Zusammengefuehrte Person (29.10.): gleiche rec_person_id, alte verschiedene Schluessel — ein Empfaenger. */
+    public function test_zusammengefuehrte_person_ist_ein_empfaenger(): void
+    {
+        $rg = $this->ma(['person_key' => 'alt-a', 'rec_person_id' => 77, 'company' => 'RG']);
+        $maUg = $this->ma(['person_key' => 'alt-b', 'rec_person_id' => 77, 'company' => 'MA']);
+
+        $r = $this->service()->bereitstellenText(self::TEAM, ['title' => 'Info'], 'Hallo', [$maUg->id, $rg->id], null);
+
+        $this->assertSame(1, $r['empfaenger']);
+        $this->assertSame([$rg->id], RecDocumentRecipient::pluck('rec_employee_id')->map(fn ($v) => (int) $v)->all());
+    }
+
     public function test_fremdes_team_wird_stumm_uebersprungen(): void
     {
         $eigen = $this->ma();
