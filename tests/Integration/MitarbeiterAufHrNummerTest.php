@@ -280,8 +280,13 @@ class MitarbeiterAufHrNummerTest extends TestCase
     {
         $team = 77001;   // eigenes Team: die Klasse teilt sich eine DB
         $this->applicant(821);
-        $mitErsatz = $this->threadImTeam($team, 'rec_applicant', 999821);
-        CommsWhatsAppThread::findOrFail($mitErsatz)->addContext('rec_applicant', 821, 'test');
+        $this->applicant(824);
+        // Legacy mit voller Klasse; im Pivot: aelterer Lebender, juengster Lebender, danach ein Toter.
+        $mitErsatz = $this->threadImTeam($team, RecApplicant::class, 999821);
+        $t = CommsWhatsAppThread::findOrFail($mitErsatz);
+        $t->addContext('rec_applicant', 824, 'test');
+        $t->addContext('rec_applicant', 821, 'test');
+        $t->addContext('rec_applicant', 999825, 'test');
         $ohneErsatz = $this->threadImTeam($team, RecEmployee::class, 999822);
         $lebend = $this->threadImTeam($team, 'rec_applicant', 821);
         $fremd = $this->threadImTeam($team, 'hcm_onboarding', 999823);
@@ -297,7 +302,35 @@ class MitarbeiterAufHrNummerTest extends TestCase
         $this->assertSame(999822, (int) CommsWhatsAppThread::findOrFail($ohneErsatz)->context_model_id);
         $this->assertSame(821, (int) CommsWhatsAppThread::findOrFail($lebend)->context_model_id);
         $this->assertSame(999823, (int) CommsWhatsAppThread::findOrFail($fremd)->context_model_id);
-        $this->assertSame(0, ToteVerknuepfung::heilen($team, false)['tot'] - 1, 'Danach bleibt nur der ohne Ersatz.');
+        $this->assertSame('rec_applicant', CommsWhatsAppThread::findOrFail($mitErsatz)->context_model);
+        $this->assertSame(1, ToteVerknuepfung::heilen($team, false)['tot'], 'Danach bleibt nur der ohne Ersatz.');
+    }
+
+    /** Review 30.10.: toter Mitarbeiter-Kontext blockte jeden Eingang fuer immer. */
+    public function test_tote_verknuepfung_blockt_das_kontext_gate_nicht(): void
+    {
+        $this->employee(831, '0151 0000 0831');
+        $tot = $this->thread('4915100000830', RecEmployee::class, 999830);
+        CommsWhatsAppThread::findOrFail($tot)->addContext(RecEmployee::class, 999830, 'test');
+        $this->assertSame([], ToteVerknuepfung::lebendeKontextModelle(CommsWhatsAppThread::findOrFail($tot)));
+
+        $lebend = $this->thread('4915100000831', RecEmployee::class, 831);
+        $this->assertSame([RecEmployee::class], ToteVerknuepfung::lebendeKontextModelle(CommsWhatsAppThread::findOrFail($lebend)));
+        $this->assertTrue(\Platform\Recruiting\Services\Comms\ThreadContextGate::blocksIntakeAny([RecEmployee::class]));
+    }
+
+    /** Review 30.10.: Chat an Geloeschtem gilt als "nicht zugeordnet" — HR kann ihn von Hand zuordnen. */
+    public function test_chat_an_geloeschtem_ist_nicht_zugeordnet(): void
+    {
+        $bewerber = $this->thread('4915100000840', 'rec_applicant', 999840);
+        $mitarbeiter = $this->thread('4915100000841', RecEmployee::class, 999841);
+
+        foreach ([$bewerber, $mitarbeiter] as $id) {
+            $row = (new InboxQuery())->rowForThread(CommsWhatsAppThread::findOrFail($id), self::TEAM, self::JETZT);
+            $this->assertNotNull($row);
+            $this->assertSame('unassigned', $row->subjectType);
+            $this->assertNull($row->contextLabel);
+        }
     }
 
     private function threadImTeam(int $team, string $contextModel, int $contextId): int

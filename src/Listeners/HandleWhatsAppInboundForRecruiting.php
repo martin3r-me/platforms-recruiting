@@ -19,6 +19,7 @@ use Platform\Recruiting\Services\Comms\QuickReplyStamper;
 use Platform\Recruiting\Services\Comms\ThemenAuswahlHandler;
 use Platform\Recruiting\Services\Comms\ThemenKlickHandler;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
+use Platform\Recruiting\Services\Comms\ToteVerknuepfung;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
@@ -151,11 +152,10 @@ class HandleWhatsAppInboundForRecruiting
         // Geprüft werden Legacy-Spalte UND Pivot-Kontexte: die Legacy-Spalte
         // bleibt per "first context wins" auf crm_contact stehen, auch wenn
         // ein Fachprozess den Thread später per Pivot übernommen hat.
-        $contextModels = $thread->contexts()->pluck('context_model')
-            ->push($thread->context_model)
-            ->filter()
-            ->unique()
-            ->all();
+        // Verknuepfungen auf Geloeschte (Bewerber/Mitarbeiter) blocken nicht:
+        // sonst bliebe ein Chat an einem geloeschten Mitarbeiter fuer immer
+        // stehen und der Linker unten liefe nie (Review 30.10.2026).
+        $contextModels = ToteVerknuepfung::lebendeKontextModelle($thread);
 
         if (ThreadContextGate::blocksIntakeAny($contextModels)) {
             $blocking = implode(', ', array_filter($contextModels, [ThreadContextGate::class, 'blocksIntake']));

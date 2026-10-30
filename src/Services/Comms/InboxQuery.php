@@ -777,7 +777,10 @@ final class InboxQuery
             $subjectId = $row['context_model_id'];
             $contextLabel = null;
 
-            if ($row['context_model'] === RecEmployee::class && $subjectId !== null) {
+            // Zeigt die Verknuepfung auf einen Geloeschten, bleibt der Chat
+            // "nicht zugeordnet" — sonst kann HR ihn nie von Hand zuordnen
+            // ("bereits zugeordnet"), und er zeigt nur die Nummer (Review 30.10.).
+            if ($row['context_model'] === RecEmployee::class && $subjectId !== null && $employees->has($subjectId)) {
                 $type = 'employee';
                 $employee = $employees->get($subjectId);
                 $name = $employee ? trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) : null;
@@ -797,7 +800,7 @@ final class InboxQuery
                     $secondaryUrl = $this->safeRoute('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id]);
                     $secondaryLabel = 'Bewerbung';
                 }
-            } elseif (in_array($row['context_model'], [$applicantMorph, RecApplicant::class], true) && $subjectId !== null) {
+            } elseif (in_array($row['context_model'], [$applicantMorph, RecApplicant::class], true) && $subjectId !== null && $applicants->has($subjectId)) {
                 $type = 'applicant';
                 $applicant = $applicants->get($subjectId);
                 $contact = $applicant?->crmContactLinks->first()?->contact;
@@ -806,7 +809,9 @@ final class InboxQuery
                 $owner = $applicant?->owned_by_user_id;
                 $url = $applicant ? $this->safeRoute('recruiting.applicants.show', ['applicant' => $subjectId]) : null;
                 $urlLabel = 'Bewerberakte';
-            } elseif ($row['context_model'] !== '' && !self::isBareContact($row['context_model'])) {
+            } elseif ($row['context_model'] !== '' && !self::isBareContact($row['context_model'])
+                && $row['context_model'] !== RecEmployee::class
+                && !in_array($row['context_model'], [$applicantMorph, RecApplicant::class], true)) {
                 $contextLabel = $row['context_model'];
             }
 

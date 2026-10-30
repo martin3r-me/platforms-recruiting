@@ -33,6 +33,24 @@ final class ToteVerknuepfung
     }
 
     /**
+     * Kontext-Modelle des Threads (Legacy-Spalte + Pivot) fuer das
+     * Kontext-Gate des Eingangs — ohne Verknuepfungen auf Geloeschte.
+     *
+     * @return list<string>
+     */
+    public static function lebendeKontextModelle(CommsWhatsAppThread $thread): array
+    {
+        return $thread->contexts()->get(['context_model', 'context_model_id'])
+            ->push((object) ['context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id])
+            ->reject(fn ($c) => self::ist($c->context_model, $c->context_model_id))
+            ->pluck('context_model')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * Bestand heilen (recruiting:tote-chat-verknuepfungen): jeder Thread des
      * Teams mit toter Legacy-Verknuepfung bekommt den juengsten LEBENDEN
      * Bewerber-/Mitarbeiter-Kontext aus seinem Pivot. Ohne lebenden Ersatz
