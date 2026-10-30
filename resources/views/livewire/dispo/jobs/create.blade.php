@@ -2,6 +2,23 @@
 @php
     $schritte = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState::schritte();
     $filialen = $this->filialOptionen;
+    // Anlass-Pillen (Schritt 1 ueber dem Zeitraum und Schritt 3 an der Vorlage): ohne hinterlegte Vorlage gesperrt (Hinweis + Link zu den Einstellungen).
+    $anlassIds = $this->anlassVorlagen;
+    $anlaesse = [];
+    foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ALLE as $anlassKey => $anlassLabel) {
+        $frei = ($anlassIds[$anlassKey] ?? null) !== null;
+        $aktiv = $frei && $anlass === $anlassKey;
+        $anlaesse[] = [
+            'key'    => $anlassKey,
+            'label'  => $anlassLabel,
+            'frei'   => $frei,
+            'klasse' => $aktiv
+                ? 'rounded-full border border-blue-600 bg-blue-600 px-3 py-1 text-sm font-medium text-white'
+                : ($frei
+                    ? 'rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:border-blue-400'
+                    : 'cursor-not-allowed rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-400'),
+        ];
+    }
 @endphp
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between gap-4">
@@ -56,8 +73,28 @@
                     @endif
                 </div>
                 <div class="space-y-2">
+                    @php
+                        // Zeitraum laut Anlass (Spec 2026-10-30 §1); ohne Anlass der alte Standard.
+                        $zeitraumHinweis = $event === null
+                            ? (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeitfenster::hinweis($anlass, now()) ?? 'Vorgeschlagen sind die nächsten vier Wochen.')
+                            : 'Vorgeschlagen sind die Tage der Veranstaltung.';
+                    @endphp
+                    @if ($event === null && $anlaesse !== [])
+                        <div class="font-medium text-gray-700">Worum geht es?</div>
+                        <div class="flex flex-wrap items-start gap-2">
+                            @foreach ($anlaesse as $a)
+                                <div wire:key="anlass1-{{ $a['key'] }}" class="flex flex-col items-start">
+                                    @if ($a['frei'])
+                                        <button type="button" wire:click="anlassWaehlen('{{ $a['key'] }}')" class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                    @else
+                                        <button type="button" disabled class="{{ $a['klasse'] }}">{{ $a['label'] }}</button>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                     <div class="font-medium text-gray-700">In welchem Zeitraum?</div>
-                    <p class="text-xs text-gray-500">Vorgeschlagen sind die nächsten vier Wochen. Vergangene Tage gehen nicht.</p>
+                    <p class="text-xs text-gray-500">{{ $zeitraumHinweis }} Vergangene Tage gehen nicht.</p>
                     <div class="flex flex-wrap items-end gap-4">
                         <label class="flex flex-col gap-1 text-sm">
                             <span class="text-xs font-medium text-gray-500">von</span>
@@ -272,23 +309,7 @@
             $vorlagen = $this->vorlagen;
             $vorschau = $this->vorschau;
             $problem = $this->vorlagenProblem;
-            // Anlass-Pillen: ohne hinterlegte Vorlage gesperrt (Hinweis + Link zu den Einstellungen).
-            $anlassIds = $this->anlassVorlagen;
-            $anlaesse = [];
-            foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ALLE as $anlassKey => $anlassLabel) {
-                $frei = ($anlassIds[$anlassKey] ?? null) !== null;
-                $aktiv = $frei && $anlass === $anlassKey;
-                $anlaesse[] = [
-                    'key'    => $anlassKey,
-                    'label'  => $anlassLabel,
-                    'frei'   => $frei,
-                    'klasse' => $aktiv
-                        ? 'rounded-full border border-blue-600 bg-blue-600 px-3 py-1 text-sm font-medium text-white'
-                        : ($frei
-                            ? 'rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:border-blue-400'
-                            : 'cursor-not-allowed rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-400'),
-                ];
-            }
+            // $anlaesse kommt aus dem Kopf der Datei (gleiche Pillen wie in Schritt 1).
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
             // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
             $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben'

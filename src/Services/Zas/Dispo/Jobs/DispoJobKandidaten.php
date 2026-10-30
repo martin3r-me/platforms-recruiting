@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
@@ -19,18 +20,22 @@ final class DispoJobKandidaten
     public const OHNE_KOSTENSTELLE = 'ohne Kostenstelle';
 
     /**
+     * `einsaetze` = Kalendermonat (Gruppen-Baender, Kunden-PDF). `reihenfolge` = Spec 2026-10-30 §2:
+     * Einsaetze im Zaehlfenster (heute − 30 Tage bis letzter angebotener Tag) und letzte Anfrage je Anker.
+     *
      * @param list<string> $tage Y-m-d der angebotenen Schichten
-     * @return array{kandidaten: list<array<string,mixed>>, einsaetze: array<int,int>, gebucht: array<int,array<string,true>>}
+     * @return array{kandidaten: list<array<string,mixed>>, einsaetze: array<int,int>, gebucht: array<int,array<string,true>>, reihenfolge: array{einsaetze: array<int,int>, letzte_anfrage: array<int,string>}}
      */
     public static function laden(int $teamId, array $tage, string $monat): array
     {
+        $leer = ['kandidaten' => [], 'einsaetze' => [], 'gebucht' => [], 'reihenfolge' => ['einsaetze' => [], 'letzte_anfrage' => []]];
         $employees = RecEmployee::query()
             ->with(['position:id,cost_center', 'hrData:id,rec_employee_id,dispo_taetigkeiten,export_status'])
             ->where('team_id', $teamId)->where('is_active', true)
             ->orderBy('id')
             ->get(['id', 'rec_position_id', 'first_name', 'last_name', 'phone', 'portal_token', 'portal_locked_at', 'cost_center', 'company']);
         if ($employees->isEmpty()) {
-            return ['kandidaten' => [], 'einsaetze' => [], 'gebucht' => []];
+            return $leer;
         }
 
         $ids = $employees->pluck('id')->map(fn ($v) => (int) $v)->all();
@@ -79,9 +84,13 @@ final class DispoJobKandidaten
         unset($row);
         ksort($byAnchor);
 
+        $fenster = DispoEinsatzZaehler::zaehlfenster(now()->toDateString(), $tage);
         $assignments = RecDispoAssignment::query()
             ->whereIn('rec_employee_id', $ids)
-            ->where(fn ($q) => $q->whereBetween('datum', [$monat . '-01', \Carbon\Carbon::parse($monat . '-01')->endOfMonth()->toDateString()])->orWhereIn('datum', $tage))
+            ->where(fn ($q) => $q
+                ->whereBetween('datum', [$monat . '-01', \Carbon\Carbon::parse($monat . '-01')->endOfMonth()->toDateString()])
+                ->orWhereBetween('datum', [$fenster['von'], $fenster['bis']])
+                ->orWhereIn('datum', $tage))
             ->get(['rec_employee_id', 'datum', 'status_id', 'missing_since', 'deletion_marked_at', 'declined_at'])
             ->map(fn ($a) => ['employee_id' => (int) $a->rec_employee_id, 'datum' => $a->datum?->format('Y-m-d') ?? '',
                 'status_id' => (int) $a->status_id, 'missing_since' => $a->missing_since, 'deletion_marked_at' => $a->deletion_marked_at, 'declined_at' => $a->declined_at])
@@ -96,10 +105,23 @@ final class DispoJobKandidaten
             }
         }
 
+        // Letzte Anfrage je Person ueber alle Anfragen (Spec 2026-10-30 §2: Gleichstand = am laengsten nicht angeschrieben).
+        $letzteAnfrage = RecDispoJobOffer::query()
+            ->whereIn('anchor_employee_id', array_keys($byAnchor))
+            ->groupBy('anchor_employee_id')
+            ->selectRaw('anchor_employee_id, max(created_at) as letzte')
+            ->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->anchor_employee_id => (string) $r->letzte])
+            ->all();
+
         return [
-            'kandidaten' => array_values($byAnchor),
-            'einsaetze'  => DispoEinsatzZaehler::proMonat($assignments, $anchorByEmployee, $monat),
-            'gebucht'    => $gebucht,
+            'kandidaten'  => array_values($byAnchor),
+            'einsaetze'   => DispoEinsatzZaehler::proMonat($assignments, $anchorByEmployee, $monat),
+            'gebucht'     => $gebucht,
+            'reihenfolge' => [
+                'einsaetze'      => DispoEinsatzZaehler::imZeitraum($assignments, $anchorByEmployee, $fenster['von'], $fenster['bis']),
+                'letzte_anfrage' => $letzteAnfrage,
+            ],
         ];
     }
 

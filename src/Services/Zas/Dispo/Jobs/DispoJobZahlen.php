@@ -38,11 +38,13 @@ final class DispoJobZahlen
      */
     public static function ausDaten(array $daten, array $schichten, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = []): array
     {
-        $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben, $auswahl, $schonZugesagt);
+        // Vorschau = Versand: dieselbe Reihenfolge wie SendDispoJobWave (Spec 2026-10-30 §2).
+        $reihenfolge = $daten['reihenfolge'] ?? null;
+        $plan = DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben, $auswahl, $schonZugesagt, $reihenfolge);
         $mitPassend = !empty($auswahl['nur_passend'])
             ? count($plan['recipients'])
             : count(DispoJobRecipientPlanner::plan($daten['kandidaten'], $schichten, $daten['einsaetze'], $daten['gebucht'], $schonAngeschrieben,
-                ['nur_passend' => true] + $auswahl, $schonZugesagt)['recipients']);
+                ['nur_passend' => true] + $auswahl, $schonZugesagt, $reihenfolge)['recipients']);
 
         $namen = [];
         foreach ($daten['kandidaten'] as $k) {

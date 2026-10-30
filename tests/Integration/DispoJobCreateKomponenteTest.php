@@ -78,6 +78,17 @@ class DispoJobCreateKomponenteTest extends TestCase
             {
                 return method_exists($this, $name) ? $this->{$name}() : parent::__get($name);
             }
+
+            /** Computed-Cache gibt es hier nicht; unset() auf die Methode ist ein No-op. */
+            public function __unset($name)
+            {
+            }
+
+            /** Statt der Einstellungen (keine Settings-Tabelle im Test): alle drei Anlaesse haben eine Vorlage. */
+            public function anlassVorlagen(): array
+            {
+                return ['vier_wochen' => 3, 'naechste_woche' => 2, 'dringend' => 1];
+            }
         };
         $c->filialNr = '100';
         $c->von = '2026-11-02';
@@ -115,6 +126,46 @@ class DispoJobCreateKomponenteTest extends TestCase
         );
         $this->assertSame('126215', $optionen[$va->id]['2026-11-04'][0]['dispoposten']);
         $this->assertMatchesRegularExpression('/^s[0-9a-f]{16}$/', $optionen[$va->id]['2026-11-03'][0]['key']);
+    }
+
+    /** Spec 2026-10-30 §1: der Anlass belegt den Zeitraum in Schritt 1 vor — nur solange von/bis unangetastet sind und der Einstieg nicht ueber eine VA kam. */
+    public function test_anlass_belegt_den_zeitraum_in_schritt_1_vor(): void
+    {
+        // heute = Do 29.10.2026 (setUp)
+        $c = self::komponente();
+        $c->anlassWaehlen('naechste_woche');
+        $this->assertSame(['naechste_woche', '2026-11-02', '2026-11-08'], [$c->anlass, $c->von, $c->bis]);
+
+        $c->anlassWaehlen('dringend');
+        $this->assertSame(['2026-10-30', '2026-10-30'], [$c->von, $c->bis]);
+
+        $c->anlassWaehlen('vier_wochen');
+        $this->assertSame(['2026-11-02', '2026-11-30'], [$c->von, $c->bis]);
+
+        // Anlass ohne Vorlage: nichts passiert.
+        $c->anlassWaehlen('irgendwas');
+        $this->assertSame(['vier_wochen', '2026-11-02', '2026-11-30'], [$c->anlass, $c->von, $c->bis]);
+    }
+
+    public function test_zeitraum_von_hand_oder_ueber_eine_va_bleibt_beim_anlasswechsel_stehen(): void
+    {
+        $c = self::komponente();
+        $c->von = '2026-12-01';
+        $c->bis = '2026-12-05';
+        $c->updated('von');
+        $c->anlassWaehlen('naechste_woche');
+        $this->assertSame(['naechste_woche', '2026-12-01', '2026-12-05'], [$c->anlass, $c->von, $c->bis], 'Handaenderung gewinnt (Markus: Anpassung von Hand)');
+
+        $c = self::komponente();
+        $c->event = 7;
+        $c->anlassWaehlen('naechste_woche');
+        $this->assertSame(['2026-11-02', '2026-11-04'], [$c->von, $c->bis], 'ueber eine VA gelten deren Tage');
+
+        $c = self::komponente();
+        $c->schritt = 3;
+        $c->wellenAngefasst = true; // sonst rechnet Schritt 3 die Vorschau (braucht Login) — hier geht es nur um den Zeitraum
+        $c->anlassWaehlen('dringend');
+        $this->assertSame(['2026-11-02', '2026-11-04'], [$c->von, $c->bis], 'in Schritt 3 stehen die Schichten schon fest');
     }
 
     public function test_andere_filiale_zeitraum_storno_und_verschwundene_posten_bleiben_draussen(): void

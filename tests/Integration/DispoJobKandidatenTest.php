@@ -46,7 +46,7 @@ class DispoJobKandidatenTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['crm_contact_links', 'rec_employees', 'rec_employee_hr_data', 'rec_positions', 'rec_dispo_events', 'rec_dispo_assignments'] as $t) {
+        foreach (['crm_contact_links', 'rec_employees', 'rec_employee_hr_data', 'rec_positions', 'rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_job_offers'] as $t) {
             Capsule::table($t)->delete();
         }
     }
@@ -79,6 +79,38 @@ class DispoJobKandidatenTest extends TestCase
         $this->assertNull($r['kandidaten'][1]['block']);
         $this->assertSame([$a => 2], $r['einsaetze']);
         $this->assertSame([$a => ['2026-10-24' => true]], $r['gebucht'], 'nur die gefragten Tage');
+    }
+
+    /** Spec 2026-10-30 §2: Reihenfolge zaehlt heute − 30 Tage bis zum letzten angebotenen Tag; Baender bleiben auf dem Monat. */
+    public function test_reihenfolge_zaehlt_das_fenster_und_die_letzte_anfrage(): void
+    {
+        \Carbon\Carbon::setTestNow('2026-10-30 12:00:00');
+        try {
+            $a = $this->employee(['first_name' => 'Anna', 'portal_token' => 'ta']);
+            $b = $this->employee(['first_name' => 'Ben', 'portal_token' => 'tb']);
+            $event = RecDispoEvent::create(['einsatz_ref' => 'E1']);
+            $tag = fn (int $emp, string $d, array $o = []) => RecDispoAssignment::create($o + ['ds_ref' => 'd' . $emp . $d, 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'x', 'rec_employee_id' => $emp, 'datum' => $d, 'status_id' => 1, 'taetigkeit' => 'Zapfer']);
+            $tag($a, '2026-09-30');                       // Fenster-Anfang (heute − 30)
+            $tag($a, '2026-09-29');                       // davor: zaehlt nicht
+            $tag($a, '2026-10-03');                       // Monat + Fenster
+            $tag($a, '2026-11-08');                       // letzter angebotener Tag: zaehlt im Fenster, nicht im Monat
+            $tag($a, '2026-11-09');                       // danach: nicht im Fenster
+            $tag($a, '2026-10-20', ['status_id' => 3]);   // Storno zaehlt nie
+            $tag($b, '2026-10-31');                       // Monat + Fenster
+
+            Capsule::table('rec_dispo_job_offers')->insert([
+                ['wave_id' => 1, 'request_id' => 1, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'created_at' => '2026-10-01 09:00:00', 'updated_at' => '2026-10-01 09:00:00'],
+                ['wave_id' => 2, 'request_id' => 2, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'created_at' => '2026-10-20 09:00:00', 'updated_at' => '2026-10-20 09:00:00'],
+            ]);
+
+            $r = DispoJobKandidaten::laden(3, ['2026-11-02', '2026-11-08'], '2026-10');
+
+            $this->assertSame([$a => 1, $b => 1], $r['einsaetze'], 'Baender: nur der Kalendermonat');
+            $this->assertSame([$a => 3, $b => 1], $r['reihenfolge']['einsaetze'], 'Reihenfolge: 30.09. bis 08.11.');
+            $this->assertSame([$b => '2026-10-20 09:00:00'], $r['reihenfolge']['letzte_anfrage'], 'juengste Anfrage je Person, Anna nie');
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
     }
 
     public function test_block_optionen_mit_labels(): void
@@ -222,6 +254,7 @@ class DispoJobKandidatenTest extends TestCase
             [$own, 'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
         ];

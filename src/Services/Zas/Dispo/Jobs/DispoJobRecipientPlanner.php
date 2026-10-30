@@ -113,9 +113,11 @@ final class DispoJobRecipientPlanner
      * @param array<int,true> $schonAngeschrieben Anker => true
      * @param array{gruppen:list<string>, bloecke:list<int|null>, nur_passend:bool, stati?:?list<string>, firmen?:?list<string>, max?:?int} $auswahl
      * @param array<int,list<string>> $schonZugesagt Anker => schichtSchluessel() der anderswo zugesagten Schichten
+     * @param ?array{einsaetze?: array<int,int>, letzte_anfrage?: array<int,string>} $reihenfolge Spec 2026-10-30 §2: Einsaetze im Zaehlfenster
+     *        und letzte Anfrage je Anker (fehlend = 0 bzw. nie); null = alte Reihenfolge (Einsaetze im Monat, dann Anker)
      * @return array{recipients: list<array{anchor:int, employee_id:int, phone:string, first_name:string, portal_token:string, shift_ids:list<int>, datum:string}>, skipped: array<string,int>, skipped_ids: array<string,list<int>>, rest:int}
      */
-    public static function plan(array $kandidaten, array $schichten, array $einsaetze, array $gebucht, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = []): array
+    public static function plan(array $kandidaten, array $schichten, array $einsaetze, array $gebucht, array $schonAngeschrieben, array $auswahl, array $schonZugesagt = [], ?array $reihenfolge = null): array
     {
         $skipped = array_fill_keys(array_keys(self::TOEPFE), 0);
         $skippedIds = array_fill_keys(array_keys(self::TOEPFE), []);
@@ -185,8 +187,13 @@ final class DispoJobRecipientPlanner
             ];
         }
 
-        // Reihenfolge (Spec 2026-10-27 §2.3): wenigste Einsaetze im Monat zuerst, dann Anker.
-        usort($recipients, fn ($a, $b) => [$a['einsaetze'], $a['anchor']] <=> [$b['einsaetze'], $b['anchor']]);
+        // Reihenfolge: mit $reihenfolge (Spec 2026-10-30 §2) wenigste Einsaetze im Zaehlfenster zuerst,
+        // bei Gleichstand wer am laengsten keine Anfrage bekam (nie = ''), dann Anker.
+        // Ohne (null, Spec 2026-10-27 §2.3): Einsaetze im Monat, dann Anker.
+        $schluessel = $reihenfolge === null
+            ? fn (array $r) => [$r['einsaetze'], $r['anchor']]
+            : fn (array $r) => [(int) ($reihenfolge['einsaetze'][$r['anchor']] ?? 0), (string) ($reihenfolge['letzte_anfrage'][$r['anchor']] ?? ''), $r['anchor']];
+        usort($recipients, fn ($a, $b) => $schluessel($a) <=> $schluessel($b));
 
         // Obergrenze je Welle NACH den Toepfen; der Ueberhang ist kein Ausschluss.
         $max = (int) ($auswahl['max'] ?? 0);

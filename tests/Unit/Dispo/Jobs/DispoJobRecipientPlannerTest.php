@@ -153,6 +153,33 @@ final class DispoJobRecipientPlannerTest extends TestCase
         $this->assertSame(0, $r['rest']);
     }
 
+    public function testReihenfolgeImZaehlfensterSchlaegtDenMonatUndGleichstandGehtNachLetzterAnfrage(): void
+    {
+        $k = [self::kandidat(1), self::kandidat(2), self::kandidat(3), self::kandidat(4), self::kandidat(5)];
+        $monat = [1 => 0, 2 => 5, 3 => 0, 4 => 0, 5 => 9];
+        $reihenfolge = [
+            // 5 hat im Monat viele, im Fenster keine → ganz vorn; 2 trotz Monat 5 nur einen im Fenster.
+            'einsaetze'      => [1 => 1, 2 => 1, 3 => 1],
+            // Gleichstand bei 1/2/3 (je 1): 3 nie angeschrieben → zuerst, dann 2 (laenger her als 1).
+            'letzte_anfrage' => [1 => '2026-10-28 10:00:00', 2 => '2026-10-01 10:00:00', 4 => '2026-10-29 09:00:00'],
+        ];
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), $monat, [], [], self::auswahl(), [], $reihenfolge);
+        $this->assertSame([5, 4, 3, 2, 1], array_column($r['recipients'], 'anchor'));
+
+        // Fehlende Angaben zaehlen als 0 / nie: beide 0 Einsaetze, nie angeschrieben → Anker.
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), $monat, [], [], self::auswahl(), [], ['einsaetze' => [], 'letzte_anfrage' => []]);
+        $this->assertSame([1, 2, 3, 4, 5], array_column($r['recipients'], 'anchor'));
+
+        // Obergrenze nimmt die neue Reihenfolge: die ersten zwei, der Rest in den Topf.
+        $r = DispoJobRecipientPlanner::plan($k, self::schichten(), $monat, [], [], self::auswahl(['max' => 2]), [], $reihenfolge);
+        $this->assertSame([5, 4], array_column($r['recipients'], 'anchor'));
+        $this->assertSame([3, 2, 1], $r['skipped_ids']['spaeter']);
+
+        // null = alte Reihenfolge (Monat, dann Anker).
+        $alt = DispoJobRecipientPlanner::plan($k, self::schichten(), $monat, [], [], self::auswahl(), [], null);
+        $this->assertSame([1, 3, 4, 2, 5], array_column($alt['recipients'], 'anchor'));
+    }
+
     public function testObergrenzeKapptNachDenToepfenUndZaehltDenRest(): void
     {
         $k = [self::kandidat(1), self::kandidat(2, ['phone' => null]), self::kandidat(3), self::kandidat(4)];

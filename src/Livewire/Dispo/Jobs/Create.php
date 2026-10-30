@@ -25,6 +25,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeitfenster;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\Filialen;
@@ -88,6 +89,8 @@ class Create extends Component
     public string $welleAbstand = '0';
     /** Sobald der Nutzer den Wellenplan angefasst hat, belegt ein Anlasswechsel ihn nicht mehr neu. */
     public bool $wellenAngefasst = false;
+    /** Sobald der Nutzer von/bis angefasst hat, belegt ein Anlasswechsel den Zeitraum nicht mehr neu (Spec 2026-10-30 §1). */
+    public bool $zeitraumAngefasst = false;
     public string $startModus = 'jetzt';
     public string $minuten = '30';
 
@@ -114,6 +117,10 @@ class Create extends Component
         // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
         $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
         $this->wellenVorbelegen();
+        if ($this->event === null) {
+            // Ueber das Menue: Zeitraum laut Anlass (Spec 2026-10-30 §1); ueber eine VA gelten unten deren Tage.
+            $this->zeitraumVorbelegen();
+        }
 
         $va = $this->event !== null ? RecDispoEvent::query()->find($this->event) : null;
         if ($va !== null) {
@@ -156,10 +163,27 @@ class Create extends Component
         $this->welleAbstand = (string) ($w['abstand_minuten'] ?? 0);
     }
 
+    /** Zeitraum laut Anlass (Spec 2026-10-30 §1); unbekannter Anlass laesst von/bis stehen. */
+    private function zeitraumVorbelegen(): bool
+    {
+        $f = DispoJobZeitfenster::fuer($this->anlass, now());
+        if ($f === null) {
+            return false;
+        }
+        $this->von = $f['von'];
+        $this->bis = $f['bis'];
+
+        return true;
+    }
+
     public function anlassWaehlen(string $anlass): void
     {
         if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
             $this->anlass = $anlass;
+            // Nur in Schritt 1, nicht ueber eine VA gekommen und von/bis noch unangetastet: Zeitraum neu vorbelegen.
+            if ($this->schritt === 1 && $this->event === null && !$this->zeitraumAngefasst && $this->zeitraumVorbelegen()) {
+                $this->hakenAngleichen();
+            }
             if (!$this->wellenAngefasst) {
                 $this->wellenVorbelegen();
                 if ($this->schritt === 3) {
@@ -602,6 +626,9 @@ class Create extends Component
         $feld = explode('.', $name)[0];
         if (in_array($feld, ['welleMax', 'welleAbstand'], true)) {
             $this->wellenAngefasst = true;
+        }
+        if (in_array($feld, ['von', 'bis'], true)) {
+            $this->zeitraumAngefasst = true;
         }
         if ($this->schritt === 3 && in_array($feld, ['maBloecke', 'gruppen', 'nurPassend', 'stati', 'firmen', 'welleMax'], true)) {
             $this->zahlenRechnen();

@@ -151,7 +151,7 @@ class SendDispoJobWave implements ShouldQueue
             'stati' => $wave->stati, // null = Welle von vor dem Statusfilter = GO + MA
             'firmen' => $wave->firmen, // null = alte Welle = beide Gesellschaften
             'max' => $request->welle_max, // Obergrenze je Welle, null = alle
-        ], DispoJobSchonZugesagt::laden((int) $request->team_id));
+        ], DispoJobSchonZugesagt::laden((int) $request->team_id), $daten['reihenfolge'] ?? null);
 
         $progress = self::initialProgress(count($plan['recipients']));
         $progress['skipped'] = array_sum($plan['skipped']);
