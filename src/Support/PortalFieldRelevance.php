@@ -38,4 +38,16 @@ final class PortalFieldRelevance
 
         return true;
     }
+
+    /**
+     * Darf leer bleiben, ohne als offen zu zaehlen ('leer_ok', z. B. der
+     * Geburtsname: leer heisst "wie der Nachname"). Ring, Gruppen-Zaehler,
+     * Blatt-Markierung und Lohnliste fragen hier.
+     *
+     * @param array<string,mixed> $meta
+     */
+    public static function leerErlaubt(array $meta): bool
+    {
+        return (bool) ($meta['leer_ok'] ?? false);
+    }
 }

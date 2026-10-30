@@ -33,8 +33,12 @@ final class PortalCompleteness
             if (!PortalFieldRelevance::istRelevant($meta, $datensatz)) {
                 continue;
             }
-            $gesamt++;
             $wert = $datensatz[$schluessel] ?? null;
+            $leer = $wert === null || $wert === '' || $wert === [];
+            if ($leer && PortalFieldRelevance::leerErlaubt($meta)) {
+                continue;   // zaehlt weder als offen noch als Luecke im Ring
+            }
+            $gesamt++;
             if ($wert === null || $wert === '' || $wert === []) {
                 $fehlend[$schluessel] = (string) ($meta['label'] ?? $schluessel);
                 continue;

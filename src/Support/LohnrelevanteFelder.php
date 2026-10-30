@@ -48,7 +48,7 @@ final class LohnrelevanteFelder
             if (!isset($meta[$feld]) || !PortalFieldRelevance::istRelevant($meta[$feld], $datensatz)) {
                 continue;
             }
-            if (PersonDatensatz::istLeer($datensatz[$feld] ?? null)) {
+            if (PersonDatensatz::istLeer($datensatz[$feld] ?? null) && !PortalFieldRelevance::leerErlaubt($meta[$feld])) {
                 $aus[$feld] = (string) ($meta[$feld]['label'] ?? $feld);
             }
         }

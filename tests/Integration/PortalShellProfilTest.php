@@ -121,6 +121,10 @@ final class PortalShellProfilTest extends TestCase
             $t->text('settings')->nullable();
             $t->timestamps();
         });
+
+        // Nachweise aus der alten Akte (30.10.2026): datensatzWerte() liest
+        // die aktuellen Nachweise der Person.
+        (require dirname(__DIR__, 2) . '/database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php')->up();
     }
 
     protected function tearDown(): void

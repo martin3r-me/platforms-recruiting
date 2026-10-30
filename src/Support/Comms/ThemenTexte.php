@@ -69,8 +69,8 @@ final class ThemenTexte
     {
         $liste = '• ' . implode("\n• ", $punkte);
         $text = self::oderVorgabe($teamText, $duzen
-            ? "Damit deine Abrechnung stimmen kann, fehlt in deiner Akte noch:\n{PUNKTE}\nBitte reich das im Mitarbeiterportal nach. Danach schauen wir uns deine Frage an."
-            : "Damit Ihre Abrechnung stimmen kann, fehlt in Ihrer Akte noch:\n{PUNKTE}\nBitte reichen Sie das im Mitarbeiterportal nach. Danach schauen wir uns Ihre Frage an.");
+            ? "Damit wir dich entsprechend deiner Angaben abrechnen dürfen, fehlt in deiner Akte noch:\n{PUNKTE}\nBitte reich das im Mitarbeiterportal nach. Danach schauen wir uns deine Frage an."
+            : "Damit wir Sie entsprechend Ihrer Angaben abrechnen dürfen, fehlt in Ihrer Akte noch:\n{PUNKTE}\nBitte reichen Sie das im Mitarbeiterportal nach. Danach schauen wir uns Ihre Frage an.");
 
         return str_replace('{PUNKTE}', $liste, $text);
     }

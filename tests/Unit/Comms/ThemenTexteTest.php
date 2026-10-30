@@ -37,7 +37,12 @@ final class ThemenTexteTest extends TestCase
         $t = ThemenTexte::lohnOffen(true, null, ['Ausweis', 'Bankverbindung']);
         $this->assertStringContainsString('Ausweis', $t);
         $this->assertStringContainsString('Bankverbindung', $t);
-        $this->assertStringContainsString('Abrechnung', $t);
+        // Wortlaut Markus 29.10.2026.
+        $this->assertStringStartsWith('Damit wir dich entsprechend deiner Angaben abrechnen dürfen, fehlt in deiner Akte noch:', $t);
+        $this->assertStringStartsWith(
+            'Damit wir Sie entsprechend Ihrer Angaben abrechnen dürfen, fehlt in Ihrer Akte noch:',
+            ThemenTexte::lohnOffen(false, null, ['Ausweis']),
+        );
     }
 
     public function test_filialknopf_laesst_das_praefix_dispo_weg(): void

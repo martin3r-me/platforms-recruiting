@@ -70,4 +70,17 @@ final class PortalCompletenessTest extends TestCase
     {
         $this->assertSame(100, PortalCompleteness::stand([], [])['prozent']);
     }
+
+    /** 'leer_ok' (Geburtsname): leer zaehlt weder als offen noch in den Ring; gefuellt zaehlt mit. */
+    public function test_leer_erlaubtes_feld_zaehlt_leer_nicht(): void
+    {
+        $felder = ['last_name' => ['label' => 'Nachname'], 'birth_name' => ['label' => 'Geburtsname', 'leer_ok' => true]];
+
+        $leer = PortalCompleteness::stand($felder, ['last_name' => 'Muster', 'birth_name' => '']);
+        $this->assertSame(100, $leer['prozent']);
+        $this->assertSame([], $leer['fehlend']);
+
+        $voll = PortalCompleteness::stand($felder, ['last_name' => 'Muster', 'birth_name' => 'Alt']);
+        $this->assertSame(2, $voll['gesamt']);
+    }
 }

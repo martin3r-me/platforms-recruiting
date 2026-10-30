@@ -67,7 +67,8 @@ class ProofInbox extends Component
         return RecEmployeeProof::query()
             ->aktuell()
             ->where('team_id', $teamId)
-            ->where('uploaded_via', '!=', 'import')
+            // altakte ebenso: Vermerk aus der ZAS-Akte, kein Eingang (30.10.2026).
+            ->whereNotIn('uploaded_via', ['import', \Platform\Recruiting\Services\AltaktenNachweise::QUELLE])
             ->with(['employee', 'confirmedByUser'])
             ->orderByDesc('created_at')
             ->limit(50)

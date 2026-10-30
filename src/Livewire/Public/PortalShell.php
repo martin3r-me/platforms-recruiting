@@ -938,7 +938,7 @@ class PortalShell extends Component
      * leeres Formular. Nur Datum und Gueltigkeit, keine Datei — die Vorschau
      * braucht einen eigenen, abgesicherten Abruf (spaeter).
      *
-     * @return ?array{am:string, bis:?string}
+     * @return ?array{am:string, bis:?string, altakte:bool}
      */
     private function hinterlegt(RecEmployee $employee, string $code): ?array
     {
@@ -951,6 +951,7 @@ class PortalShell extends Component
         return [
             'am'  => $proof->created_at?->format('d.m.Y') ?? '',
             'bis' => $proof->valid_until?->format('d.m.Y'),
+            'altakte' => $proof->uploaded_via === \Platform\Recruiting\Services\AltaktenNachweise::QUELLE,
         ];
     }
 
@@ -1374,7 +1375,7 @@ class PortalShell extends Component
                 } elseif (($datensatz[$schluessel] ?? null) !== null) {
                     $hatDateiWert = true;
                 }
-                if (PortalFieldRelevance::istRelevant($meta, $datensatz)) {
+                if (PortalFieldRelevance::istRelevant($meta, $datensatz) && !PortalFieldRelevance::leerErlaubt($meta)) {
                     $wert = $datensatz[$schluessel] ?? null;
                     if ($wert === null || $wert === '' || $wert === []) {
                         $offenInGruppe++;
@@ -1498,7 +1499,7 @@ class PortalShell extends Component
                     if (is_array($bedingung) && $bedingung !== [] && $code !== null
                         && PortalFieldRelevance::istRelevant(['required_if' => $bedingung], $datensatzOffeneGruppe)
                     ) {
-                        $da = $employee->getAttribute($schluessel) !== null;
+                        $da = ($datensatz[$schluessel] ?? null) !== null;
                         $blattNachweise[$code] = [
                             'code'  => $code,
                             'label' => ProofTypes::label($code),
@@ -1518,6 +1519,7 @@ class PortalShell extends Component
                 $pauschal = $schluessel === 'tax_class'
                     && strtoupper(trim((string) $employee->tax_class)) === 'P';
                 $fehlt = !$fest && !$pauschal
+                    && !PortalFieldRelevance::leerErlaubt($meta)
                     && PortalFieldRelevance::istRelevant($meta, $datensatzOffeneGruppe)
                     && trim((string) ($this->profilWerte[$schluessel] ?? '')) === '';
                 $profilFelder[$schluessel] = [
@@ -1557,7 +1559,7 @@ class PortalShell extends Component
                     $kachelnReihenfolge[] = $code;
                     $kachelnDa[$code] = false;
                 }
-                if ($employee->getAttribute($schluessel) !== null) {
+                if (($datensatz[$schluessel] ?? null) !== null) {
                     $kachelnDa[$code] = true;
                 }
             }
@@ -1596,6 +1598,21 @@ class PortalShell extends Component
         foreach ($gruppen as $felder) {
             foreach (array_keys($felder) as $schluessel) {
                 $werte[$schluessel] = $this->personWert($employee, $schluessel);
+            }
+        }
+
+        // Nachweise aus der alten Akte (AltaktenNachweise, 30.10.2026) haben
+        // keine Datei — ihre Datei-Spalten gelten trotzdem als belegt, sonst
+        // zeigen Ring, Kachel und Gruppe "fehlt", waehrend die Aufgabenliste
+        // "liegt vor" sagt.
+        foreach (app(ProofReader::class)->current($employee) as $proof) {
+            if ($proof->uploaded_via !== \Platform\Recruiting\Services\AltaktenNachweise::QUELLE) {
+                continue;
+            }
+            foreach (ProofTypes::legacyFileColumns($proof->proof_type_code) as $spalte) {
+                if (array_key_exists($spalte, $werte) && $werte[$spalte] === null) {
+                    $werte[$spalte] = \Platform\Recruiting\Services\AltaktenNachweise::QUELLE;
+                }
             }
         }
 

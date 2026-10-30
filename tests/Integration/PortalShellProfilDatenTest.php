@@ -58,6 +58,8 @@ final class PortalShellProfilDatenTest extends TestCase
         $own = dirname(__DIR__, 2);
         foreach ([
             'database/migrations/2026_05_20_000001_create_rec_employees_table.php',
+            // Nachweise aus der alten Akte (30.10.2026): datensatzWerte() liest sie.
+            'database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php',
             'database/migrations/2026_05_21_000001_add_full_field_set_to_rec_employees.php',
             // account_holder, tax_class, religion, ... -- braucht die HR-Data-Tabelle als Voraussetzung
             'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php',
@@ -245,6 +247,34 @@ final class PortalShellProfilDatenTest extends TestCase
         $profil = $this->profilDaten($shell, $ma);
 
         $this->assertGreaterThan(0, $profil['gruppen']['Ausweis']['offen']);
+    }
+
+    /** Pilot-Feedback Markus 29.10.2026: Ausweis aus der alten Akte gilt als da. */
+    public function test_ausweis_aus_der_alten_akte_zaehlt_als_vorhanden(): void
+    {
+        $ohne = $this->mitarbeiter(['identity_card_valid_until' => '2032-01-01']);
+        $offenOhne = $this->profilDaten($this->shell($ohne), $ohne)['gruppen']['Ausweis']['offen'];
+
+        $mit = $this->mitarbeiter(['identity_card_valid_until' => '2032-01-01']);
+        \Platform\Recruiting\Models\RecEmployeeProof::create([
+            'team_id' => 913, 'rec_employee_id' => $mit->id, 'proof_type_code' => 'ausweis',
+            'valid_until' => '2032-01-01', 'version' => 1,
+            'uploaded_via' => \Platform\Recruiting\Services\AltaktenNachweise::QUELLE,
+        ]);
+        $profil = $this->profilDaten($this->shell($mit), $mit);
+
+        $this->assertLessThan($offenOhne, $profil['gruppen']['Ausweis']['offen']);
+        $kachel = collect($profil['kacheln'])->firstWhere('code', 'ausweis');
+        $this->assertTrue($kachel['da']);
+        $this->assertNull($mit->fresh()->identity_card_front_file_id, 'Nur Anzeige, keine Altspalte beschrieben.');
+    }
+
+    public function test_leerer_geburtsname_zaehlt_nicht_als_offen(): void
+    {
+        $ma = $this->mitarbeiter(['birth_name' => null]);
+        $profil = $this->profilDaten($this->shell($ma), $ma);
+
+        $this->assertArrayNotHasKey('birth_name', $profil['stand']['fehlend']);
     }
 
     // -----------------------------------------------------------------

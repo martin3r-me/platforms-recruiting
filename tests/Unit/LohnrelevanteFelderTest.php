@@ -45,6 +45,19 @@ final class LohnrelevanteFelderTest extends TestCase
         );
     }
 
+    /** Pilot-Feedback Markus 29.10.2026: leerer Geburtsname heisst "wie der Nachname". */
+    public function test_leerer_geburtsname_fehlt_nie(): void
+    {
+        $meta = $this->meta(['gender', 'sozialversicherungsnummer']);
+        $meta['birth_name'] = ['label' => 'GEBURTSNAME', 'leer_ok' => true];
+
+        // Ohne SV-Nummer sind Geburtsangaben gefragt — der Geburtsname trotzdem nicht.
+        $this->assertSame(
+            ['sozialversicherungsnummer'],
+            array_keys(LohnrelevanteFelder::fehlend($meta, ['gender' => 'w', 'birth_name' => '', 'sozialversicherungsnummer' => null])),
+        );
+    }
+
     public function test_anderer_arbeitgeber_nur_wenn_nicht_hauptarbeitgeber(): void
     {
         $meta = $this->meta(['is_main_employer']);

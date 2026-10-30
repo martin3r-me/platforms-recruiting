@@ -474,7 +474,8 @@ class RecEmployee extends Model
                 'nationality'   => ['type' => 'lookup', 'label' => 'Staatsangehörigkeit', 'lookup' => 'geburtsland'],
             ],
             'Persoenliches' => [
-                'birth_name'         => ['type' => 'text', 'label' => 'Geburtsname'],
+                // Leer = wie der Nachname, nie "fehlt" (Pilot-Feedback Markus 29.10.2026).
+                'birth_name'         => ['type' => 'text', 'label' => 'Geburtsname (nur falls abweichend)', 'leer_ok' => true],
                 'birth_place'        => ['type' => 'text', 'label' => 'Geburtsort'],
                 'gender'             => ['type' => 'lookup', 'label' => 'Geschlecht', 'lookup' => 'geschlecht'],
                 'marital_status'     => ['type' => 'lookup', 'label' => 'Familienstand', 'lookup' => 'familienstand'],

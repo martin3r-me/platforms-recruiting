@@ -43,6 +43,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\RelinkOrphanedThreads::class,
                 \Platform\Recruiting\Console\Commands\RelinkWhatsAppThreads::class,
                 \Platform\Recruiting\Console\Commands\ToteChatVerknuepfungen::class,
+                \Platform\Recruiting\Console\Commands\NachweiseAusAltakte::class,
                 \Platform\Recruiting\Console\Commands\MigrateLegalStatusExtraFields::class,
                 \Platform\Recruiting\Console\Commands\CopyHcmContractTemplates::class,
                 \Platform\Recruiting\Console\Commands\DeactivateHcmContractTemplates::class,

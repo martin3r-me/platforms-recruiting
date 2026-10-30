@@ -1026,7 +1026,10 @@
                         {{-- Was schon da ist (Portal-Feinschliff 29.10.2026); ein neues Hochladen ersetzt es. --}}
                         @if ($uploadHinterlegt !== null)
                             @php
-                                $hinterlegtText = 'Hinterlegt: hochgeladen am ' . $uploadHinterlegt['am']
+                                $hinterlegtText = ($uploadHinterlegt['altakte'] ?? false)
+                                    ? 'Liegt uns aus ' . ($duzen ? 'deiner' : 'Ihrer') . ' Personalakte vor'
+                                    : 'Hinterlegt: hochgeladen am ' . $uploadHinterlegt['am'];
+                                $hinterlegtText = $hinterlegtText
                                     . ($uploadHinterlegt['bis'] !== null ? ' · gültig bis ' . $uploadHinterlegt['bis'] : '')
                                     . '. ' . ($duzen ? 'Lädst du neu hoch, ersetzt das den alten Nachweis.' : 'Laden Sie neu hoch, ersetzt das den alten Nachweis.');
                             @endphp

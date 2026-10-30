@@ -39,6 +39,8 @@ final class PortalShellPersonDatensatzTest extends TestCase
         $own = dirname(__DIR__, 2);
         foreach ([
             'database/migrations/2026_05_20_000001_create_rec_employees_table.php',
+            // Nachweise aus der alten Akte (30.10.2026): datensatzWerte() liest sie.
+            'database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php',
             'database/migrations/2026_05_21_000001_add_full_field_set_to_rec_employees.php',
             // account_holder, tax_class, religion, ... -- braucht die HR-Data-Tabelle als Voraussetzung
             'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php',
