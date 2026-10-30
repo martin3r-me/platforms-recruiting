@@ -40,6 +40,23 @@ final class DispoJobZahlenTest extends TestCase
         $this->assertSame(1, $ohneHaken['mit_passend'], 'Zahl am Haken bleibt die mit Haken');
     }
 
+    /** Vorschau = Versand (Spec 2026-10-30 §2): die Obergrenze nimmt die Reihenfolge aus `reihenfolge`, nicht aus dem Monat. */
+    public function testVorschauNimmtDieReihenfolgeAusDemZaehlfenster(): void
+    {
+        $daten = ['kandidaten' => [self::k(1, 'Anna'), self::k(2, 'Bert')], 'einsaetze' => [1 => 0, 2 => 5], 'gebucht' => [],
+            'reihenfolge' => ['einsaetze' => [1 => 4, 2 => 1], 'letzte_anfrage' => []]];
+        $schichten = [['id' => 1, 'datum' => '2026-10-24', 'taetigkeit' => 'Zapfer']];
+        $auswahl = ['gruppen' => ['alle'], 'bloecke' => [200], 'nur_passend' => false, 'max' => 1];
+
+        $z = DispoJobZahlen::ausDaten($daten, $schichten, [], $auswahl);
+        $this->assertSame(['Bert Muster'], $z['namen'], 'im Fenster hat Bert weniger');
+        $this->assertSame(1, $z['rest']);
+        $this->assertSame(1, $z['mit_passend'], 'auch die Zahl am Haken rechnet mit derselben Reihenfolge');
+
+        unset($daten['reihenfolge']);
+        $this->assertSame(['Anna Muster'], DispoJobZahlen::ausDaten($daten, $schichten, [], $auswahl)['namen'], 'ohne reihenfolge: Monat');
+    }
+
     public function testBloeckeUndGruppenAusCheckboxWerten(): void
     {
         $this->assertSame([200, null, 300], DispoJobZahlen::bloecke(['200', 'ohne', '300', '200', 'x', '']));

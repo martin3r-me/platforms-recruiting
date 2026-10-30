@@ -139,6 +139,24 @@ class SendDispoJobWaveJobTest extends TestCase
         $this->assertTrue($cache->get(SendDispoJobWave::cacheKey($wave->job_uuid))['done']);
     }
 
+    /** Spec 2026-10-30 §2: bei Gleichstand zuerst, wer am laengsten keine Anfrage bekam — nicht die kleinere Anker-ID. */
+    public function test_welle_schreibt_zuerst_an_wer_am_laengsten_keine_anfrage_bekam(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['welle_max' => 1]);
+        $anna = $this->employee('Anna', '0176 12345678');
+        $ben = $this->employee('Ben', '0176 87654321');
+        // Anna wurde in einer anderen Anfrage schon einmal angeschrieben, Ben nie.
+        RecDispoJobOffer::create(['wave_id' => 999, 'request_id' => 999, 'rec_employee_id' => $anna, 'anchor_employee_id' => $anna, 'sent_at' => now()->subDays(3)]);
+
+        $job = new SendDispoJobWave($wave->id, 3, 9);
+        $job->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertSame([$ben], RecDispoJobOffer::where('request_id', $request->id)->pluck('anchor_employee_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame(1, $wave->summary['rest'], 'Anna kommt in der naechsten Welle dran');
+    }
+
     public function test_geplante_welle_in_der_zukunft_sendet_nichts(): void
     {
         [, $wave] = $this->anfrage(['scheduled_for' => Carbon::now()->addMinutes(30)]);
