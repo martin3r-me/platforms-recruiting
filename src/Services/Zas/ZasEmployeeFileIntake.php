@@ -150,6 +150,19 @@ class ZasEmployeeFileIntake
         // bleibt unangetastet — er stammt aus einer echten HR-Aenderung.
         DB::table('rec_employees')->where('id', $employee->id)->update([$column => $fileId]);
 
+        // Nachweis nachziehen (30.10.2026) — sonst bliebe ein Vermerk aus der
+        // alten Akte bzw. "fehlt" im Portal stehen. Fehler kippen den Eingang nicht.
+        $code = \Platform\Recruiting\Support\ProofTypes::codeForLegacyColumn($column);
+        if ($code !== null) {
+            try {
+                app(\Platform\Recruiting\Services\NachweisAusAltspalten::class)->nachziehen($employee->fresh(), $code, 'zas');
+            } catch (\Throwable $e) {
+                Log::warning('ZAS-Datei-Eingang: Nachweis nicht nachgezogen', [
+                    'employee_id' => $employee->id, 'code' => $code, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         Log::info('ZAS-Datei-Eingang: Datei uebernommen', [
             'employee_id'      => $employee->id,
             'personnel_number' => $normalized,

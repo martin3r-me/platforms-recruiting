@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeProof;
 use Platform\Recruiting\Services\AltaktenNachweise;
+use Platform\Recruiting\Services\NachweisAusAltspalten;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Support\ProofChecklist;
 
@@ -172,5 +173,68 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
         ]);
 
         $this->assertSame([], (new AltaktenNachweise())->abgleichen(self::TEAM, true)['angelegt']);
+    }
+
+    // ---- HR-Akte / ZAS-Datei-Eingang ziehen den Nachweis nach (30.10.2026) ----
+
+    private function aktuellerAusweis(): ?RecEmployeeProof
+    {
+        return RecEmployeeProof::query()->aktuell()->where('proof_type_code', 'ausweis')->first();
+    }
+
+    public function test_hr_upload_ersetzt_den_vermerk_aus_der_alten_akte(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2025-06-30']);
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        // HR laedt in der Akte hoch und traegt das neue Datum ein (Altspalten).
+        $ma->update(['identity_card_front_file_id' => 7001, 'identity_card_valid_until' => '2034-03-31']);
+        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr', 42);
+
+        $p = $this->aktuellerAusweis();
+        $this->assertSame(7001, (int) $p->file_id);
+        $this->assertSame('2034-03-31', $p->valid_until->format('Y-m-d'));
+        $this->assertSame('hr', $p->uploaded_via);
+        $this->assertSame(42, (int) $p->uploaded_by_user_id);
+        $this->assertSame(1, RecEmployeeProof::query()->aktuell()->where('proof_type_code', 'ausweis')->count());
+    }
+
+    public function test_nur_das_datum_geaendert_erneuert_den_nachweis(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2025-06-30']);
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        $ma->update(['identity_card_valid_until' => '2033-01-01']);
+        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr');
+
+        $p = $this->aktuellerAusweis();
+        $this->assertSame('2033-01-01', $p->valid_until->format('Y-m-d'));
+        $this->assertSame(AltaktenNachweise::QUELLE, $p->uploaded_via, 'Ohne Datei bleibt es ein Vermerk aus der alten Akte.');
+        $this->assertNull($p->file_id);
+    }
+
+    public function test_ohne_aenderung_und_ohne_nachweis_passiert_nichts(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2031-01-01']);
+        $this->assertNull((new NachweisAusAltspalten())->nachziehen($ma, 'ausweis', 'hr'), 'Kein Nachweis, keine Datei.');
+
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+        $this->assertNull((new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr'), 'Datum unveraendert.');
+        $this->assertSame(1, RecEmployeeProof::count());
+    }
+
+    public function test_leeres_datum_an_der_anstellung_loescht_das_bisherige_nicht(): void
+    {
+        $rg = $this->ma(['rec_person_id' => 601, 'identity_card_valid_until' => '2032-02-02']);
+        $ma = $this->ma(['rec_person_id' => 601]);
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        // HR laedt an der MA-Anstellung hoch, dort steht kein Datum.
+        $ma->update(['identity_card_front_file_id' => 7002]);
+        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr');
+
+        $this->assertSame('2032-02-02', $this->aktuellerAusweis()->valid_until->format('Y-m-d'));
+        $this->assertSame('2032-02-02', $rg->fresh()->identity_card_valid_until->format('Y-m-d'));
+        $this->assertSame(7002, (int) $rg->fresh()->identity_card_front_file_id, 'Gespiegelt auf alle Anstellungen der Person.');
     }
 }

@@ -1624,6 +1624,10 @@ class Show extends Component
             $employee->update($updates);
             $folgen = $employee->anstellungsFolgen;
             $changesCount++;
+            // Geaendertes "gueltig bis" gilt auch fuer den Nachweis (30.10.2026).
+            $this->nachweisNachziehen($employee, \Platform\Recruiting\Services\NachweisAusAltspalten::codesFuerAblaufSpalten(
+                array_values(array_filter(\Platform\Recruiting\Support\ProofTypes::legacyExpiryColumnsAll(), fn ($c) => $employee->wasChanged($c))),
+            ));
         }
         if (!empty($hrUpdates)) {
             $employee->ensureHrData()->update($hrUpdates);
@@ -1683,12 +1687,35 @@ class Show extends Component
                 ]
             );
             $employee->update([$employeeField => (int) $result['id']]);
+            // Nachweis nachziehen (30.10.2026): sonst wusste das Portal nichts
+            // vom HR-Upload ("fehlt" bzw. altes Datum aus der alten Akte).
+            $this->nachweisNachziehen($employee, array_filter([\Platform\Recruiting\Support\ProofTypes::codeForLegacyColumn($employeeField)]));
             $this->flash = "Datei hochgeladen.";
         } catch (\Throwable $e) {
             $this->flash = 'Upload-Fehler: ' . $e->getMessage();
         }
         $this->{$propertyName} = null;
         unset($this->employee);
+    }
+
+    /**
+     * Nachweise nach einem HR-Schreiben in die Altspalten nachziehen. Ein
+     * Fehler hier darf das Speichern nicht kippen — er wird gemeldet.
+     *
+     * @param list<string> $codes
+     */
+    private function nachweisNachziehen(RecEmployee $employee, array $codes): void
+    {
+        foreach ($codes as $code) {
+            try {
+                app(\Platform\Recruiting\Services\NachweisAusAltspalten::class)
+                    ->nachziehen($employee->fresh(), $code, 'hr', auth()->id());
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[Recruiting] Nachweis nach HR-Aenderung nicht nachgezogen', [
+                    'employee_id' => $employee->id, 'code' => $code, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     public function uploadPropertyFor(string $fieldKey): ?string

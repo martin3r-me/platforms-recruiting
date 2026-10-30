@@ -85,8 +85,16 @@ class ZasEmployeeFileIntakeTest extends TestCase
             $t->integer('rec_zas_inbound_file_id')->nullable();
             $t->boolean('is_active')->default(true); $t->boolean('is_test')->default(false);
             $t->dateTime('zas_changed_at')->nullable();
+            // Personen-Umfang fuer den nachgezogenen Nachweis (30.10.2026).
+            $t->integer('rec_person_id')->nullable();
+            $t->string('person_key')->nullable();
+            $t->string('phone')->nullable();
             $t->timestamps();
         });
+
+        $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
+        Facade::clearResolvedInstance('db.schema');
+        (require dirname(__DIR__, 2) . '/database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php')->up();
     }
 
     public static function tearDownAfterClass(): void
@@ -97,6 +105,7 @@ class ZasEmployeeFileIntakeTest extends TestCase
 
     protected function setUp(): void
     {
+        Capsule::table('rec_employee_proofs')->delete();
         Capsule::table('rec_employees')->delete();
         $this->created      = 0;
         $this->calls        = [];
@@ -176,6 +185,16 @@ class ZasEmployeeFileIntakeTest extends TestCase
 
         $employee = RecEmployee::where('personnel_number', 'RG1187')->firstOrFail();
         $this->assertSame(4711, (int) $employee->selfie_file_id);
+    }
+
+    /** 30.10.2026: die Datei wird auch zum Nachweis — sonst fragt das Portal sie weiter an. */
+    public function test_the_file_becomes_the_current_proof(): void
+    {
+        $this->intake()->receive('RG1187', 'emp-selfie', $this->jpeg(), 'Selfie.jpeg');
+
+        $proof = \Platform\Recruiting\Models\RecEmployeeProof::query()->aktuell()->where('proof_type_code', 'selfie')->firstOrFail();
+        $this->assertSame(4711, (int) $proof->file_id);
+        $this->assertSame('zas', $proof->uploaded_via);
     }
 
     public function test_a_number_without_company_prefix_is_refused(): void
