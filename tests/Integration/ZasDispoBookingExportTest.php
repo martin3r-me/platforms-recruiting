@@ -380,11 +380,14 @@ class ZasDispoBookingExportTest extends TestCase
     {
         $va = RecDispoEvent::create(['einsatz_ref' => 'RG19801']);
         $r = $this->anfrage();
+        $r2 = $this->anfrage();
         $this->ma(1, 'RG1');
         $this->ma(2, 'RG2');
         $this->ma(3, 'RG3');
-        $s = $this->schicht($r, $va, now()->addDays(3)->toDateString());
+        $tag = now()->addDays(3)->toDateString();
+        $s = $this->schicht($r, $va, $tag);
         $auto = $this->zusage($s, 1);
+        $schwester = $this->zusage($this->schicht($r2, $va, $tag), 1);   // gleiche Buchung in der Schwester-Anfrage
         $hand = $this->zusage($s, 2);
         $angekommen = $this->zusage($s, 3);
         $export = new ZasDispoBookingExport();
@@ -393,25 +396,52 @@ class ZasDispoBookingExportTest extends TestCase
         RecDispoJobOfferShift::query()->whereKey($angekommen->id)->update(['zas_assignment_id' => 7]);
         $this->assertSame([], $export->rows());
 
-        $this->assertSame(['rows' => [], 'freigegeben' => 0], DispoBuchungenErneutCommand::freigeben([], null, false), 'Ohne Eingrenzung passiert nichts.');
+        $this->assertSame(['rows' => [], 'uebersprungen' => [], 'freigegeben' => 0], DispoBuchungenErneutCommand::freigeben([], null, false), 'Ohne Eingrenzung passiert nichts.');
 
         $probe = DispoBuchungenErneutCommand::freigeben([], now()->subMinute()->format('Y-m-d H:i'), true);
-        $this->assertSame([(int) $auto->id, (int) $hand->id], array_column($probe['rows'], 'id'), 'Angekommene werden nie freigegeben.');
-        $this->assertSame([false, true], array_column($probe['rows'], 'haken_von_hand'));
+        $this->assertSame([(int) $auto->id, (int) $schwester->id], array_column($probe['rows'], 'id'));
+        $this->assertSame(
+            [['id' => (int) $hand->id, 'grund' => 'Haken von Hand — steht in ZAS'], ['id' => (int) $angekommen->id, 'grund' => 'in ZAS angekommen']],
+            $probe['uebersprungen'],
+            'Hand-Haken und Angekommene werden nie freigegeben.'
+        );
         $this->assertSame(0, $probe['freigegeben']);
         $this->assertSame([], $export->rows(), 'Probelauf schreibt nichts.');
 
+        // Nur die fuehrende Zeile genannt: die Schwester kommt automatisch mit, sonst bliebe die Buchung belegt.
         $echt = DispoBuchungenErneutCommand::freigeben([(int) $auto->id, (int) $hand->id, (int) $angekommen->id], null, false);
+        $this->assertSame([(int) $auto->id, (int) $schwester->id], array_column($echt['rows'], 'id'));
+        $this->assertSame([false, true], array_column($echt['rows'], 'schwester'));
         $this->assertSame(2, $echt['freigegeben']);
         $auto->refresh();
+        $schwester->refresh();
         $hand->refresh();
         $angekommen->refresh();
         $this->assertNull($auto->zas_exported_at);
         $this->assertNull($auto->zas_entered_at, 'Automatik-Haken geht mit weg.');
-        $this->assertNull($hand->zas_exported_at);
-        $this->assertNotNull($hand->zas_entered_at, 'Haken von Hand bleibt — die Zeile geht deshalb auch nicht erneut raus.');
+        $this->assertNull($schwester->zas_exported_at);
+        $this->assertNotNull($hand->zas_exported_at, 'Haken von Hand: Zeile bleibt unangetastet.');
+        $this->assertNotNull($hand->zas_entered_at);
         $this->assertNotNull($angekommen->zas_exported_at);
 
-        $this->assertSame([(int) $auto->id], array_column($export->rows(), 'id'), 'Nur die freigegebene Automatik-Zeile kommt wieder.');
+        $rows = $export->rows();
+        $this->assertSame([(int) $auto->id], array_column($rows, 'id'), 'Die Buchung kommt als EINE Zeile wieder …');
+        $this->assertSame([(int) $auto->id, (int) $schwester->id], $rows[0]['ids'], '… mit beiden Schwestern.');
+    }
+
+    public function test_belegte_buchung_zaehlt_nicht_wenn_die_schwester_abgesagt_ist(): void
+    {
+        $va = RecDispoEvent::create(['einsatz_ref' => 'RG19801']);
+        $tag = now()->addDays(3)->toDateString();
+        $r1 = $this->anfrage();
+        $r2 = $this->anfrage();
+        $this->ma(1, 'RG1');
+        $this->zusage($this->schicht($r1, $va, $tag), 1, ['zas_entered_at' => now(), 'declined_at' => now()]);
+        $neu = $this->zusage($this->schicht($r2, $va, $tag), 1);
+
+        $ermittelt = (new ZasDispoBookingExport())->ermitteln();
+
+        $this->assertSame([(int) $neu->id], array_column($ermittelt['rows'], 'id'));
+        $this->assertSame([], $ermittelt['abgedeckt']);
     }
 }

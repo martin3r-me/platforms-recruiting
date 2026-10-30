@@ -225,7 +225,7 @@ class ZasDispoBookingExport
         }
         $rows = RecDispoJobOfferShift::query()
             ->with(['shift:id,datum,dispoposten_id', 'offer:id,rec_employee_id'])
-            ->whereNotNull('accepted_at')
+            ->whereNotNull('accepted_at')->whereNull('declined_at')
             ->where(fn ($q) => $q->whereNotNull('zas_exported_at')->orWhereNotNull('zas_entered_at')->orWhereNotNull('zas_assignment_id'))
             ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $employeeIds))
             ->whereHas('shift', fn ($q) => $q->whereIn('dispoposten_id', array_map('strval', $posten)))
