@@ -26,7 +26,8 @@ final class EmployeeThreadLinker
 
         $thread->addContext($morph, $employeeId, $source);
 
-        if (ThreadContextGate::isBareContactContext($thread->context_model)) {
+        if (ThreadContextGate::isBareContactContext($thread->context_model)
+            || ToteVerknuepfung::ist($thread->context_model, $thread->context_model_id)) {
             $thread->updateQuietly([
                 'context_model' => $morph,
                 'context_model_id' => $employeeId,

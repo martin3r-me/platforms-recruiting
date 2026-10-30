@@ -17,10 +17,12 @@ use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
 use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
+use Platform\Recruiting\Services\Comms\ToteVerknuepfung;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 /**
@@ -234,6 +236,78 @@ class MitarbeiterAufHrNummerTest extends TestCase
                 ->exists(),
             'Pivot-Kontext fehlt — ThreadContextGate wuerde die naechste Nachricht nicht blocken.',
         );
+    }
+
+    /**
+     * Fall Markus 30.10.2026: der Chat hing an einem geloeschten Bewerber
+     * (#1504), die Kommunikation zeigte nur die Nummer — und jede neue
+     * Nachricht fand zwar den lebenden Bewerber, haengte aber nicht um.
+     */
+    public function test_linker_haengt_von_geloeschtem_bewerber_um(): void
+    {
+        $this->applicant(811);
+        $threadId = $this->thread('4915100000811', 'rec_applicant', 999811);   // gibt es nicht
+
+        ApplicantThreadLinker::link(CommsWhatsAppThread::findOrFail($threadId), 811, 'recruiting_inbound');
+
+        $thread = CommsWhatsAppThread::findOrFail($threadId);
+        $this->assertSame('rec_applicant', $thread->context_model);
+        $this->assertSame(811, (int) $thread->context_model_id);
+    }
+
+    public function test_linker_haengt_von_geloeschtem_mitarbeiter_um(): void
+    {
+        $this->employee(812, '0151 0000 0812');
+        $threadId = $this->thread('4915100000812', RecEmployee::class, 999812);
+
+        EmployeeThreadLinker::link(CommsWhatsAppThread::findOrFail($threadId), 812, 'recruiting_inbound_employee');
+
+        $this->assertSame(812, (int) CommsWhatsAppThread::findOrFail($threadId)->context_model_id);
+    }
+
+    public function test_linker_laesst_lebende_verknuepfung_stehen(): void
+    {
+        $this->applicant(813);
+        $this->applicant(814);
+        $threadId = $this->thread('4915100000813', 'rec_applicant', 813);
+
+        ApplicantThreadLinker::link(CommsWhatsAppThread::findOrFail($threadId), 814, 'recruiting_inbound');
+
+        $this->assertSame(813, (int) CommsWhatsAppThread::findOrFail($threadId)->context_model_id);
+    }
+
+    public function test_heilen_haengt_bestand_auf_lebenden_kontext_aus_dem_verlauf(): void
+    {
+        $team = 77001;   // eigenes Team: die Klasse teilt sich eine DB
+        $this->applicant(821);
+        $mitErsatz = $this->threadImTeam($team, 'rec_applicant', 999821);
+        CommsWhatsAppThread::findOrFail($mitErsatz)->addContext('rec_applicant', 821, 'test');
+        $ohneErsatz = $this->threadImTeam($team, RecEmployee::class, 999822);
+        $lebend = $this->threadImTeam($team, 'rec_applicant', 821);
+        $fremd = $this->threadImTeam($team, 'hcm_onboarding', 999823);
+
+        $probe = ToteVerknuepfung::heilen($team, false);
+        $this->assertSame(2, $probe['tot']);
+        $this->assertSame([$ohneErsatz], $probe['ohne_ersatz']);
+        $this->assertSame(999821, (int) CommsWhatsAppThread::findOrFail($mitErsatz)->context_model_id, 'Probelauf schreibt nichts.');
+
+        $scharf = ToteVerknuepfung::heilen($team, true);
+        $this->assertSame([$mitErsatz], array_column($scharf['umgehaengt'], 'thread'));
+        $this->assertSame(821, (int) CommsWhatsAppThread::findOrFail($mitErsatz)->context_model_id);
+        $this->assertSame(999822, (int) CommsWhatsAppThread::findOrFail($ohneErsatz)->context_model_id);
+        $this->assertSame(821, (int) CommsWhatsAppThread::findOrFail($lebend)->context_model_id);
+        $this->assertSame(999823, (int) CommsWhatsAppThread::findOrFail($fremd)->context_model_id);
+        $this->assertSame(0, ToteVerknuepfung::heilen($team, false)['tot'] - 1, 'Danach bleibt nur der ohne Ersatz.');
+    }
+
+    private function threadImTeam(int $team, string $contextModel, int $contextId): int
+    {
+        return (int) CommsWhatsAppThread::create([
+            'team_id' => $team, 'comms_channel_id' => self::$channelId, 'token' => bin2hex(random_bytes(8)),
+            'remote_phone_number' => '49151' . random_int(1000000, 9999999),
+            'context_model' => $contextModel, 'context_model_id' => $contextId, 'is_unread' => false,
+            'last_inbound_at' => date('Y-m-d H:i:s', self::JETZT - 100_000), 'last_message_preview' => 'Hallo',
+        ])->id;
     }
 
     // ---- Filter Alle | Bewerber | Mitarbeiter ---------------------------
