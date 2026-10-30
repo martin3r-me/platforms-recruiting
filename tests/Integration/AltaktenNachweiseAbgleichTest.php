@@ -47,6 +47,9 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
             'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php',
             'database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php',
             'database/migrations/2026_09_23_000003_add_ifsg_instruction_to_rec_employees.php',
+            'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php',
+            'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php',
+            'database/migrations/2026_09_24_000001_add_portal_v2_since_to_rec_employees.php',
             'database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php',
         ] as $relative) {
             (require $own . '/' . $relative)->up();
@@ -125,5 +128,49 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
 
         $this->assertSame(['personen' => 1, 'angelegt' => ['krankenkasse' => 1]], $r);
         $this->assertSame([(int) $rg->id], RecEmployeeProof::pluck('rec_employee_id')->map(fn ($i) => (int) $i)->all());
+    }
+
+    /** Review 30.10.: die kleinste id war oft eine beendete Anstellung — Erinnerungen fragen nur aktive ab. */
+    public function test_traeger_ist_die_aktive_anstellung_im_neuen_portal(): void
+    {
+        $alt = $this->ma(['rec_person_id' => 502, 'is_active' => false, 'health_insurance' => 'AOK']);
+        $ohnePortal = $this->ma(['rec_person_id' => 502]);
+        $neu = $this->ma(['rec_person_id' => 502, 'portal_v2_since' => '2026-10-29 08:00:00']);
+
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        $this->assertSame([(int) $neu->id], RecEmployeeProof::pluck('rec_employee_id')->map(fn ($i) => (int) $i)->all());
+        $this->assertLessThan($ohnePortal->id, $alt->id);
+    }
+
+    /** Review 30.10.: ein neueres AusweisBis aus ZAS erneuert den Vermerk, ein aelteres nicht. */
+    public function test_neueres_ausweisdatum_aus_zas_erneuert_den_vermerk(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2025-06-30']);
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        $ma->update(['identity_card_valid_until' => '2035-06-30']);
+        $r = (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+        $this->assertSame(['ausweis' => 1], $r['angelegt']);
+
+        $aktuell = RecEmployeeProof::query()->aktuell()->get();
+        $this->assertCount(1, $aktuell);
+        $this->assertSame('2035-06-30', $aktuell->first()->valid_until->format('Y-m-d'));
+        $this->assertSame(2, (int) $aktuell->first()->version);
+
+        $ma->update(['identity_card_valid_until' => '2030-01-01']);
+        $this->assertSame([], (new AltaktenNachweise())->abgleichen(self::TEAM, true)['angelegt']);
+    }
+
+    /** Ein echter Upload bleibt — auch wenn ZAS spaeter ein anderes Datum hat. */
+    public function test_echter_nachweis_wird_nie_ersetzt(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2035-06-30']);
+        RecEmployeeProof::create([
+            'team_id' => self::TEAM, 'rec_employee_id' => $ma->id, 'proof_type_code' => 'ausweis',
+            'file_id' => 9001, 'valid_until' => '2027-01-01', 'version' => 1, 'uploaded_via' => 'employee',
+        ]);
+
+        $this->assertSame([], (new AltaktenNachweise())->abgleichen(self::TEAM, true)['angelegt']);
     }
 }

@@ -263,7 +263,8 @@ final class PortalShellProfilDatenTest extends TestCase
         ]);
         $profil = $this->profilDaten($this->shell($mit), $mit);
 
-        $this->assertLessThan($offenOhne, $profil['gruppen']['Ausweis']['offen']);
+        // Genau Vorder- und Rueckseite fallen weg; das Passfoto (eigene Art) bleibt offen.
+        $this->assertSame(2, $offenOhne - $profil['gruppen']['Ausweis']['offen']);
         $kachel = collect($profil['kacheln'])->firstWhere('code', 'ausweis');
         $this->assertTrue($kachel['da']);
         $this->assertNull($mit->fresh()->identity_card_front_file_id, 'Nur Anzeige, keine Altspalte beschrieben.');

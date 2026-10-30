@@ -558,6 +558,7 @@ class EmployeePortal extends Component
                 // nicht greift (z.B. Ersthelfer-Datum bei "Nein"), wird nicht
                 // als fehlend markiert.
                 $isMissing = $employee->fieldIsRelevant($meta)
+                    && !\Platform\Recruiting\Support\PortalFieldRelevance::leerErlaubt($meta)
                     && ($value === null || $value === '' || $value === []);
                 $entries[] = [
                     'key'        => $key,

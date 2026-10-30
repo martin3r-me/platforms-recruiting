@@ -118,8 +118,14 @@ final class AltaktenNachweise
         $codes = self::CODES;
 
         $mitglieder = RecEmployee::query()->whereIn('id', $ids)->get();
-        $belegt = RecEmployeeProof::query()->aktuell()->whereIn('rec_employee_id', $ids)
-            ->whereIn('proof_type_code', $codes)->pluck('proof_type_code')->all();
+        $aktuell = RecEmployeeProof::query()->aktuell()->whereIn('rec_employee_id', $ids)
+            ->whereIn('proof_type_code', $codes)->get()->keyBy('proof_type_code');
+
+        // Belegt = echter Nachweis oder Altspalten-Datei. Ein eigener
+        // altakte-Vermerk ist NICHT belegt: liefert ZAS spaeter ein neueres
+        // AusweisBis, wird er erneuert (Review 30.10. — sonst hiesse es im
+        // Portal "abgelaufen", obwohl ZAS den neuen Ausweis kennt).
+        $belegt = $aktuell->reject(fn ($p) => $p->uploaded_via === self::QUELLE)->keys()->all();
         foreach ($codes as $code) {
             foreach (ProofTypes::legacyFileColumns($code) as $spalte) {
                 if ($mitglieder->contains(fn ($m) => $m->getAttribute($spalte) !== null)) {
@@ -135,12 +141,31 @@ final class AltaktenNachweise
             'health_insurance' => $m->health_insurance,
         ])->all(), array_values(array_unique($belegt)));
 
+        // Vorhandene Vermerke: nur ein spaeteres Ausweis-Datum ersetzt sie.
+        $vorschlag = array_filter($vorschlag, function (?string $bis, string $code) use ($aktuell) {
+            $alt = $aktuell->get($code);
+            if ($alt === null) {
+                return true;
+            }
+
+            return $code === 'ausweis' && $bis !== null
+                && ($alt->valid_until === null || $bis > $alt->valid_until->format('Y-m-d'));
+        }, ARRAY_FILTER_USE_BOTH);
+
         if ($schreiben && $vorschlag !== []) {
-            // Getragen von der kleinsten id des Umfangs — gelesen wird ueber
-            // den ganzen Umfang (ProofReader), die Wahl ist nur Ablage.
-            $traeger = $mitglieder->sortBy('id')->first();
-            DB::transaction(function () use ($vorschlag, $traeger, $ids) {
+            // Getragen von einer AKTIVEN Anstellung im Team, bevorzugt im neuen
+            // Portal — Erinnerungen und HR-Listen fragen nur solche ab
+            // (Review 30.10.: die kleinste id war oft eine beendete).
+            $traeger = $mitglieder
+                ->filter(fn ($m) => $m->is_active && (int) $m->team_id === (int) $employee->team_id)
+                ->sortBy(fn ($m) => [$m->portal_v2_since === null ? 1 : 0, (int) $m->id])
+                ->first() ?? $employee;
+            DB::transaction(function () use ($vorschlag, $traeger, $ids, $aktuell) {
                 foreach ($vorschlag as $code => $bis) {
+                    $alt = $aktuell->get($code);
+                    if ($alt !== null) {
+                        RecEmployeeProof::query()->whereKey($alt->id)->update(['superseded_at' => now()]);
+                    }
                     // Abgeloeste Fassungen zaehlen mit — die Version laeuft je Person und Art weiter.
                     $version = (int) RecEmployeeProof::query()->whereIn('rec_employee_id', $ids)
                         ->where('proof_type_code', $code)->max('version');

@@ -306,6 +306,14 @@ class RecruitingServiceProvider extends ServiceProvider
         // --scheduled: Team-Anker aus recruiting.zas.inbound_team_id (ohne Anker
         // fail-closed = No-op statt Lauf ueber alle Mandanten) und Kill-Switch
         // dispo_contact_backfill_enabled (Disposition -> Einstellungen).
+        // Nachweise aus der alten Akte (Pilot-Feedback 29.10.2026): neue
+        // Bestands-MA bekommen ihren Vermerk, ein neueres AusweisBis aus ZAS
+        // erneuert ihn. Idempotent; ohne Team-Anker No-op.
+        Schedule::command('recruiting:nachweise-altakte --scheduled')
+            ->dailyAt('05:40')
+            ->withoutOverlapping(60)
+            ->runInBackground();
+
         Schedule::command('recruiting:zas-crm-contact-backfill --scheduled')
             ->hourly()
             ->withoutOverlapping(30)

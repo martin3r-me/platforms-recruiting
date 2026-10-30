@@ -649,7 +649,7 @@ class RecEmployee extends Model
                 continue;
             }
             $value = $this->getAttribute($field);
-            if ($value === null || $value === '' || $value === []) {
+            if (($value === null || $value === '' || $value === []) && !PortalFieldRelevance::leerErlaubt($meta)) {
                 $missing[$field] = $meta['label'];
             }
         }

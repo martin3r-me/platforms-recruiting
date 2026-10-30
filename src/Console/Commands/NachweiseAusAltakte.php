@@ -12,23 +12,31 @@ use Platform\Recruiting\Services\AltaktenNachweise;
  *
  *   php artisan recruiting:nachweise-altakte --team-id=3
  *   php artisan recruiting:nachweise-altakte --team-id=3 --ausfuehren
+ *
+ * Laeuft zusaetzlich taeglich (--scheduled): ein neues AusweisBis aus ZAS
+ * erneuert den Vermerk, neue Bestands-MA bekommen ihren.
  */
 class NachweiseAusAltakte extends Command
 {
     protected $signature = 'recruiting:nachweise-altakte
-        {--team-id= : Team-ID (Pflicht)}
-        {--ausfuehren : Wirklich anlegen (sonst nur anzeigen)}';
+        {--team-id= : Team-ID (Pflicht, ausser --scheduled)}
+        {--ausfuehren : Wirklich anlegen (sonst nur anzeigen)}
+        {--scheduled : Taeglicher Lauf: Team aus recruiting.zas.inbound_team_id, schreibt; ohne Anker No-op}';
 
     protected $description = 'Vermerkt Ausweis/Infektionsschutz/Krankenkassenkarte aus der ZAS-Akte als vorhanden, wo im HCM keine Datei liegt.';
 
     public function handle(AltaktenNachweise $abgleich): int
     {
-        $teamId = (int) $this->option('team-id');
+        $geplant = (bool) $this->option('scheduled');
+        $teamId = (int) ($this->option('team-id') ?: ($geplant ? config('recruiting.zas.inbound_team_id') : 0));
         if ($teamId <= 0) {
+            if ($geplant) {
+                return Command::SUCCESS;   // ohne Team-Anker nie ueber alle Mandanten
+            }
             $this->error('--team-id ist erforderlich.');
             return Command::FAILURE;
         }
-        $schreiben = (bool) $this->option('ausfuehren');
+        $schreiben = $geplant || (bool) $this->option('ausfuehren');
         if (!$schreiben) {
             $this->warn('Probelauf — es wird nichts geschrieben (scharf mit --ausfuehren).');
         }
