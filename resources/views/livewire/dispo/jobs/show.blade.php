@@ -5,6 +5,7 @@
     $fortschritt = $this->fortschritt;
     $wellen = $this->wellen;
     $rueck = $this->rueckmeldungen;
+    $letzteLieferung = $this->letzteLieferung;
     $filialLabel = \Platform\Recruiting\Support\Filialen::code($anfrage->filial_nr) ?? ('#' . $anfrage->filial_nr);
     $anlassLabel = ($anfrage->anlass ?? '') !== '' ? \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::label((string) $anfrage->anlass) : '—';
     $modusLabel = $anfrage->modus === \Platform\Recruiting\Models\RecDispoJobRequest::MODUS_ZUERST ? 'Wer zuerst kommt' : 'Alle Zusagen sammeln';
@@ -416,13 +417,25 @@
                                     <td class="py-1 pr-3 tabular-nums text-gray-700" title="{{ $bewertung['title'] }}">{{ $bewertung['text'] }}</td>
                                     <td class="py-1 pr-3 tabular-nums {{ ($info['absagen_60'] ?? 0) > 0 ? 'text-amber-700' : 'text-gray-400' }}">{{ $info['absagen_60'] ?? 0 }}</td>
                                     <td class="py-1">
+                                        @php
+                                            $zasHinweis = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasUebergabe::hinweis(
+                                                $z->zas_assignment_id !== null, $z->zas_exported_at, $z->zas_entered_at,
+                                                $s->dispoposten_id, $info['personnel_number'] ?? '', $letzteLieferung
+                                            );
+                                            $zasHinweisKlasse = match ($zasHinweis['art'] ?? '') {
+                                                'angekommen' => 'rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700',
+                                                'ausstehend' => 'rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700',
+                                                'uebergeben' => 'rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600',
+                                                default      => 'text-xs text-gray-400',
+                                            };
+                                        @endphp
                                         <div class="flex flex-wrap items-center gap-3">
                                             <label class="flex cursor-pointer items-center gap-1.5 text-xs">
                                                 <input type="checkbox" wire:click="zasHaken({{ $z->id }})" @checked($z->zas_entered_at !== null) class="rounded border-gray-300">
                                                 <span>in ZAS eingetragen</span>
                                             </label>
-                                            @if ($z->zas_assignment_id !== null)
-                                                <span class="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700">✓ in ZAS angekommen</span>
+                                            @if ($zasHinweis !== null)
+                                                <span class="{{ $zasHinweisKlasse }}">{{ $zasHinweis['text'] }}</span>
                                             @endif
                                         </div>
                                     </td>

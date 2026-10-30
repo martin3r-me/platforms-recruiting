@@ -62,6 +62,12 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // Marker) — ZAS setzt beim Import die Haken ueber die DS-ID.
     Route::get('/dispo/confirmations.csv', \Platform\Recruiting\Http\Controllers\ZasDispoConfirmationExportController::class)
         ->name('recruiting.zas.dispo.confirmations');
+
+    // Rueckkanal: Zusagen aus „Jobs anbieten“ als Buchungen (Olafs Importformat
+    // PNr;Projekt;Dispo;VDatum). MIT Marker: jede Zusage geht genau einmal raus.
+    // ?dry_run=1 liefert ohne zu markieren, ?einsatz= begrenzt auf eine VA.
+    Route::get('/dispo/bookings.csv', \Platform\Recruiting\Http\Controllers\ZasDispoBookingExportController::class)
+        ->name('recruiting.zas.dispo.bookings');
 });
 
 // Bewerber-Datei-Stream (Slot-Prefix `upl-*`)

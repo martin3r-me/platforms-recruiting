@@ -172,6 +172,24 @@ class Show extends Component
         return DispoJobFortschritt::berechnen($this->schichten);
     }
 
+    /**
+     * Letzte verarbeitete Dispo-Lieferung aus ZAS (Spec 2026-10-30 §4): Massstab
+     * dafuer, ob eine uebergebene Zusage in ZAS haette ankommen muessen. Wirft nie.
+     */
+    #[Computed]
+    public function letzteLieferung(): ?\Carbon\CarbonInterface
+    {
+        try {
+            $max = \Platform\Recruiting\Models\RecZasDispoInboundFile::query()
+                ->where('parse_status', 'processed')
+                ->max('processed_at');
+
+            return $max ? \Carbon\Carbon::parse((string) $max) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     /** @return array{zeilen: array<int, list<RecDispoJobOfferShift>>, info: array<int, array<string,mixed>>} */
     #[Computed]
     public function rueckmeldungen(): array
