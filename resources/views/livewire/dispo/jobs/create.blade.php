@@ -75,11 +75,13 @@
                 <div class="space-y-2">
                     @php
                         // Zeitraum laut Anlass (Spec 2026-10-30 §1); ohne Anlass der alte Standard.
-                        $zeitraumHinweis = $event === null
-                            ? (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeitfenster::hinweis($anlass, now()) ?? 'Vorgeschlagen sind die nächsten vier Wochen.')
-                            : 'Vorgeschlagen sind die Tage der Veranstaltung.';
+                        $zeitraumHinweis = $ausVa
+                            ? 'Vorgeschlagen sind die Tage der Veranstaltung.'
+                            : (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeitfenster::hinweis($anlass, now()) ?? 'Vorgeschlagen sind die nächsten vier Wochen.');
+                        // Ohne eine einzige hinterlegte Vorlage keine Pillen hier — Schritt 3 erklaert das mit Link zu den Einstellungen.
+                        $anlassWaehlbar = array_filter($anlaesse, fn ($a) => $a['frei']) !== [];
                     @endphp
-                    @if ($event === null && $anlaesse !== [])
+                    @if (!$ausVa && $anlassWaehlbar)
                         <div class="font-medium text-gray-700">Worum geht es?</div>
                         <div class="flex flex-wrap items-start gap-2">
                             @foreach ($anlaesse as $a)

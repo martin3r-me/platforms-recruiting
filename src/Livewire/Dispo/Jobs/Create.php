@@ -89,8 +89,9 @@ class Create extends Component
     public string $welleAbstand = '0';
     /** Sobald der Nutzer den Wellenplan angefasst hat, belegt ein Anlasswechsel ihn nicht mehr neu. */
     public bool $wellenAngefasst = false;
-    /** Sobald der Nutzer von/bis angefasst hat, belegt ein Anlasswechsel den Zeitraum nicht mehr neu (Spec 2026-10-30 §1). */
-    public bool $zeitraumAngefasst = false;
+    /** Einstieg ueber eine Veranstaltung (?event= gefunden): deren Tage gelten, der Anlass belegt den Zeitraum nicht vor (Spec 2026-10-30 §1). */
+    #[Locked]
+    public bool $ausVa = false;
     public string $startModus = 'jetzt';
     public string $minuten = '30';
 
@@ -117,10 +118,8 @@ class Create extends Component
         // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
         $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
         $this->wellenVorbelegen();
-        if ($this->event === null) {
-            // Ueber das Menue: Zeitraum laut Anlass (Spec 2026-10-30 §1); ueber eine VA gelten unten deren Tage.
-            $this->zeitraumVorbelegen();
-        }
+        // Zeitraum laut Anlass (Spec 2026-10-30 §1); kommt unten eine VA, gelten deren Tage.
+        $this->zeitraumVorbelegen();
 
         $va = $this->event !== null ? RecDispoEvent::query()->find($this->event) : null;
         if ($va !== null) {
@@ -131,6 +130,7 @@ class Create extends Component
         if ($va !== null && $va->filial_nr !== null && $va->starts_on !== null) {
             $start = $va->starts_on->toDateString();
             $ende = ($va->ends_on ?? $va->starts_on)->toDateString();
+            $this->ausVa = true;
             $this->filialNr = (string) $va->filial_nr;
             $this->von = max($morgen, $start);
             $this->bis = max($this->von, $ende);
@@ -180,8 +180,9 @@ class Create extends Component
     {
         if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
             $this->anlass = $anlass;
-            // Nur in Schritt 1, nicht ueber eine VA gekommen und von/bis noch unangetastet: Zeitraum neu vorbelegen.
-            if ($this->schritt === 1 && $this->event === null && !$this->zeitraumAngefasst && $this->zeitraumVorbelegen()) {
+            // Pille in Schritt 1 = ausdrueckliche Wahl: Zeitraum neu vorbelegen (auch nach einer Handaenderung, Review 30.10. F1);
+            // nicht ueber eine VA (deren Tage gelten) und nicht in Schritt 2/3 (Schichten stehen fest).
+            if ($this->schritt === 1 && !$this->ausVa && $this->zeitraumVorbelegen()) {
                 $this->hakenAngleichen();
             }
             if (!$this->wellenAngefasst) {
@@ -626,9 +627,6 @@ class Create extends Component
         $feld = explode('.', $name)[0];
         if (in_array($feld, ['welleMax', 'welleAbstand'], true)) {
             $this->wellenAngefasst = true;
-        }
-        if (in_array($feld, ['von', 'bis'], true)) {
-            $this->zeitraumAngefasst = true;
         }
         if ($this->schritt === 3 && in_array($feld, ['maBloecke', 'gruppen', 'nurPassend', 'stati', 'firmen', 'welleMax'], true)) {
             $this->zahlenRechnen();

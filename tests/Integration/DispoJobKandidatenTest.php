@@ -99,15 +99,19 @@ class DispoJobKandidatenTest extends TestCase
             $tag($b, '2026-10-31');                       // Monat + Fenster
 
             Capsule::table('rec_dispo_job_offers')->insert([
-                ['wave_id' => 1, 'request_id' => 1, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'created_at' => '2026-10-01 09:00:00', 'updated_at' => '2026-10-01 09:00:00'],
-                ['wave_id' => 2, 'request_id' => 2, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'created_at' => '2026-10-20 09:00:00', 'updated_at' => '2026-10-20 09:00:00'],
+                // Alle Zeilen mit denselben Spalten — der Sammel-Insert nimmt die Spaltenliste der ersten Zeile.
+                ['wave_id' => 1, 'request_id' => 1, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'sent_at' => '2026-10-01 09:00:01', 'send_error' => null, 'created_at' => '2026-10-01 09:00:00', 'updated_at' => '2026-10-01 09:00:00'],
+                ['wave_id' => 2, 'request_id' => 2, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'sent_at' => '2026-10-20 09:00:01', 'send_error' => null, 'created_at' => '2026-10-20 09:00:00', 'updated_at' => '2026-10-20 09:00:00'],
+                // Fehlversand (kein sent_at): hat die Person nicht erreicht, zaehlt nicht als Anfrage.
+                ['wave_id' => 3, 'request_id' => 3, 'rec_employee_id' => $b, 'anchor_employee_id' => $b, 'sent_at' => null, 'send_error' => 'x', 'created_at' => '2026-10-28 09:00:00', 'updated_at' => '2026-10-28 09:00:00'],
+                ['wave_id' => 3, 'request_id' => 3, 'rec_employee_id' => $a, 'anchor_employee_id' => $a, 'sent_at' => null, 'send_error' => 'x', 'created_at' => '2026-10-28 09:00:00', 'updated_at' => '2026-10-28 09:00:00'],
             ]);
 
             $r = DispoJobKandidaten::laden(3, ['2026-11-02', '2026-11-08'], '2026-10');
 
             $this->assertSame([$a => 1, $b => 1], $r['einsaetze'], 'Baender: nur der Kalendermonat');
             $this->assertSame([$a => 3, $b => 1], $r['reihenfolge']['einsaetze'], 'Reihenfolge: 30.09. bis 08.11.');
-            $this->assertSame([$b => '2026-10-20 09:00:00'], $r['reihenfolge']['letzte_anfrage'], 'juengste Anfrage je Person, Anna nie');
+            $this->assertSame([$b => '2026-10-20 09:00:00'], $r['reihenfolge']['letzte_anfrage'], 'juengste ZUGESTELLTE Anfrage je Person, Anna nie (nur Fehlversand)');
         } finally {
             \Carbon\Carbon::setTestNow();
         }

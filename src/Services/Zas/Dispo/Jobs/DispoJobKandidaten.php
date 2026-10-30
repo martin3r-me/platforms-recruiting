@@ -106,8 +106,10 @@ final class DispoJobKandidaten
         }
 
         // Letzte Anfrage je Person ueber alle Anfragen (Spec 2026-10-30 §2: Gleichstand = am laengsten nicht angeschrieben).
+        // Nur zugestellte Angebote: ein Fehlversand (send_error, kein sent_at) hat die Person nicht erreicht.
         $letzteAnfrage = RecDispoJobOffer::query()
             ->whereIn('anchor_employee_id', array_keys($byAnchor))
+            ->whereNotNull('sent_at')
             ->groupBy('anchor_employee_id')
             ->selectRaw('anchor_employee_id, max(created_at) as letzte')
             ->get()

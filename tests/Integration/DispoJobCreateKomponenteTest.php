@@ -147,17 +147,18 @@ class DispoJobCreateKomponenteTest extends TestCase
         $this->assertSame(['vier_wochen', '2026-11-02', '2026-11-30'], [$c->anlass, $c->von, $c->bis]);
     }
 
-    public function test_zeitraum_von_hand_oder_ueber_eine_va_bleibt_beim_anlasswechsel_stehen(): void
+    public function test_pille_ist_ausdruecklich_auch_nach_handaenderung_va_und_spaetere_schritte_bleiben(): void
     {
+        // Review 30.10. F1: der Klick auf die Pille ist eine Wahl — Hinweis und Felder duerfen sich nicht widersprechen.
         $c = self::komponente();
         $c->von = '2026-12-01';
         $c->bis = '2026-12-05';
         $c->updated('von');
         $c->anlassWaehlen('naechste_woche');
-        $this->assertSame(['naechste_woche', '2026-12-01', '2026-12-05'], [$c->anlass, $c->von, $c->bis], 'Handaenderung gewinnt (Markus: Anpassung von Hand)');
+        $this->assertSame(['naechste_woche', '2026-11-02', '2026-11-08'], [$c->anlass, $c->von, $c->bis], 'Pille setzt den Zeitraum neu; danach darf wieder von Hand geaendert werden');
 
         $c = self::komponente();
-        $c->event = 7;
+        $c->ausVa = true;
         $c->anlassWaehlen('naechste_woche');
         $this->assertSame(['2026-11-02', '2026-11-04'], [$c->von, $c->bis], 'ueber eine VA gelten deren Tage');
 
