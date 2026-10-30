@@ -65,15 +65,30 @@ final class NachweisAusAltspalten
     }
 
     /**
-     * Nach einer Aenderung von "gueltig bis" in der HR-Akte: nur ein
-     * bestehender Nachweis bekommt das neue Datum. Leeren aendert nichts
-     * (keine Aussage — das bisherige Datum bleibt).
+     * Nach einer Aenderung von "gueltig bis" in der HR-Akte: ein bestehender
+     * Nachweis bekommt das neue Datum; eine schon hochgeladene, dem Nachweis
+     * unbekannte Datei dieser Anstellung wird dabei zum Nachweis. Leeren
+     * aendert nichts (keine Aussage — das bisherige Datum bleibt).
      */
     public function nachDatum(RecEmployee $employee, string $code, ?int $userId = null): ?RecEmployeeProof
     {
-        $aktuell = $this->aktuell($employee, $code);
         $bis = $this->datumAusSpalte($employee, $code);
-        if ($aktuell === null || $bis === null || $bis === $aktuell->valid_until?->format('Y-m-d')) {
+        if ($bis === null) {
+            return null;   // Leeren ist keine Aussage — das bisherige Datum bleibt
+        }
+        $aktuell = $this->aktuell($employee, $code);
+
+        // Erst hochgeladen, dann das Datum eingetragen (Review 30.10.): liegt
+        // hier eine Datei, die der Nachweis noch nicht kennt, kommt sie mit.
+        $spalten = ProofTypes::legacyFileColumns($code);
+        $spalteVorne = $this->id($employee->getAttribute($spalten[0] ?? ''));
+        if ($spalteVorne !== null && ($aktuell === null || $aktuell->file_id === null)) {
+            $hinten = isset($spalten[1]) ? $this->id($employee->getAttribute($spalten[1])) : null;
+
+            return $this->schreiben($employee, $code, $aktuell, $spalteVorne, $hinten, $bis, 'hr', $userId);
+        }
+
+        if ($aktuell === null || $bis === $aktuell->valid_until?->format('Y-m-d')) {
             return null;
         }
 

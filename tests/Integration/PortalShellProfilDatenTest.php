@@ -270,6 +270,22 @@ final class PortalShellProfilDatenTest extends TestCase
         $this->assertNull($mit->fresh()->identity_card_front_file_id, 'Nur Anzeige, keine Altspalte beschrieben.');
     }
 
+    /** Review 30.10.: HR-Upload an der Geschwister-Anstellung — Login ueber die andere zeigt ihn trotzdem. */
+    public function test_nachweis_der_geschwister_anstellung_zaehlt_im_profil(): void
+    {
+        $a = $this->mitarbeiter(['rec_person_id' => 4242, 'identity_card_valid_until' => '2030-01-01']);
+        $b = $this->mitarbeiter(['rec_person_id' => 4242, 'identity_card_valid_until' => '2030-01-01']);
+        \Platform\Recruiting\Models\RecEmployeeProof::create([
+            'team_id' => 913, 'rec_employee_id' => $a->id, 'proof_type_code' => 'ausweis',
+            'file_id' => 8101, 'file_back_id' => 8102, 'valid_until' => '2035-05-05', 'version' => 1, 'uploaded_via' => 'hr',
+        ]);
+
+        $profil = $this->profilDaten($this->shell($b), $b);
+
+        $this->assertTrue(collect($profil['kacheln'])->firstWhere('code', 'ausweis')['da']);
+        $this->assertNull($b->fresh()->identity_card_front_file_id, 'Nur Anzeige.');
+    }
+
     public function test_leerer_geburtsname_zaehlt_nicht_als_offen(): void
     {
         $ma = $this->mitarbeiter(['birth_name' => null]);

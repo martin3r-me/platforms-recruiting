@@ -277,4 +277,33 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
         $this->assertSame(7005, (int) $p->file_id);
         $this->assertNull($p->valid_until);
     }
+
+    /** Review 30.10.: erst hochgeladen (ohne Datum), dann das Datum eingetragen. */
+    public function test_upload_vor_dem_datum_wird_mit_dem_datum_zum_nachweis(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => null, 'rec_zas_inbound_file_id' => null, 'rec_applicant_id' => 3]);
+
+        $ma->update(['identity_card_front_file_id' => 7010]);
+        $this->assertNull((new NachweisAusAltspalten())->nachDatei($ma->fresh(), 'identity_card_front_file_id', 7010, 'hr'));
+
+        $ma->update(['identity_card_valid_until' => '2036-06-06']);
+        (new NachweisAusAltspalten())->nachDatum($ma->fresh(), 'ausweis', 9);
+
+        $p = $this->aktuellerAusweis();
+        $this->assertSame(7010, (int) $p->file_id);
+        $this->assertSame('2036-06-06', $p->valid_until->format('Y-m-d'));
+        $this->assertSame('hr', $p->uploaded_via);
+    }
+
+    public function test_datei_ergaenzt_den_vermerk_aus_der_alten_akte_beim_datum(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2025-06-30']);
+        (new AltaktenNachweise())->abgleichen(self::TEAM, true);
+
+        $ma->update(['identity_card_front_file_id' => 7011, 'identity_card_valid_until' => null]);
+        $ma->update(['identity_card_valid_until' => '2036-01-01']);
+        (new NachweisAusAltspalten())->nachDatum($ma->fresh(), 'ausweis');
+
+        $this->assertSame(7011, (int) $this->aktuellerAusweis()->file_id);
+    }
 }

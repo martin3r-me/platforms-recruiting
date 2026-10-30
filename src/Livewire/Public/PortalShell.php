@@ -1601,18 +1601,26 @@ class PortalShell extends Component
             }
         }
 
-        // Nachweise aus der alten Akte (AltaktenNachweise, 30.10.2026) haben
-        // keine Datei — ihre Datei-Spalten gelten trotzdem als belegt, sonst
+        // Der aktuelle Nachweis der PERSON ist die Wahrheit (30.10.2026): ein
+        // Vermerk aus der alten Akte hat keine Datei, und ein HR-Upload an der
+        // Geschwister-Anstellung steht nicht in den Spalten dieser — ohne das
         // zeigen Ring, Kachel und Gruppe "fehlt", waehrend die Aufgabenliste
-        // "liegt vor" sagt.
+        // "liegt vor" sagt. Ablaufdaten kommen ebenso aus dem Nachweis.
         foreach (app(ProofReader::class)->current($employee) as $proof) {
-            if ($proof->uploaded_via !== \Platform\Recruiting\Services\AltaktenNachweise::QUELLE) {
-                continue;
-            }
-            foreach (ProofTypes::legacyFileColumns($proof->proof_type_code) as $spalte) {
-                if (array_key_exists($spalte, $werte) && $werte[$spalte] === null) {
+            foreach (ProofTypes::legacyFileColumns($proof->proof_type_code) as $i => $spalte) {
+                if (!array_key_exists($spalte, $werte) || $werte[$spalte] !== null) {
+                    continue;
+                }
+                $datei = $i === 0 ? $proof->file_id : $proof->file_back_id;
+                if ($datei !== null) {
+                    $werte[$spalte] = (int) $datei;
+                } elseif ($proof->uploaded_via === \Platform\Recruiting\Services\AltaktenNachweise::QUELLE) {
                     $werte[$spalte] = \Platform\Recruiting\Services\AltaktenNachweise::QUELLE;
                 }
+            }
+            $ablauf = ProofTypes::legacyExpiryColumn($proof->proof_type_code);
+            if ($ablauf !== null && $proof->valid_until !== null && array_key_exists($ablauf, $werte)) {
+                $werte[$ablauf] = $proof->valid_until;
             }
         }
 
