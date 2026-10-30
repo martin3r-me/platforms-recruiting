@@ -173,8 +173,11 @@ class Show extends Component
     }
 
     /**
-     * Letzte verarbeitete Dispo-Lieferung aus ZAS (Spec 2026-10-30 §4): Massstab
-     * dafuer, ob eine uebergebene Zusage in ZAS haette ankommen muessen. Wirft nie.
+     * Eingang der letzten echten Dispo-Lieferung aus ZAS (Spec 2026-10-30 §4):
+     * Massstab dafuer, ob eine uebergebene Zusage in ZAS haette ankommen muessen.
+     * Nur verarbeitete Dateien mit Dispo-Bloecken (keine Test-Dateien, keine reinen
+     * Qualifikationslisten), nach Eingangszeit — ein spaeteres Neu-Verarbeiten
+     * (dispo-reprocess) macht aus einer alten Datei keine neue Lieferung. Wirft nie.
      */
     #[Computed]
     public function letzteLieferung(): ?\Carbon\CarbonInterface
@@ -182,7 +185,9 @@ class Show extends Component
         try {
             $max = \Platform\Recruiting\Models\RecZasDispoInboundFile::query()
                 ->where('parse_status', 'processed')
-                ->max('processed_at');
+                ->where('is_test', false)
+                ->where('notes', 'like', '%"blocks_found":true%')
+                ->max('created_at');
 
             return $max ? \Carbon\Carbon::parse((string) $max) : null;
         } catch (\Throwable) {

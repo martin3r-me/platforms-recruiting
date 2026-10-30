@@ -51,6 +51,10 @@ final class DispoJobZasUebergabe
         if (trim((string) $personalnummer) === '') {
             return ['art' => self::ART_HAND, 'text' => 'von Hand eintragen: keine Personalnummer'];
         }
+        if (!\Platform\Recruiting\Support\ZasPersonnelNumber::hasPrefix($personalnummer)) {
+            // Reine Ziffern sind zwischen RG und MA nicht eindeutig — ZAS koennte falsch zuordnen.
+            return ['art' => self::ART_HAND, 'text' => 'von Hand eintragen: Personalnummer ohne Firmenkennung'];
+        }
 
         return null;
     }

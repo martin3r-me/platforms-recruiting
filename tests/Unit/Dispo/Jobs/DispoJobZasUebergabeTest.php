@@ -54,6 +54,8 @@ class DispoJobZasUebergabeTest extends TestCase
         $this->assertSame(['art' => 'hand', 'text' => 'von Hand eintragen: kein ZAS-Posten'], DispoJobZasUebergabe::hinweis(false, null, null, '  ', 'RG1', null));
         $this->assertSame(['art' => 'hand', 'text' => 'von Hand eintragen: keine Personalnummer'], DispoJobZasUebergabe::hinweis(false, null, null, '121000', '', null));
         $this->assertSame(['art' => 'hand', 'text' => 'von Hand eintragen: keine Personalnummer'], DispoJobZasUebergabe::hinweis(false, null, null, '121000', null, null));
+        $this->assertSame(['art' => 'hand', 'text' => 'von Hand eintragen: Personalnummer ohne Firmenkennung'], DispoJobZasUebergabe::hinweis(false, null, null, '121000', '17502', null));
+        $this->assertNull(DispoJobZasUebergabe::hinweis(false, null, null, '121000', ' MA878 ', null));
     }
 
     public function test_exportierbar_und_noch_nicht_abgeholt_zeigt_nichts(): void
