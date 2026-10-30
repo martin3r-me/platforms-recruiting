@@ -266,7 +266,7 @@
                 <label class="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-500 focus-within:bg-gray-50 focus-within:ring-1 focus-within:ring-gray-300">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
                     <input type="search" wire:model.live.debounce.300ms="search"
-                           placeholder="Name oder Nummer suchen"
+                           placeholder="Name, Nummer oder Text suchen"
                            class="w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-0">
                     @if (trim($search) !== '')
                         <button type="button" wire:click="$set('search', '')" class="shrink-0 text-xs font-semibold text-gray-400 hover:text-gray-700" aria-label="Suche zurücksetzen">✕</button>

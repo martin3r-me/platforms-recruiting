@@ -187,6 +187,30 @@ class InboxOwnerSearchIsolationTest extends TestCase
         $this->assertNotContains(self::$threadMitarbeiterEigeneId, $ids);
     }
 
+    /**
+     * Suche im Nachrichtentext (30.10.2026): "pilot-feedback" fand nichts,
+     * obwohl die Rueckmeldung so beginnt — gesucht wurde nur Name und Nummer.
+     * Jede Nachricht des Chats zaehlt, nicht nur die letzte; Gross/klein egal.
+     */
+    public function test_suche_trifft_den_nachrichtentext_auch_aeltere_nachrichten(): void
+    {
+        $ids = $this->threadIds(new InboxFilter(search: 'pilot-feedback'));
+
+        $this->assertSame([self::$threadMitarbeiterEigeneId], $ids);
+    }
+
+    public function test_textsuche_nimmt_die_eingabe_als_ganzes(): void
+    {
+        // Zwei Woerter, die einzeln im Text vorkommen, aber nicht zusammen.
+        $this->assertSame([], $this->threadIds(new InboxFilter(search: 'Portal Feedback')));
+        $this->assertSame(
+            [self::$threadMitarbeiterEigeneId],
+            $this->threadIds(new InboxFilter(search: 'das neue Portal')),
+        );
+        // _ ist im Text kein Platzhalter (sonst traefe es den Bindestrich).
+        $this->assertSame([], $this->threadIds(new InboxFilter(search: 'Pilot_Feedback')));
+    }
+
     /** @return list<int> */
     private function threadIds(InboxFilter $filter): array
     {
@@ -251,6 +275,18 @@ class InboxOwnerSearchIsolationTest extends TestCase
         self::$threadMitarbeiterEigeneId = self::createThread(
             '+49 151 89001603', \Platform\Recruiting\Models\RecEmployee::class, 602,
         );
+
+        // Rueckmeldung liegt in einer AELTEREN Nachricht, die Vorschau zeigt
+        // nur das letzte "Hallo".
+        foreach (['Pilot-Feedback: ich habe das neue Portal ausprobiert', 'Danke!'] as $i => $text) {
+            Capsule::table('comms_whatsapp_messages')->insert([
+                'comms_whatsapp_thread_id' => self::$threadMitarbeiterEigeneId,
+                'direction' => $i === 0 ? 'inbound' : 'outbound', 'body' => $text,
+                'message_type' => 'text', 'status' => 'delivered',
+                'created_at' => date('Y-m-d H:i:s', self::JETZT - 90_000 + $i),
+                'updated_at' => date('Y-m-d H:i:s', self::JETZT - 90_000 + $i),
+            ]);
+        }
     }
 
     private static function createThread(string $phone, string $contextModel, int $contextId): int

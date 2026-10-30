@@ -200,7 +200,7 @@ final class InboxQuery
         // Owner und Namenssuche brauchen Bewerber-Daten, die die duenne Stufe
         // nicht hat — deshalb EINMAL vorab die erlaubten Bewerber-IDs holen
         // statt pro Zeile zu fragen.
-        $allowed = $this->allowedSubjectIds($teamId, $filter);
+        $allowed = $this->allowedSubjectIds($teamId, $filter, array_column($basis, 'thread_id'));
 
         $rows = array_values(array_filter(
             $basis,
@@ -501,7 +501,9 @@ final class InboxQuery
                         && in_array((int) $row['context_model_id'], $allowed['searchEmployee'], true))
                 );
 
-            if (!$phoneTrifft && !$nameTrifft) {
+            $textTrifft = isset($allowed['searchText'][(int) $row['thread_id']]);
+
+            if (!$phoneTrifft && !$nameTrifft && !$textTrifft) {
                 return false;
             }
         }
@@ -637,9 +639,10 @@ final class InboxQuery
      * (searchEmployee) — vorher war ein Mitarbeiter-Chat per Namenssuche gar
      * nicht auffindbar, weil nur RecApplicant-Namen aufgeloest wurden.
      *
-     * @return ?array{owner: ?list<int>, searchApplicant: ?list<int>, searchEmployee: ?list<int>}
+     * @param  list<int> $threadIds Grundmenge fuer die Textsuche
+     * @return ?array{owner: ?list<int>, searchApplicant: ?list<int>, searchEmployee: ?list<int>, searchText: array<int, true>}
      */
-    private function allowedSubjectIds(int $teamId, InboxFilter $filter): ?array
+    private function allowedSubjectIds(int $teamId, InboxFilter $filter, array $threadIds = []): ?array
     {
         $ownerAktiv = $filter->owner !== 'all';
         $sucheAktiv = trim($filter->search) !== '';
@@ -664,6 +667,7 @@ final class InboxQuery
 
         $searchApplicantIds = null;
         $searchEmployeeIds = null;
+        $searchText = [];
         if ($sucheAktiv) {
             // Bewusst OHNE CONCAT(first_name, ' ', last_name) — anders als im
             // Suchzweig von Livewire\Applicant\Index: CONCAT ist MySQL-Syntax
@@ -703,9 +707,27 @@ final class InboxQuery
 
             $searchApplicantIds = $applicantQuery->pluck('id')->map(fn ($id) => (int) $id)->all();
             $searchEmployeeIds = $employeeQuery->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+            // Nachrichtentext (30.10.2026): jede Nachricht des Chats, die Eingabe
+            // als Ganzes ("pilot-feedback", "das neue Portal") — anders als beim
+            // Namen, sonst trifft jedes Wort irgendwo irgendeinen Chat.
+            // % und _ aus der Eingabe gelten woertlich.
+            // Escape-Zeichen ! statt Backslash: '\\' liest MySQL als
+            // maskiertes Anfuehrungszeichen, SQLite nicht — ! ist auf beiden gleich.
+            $phrase = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($filter->search)) . '%';
+            foreach (array_chunk($threadIds, 1000) as $chunk) {
+                $treffer = CommsWhatsAppMessage::query()
+                    ->whereIn('comms_whatsapp_thread_id', $chunk)
+                    ->whereRaw("LOWER(body) LIKE LOWER(?) ESCAPE '!'", [$phrase])
+                    ->distinct()
+                    ->pluck('comms_whatsapp_thread_id');
+                foreach ($treffer as $tid) {
+                    $searchText[(int) $tid] = true;
+                }
+            }
         }
 
-        return ['owner' => $ownerIds, 'searchApplicant' => $searchApplicantIds, 'searchEmployee' => $searchEmployeeIds];
+        return ['owner' => $ownerIds, 'searchApplicant' => $searchApplicantIds, 'searchEmployee' => $searchEmployeeIds, 'searchText' => $searchText];
     }
 
     /**
