@@ -197,6 +197,17 @@ class ZasEmployeeFileIntakeTest extends TestCase
         $this->assertSame('zas', $proof->uploaded_via);
     }
 
+    /** Review 30.10.: kein Spiegel — das eigene Selfie der Geschwister-Anstellung bleibt. */
+    public function test_the_sibling_keeps_its_own_file(): void
+    {
+        RecEmployee::where('personnel_number', 'RG1187')->update(['rec_person_id' => 77]);
+        $schwester = RecEmployee::create(['team_id' => self::TEAM, 'personnel_number' => 'MA1000000999', 'company' => 'MA', 'rec_person_id' => 77, 'selfie_file_id' => 999]);
+
+        $this->intake()->receive('RG1187', 'emp-selfie', $this->jpeg(), 'Selfie.jpeg');
+
+        $this->assertSame(999, (int) $schwester->fresh()->selfie_file_id);
+    }
+
     public function test_a_number_without_company_prefix_is_refused(): void
     {
         // Beide Firmen vergeben dieselben Ziffernfolgen (belegt: 276, 322,

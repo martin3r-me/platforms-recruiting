@@ -187,9 +187,9 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
         $ma = $this->ma(['identity_card_valid_until' => '2025-06-30']);
         (new AltaktenNachweise())->abgleichen(self::TEAM, true);
 
-        // HR laedt in der Akte hoch und traegt das neue Datum ein (Altspalten).
+        // HR traegt das neue Datum ein und laedt die Vorderseite hoch (Altspalten).
         $ma->update(['identity_card_front_file_id' => 7001, 'identity_card_valid_until' => '2034-03-31']);
-        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr', 42);
+        (new NachweisAusAltspalten())->nachDatei($ma->fresh(), 'identity_card_front_file_id', 7001, 'hr', 42);
 
         $p = $this->aktuellerAusweis();
         $this->assertSame(7001, (int) $p->file_id);
@@ -205,7 +205,7 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
         (new AltaktenNachweise())->abgleichen(self::TEAM, true);
 
         $ma->update(['identity_card_valid_until' => '2033-01-01']);
-        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr');
+        (new NachweisAusAltspalten())->nachDatum($ma->fresh(), 'ausweis');
 
         $p = $this->aktuellerAusweis();
         $this->assertSame('2033-01-01', $p->valid_until->format('Y-m-d'));
@@ -213,28 +213,68 @@ final class AltaktenNachweiseAbgleichTest extends TestCase
         $this->assertNull($p->file_id);
     }
 
-    public function test_ohne_aenderung_und_ohne_nachweis_passiert_nichts(): void
+    public function test_datum_ohne_nachweis_oder_geleert_aendert_nichts(): void
     {
-        $ma = $this->ma(['identity_card_valid_until' => '2031-01-01']);
-        $this->assertNull((new NachweisAusAltspalten())->nachziehen($ma, 'ausweis', 'hr'), 'Kein Nachweis, keine Datei.');
+        $ma = $this->ma(['identity_card_valid_until' => '2031-01-01', 'rec_zas_inbound_file_id' => null, 'rec_applicant_id' => 3]);
+        $this->assertNull((new NachweisAusAltspalten())->nachDatum($ma, 'ausweis'), 'Kein Nachweis.');
 
+        $ma->update(['rec_zas_inbound_file_id' => 77, 'rec_applicant_id' => null]);
         (new AltaktenNachweise())->abgleichen(self::TEAM, true);
-        $this->assertNull((new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr'), 'Datum unveraendert.');
-        $this->assertSame(1, RecEmployeeProof::count());
+        $ma->update(['identity_card_valid_until' => null]);
+        $this->assertNull((new NachweisAusAltspalten())->nachDatum($ma->fresh(), 'ausweis'), 'Leeren ist keine Aussage.');
+        $this->assertSame('2031-01-01', $this->aktuellerAusweis()->valid_until->format('Y-m-d'));
     }
 
-    public function test_leeres_datum_an_der_anstellung_loescht_das_bisherige_nicht(): void
+    /** Review 30.10.: kein Spiegel — abweichende Dateien der Geschwister-Anstellung bleiben. */
+    public function test_geschwister_spalten_bleiben_unangetastet(): void
     {
-        $rg = $this->ma(['rec_person_id' => 601, 'identity_card_valid_until' => '2032-02-02']);
-        $ma = $this->ma(['rec_person_id' => 601]);
+        $rg = $this->ma(['rec_person_id' => 601, 'identity_card_front_file_id' => 5555, 'identity_card_valid_until' => '2030-01-01']);
+        $ma = $this->ma(['rec_person_id' => 601, 'identity_card_valid_until' => '2034-04-04']);
+
+        $ma->update(['identity_card_front_file_id' => 7002]);
+        (new NachweisAusAltspalten())->nachDatei($ma->fresh(), 'identity_card_front_file_id', 7002, 'hr');
+
+        $this->assertSame(7002, (int) $this->aktuellerAusweis()->file_id);
+        $this->assertSame(5555, (int) $rg->fresh()->identity_card_front_file_id);
+        $this->assertSame('2030-01-01', $rg->fresh()->identity_card_valid_until->format('Y-m-d'));
+    }
+
+    /** Review 30.10.: eine Rueckseite holt keine alte Vorderseite aus der Spalte zurueck. */
+    public function test_rueckseite_baut_auf_dem_bisherigen_nachweis_auf(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => '2034-04-04', 'identity_card_front_file_id' => 1111]);
+        RecEmployeeProof::create([
+            'team_id' => self::TEAM, 'rec_employee_id' => $ma->id, 'proof_type_code' => 'ausweis',
+            'file_id' => 2222, 'valid_until' => '2034-04-04', 'version' => 1, 'uploaded_via' => 'employee',
+        ]);
+
+        (new NachweisAusAltspalten())->nachDatei($ma->fresh(), 'identity_card_back_file_id', 3333, 'hr');
+
+        $p = $this->aktuellerAusweis();
+        $this->assertSame(2222, (int) $p->file_id);
+        $this->assertSame(3333, (int) $p->file_back_id);
+    }
+
+    /** Review 30.10.: ablaufende Art ohne Datum bekommt keinen Nachweis (wuerde sonst ewig "ok"). */
+    public function test_ohne_datum_kein_nachweis_fuer_ablaufende_arten(): void
+    {
+        $ma = $this->ma(['identity_card_valid_until' => null]);
+
+        $this->assertNull((new NachweisAusAltspalten())->nachDatei($ma, 'identity_card_front_file_id', 7003, 'hr'));
+        // Fiktionsbescheinigung hat in der Akte gar kein Datumsfeld.
+        $this->assertNull((new NachweisAusAltspalten())->nachDatei($ma, 'fiktionsbescheinigung_front_file_id', 7004, 'hr'));
+        $this->assertSame(0, RecEmployeeProof::count());
+    }
+
+    public function test_arten_ohne_ablauf_werden_direkt_nachgezogen(): void
+    {
+        $ma = $this->ma(['health_insurance' => 'AOK']);
         (new AltaktenNachweise())->abgleichen(self::TEAM, true);
 
-        // HR laedt an der MA-Anstellung hoch, dort steht kein Datum.
-        $ma->update(['identity_card_front_file_id' => 7002]);
-        (new NachweisAusAltspalten())->nachziehen($ma->fresh(), 'ausweis', 'hr');
+        (new NachweisAusAltspalten())->nachDatei($ma->fresh(), 'health_insurance_card_file_id', 7005, 'hr');
 
-        $this->assertSame('2032-02-02', $this->aktuellerAusweis()->valid_until->format('Y-m-d'));
-        $this->assertSame('2032-02-02', $rg->fresh()->identity_card_valid_until->format('Y-m-d'));
-        $this->assertSame(7002, (int) $rg->fresh()->identity_card_front_file_id, 'Gespiegelt auf alle Anstellungen der Person.');
+        $p = RecEmployeeProof::query()->aktuell()->where('proof_type_code', 'krankenkasse')->first();
+        $this->assertSame(7005, (int) $p->file_id);
+        $this->assertNull($p->valid_until);
     }
 }

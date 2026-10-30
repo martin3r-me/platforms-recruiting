@@ -1625,9 +1625,10 @@ class Show extends Component
             $folgen = $employee->anstellungsFolgen;
             $changesCount++;
             // Geaendertes "gueltig bis" gilt auch fuer den Nachweis (30.10.2026).
-            $this->nachweisNachziehen($employee, \Platform\Recruiting\Services\NachweisAusAltspalten::codesFuerAblaufSpalten(
-                array_values(array_filter(\Platform\Recruiting\Support\ProofTypes::legacyExpiryColumnsAll(), fn ($c) => $employee->wasChanged($c))),
-            ));
+            $geaendert = array_values(array_filter(\Platform\Recruiting\Support\ProofTypes::legacyExpiryColumnsAll(), fn ($c) => $employee->wasChanged($c)));
+            foreach (\Platform\Recruiting\Services\NachweisAusAltspalten::codesFuerAblaufSpalten($geaendert) as $code) {
+                $nachweisOk = $this->nachweisNachziehen(fn ($n) => $n->nachDatum($employee->fresh(), $code, auth()->id())) && ($nachweisOk ?? true);
+            }
         }
         if (!empty($hrUpdates)) {
             $employee->ensureHrData()->update($hrUpdates);
@@ -1642,7 +1643,8 @@ class Show extends Component
         // HR sieht, was an der anderen Anstellung mitgeaendert wurde — eine
         // Folge der Kundenentscheidung, nicht still (Markus 12.10.2026).
         $hinweis = \Platform\Recruiting\Services\AnstellungsRegeln::hinweisHr($folgen);
-        $this->flash = 'Aenderungen gespeichert.' . ($hinweis !== '' ? ' ' . $hinweis : '');
+        $this->flash = 'Aenderungen gespeichert.' . ($hinweis !== '' ? ' ' . $hinweis : '')
+            . (($nachweisOk ?? true) ? '' : ' Das Gültig-bis-Datum wurde aber nicht in den Nachweis im Portal übernommen. Bitte an den Support melden.');
         $this->loadFieldValues($employee->fresh());
         unset($this->employee);
     }
@@ -1689,8 +1691,8 @@ class Show extends Component
             $employee->update([$employeeField => (int) $result['id']]);
             // Nachweis nachziehen (30.10.2026): sonst wusste das Portal nichts
             // vom HR-Upload ("fehlt" bzw. altes Datum aus der alten Akte).
-            $this->nachweisNachziehen($employee, array_filter([\Platform\Recruiting\Support\ProofTypes::codeForLegacyColumn($employeeField)]));
-            $this->flash = "Datei hochgeladen.";
+            $ok = $this->nachweisNachziehen(fn ($n) => $n->nachDatei($employee->fresh(), $employeeField, (int) $result['id'], 'hr', auth()->id()));
+            $this->flash = $ok ? "Datei hochgeladen." : "Datei hochgeladen — der Nachweis im Portal wurde aber nicht aktualisiert. Bitte an den Support melden.";
         } catch (\Throwable $e) {
             $this->flash = 'Upload-Fehler: ' . $e->getMessage();
         }
@@ -1699,22 +1701,22 @@ class Show extends Component
     }
 
     /**
-     * Nachweise nach einem HR-Schreiben in die Altspalten nachziehen. Ein
-     * Fehler hier darf das Speichern nicht kippen — er wird gemeldet.
-     *
-     * @param list<string> $codes
+     * Nachweis nach einem HR-Schreiben in die Altspalten nachziehen
+     * (NachweisAusAltspalten). Ein Fehler kippt das Speichern nicht, HR
+     * bekommt aber einen Hinweis statt eines stillen Erfolgs (Review 30.10.).
      */
-    private function nachweisNachziehen(RecEmployee $employee, array $codes): void
+    private function nachweisNachziehen(\Closure $schritt): bool
     {
-        foreach ($codes as $code) {
-            try {
-                app(\Platform\Recruiting\Services\NachweisAusAltspalten::class)
-                    ->nachziehen($employee->fresh(), $code, 'hr', auth()->id());
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning('[Recruiting] Nachweis nach HR-Aenderung nicht nachgezogen', [
-                    'employee_id' => $employee->id, 'code' => $code, 'error' => $e->getMessage(),
-                ]);
-            }
+        try {
+            $schritt(app(\Platform\Recruiting\Services\NachweisAusAltspalten::class));
+
+            return true;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[Recruiting] Nachweis nach HR-Aenderung nicht nachgezogen', [
+                'employee_id' => $this->employee()?->id, 'error' => $e->getMessage(),
+            ]);
+
+            return false;
         }
     }
 
