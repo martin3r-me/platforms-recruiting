@@ -710,7 +710,27 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertNull($this->weiterleitung($this->seite()));
     }
 
-    /** Ungueltig gewordene Sitzung (z.B. HR hat zurueckgesetzt): Formular statt Portal. */
+    /** Fremdes Ziel bei offener Anmeldung: verworfen, eigene Startseite (Review 02.11.). */
+    public function test_schon_angemeldet_fremdes_ziel_wird_verworfen(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+
+        $wieder = $this->seite('/konto?weiter=' . rawurlencode('/einsaetze/tok-fremd'));
+        $ziel = (string) $this->weiterleitung($wieder);
+        $this->assertStringNotContainsString('tok-fremd', $ziel);
+        $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', $ziel);
+    }
+
+    /** Anstellung inzwischen beendet: kein Sprung in ihr Portal (Review 02.11.). */
+    public function test_schon_angemeldet_beendete_anstellung_ist_kein_ziel(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+        DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)->update(['is_active' => 0]);
+
+        $this->assertNull($this->weiterleitung($this->seite()));
+    }
+
+    /** Ungueltig gewordene Sitzung (Sitzungsschluessel weg): Formular statt Portal. */
     public function test_ungueltige_sitzung_zeigt_das_formular(): void
     {
         $seite = $this->anmeldung();
