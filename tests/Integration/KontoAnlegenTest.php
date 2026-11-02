@@ -460,12 +460,21 @@ final class KontoAnlegenTest extends TestCase
         $this->assertStringContainsString('autocomplete="new-password"', $html);
     }
 
-    public function test_ohne_einladung_kein_benutzername(): void
+    /**
+     * Formular-Zustand OHNE gemerkte Person (Sitzung leer): keine Nummer.
+     * Bewusst nicht ueber mount('') — das landet im Code-Zustand, und der
+     * zeigt das Formular gar nicht; der Waechter in benutzername() bliebe
+     * ungeprueft (Review 02.11.).
+     */
+    public function test_formular_ohne_gemerkte_person_zeigt_keine_nummer(): void
     {
-        $seite = new KontoAnlegen();
-        $seite->mount('');
+        $seite = $this->seite($this->einladung());
+        $this->session->forget('recruiting.konto.anlegen.person');
 
-        $this->assertStringNotContainsString('autocomplete="username"', $this->rendere($seite));
+        $html = $this->rendere($seite);
+        $this->assertStringContainsString('wire:submit="registriere"', $html);
+        $this->assertStringNotContainsString('autocomplete="username"', $html);
+        $this->assertStringNotContainsString('+4915111111111', $html);
     }
 
     public function test_abgelaufener_token_ist_404(): void
