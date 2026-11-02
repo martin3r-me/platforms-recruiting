@@ -190,12 +190,8 @@ class ZasDispoBookingExport
         return $geliefert;
     }
 
-    /** Olaf 02.11.2026: sein Buchungs-Import erkennt das Zeilenende nur mit CRLF. Nur diese Datei — die anderen Abrufe laufen mit LF. */
-    public const LINE_END = ";|;\r\n";
-
     /**
-     * Datei im ZAS-Format: Kopf mit vier Spalten, Datenzeilen mit fuenfter leerer Zelle, Zeilenende CRLF.
-     * Zellwerte enthalten nie Zeilenumbrueche (ZasCsvBuilder::sanitize), darum ist das Ersetzen am Ende sicher.
+     * Datei im ZAS-Format: Kopf mit vier Spalten, Datenzeilen mit fuenfter leerer Zelle.
      *
      * @param list<array<string, mixed>> $rows
      */
@@ -206,7 +202,7 @@ class ZasDispoBookingExport
             $out .= $builder->buildRow($row, self::ROW_COLUMNS);
         }
 
-        return str_replace(ZasCsvBuilder::LINE_END, self::LINE_END, $out);
+        return $out;
     }
 
     public static function schluessel(int $employeeId, string $posten, string $datumIso): string
