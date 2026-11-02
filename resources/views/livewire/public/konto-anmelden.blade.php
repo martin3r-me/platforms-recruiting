@@ -378,6 +378,17 @@
                 <p>Mit deiner Handynummer und deinem Passwort.</p>
             </div>
 
+            {{--
+                Ueber einen ungueltigen "Konto anlegen"-Link gekommen (schon
+                eingerichtet, abgelaufen oder vertippt — bewusst nicht
+                unterschieden). Meist will der Mensch sich einfach anmelden.
+            --}}
+            @if ($vonEinladung)
+                <div class="alert">
+                    <div class="txt">Dein Konto ist schon eingerichtet? Dann melde dich hier an. Noch kein Konto? Dann gib unten den Code aus der Einladung ein oder schreib dem HR-Team kurz per WhatsApp, dann kommt ein neuer Link.</div>
+                </div>
+            @endif
+
             <form class="card login" wire:submit="anmelden">
                 <label class="feld">
                     <span class="n">Deine Handynummer</span>
@@ -389,9 +400,14 @@
                         es war am 06.08.2026 schon einmal ein Login-Blocker,
                         und ein Waechter-Test haelt die Datei komplett davon
                         frei. Deshalb wird es hier nicht einmal benannt.
+
+                        autocomplete="username" statt "tel" (02.11.2026): nur
+                        so paart der Passwortspeicher am Handy Nummer und
+                        Passwort und fuellt beides aus. Gegenstueck beim
+                        Konto anlegen (konto-anlegen.blade.php).
                     --}}
                     <input type="tel" wire:model="nummer" required
-                           autocomplete="tel" autocapitalize="off"
+                           autocomplete="username" autocapitalize="off"
                            autocorrect="off" spellcheck="false" placeholder="z.B. 0151 23456789">
                 </label>
 

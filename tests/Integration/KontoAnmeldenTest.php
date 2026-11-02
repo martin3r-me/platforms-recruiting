@@ -1458,6 +1458,8 @@ final class KontoAnmeldenTest extends TestCase
             'wirksamAb' => 'die angezeigte Frist des beantragten Nummernwechsels. Frei setzbar '
                 . 'zeigte sie eine Frist, die nicht in der Datenbank steht, und der Mensch '
                 . 'richtete sich danach',
+            'vonEinladung' => 'waehlt den Hinweis ueber dem Formular; nur der Server entscheidet, '
+                . 'ob jemand ueber einen ungueltigen Einladungslink kam',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt nicht
@@ -1638,6 +1640,23 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertStringContainsString('angemeldet', $html);
         $this->assertStringContainsString('noch nicht freigeschaltet', $html);
         $this->assertStringContainsString('wire:click="abmelden"', $html);
+    }
+
+    /**
+     * 02.11.2026: wer ueber einen ungueltigen "Konto anlegen"-Link kommt,
+     * sieht ueber dem Formular einen Hinweis; sonst nicht. Und das
+     * Nummernfeld der Anmeldung heisst fuer den Passwortspeicher "username".
+     */
+    public function test_hinweis_nach_ungueltigem_einladungslink(): void
+    {
+        $ohne = $this->rendere($this->seite());
+        $this->assertStringNotContainsString('Dein Konto ist schon eingerichtet?', $ohne);
+        $this->assertMatchesRegularExpression('/wire:model="nummer"[^>]*autocomplete="username"/s', $ohne);
+
+        $this->session->flash(\Platform\Recruiting\Exceptions\EinladungUngueltig::HINWEIS, true);
+        $mit = $this->rendere($this->seite());
+        $this->assertStringContainsString('Dein Konto ist schon eingerichtet?', $mit);
+        $this->assertStringContainsString('Code aus der Einladung', $mit);
     }
 
     public function test_blade_kompiliert(): void

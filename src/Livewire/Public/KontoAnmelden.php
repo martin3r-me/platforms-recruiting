@@ -379,8 +379,17 @@ class KontoAnmelden extends Component
 
     public string $fehler = '';
 
+    /**
+     * Kam der Mensch ueber einen ungueltigen "Konto anlegen"-Link hierher
+     * (EinladungUngueltig, 02.11.2026)? Dann ein Hinweis ueber dem Formular.
+     * Fuer JEDEN ungueltigen Fall gleich — verraet nicht, ob es den Link gab.
+     */
+    #[Locked] public bool $vonEinladung = false;
+
     public function mount(Request $anfrage): void
     {
+        $this->vonEinladung = (bool) session()->get(\Platform\Recruiting\Exceptions\EinladungUngueltig::HINWEIS, false);
+
         // VERWORFEN, nicht bereinigt: ein fremdes Ziel wird zu einer leeren
         // Zeichenkette und faellt damit auf die eigene Startseite zurueck.
         // Wer es stattdessen "sauberrechnet" (Host abschneiden, Schema

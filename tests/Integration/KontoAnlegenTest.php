@@ -422,26 +422,50 @@ final class KontoAnlegenTest extends TestCase
     }
 
     /**
-     * Pilot-Review 28.10.2026: die 404 war die englische Standardseite ohne
-     * Weg zurueck. Jetzt eine eigene deutsche Seite — weiter Status 404 und
-     * fuer JEDEN ungueltigen Fall dieselbe Antwort (keine Auskunft, ob es den
-     * Token gibt).
+     * Pilot-Feedback Markus 02.11.2026: der Knopf "Konto anlegen" bleibt im
+     * WhatsApp-Verlauf, und wer ihn nach der Einrichtung wieder antippt, will
+     * sich anmelden. Jeder ungueltige Link (benutzt, abgelaufen, vertippt)
+     * leitet deshalb zur Anmeldung — fuer JEDEN Fall dieselbe Antwort, mit
+     * dem Hinweis-Merker in der Sitzung. Die Fehlerseite gibt es nicht mehr.
      */
-    public function test_ungueltiger_link_zeigt_eigene_seite_mit_weg_zurueck(): void
+    public function test_ungueltiger_link_leitet_zur_anmeldung(): void
     {
         $this->einladung();
         try {
             $this->seite('ZZZZZZZZ');
             $this->fail('keine Ausnahme');
         } catch (\Platform\Recruiting\Exceptions\EinladungUngueltig $e) {
-            $this->assertSame(404, $e->getStatusCode());
+            $this->router();
+            $this->container->instance('redirect', new \Illuminate\Routing\Redirector($this->container->make('url')));
+            $this->container->make('redirect')->setSession($this->session);
+            $antwort = $e->render();
         }
 
-        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/public/einladung-ungueltig.blade.php');
-        $this->assertStringContainsString("route('recruiting.public.konto')", $blade, 'Weg zur Anmeldung');
-        $this->assertStringContainsString("route('recruiting.public.konto-anlegen-code')", $blade, 'Code neu eintippen');
-        $this->assertStringContainsString('nicht mehr gültig', $blade);
-        $this->assertStringNotContainsString('Not Found', $blade);
+        $this->assertInstanceOf(\Illuminate\Http\RedirectResponse::class, $antwort);
+        $this->assertSame('http://localhost/konto', $antwort->getTargetUrl());
+        $this->assertTrue((bool) $this->session->get('recruiting.konto.einladung_ungueltig'));
+        $this->assertFileDoesNotExist(dirname(__DIR__, 2) . '/resources/views/public/einladung-ungueltig.blade.php');
+    }
+
+    /**
+     * Passwortspeicher (02.11.2026): das Formular traegt die Rufnummer als
+     * nur lesbaren Benutzernamen, sonst speichert das Handy das Passwort
+     * ohne Nummer und fuellt die Anmeldung nicht passend aus.
+     */
+    public function test_formular_traegt_rufnummer_als_benutzernamen(): void
+    {
+        $html = $this->rendere($this->seite($this->einladung()));
+
+        $this->assertMatchesRegularExpression('/<input[^>]*value="\+4915111111111"[^>]*readonly[^>]*autocomplete="username"/s', $html);
+        $this->assertStringContainsString('autocomplete="new-password"', $html);
+    }
+
+    public function test_ohne_einladung_kein_benutzername(): void
+    {
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+
+        $this->assertStringNotContainsString('autocomplete="username"', $this->rendere($seite));
     }
 
     public function test_abgelaufener_token_ist_404(): void

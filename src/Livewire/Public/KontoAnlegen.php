@@ -361,6 +361,27 @@ class KontoAnlegen extends Component
 
     // ------------------------------------------------------------------ intern
 
+    /**
+     * Die Rufnummer der eingeladenen Person — als Benutzername fuer den
+     * Passwortspeicher (02.11.2026, Pilot-Feedback Markus). Ohne ein Feld mit
+     * autocomplete="username" speichert das Handy das neue Passwort OHNE
+     * Nummer und bietet es auf der Anmeldung nicht passend an.
+     *
+     * PRIVAT und nur im Formular-Zustand: das Blade laeuft im Bereich der
+     * Komponente (Livewire ExtendedCompilerEngine), der Browser kann die
+     * Methode nicht aufrufen. Zu sehen bekommt die Nummer nur, wer eine
+     * gueltige Einladung hat — und die ging an genau diese Nummer.
+     */
+    private function benutzername(): string
+    {
+        $personId = $this->laufendePerson();
+        if ($this->state !== 'formular' || $personId === null) {
+            return '';
+        }
+
+        return (string) (\Illuminate\Support\Facades\DB::table('rec_persons')->where('id', $personId)->value('phone') ?? '');
+    }
+
     /** Der Token des laufenden Vorgangs — aus der Sitzung, nie vom Browser. */
     private function laufenderToken(): string
     {

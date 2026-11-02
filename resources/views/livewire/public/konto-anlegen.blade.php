@@ -117,6 +117,26 @@
             </div>
 
             <form class="card login" wire:submit="registriere">
+                {{--
+                    Benutzername fuer den Passwortspeicher (02.11.2026): ohne
+                    ein Feld mit autocomplete="username" speichert das Handy
+                    das Passwort ohne Rufnummer, und die Anmeldung fuellt es
+                    nicht passend aus. Nur lesbar - die Rufnummer liegt durch
+                    die Einladung fest und wird hier nicht abgefragt.
+                --}}
+                @php
+                    $benutzername = $this->benutzername();
+                    $labelBenutzer = $duzen ? 'Damit meldest du dich künftig an' : 'Damit melden Sie sich künftig an';
+                @endphp
+                @if ($benutzername !== '')
+                    <label class="feld">
+                        <span class="n">{{ $labelBenutzer }}</span>
+                        <input type="text" name="username" value="{{ $benutzername }}" readonly
+                               autocomplete="username" autocapitalize="off"
+                               autocorrect="off" spellcheck="false">
+                    </label>
+                @endif
+
                 <label class="feld">
                     <span class="n">{{ $labelGeburt }}</span>
                     {{--
