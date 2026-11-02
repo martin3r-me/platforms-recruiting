@@ -408,6 +408,46 @@ class KontoAnmelden extends Component
         // messen mit dieser Laravel-Fassung, die Warnung faellt dort genauso.
         // Die Frage nach dem Typ ist die einzige Fassung, die haelt.
         $this->weiter = self::erlaubtesZiel(is_string($roh) ? $roh : '');
+
+        // Schon angemeldet (02.11.2026, Pilot-Feedback Markus): wer mit
+        // "angemeldet bleiben" ueber den alten Knopf im Chat hierher kommt,
+        // soll nicht noch einmal das Formular sehen, sondern direkt ins
+        // eigene Portal (bzw. zum eigenen Ziel). Gefragt wird nur die
+        // Konto-Anmeldung DIESES Browsers, jede Anstellung ueber
+        // PortalAuth::sitzungGueltig — dieselbe Regel wie im Portal selbst.
+        $ziel = $this->zielFuerOffeneAnmeldung();
+        if ($ziel !== null) {
+            $this->redirect($ziel);
+        }
+    }
+
+    private function zielFuerOffeneAnmeldung(): ?string
+    {
+        $liste = session()->get(PortalAuth::KONTO_ANMELDUNG);
+        if (!is_array($liste) || $liste === []) {
+            return null;
+        }
+
+        $gueltig = array_values(array_filter(
+            array_map('intval', $liste),
+            fn (int $id) => $id > 0 && PortalAuth::sitzungGueltig($id),
+        ));
+        if ($gueltig === []) {
+            return null;
+        }
+
+        $anstellungen = RecEmployee::query()
+            ->whereIn('id', $gueltig)
+            ->where('is_active', 1)
+            ->orderBy('id')
+            ->get(['id', 'portal_token', 'portal_v2_since'])
+            ->all();
+
+        if ($this->weiter !== '' && self::zieltAufEigenenToken($this->weiter, $anstellungen)) {
+            return $this->weiter;
+        }
+
+        return self::startseiteFuer($anstellungen);
     }
 
     public function anmelden(PortalAuth $auth): void

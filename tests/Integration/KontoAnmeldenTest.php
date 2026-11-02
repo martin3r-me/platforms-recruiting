@@ -685,6 +685,54 @@ final class KontoAnmeldenTest extends TestCase
     }
 
     /**
+     * 02.11.2026: wer schon angemeldet ist (z.B. "angemeldet bleiben") und
+     * ueber den alten Knopf wieder hier landet, geht direkt ins Portal.
+     */
+    public function test_schon_angemeldet_geht_direkt_ins_portal(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+
+        $wieder = $this->seite();
+        $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', (string) $this->weiterleitung($wieder));
+    }
+
+    public function test_schon_angemeldet_mit_eigenem_ziel_geht_zum_ziel(): void
+    {
+        $this->anmeldung()->anmelden($this->auth());
+
+        $wieder = $this->seite('/konto?weiter=' . rawurlencode('/einsaetze/tok-gregor'));
+        $this->assertSame('/einsaetze/tok-gregor', $this->weiterleitung($wieder));
+    }
+
+    public function test_ohne_anmeldung_keine_weiterleitung(): void
+    {
+        $this->assertNull($this->weiterleitung($this->seite()));
+    }
+
+    /** Ungueltig gewordene Sitzung (z.B. HR hat zurueckgesetzt): Formular statt Portal. */
+    public function test_ungueltige_sitzung_zeigt_das_formular(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        foreach ((array) $this->session->get(PortalAuth::KONTO_ANMELDUNG) as $id) {
+            $this->session->forget(PortalAuth::sessionKey((int) $id));
+        }
+
+        $this->assertNull($this->weiterleitung($this->seite()));
+    }
+
+    /** Nach dem Abmelden zeigt die Seite wieder das Formular. */
+    public function test_nach_abmelden_keine_weiterleitung(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        PortalAuth::beendeKontoAnmeldung($seite->geoeffnet);
+
+        $this->assertNull($this->weiterleitung($this->seite()));
+    }
+
+    /**
      * Fund Q1: die feste Reihenfolge war ungedeckt. Wer zwei umgestellte
      * Anstellungen hat, landet IMMER in derselben — ohne feste Reihenfolge
      * mal in der einen, mal in der anderen, je nachdem, wie die Datenbank die
