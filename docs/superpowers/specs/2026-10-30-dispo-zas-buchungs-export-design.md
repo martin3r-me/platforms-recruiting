@@ -12,7 +12,7 @@ Olafs Antworten auf unsere drei Fragen (30.10.):
 PNr;Projekt;Dispo;VDatum;|;
 RG17502;RG19801;122910;21.09.2026;;|;
 ```
-- UTF-8 mit BOM, Trenner `;`, Zeilenende `;|;` wie alle unsere ZAS-Dateien (`ZasCsvBuilder`).
+- UTF-8 mit BOM, Trenner `;`, Zeilenende `;|;` wie alle unsere ZAS-Dateien (`ZasCsvBuilder`) — aber mit **CRLF** statt LF (Olaf 02.11.2026: sein Buchungs-Import erkennt das Zeilenende sonst nicht; nur diese Datei, die anderen Abrufe bleiben LF).
 - Kopfzeile mit vier Spalten. **Datenzeilen mit einer fünften, leeren Zelle** (`...;21.09.2026;;|;`), exakt wie in Olafs Beispiel aus dem alten Portal. Sein Importer liest positional; wir weichen nicht ab.
 - `PNr` = Personalnummer des Mitarbeiters mit Präfix (`RG17502`), `Projekt` = `einsatz_ref` der VA (`RG19801`), `Dispo` = `dispoposten_id` der Job-Schicht, `VDatum` = Tag der Schicht `d.m.Y`.
 - Sortierung: Projekt, Datum, PNr.

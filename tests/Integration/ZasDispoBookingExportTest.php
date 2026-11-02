@@ -238,12 +238,13 @@ class ZasDispoBookingExportTest extends TestCase
         $csv = (new ZasDispoBookingExport())->csv($rows, new ZasCsvBuilder());
 
         $this->assertSame(
-            "\xEF\xBB\xBF" . "PNr;Projekt;Dispo;VDatum;|;\n"
-            . "RG17502;RG19801;122910;21.09.2026;;|;\n"
-            . "RG17533;RG19801;122910;21.09.2026;;|;\n",
+            "\xEF\xBB\xBF" . "PNr;Projekt;Dispo;VDatum;|;\r\n"
+            . "RG17502;RG19801;122910;21.09.2026;;|;\r\n"
+            . "RG17533;RG19801;122910;21.09.2026;;|;\r\n",
             $csv
         );
-        $this->assertSame("\xEF\xBB\xBF" . "PNr;Projekt;Dispo;VDatum;|;\n", (new ZasDispoBookingExport())->csv([], new ZasCsvBuilder()));
+        $this->assertSame("\xEF\xBB\xBF" . "PNr;Projekt;Dispo;VDatum;|;\r\n", (new ZasDispoBookingExport())->csv([], new ZasCsvBuilder()), 'CRLF (Olaf 02.11.), kein nacktes LF');
+        $this->assertStringNotContainsString("\n", str_replace("\r\n", '', (new ZasDispoBookingExport())->csv([['PNr' => "RG1\nx", 'Projekt' => 'P', 'Dispo' => '1', 'VDatum' => '01.01.2027']], new ZasCsvBuilder())), 'Zeilenumbruch im Wert wird vorher entschaerft');
     }
 
     public function test_beanspruchen_setzt_uebergeben_und_eingetragen_ohne_benutzer_und_nur_einmal(): void
