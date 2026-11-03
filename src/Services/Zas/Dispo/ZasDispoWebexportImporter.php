@@ -103,7 +103,7 @@ class ZasDispoWebexportImporter
                     $file->update([
                         'parse_status' => 'processed',
                         'processed_at' => now(),
-                        'notes'        => json_encode($summary, JSON_UNESCAPED_UNICODE),
+                        'notes'        => self::notizen($summary),
                     ]);
                 }
                 return $summary;
@@ -394,7 +394,7 @@ class ZasDispoWebexportImporter
                     'detected_format' => 'blocks',
                     'parse_status'    => 'processed',
                     'processed_at'    => now(),
-                    'notes'           => json_encode($summary, JSON_UNESCAPED_UNICODE),
+                    'notes'           => self::notizen($summary),
                 ]);
             } catch (\Throwable $e) {
                 Log::error('ZAS dispo import: Status-Update nach erfolgreichem Import fehlgeschlagen', [
@@ -418,7 +418,7 @@ class ZasDispoWebexportImporter
                     $file->update([
                         'parse_status' => 'failed',
                         'processed_at' => now(),
-                        'notes'        => json_encode($summary, JSON_UNESCAPED_UNICODE),
+                        'notes'        => self::notizen($summary),
                     ]);
                 } catch (\Throwable $e2) {
                     Log::error('ZAS dispo import: Status-Update nach fehlgeschlagenem Import fehlgeschlagen', [
@@ -438,6 +438,28 @@ class ZasDispoWebexportImporter
      *
      * @param array<string, array<string, mixed>> $bedarfe aus dem Plan
      */
+    /** Fehlerliste je Zeile ist unbegrenzt — mehr als so viele passen nicht in die notes-Spalte. */
+    public const MAX_FEHLER_IN_NOTES = 100;
+
+    /**
+     * Zusammenfassung fuer die notes-Spalte (text, 64 KB). Review 04.11.: bei
+     * einem Formatwechsel in ZAS haengt jede der ~4.200 Zeilen einen Fehler an,
+     * der Abschluss scheiterte an „Data too long“ und die Datei blieb ohne
+     * processed_at — im Hintergrund-Betrieb haette das alle folgenden blockiert.
+     *
+     * @param array<string,mixed> $summary
+     */
+    public static function notizen(array $summary): string
+    {
+        $fehler = array_values((array) ($summary['errors'] ?? []));
+        if (count($fehler) > self::MAX_FEHLER_IN_NOTES) {
+            $summary['errors'] = array_slice($fehler, 0, self::MAX_FEHLER_IN_NOTES);
+            $summary['errors_gesamt'] = count($fehler);
+        }
+
+        return (string) json_encode($summary, JSON_UNESCAPED_UNICODE);
+    }
+
     private function verschwundeneBedarfe(array $bedarfe): \Illuminate\Database\Eloquent\Builder
     {
         return RecDispoBedarf::query()

@@ -34,8 +34,10 @@
                             {{-- Seit 2026-11-04 laeuft der Import im Hintergrund: eine Echt-Datei
                                  ist erst „in Warteschlange“, dann „processed“ mit Einbuchungszahl.
                                  Dateien ohne Dispo-Zeilen (z. B. Block {Zeiten}) sind kein Stand. --}}
-                            @if ($file->wartet())
+                            @if ($file->wartet($letzteVerarbeitete))
                                 <span class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">in Warteschlange</span>
+                            @elseif ($file->liegengeblieben($letzteVerarbeitete))
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700" title="Älter als der Bestand — wird nicht automatisch nachgeholt (recruiting:dispo-reprocess {{ $file->id }} nur bewusst)">liegengeblieben</span>
                             @elseif ($file->parse_status === 'viewable')
                                 <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">lesbar</span>
                             @elseif ($file->parse_status === 'processed' && $file->einbuchungen() === null)

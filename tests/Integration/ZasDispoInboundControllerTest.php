@@ -103,8 +103,13 @@ final class ZasDispoInboundControllerTest extends TestCase
         $this->gespeichert[$pfad] = $inhalt;
     }
 
+    private bool $einreihenScheitert = false;
+
     public function einreihen(object $job): void
     {
+        if ($this->einreihenScheitert) {
+            throw new \RuntimeException('jobs-Tabelle nicht erreichbar');
+        }
         $this->eingereiht[] = $job;
     }
 
@@ -133,12 +138,27 @@ final class ZasDispoInboundControllerTest extends TestCase
         $this->assertSame($json['id'], $datei->id);
         $this->assertNull($datei->processed_at, 'Verarbeitung passiert spaeter im Job');
         $this->assertSame('viewable', $datei->parse_status);
-        $this->assertTrue($datei->wartet());
+        $this->assertTrue($datei->wartet(0));
         $this->assertSame(self::LIEFERUNG, $this->gespeichert[$datei->stored_path] ?? null, 'Rohdatei 1:1 abgelegt');
 
         $this->assertCount(1, $this->eingereiht);
         $this->assertInstanceOf(ProcessZasDispoInboundFile::class, $this->eingereiht[0]);
         $this->assertSame($datei->id, $this->eingereiht[0]->fileId);
+    }
+
+    /** Review 04.11. Fund 5: Einreihen scheitert -> Datei bleibt gespeichert, Antwort bleibt 201, Status sagt es. */
+    public function test_scheitert_das_einreihen_bleibt_die_datei_gespeichert_und_die_antwort_201(): void
+    {
+        $this->einreihenScheitert = true;
+
+        [$status, $json] = $this->senden(self::LIEFERUNG);
+
+        $this->assertSame(201, $status);
+        $this->assertSame('received', $json['status']);
+        $this->assertSame('not_queued', $json['processing']);
+        $datei = RecZasDispoInboundFile::query()->sole();
+        $this->assertTrue($datei->wartet(0), 'der naechste Job nimmt sie mit');
+        $this->assertSame([], $this->eingereiht);
     }
 
     public function test_probe_wird_nicht_eingereiht(): void
@@ -149,7 +169,7 @@ final class ZasDispoInboundControllerTest extends TestCase
         $this->assertTrue($json['is_test']);
         $this->assertSame('none', $json['processing']);
         $this->assertSame([], $this->eingereiht);
-        $this->assertFalse(RecZasDispoInboundFile::query()->sole()->wartet());
+        $this->assertFalse(RecZasDispoInboundFile::query()->sole()->wartet(0));
     }
 
     public function test_leerer_body_bleibt_422(): void

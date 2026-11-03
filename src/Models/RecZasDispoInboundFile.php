@@ -68,8 +68,22 @@ class RecZasDispoInboundFile extends Model
         return $anzahl > 0 ? $anzahl : null;
     }
 
-    /** Echt-Datei, die noch auf den Hintergrund-Import wartet. */
-    public function wartet(): bool
+    /**
+     * Echt-Datei, die der Hintergrund-Job noch verarbeiten wird: ohne Abschluss
+     * und neuer als die letzte verarbeitete (ProcessZasDispoInboundFile::letzteVerarbeitete()).
+     */
+    public function wartet(int $letzteVerarbeitete): bool
+    {
+        return $this->ohneAbschluss() && (int) $this->id > $letzteVerarbeitete;
+    }
+
+    /** Echt-Datei ohne Abschluss, aber aelter als der Bestand — wird nie automatisch nachgeholt. */
+    public function liegengeblieben(int $letzteVerarbeitete): bool
+    {
+        return $this->ohneAbschluss() && (int) $this->id <= $letzteVerarbeitete;
+    }
+
+    private function ohneAbschluss(): bool
     {
         return !$this->is_test && $this->processed_at === null && $this->parse_status === 'viewable';
     }

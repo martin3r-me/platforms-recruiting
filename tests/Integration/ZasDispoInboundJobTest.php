@@ -193,6 +193,107 @@ final class ZasDispoInboundJobTest extends TestCase
         $this->assertSame(0, DB::table('rec_dispo_assignments')->count(), 'verarbeitete Datei laeuft nicht noch einmal');
     }
 
+    public function test_gescheiterte_datei_gilt_als_verarbeitet_und_sperrt_aeltere(): void
+    {
+        $alt = $this->datei(['1001']);
+        $this->datei(['1001'], verarbeitet: '2026-11-04 09:00:00')->update(['parse_status' => 'failed', 'notes' => '{"rolled_back":true}']);
+
+        $this->lauf($alt->id);
+
+        $this->assertNull($alt->fresh()->processed_at, 'failed zaehlt als Abschluss: die aeltere bleibt liegen');
+    }
+
+    public function test_hoechstens_max_je_lauf_der_rest_wird_gemeldet(): void
+    {
+        $a = $this->datei(['1001']);
+        $b = $this->datei(['1001']);
+        $c = $this->datei(['1001']);
+
+        $rest = ProcessZasDispoInboundFile::verarbeiten($this->importer(), 2);
+
+        $this->assertTrue($rest, 'eine Datei steht noch an');
+        $this->assertNotNull($a->fresh()->processed_at);
+        $this->assertNotNull($b->fresh()->processed_at);
+        $this->assertNull($c->fresh()->processed_at);
+
+        $this->assertFalse(ProcessZasDispoInboundFile::verarbeiten($this->importer(), 2), 'zweiter Lauf raeumt den Rest');
+        $this->assertNotNull($c->fresh()->processed_at);
+    }
+
+    /**
+     * Review 04.11. Fund 1: kann der Importer den Abschluss nicht schreiben
+     * (z. B. notes zu lang), darf die Datei nicht alle folgenden blockieren.
+     */
+    public function test_datei_ohne_abschluss_wird_kompakt_abgeschlossen_und_die_naechste_kommt_dran(): void
+    {
+        $kaputt = $this->datei(['1001']);
+        $danach = $this->datei(['1001', '1002']);
+
+        $importer = new class extends ZasDispoWebexportImporter {
+            public int $zaehler = 0;
+
+            public function __construct()
+            {
+                parent::__construct(new ZasDispoBlockSplitter(), new ZasDispoImportPlanner(), new DispoEmployeeDirectory(), new DispoReconfirmMarker());
+            }
+
+            public function import(RecZasDispoInboundFile $file, bool $dryRun = false): array
+            {
+                $this->zaehler++;
+                if ($this->zaehler === 1) {
+                    // Daten importiert, aber der Abschluss (processed_at + notes) scheiterte.
+                    return ['blocks_found' => true, 'stats' => ['assignments' => 1], 'errors' => array_fill(0, 5000, 'Assignment x: Datum unparsebar'), 'rolled_back' => false];
+                }
+
+                return parent::import($file, $dryRun);
+            }
+        };
+
+        $rest = ProcessZasDispoInboundFile::verarbeiten($importer, 5);
+
+        $this->assertFalse($rest);
+        $k = $kaputt->fresh();
+        $this->assertNotNull($k->processed_at, 'vom Job nachgezogen');
+        $this->assertSame('processed', $k->parse_status);
+        $n = $k->notizen();
+        $this->assertCount(20, $n['errors'], 'gekuerzt');
+        $this->assertSame(5000, $n['errors_gesamt']);
+        $this->assertSame(1, $k->einbuchungen());
+        $this->assertNotNull($danach->fresh()->processed_at, 'die naechste Datei kam trotzdem dran');
+        $this->assertSame(2, DB::table('rec_dispo_assignments')->count());
+    }
+
+    public function test_datei_die_sich_gar_nicht_abschliessen_laesst_wird_uebersprungen(): void
+    {
+        $kaputt = $this->datei(['1001']);
+        $danach = $this->datei(['1001', '1002']);
+
+        $importer = new class($kaputt->id) extends ZasDispoWebexportImporter {
+            public function __construct(private int $kaputtId)
+            {
+                parent::__construct(new ZasDispoBlockSplitter(), new ZasDispoImportPlanner(), new DispoEmployeeDirectory(), new DispoReconfirmMarker());
+            }
+
+            public function import(RecZasDispoInboundFile $file, bool $dryRun = false): array
+            {
+                if ($file->id === $this->kaputtId) {
+                    // Importer-Abschluss gescheitert, Datei bleibt ohne processed_at.
+                    return ['blocks_found' => false, 'errors' => []];
+                }
+
+                return parent::import($file, $dryRun);
+            }
+        };
+        // Auch das kompakte Nachziehen scheitert: jedes Update dieser Zeile wird abgewiesen.
+        DB::statement("CREATE TRIGGER kaputt_bleibt BEFORE UPDATE ON rec_zas_dispo_inbound_files WHEN NEW.id = {$kaputt->id} BEGIN SELECT RAISE(ABORT, 'Data too long'); END");
+
+        $this->assertFalse(ProcessZasDispoInboundFile::verarbeiten($importer, 5));
+        $this->assertNull($kaputt->fresh()->processed_at, 'bleibt wirklich offen');
+        $this->assertNotNull($danach->fresh()->processed_at, 'kein Endlos-Lauf, die naechste kam dran');
+        $this->assertNull(ProcessZasDispoInboundFile::naechste(), 'danach liegt die kaputte unterhalb der letzten verarbeiteten — wird nicht mehr angefasst');
+        $this->assertSame([$kaputt->id], ProcessZasDispoInboundFile::liegengebliebene()->pluck('id')->all());
+    }
+
     public function test_sperre_und_warteschleife_sind_gesetzt(): void
     {
         $job = new ProcessZasDispoInboundFile(1);
@@ -203,5 +304,17 @@ final class ZasDispoInboundJobTest extends TestCase
         $this->assertSame(15, $mw[0]->releaseAfter, 'wartet in kurzen Schleifen statt zu verfallen');
         $this->assertGreaterThan($job->timeout, $mw[0]->expiresAfter, 'Sperre ueberlebt den laengsten Lauf');
         $this->assertGreaterThanOrEqual(60, $job->tries, 'genug Schleifen fuer mehrere Lieferungen hintereinander');
+        $this->assertSame(ProcessZasDispoInboundFile::sperrSchluessel(), $mw[0]->getLockKey($job), 'Befehl und Job teilen sich die Sperre');
+        $this->assertGreaterThan(ProcessZasDispoInboundFile::MAX_JE_LAUF * 150, $job->timeout, 'fuenf volle Lieferungen passen in einen Lauf');
+    }
+
+    private function importer(): ZasDispoWebexportImporter
+    {
+        return new ZasDispoWebexportImporter(
+            new ZasDispoBlockSplitter(),
+            new ZasDispoImportPlanner(),
+            new DispoEmployeeDirectory(),
+            new DispoReconfirmMarker(),
+        );
     }
 }

@@ -96,13 +96,18 @@ final class ZasDispoLieferungsStandTest extends TestCase
     {
         $this->datei('2026-11-02 14:30:45', 'processed', 4244);
 
-        Carbon::setTestNow('2026-11-02 18:30:00');
-        $this->assertSame('ok', ZasDispoLieferungsStand::anzeige()['stufe'], 'knapp unter 4 Std.');
+        Carbon::setTestNow('2026-11-02 18:30:44');
+        $this->assertSame('ok', ZasDispoLieferungsStand::anzeige()['stufe'], 'eine Sekunde unter 4 Std.');
 
-        Carbon::setTestNow('2026-11-02 18:31:00');
+        Carbon::setTestNow('2026-11-02 18:30:45');
         $a = ZasDispoLieferungsStand::anzeige();
-        $this->assertSame('gelb', $a['stufe']);
+        $this->assertSame('gelb', $a['stufe'], 'genau 4 Std. ist gelb');
         $this->assertStringContainsString('· 4 Std. alt', $a['text']);
+
+        Carbon::setTestNow('2026-11-03 14:30:44');
+        $this->assertSame('gelb', ZasDispoLieferungsStand::anzeige()['stufe'], 'eine Sekunde unter 24 Std.');
+        Carbon::setTestNow('2026-11-03 14:30:45');
+        $this->assertSame('rot', ZasDispoLieferungsStand::anzeige()['stufe'], 'genau 24 Std. ist rot');
 
         Carbon::setTestNow('2026-11-03 14:45:00');                   // der Vorfall: Stand vom Vortag
         $a = ZasDispoLieferungsStand::anzeige();
@@ -115,13 +120,24 @@ final class ZasDispoLieferungsStandTest extends TestCase
 
     public function test_wartende_neuere_datei_wird_genannt_liegengebliebene_nicht(): void
     {
-        $this->datei('2026-10-30 13:48:05', 'viewable');             // #383: nie verarbeitet, liegt unter der letzten
-        $this->datei('2026-11-03 18:15:06', 'processed', 4195);
-        $this->datei('2026-11-03 19:20:00', 'viewable', test: true); // Probe zaehlt nicht
+        $alt = $this->datei('2026-10-30 13:48:05', 'viewable');      // #383: nie verarbeitet, liegt unter der letzten
+        $voll = $this->datei('2026-11-03 18:15:06', 'processed', 4195);
+        $probe = $this->datei('2026-11-03 19:20:00', 'viewable', test: true); // Probe zaehlt nicht
 
         $this->assertNull(ZasDispoLieferungsStand::aktuell()['offen'], 'alte Liegengebliebene und Proben sind nicht „offen“');
 
-        $this->datei('2026-11-03 19:24:46', 'viewable');
+        $neu = $this->datei('2026-11-03 19:24:46', 'viewable');
+
+        // Eingangsliste nutzt dieselbe Grenze (Review 04.11. Fund 4).
+        $grenze = $voll->id;
+        $this->assertFalse($alt->wartet($grenze));
+        $this->assertTrue($alt->liegengeblieben($grenze));
+        $this->assertTrue($neu->wartet($grenze));
+        $this->assertFalse($neu->liegengeblieben($grenze));
+        $this->assertFalse($probe->wartet($grenze));
+        $this->assertFalse($probe->liegengeblieben($grenze));
+        $this->assertFalse($voll->wartet($grenze));
+
         $s = ZasDispoLieferungsStand::aktuell();
         $this->assertSame('2026-11-03 19:24:46', $s['offen']->format('Y-m-d H:i:s'));
         $this->assertSame(

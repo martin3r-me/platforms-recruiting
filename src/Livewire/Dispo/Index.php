@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Dispo;
 
 use Livewire\Component;
+use Platform\Recruiting\Jobs\ProcessZasDispoInboundFile;
 use Platform\Recruiting\Models\RecZasDispoInboundFile;
 
 /**
@@ -17,7 +18,11 @@ class Index extends Component
     {
         $files = RecZasDispoInboundFile::orderByDesc('created_at')->get();
 
-        return view('recruiting::livewire.dispo.index', ['files' => $files])
+        return view('recruiting::livewire.dispo.index', [
+            'files' => $files,
+            // Grenze fuer „in Warteschlange“ vs. „liegengeblieben“ (Spec 2026-11-04).
+            'letzteVerarbeitete' => ProcessZasDispoInboundFile::letzteVerarbeitete(),
+        ])
             ->layout('platform::layouts.app');
     }
 }
