@@ -30,9 +30,19 @@
                         <td class="px-4 py-2">{{ $file->detected_format ?: 'unbekannt' }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">{{ number_format($file->size_bytes / 1024, 1, ',', '.') }} KB</td>
                         <td class="px-4 py-2">{{ $file->row_count !== null ? number_format($file->row_count, 0, ',', '.') : '—' }}</td>
-                        <td class="px-4 py-2">
-                            @if ($file->parse_status === 'viewable')
+                        <td class="px-4 py-2 whitespace-nowrap">
+                            {{-- Seit 2026-11-04 laeuft der Import im Hintergrund: eine Echt-Datei
+                                 ist erst „in Warteschlange“, dann „processed“ mit Einbuchungszahl.
+                                 Dateien ohne Dispo-Zeilen (z. B. Block {Zeiten}) sind kein Stand. --}}
+                            @if ($file->wartet())
+                                <span class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">in Warteschlange</span>
+                            @elseif ($file->parse_status === 'viewable')
                                 <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">lesbar</span>
+                            @elseif ($file->parse_status === 'processed' && $file->einbuchungen() === null)
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700">ohne Dispo-Zeilen</span>
+                            @elseif ($file->parse_status === 'processed')
+                                <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">processed</span>
+                                <span class="ml-1 text-xs text-gray-500">{{ number_format($file->einbuchungen(), 0, ',', '.') }} Einbuchungen</span>
                             @else
                                 <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">{{ $file->parse_status }}</span>
                             @endif

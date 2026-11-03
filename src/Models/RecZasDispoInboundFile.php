@@ -45,6 +45,35 @@ class RecZasDispoInboundFile extends Model
         'processed_at'   => 'datetime',
     ];
 
+    /** @return array<string,mixed> Zusammenfassung des Importers (notes-JSON), leer wenn unverarbeitet. */
+    public function notizen(): array
+    {
+        $n = json_decode((string) $this->notes, true);
+
+        return is_array($n) ? $n : [];
+    }
+
+    /**
+     * Einbuchungen ({Dispo}-Zeilen) dieser Lieferung; null = keine Dispo-Daten
+     * (unverarbeitet, gescheitert oder nur fremde Bloecke wie {Zeiten} — dort
+     * schreibt der Importer keine `stats`).
+     */
+    public function einbuchungen(): ?int
+    {
+        if ($this->parse_status !== 'processed') {
+            return null;
+        }
+        $anzahl = (int) ($this->notizen()['stats']['assignments'] ?? 0);
+
+        return $anzahl > 0 ? $anzahl : null;
+    }
+
+    /** Echt-Datei, die noch auf den Hintergrund-Import wartet. */
+    public function wartet(): bool
+    {
+        return !$this->is_test && $this->processed_at === null && $this->parse_status === 'viewable';
+    }
+
     protected static function booted(): void
     {
         static::creating(function (self $model) {

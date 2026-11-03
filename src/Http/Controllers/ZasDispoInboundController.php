@@ -8,6 +8,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Platform\Recruiting\Jobs\ProcessZasDispoInboundFile;
 use Platform\Recruiting\Models\RecZasDispoInboundFile;
 use Platform\Recruiting\Services\Zas\DispoInboundInspector;
 use Platform\Recruiting\Support\CsvEncodingNormalizer;
@@ -88,20 +89,21 @@ class ZasDispoInboundController extends Controller
             'row_count'  => $record->row_count,
         ]);
 
-        // Verarbeitung (Step 2 der Dispo-Reihe): echte Lieferungen sofort
-        // importieren. Fehler aendern die HTTP-Antwort NICHT — Rohdatei ist
-        // gespeichert, Reprocess jederzeit moeglich (recruiting:dispo-reprocess).
-        // Der Importer faengt bereits alles selbst (Throwable) — dieser
-        // try/catch ist die zweite Absicherung, damit WIRKLICH nichts die
-        // 201-Antwort gefaehrden kann (Belt-and-braces).
-        $import = null;
+        // Verarbeitung im Hintergrund (Spec 2026-11-04): bis 03.11. lief der
+        // Import hier in der Anfrage und brauchte gut zwei Minuten — Olafs
+        // Client wartete nicht so lange und meldete „Zeitlimit“, obwohl alles
+        // angekommen war. Jetzt nur einreihen; die Rohdatei ist gespeichert,
+        // Reprocess jederzeit moeglich (recruiting:dispo-reprocess). Ein Fehler
+        // beim Einreihen aendert die 201-Antwort NICHT — die Datei bleibt als
+        // „in Warteschlange“ sichtbar (ZAS-Eingang, ZAS-Stand auf der VA-Liste).
+        $processing = 'none';
         if (!$isTest) {
             try {
-                $import = app(\Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter::class)
-                    ->import($record);
+                ProcessZasDispoInboundFile::dispatch($record->id);
+                $processing = 'queued';
             } catch (\Throwable $e) {
-                Log::error('ZAS dispo import hook fehlgeschlagen', ['file_id' => $record->id, 'error' => $e->getMessage()]);
-                $import = null;
+                Log::error('ZAS dispo inbound: Einreihen fehlgeschlagen', ['file_id' => $record->id, 'error' => $e->getMessage()]);
+                $processing = 'not_queued';
             }
         }
 
@@ -113,6 +115,7 @@ class ZasDispoInboundController extends Controller
             'is_test'     => $isTest,
             'received_at' => $record->created_at?->toIso8601String(),
             'size_bytes'  => $record->size_bytes,
+            'processing'  => $processing,
             'detected'    => [
                 'format'       => $format,
                 'delimiter'    => $structure['delimiter'],
@@ -120,16 +123,6 @@ class ZasDispoInboundController extends Controller
                 'row_count'    => $record->row_count,
             ],
         ];
-
-        if ($import !== null) {
-            $payload['import'] = [
-                'blocks_found' => $import['blocks_found'],
-                'events'       => $import['events_created'] + $import['events_updated'],
-                'assignments'  => $import['assignments_created'] + $import['assignments_updated'],
-                'matched'      => $import['matched'],
-                'unmatched'    => $import['unmatched'],
-            ];
-        }
 
         // Volle Vorschau nur im Test-Modus (enthaelt echte Datenwerte).
         if ($isTest && $format === 'csv') {

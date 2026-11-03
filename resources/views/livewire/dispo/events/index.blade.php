@@ -10,6 +10,21 @@
         </label>
     </div>
 
+    {{-- ZAS-Stand (Spec 2026-11-04): von wann die Einbuchungen sind. Gelb ab 4 Std.,
+         rot ab 24 Std. — damit niemand mehr unbemerkt auf altem Stand arbeitet (03.11.). --}}
+    @php
+        $zasStand = $this->zasStand;
+        $zasStandKlasse = match ($zasStand['stufe']) {
+            'rot'  => 'border-red-300 bg-red-50 text-red-800',
+            'gelb' => 'border-amber-300 bg-amber-50 text-amber-800',
+            'leer' => 'border-gray-200 bg-gray-50 text-gray-500',
+            default => 'border-green-200 bg-green-50 text-green-800',
+        };
+    @endphp
+    <div class="rounded border px-3 py-1.5 text-sm {{ $zasStandKlasse }}" data-zas-stand="{{ $zasStand['stufe'] }}">
+        {{ $zasStand['text'] }}
+    </div>
+
     <div class="flex flex-wrap items-end gap-4 rounded-lg border border-gray-200 bg-white p-4">
         {{-- Tagesweise blaettern (Kunde 26.09.): die Pfeile verschieben BEIDE
              Felder um einen Tag, ein Zeitraum behaelt seine Laenge. --}}

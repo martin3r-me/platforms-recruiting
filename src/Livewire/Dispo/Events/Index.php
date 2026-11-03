@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoEvent;
+use Platform\Recruiting\Services\Zas\Dispo\ZasDispoLieferungsStand;
 use Platform\Recruiting\Support\Filialen;
 
 /**
@@ -119,6 +120,23 @@ class Index extends Component
         }
 
         return $q;
+    }
+
+    /**
+     * „ZAS-Stand“ (Spec 2026-11-04): von wann die Einbuchungen sind. Laeuft
+     * mit dem 30-s-Poll der Seite mit, damit eine verarbeitete Lieferung von
+     * selbst erscheint. Nebeninformation: darf die VA-Liste nicht abschiessen.
+     *
+     * @return array{text:string, stufe:string}
+     */
+    #[Computed]
+    public function zasStand(): array
+    {
+        try {
+            return ZasDispoLieferungsStand::anzeige();
+        } catch (\Throwable $e) {
+            return ['text' => 'ZAS-Stand: nicht ermittelbar', 'stufe' => 'leer'];
+        }
     }
 
     public function render()
