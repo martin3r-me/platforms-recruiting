@@ -17,7 +17,7 @@ class DispoJobZasAbgleich
     public function run(): int
     {
         $offen = RecDispoJobOfferShift::query()
-            ->with(['offer:id,rec_employee_id,anchor_employee_id', 'shift:id,rec_dispo_event_id,datum,von,bis'])
+            ->with(['offer:id,rec_employee_id,anchor_employee_id', 'shift:id,rec_dispo_event_id,datum,von,bis,dispoposten_id'])
             ->whereNotNull('accepted_at')->whereNull('zas_assignment_id')->get();
         if ($offen->isEmpty()) {
             return 0;
@@ -25,14 +25,16 @@ class DispoJobZasAbgleich
 
         $employeeIds = $offen->pluck('offer.rec_employee_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
         $groups = app(DispoIdentityResolver::class)->groupsFor($employeeIds);
+        $varianten = self::zeitvarianten($offen->map(fn ($os) => $os->shift)->filter());
         $gesetzt = 0;
         foreach ($offen as $os) {
             if ($os->offer === null || $os->shift === null) {
                 continue;
             }
             $ids = $groups[(int) $os->offer->rec_employee_id] ?? [(int) $os->offer->rec_employee_id];
+            $zeiten = $varianten[(int) $os->shift->id] ?? [[$os->shift->von, $os->shift->bis]];
             $a = self::kandidaten($ids, (int) $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'))
-                ->first(fn (RecDispoAssignment $a) => self::zeitPasst($a, $os->shift->von, $os->shift->bis));
+                ->first(fn (RecDispoAssignment $a) => self::zeitPasstEine($a, $zeiten));
             if ($a !== null) {
                 $os->update(['zas_assignment_id' => (int) $a->id]);
                 $gesetzt++;
@@ -57,6 +59,59 @@ class DispoJobZasAbgleich
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNull('declined_at')
             ->orderBy('id')->get();
+    }
+
+    /**
+     * Zeitvarianten je Schicht: die eigene Zeit der Schicht plus alle Varianten des
+     * ZAS-Postens (Bedarfsliste `zeiten`, z. B. 08:30 und 08:45 fuer denselben Posten —
+     * Review 06.11.: ZAS bucht die Person in irgendeiner Variante, die Schicht traegt
+     * nur die erste). Eine Query fuer alle Posten.
+     *
+     * @param iterable<\Platform\Recruiting\Models\RecDispoJobShift> $schichten
+     * @return array<int, list<array{0:?string,1:?string}>> shift_id => [[von, bis], ...]
+     */
+    public static function zeitvarianten(iterable $schichten): array
+    {
+        $out = [];
+        $posten = [];
+        foreach ($schichten as $s) {
+            $out[(int) $s->id] = [[$s->von, $s->bis]];
+            $nr = trim((string) $s->dispoposten_id);
+            if ($nr !== '') {
+                $posten[$nr][] = $s;
+            }
+        }
+        if ($posten === []) {
+            return $out;
+        }
+        $bedarfe = \Platform\Recruiting\Models\RecDispoBedarf::query()
+            ->whereIn('dispoposten_id', array_keys($posten))
+            ->get(['dispoposten_id', 'datum', 'von', 'bis', 'zeiten']);
+        foreach ($bedarfe as $b) {
+            foreach ($posten[trim((string) $b->dispoposten_id)] ?? [] as $s) {
+                if ($b->datum !== null && $b->datum->format('Y-m-d') !== $s->datum->format('Y-m-d')) {
+                    continue;
+                }
+                $out[(int) $s->id][] = [$b->von, $b->bis];
+                foreach ((array) $b->zeiten as $z) {
+                    $out[(int) $s->id][] = [$z['von'] ?? null, $z['bis'] ?? null];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param list<array{0:?string,1:?string}> $zeiten */
+    public static function zeitPasstEine(RecDispoAssignment $a, array $zeiten): bool
+    {
+        foreach ($zeiten as [$von, $bis]) {
+            if (self::zeitPasst($a, $von, $bis)) {
+                return true;
+            }
+        }
+
+        return $zeiten === [];
     }
 
     /**

@@ -100,11 +100,13 @@ final class DispoJobSchichten
                 continue;
             }
 
-            $key = 'z' . $von . "\0" . $taet;
-            $row = &$out[$datum][$key];
-            $row ??= ['von' => $von, 'bis' => '', 'taetigkeit' => $taet, 'zeilen' => 0, 'platzhalter' => 0, 'offen' => null, 'dispoposten' => null, '_bis' => []];
-            $row['zeilen']++;
+            // Ende im Schluessel (Markus 06.11.): Personenzeilen ohne Posten mit gleichem
+            // Beginn, aber anderem Ende sind zwei Schichten, nicht eine mit dem haeufigsten Ende.
             $bis = trim((string) self::feld($a, 'bis'));
+            $key = 'z' . $von . "\0" . $bis . "\0" . $taet;
+            $row = &$out[$datum][$key];
+            $row ??= ['von' => $von, 'bis' => $bis, 'taetigkeit' => $taet, 'zeilen' => 0, 'platzhalter' => 0, 'offen' => null, 'dispoposten' => null, '_bis' => []];
+            $row['zeilen']++;
             if ($bis !== '') {
                 $row['_bis'][$bis] = ($row['_bis'][$bis] ?? 0) + 1;
             }
@@ -147,11 +149,13 @@ final class DispoJobSchichten
      * tragen die Posten-Nummer mit: zwei Posten mit gleichem Beginn und gleicher
      * Taetigkeit am selben Tag duerfen nicht dasselbe Eingabefeld teilen (Review I-1).
      */
-    public static function schluessel(int $eventId, string $datum, string $von, string $taetigkeit, ?string $posten = null): string
+    public static function schluessel(int $eventId, string $datum, string $von, string $taetigkeit, ?string $posten = null, ?string $bis = null): string
     {
         $posten = trim((string) $posten);
+        $bis = trim((string) $bis);
 
-        return 's' . substr(sha1($eventId . '|' . $datum . '|' . trim($von) . '|' . trim($taetigkeit) . ($posten !== '' ? '|' . $posten : '')), 0, 16);
+        // Ende nur, wenn vorhanden (Markus 06.11.: 17–23 und 17–03 brauchen zwei Eingabefelder).
+        return 's' . substr(sha1($eventId . '|' . $datum . '|' . trim($von) . '|' . trim($taetigkeit) . ($posten !== '' ? '|' . $posten : '') . ($bis !== '' ? '|' . $bis : '')), 0, 16);
     }
 
     private static function feld(mixed $a, string $name): mixed

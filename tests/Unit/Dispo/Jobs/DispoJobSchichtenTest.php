@@ -70,12 +70,16 @@ final class DispoJobSchichtenTest extends TestCase
         $this->assertSame([['von' => '', 'bis' => '', 'taetigkeit' => 'Zapfer', 'zeilen' => 1, 'platzhalter' => 0, 'offen' => null, 'dispoposten' => null]], $out['2026-10-24']);
     }
 
-    public function testEndzeitIstDieHaeufigsteBeiGleichstandDieFrueheste(): void
+    /**
+     * Markus 06.11.: gleicher Beginn, anderes Ende = zwei Schichten. Bis dahin wurde
+     * je Beginn EINE Option mit dem haeufigsten Ende gebaut (17–23 und 17–03 fielen zusammen).
+     */
+    public function testGleicherBeginnMitAnderemEndeSindZweiSchichten(): void
     {
         $rows = [
             self::zeile('2026-10-24', '17:00', 'Zapfer', [], '23:00'),
             self::zeile('2026-10-24', '17:00', 'Zapfer', [], '23:00'),
-            self::zeile('2026-10-24', '17:00', 'Zapfer', [], '22:00'),
+            self::zeile('2026-10-24', '17:00', 'Zapfer', [], '03:00'),
             self::zeile('2026-10-24', '17:00', 'Zapfer', [], null),
             self::zeile('2026-10-24', '12:00', 'Service', [], '20:00'),
             self::zeile('2026-10-24', '12:00', 'Service', [], '18:00'),
@@ -83,9 +87,8 @@ final class DispoJobSchichtenTest extends TestCase
         ];
         $out = DispoJobSchichten::optionen($rows, ['2026-10-24']);
 
-        $this->assertSame('18:00', $out['2026-10-24'][0]['bis'], 'Gleichstand: die fruehere');
-        $this->assertSame('23:00', $out['2026-10-24'][1]['bis'], 'die haeufigste; leere zaehlen nicht');
-        $this->assertSame('', $out['2026-10-24'][2]['bis'], 'nirgends eine Endzeit');
+        $paare = array_map(fn ($r) => $r['von'] . '-' . $r['bis'] . '=' . $r['zeilen'], $out['2026-10-24']);
+        $this->assertEqualsCanonicalizing(['17:00-23:00=2', '17:00-03:00=1', '17:00-=1', '12:00-20:00=1', '12:00-18:00=1', '19:00-=1'], $paare);
         $this->assertSame(['von', 'bis', 'taetigkeit', 'zeilen', 'platzhalter', 'offen', 'dispoposten'], array_keys($out['2026-10-24'][0]));
     }
 
@@ -96,6 +99,10 @@ final class DispoJobSchichtenTest extends TestCase
         $this->assertNotSame($a, DispoJobSchichten::schluessel(5, '2026-10-24', '17:00', 'Service'));
         $this->assertNotSame($a, DispoJobSchichten::schluessel(6, '2026-10-24', '17:00', 'Zapfer'));
         $this->assertMatchesRegularExpression('/^s[0-9a-f]+$/', $a, 'keine Punkte/Leerzeichen — wire:model-tauglich');
+        // Ende unterscheidet (Markus 06.11.); leeres Ende = wie ohne.
+        $this->assertNotSame($a, DispoJobSchichten::schluessel(5, '2026-10-24', '17:00', 'Zapfer', null, '23:00'));
+        $this->assertNotSame(DispoJobSchichten::schluessel(5, '2026-10-24', '17:00', 'Zapfer', null, '23:00'), DispoJobSchichten::schluessel(5, '2026-10-24', '17:00', 'Zapfer', null, '03:00'));
+        $this->assertSame($a, DispoJobSchichten::schluessel(5, '2026-10-24', '17:00', 'Zapfer', null, ''));
     }
 
     // ----- Bedarfsliste (Spec 2026-10-29 §5) -----

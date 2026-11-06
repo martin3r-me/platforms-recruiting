@@ -57,6 +57,26 @@ final class DispoJobGedeckt
             ->update(['gedeckt_manuell_at' => now(), 'closed_at' => now()]) === 1;
     }
 
+    /**
+     * Vollzaehlung nachziehen, nachdem eine Zusage verschoben oder entfernt wurde
+     * (Review 06.11.): im Modus „zuerst“ schliesst die Schicht, sobald die Zusagen
+     * das Soll erreichen, und oeffnet wieder, wenn ein Platz frei wird — ausser sie
+     * ist von Hand als gedeckt markiert. Im Modus „sammeln“ bleibt closed_at wie es ist.
+     */
+    public static function nachzaehlen(RecDispoJobRequest $request, RecDispoJobShift $shift): void
+    {
+        if ($request->modus !== RecDispoJobRequest::MODUS_ZUERST || $shift->gedeckt_manuell_at !== null || (int) $shift->gesucht <= 0) {
+            return;
+        }
+        $zugesagt = $shift->offerShifts()->whereNotNull('accepted_at')->whereNull('declined_at')->count();
+        $voll = $zugesagt >= (int) $shift->gesucht;
+        if ($voll && $shift->closed_at === null) {
+            $shift->update(['closed_at' => now()]);
+        } elseif (!$voll && $shift->closed_at !== null) {
+            $shift->update(['closed_at' => null]);
+        }
+    }
+
     /** Wieder oeffnen: beide Sperren weg; im Modus „zuerst“ schliesst die naechste volle Zusage erneut. */
     public static function oeffnen(RecDispoJobRequest $request, int $shiftId): bool
     {

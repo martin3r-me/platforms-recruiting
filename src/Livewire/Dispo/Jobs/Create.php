@@ -432,7 +432,7 @@ class Create extends Component
             $out[$id] = [];
             foreach (DispoJobSchichten::optionen($rows->get($id, collect()), [], $bedarfe->get($id, collect())) as $datum => $schichten) {
                 $out[$id][$datum] = array_map(
-                    fn ($s) => ['key' => DispoJobSchichten::schluessel($id, $datum, $s['von'], $s['taetigkeit'], $s['dispoposten'])] + $s,
+                    fn ($s) => ['key' => DispoJobSchichten::schluessel($id, $datum, $s['von'], $s['taetigkeit'], $s['dispoposten'], $s['bis'] ?? null)] + $s,
                     $schichten
                 );
             }
@@ -616,7 +616,8 @@ class Create extends Component
         $schichten = [];
         foreach ($this->gewaehlteSchichten as $i => $s) {
             if ($s['gesucht'] > 0 && $s['datum'] >= $heute) {
-                $schichten[] = ['id' => $i + 1, 'datum' => $s['datum'], 'taetigkeit' => $s['taetigkeit'], 'event' => (int) $s['event'], 'von' => (string) $s['von']];
+                // 'bis' muss mit (Review 06.11.): sonst greift „schon_zugesagt“ in der Vorschau nie und sie zaehlt mehr als der Versand.
+                $schichten[] = ['id' => $i + 1, 'datum' => $s['datum'], 'taetigkeit' => $s['taetigkeit'], 'event' => (int) $s['event'], 'von' => (string) $s['von'], 'bis' => (string) ($s['bis'] ?? '')];
             }
         }
         $this->zahlen = DispoJobZahlen::berechnen($this->teamId(), $schichten, [], $this->auswahl());

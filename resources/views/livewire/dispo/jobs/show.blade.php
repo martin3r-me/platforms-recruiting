@@ -444,7 +444,9 @@
                                                 <span class="{{ $zasHinweisKlasse }}">{{ $zasHinweis['text'] }}</span>
                                             @endif
                                             @if ($verschiebeZiele !== [])
-                                                <select wire:change="verschieben({{ $z->id }}, $event.target.value)" wire:key="verschieben-{{ $z->id }}"
+                                                {{-- Nach der Antwort zurueck auf den Platzhalter — sonst bleibt nach einer
+                                                     Verweigerung das Ziel stehen und derselbe Klick feuert kein change mehr. --}}
+                                                <select x-data x-on:change="$wire.verschieben({{ $z->id }}, parseInt($event.target.value, 10)).then(() => { $el.value = '0' })" wire:key="verschieben-{{ $z->id }}"
                                                         class="rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600" title="Zusage auf eine andere Schicht dieses Tages ziehen">
                                                     <option value="0">Verschieben nach …</option>
                                                     @foreach ($verschiebeZiele as $ziel)

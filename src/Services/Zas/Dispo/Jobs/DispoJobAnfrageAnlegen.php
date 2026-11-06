@@ -119,8 +119,9 @@ final class DispoJobAnfrageAnlegen
                 continue;
             }
             // Posten-Nummer im Schluessel: zwei Posten mit gleichem Beginn und gleicher
-            // Taetigkeit bleiben zwei Schichten (Review I-1), Zeilen ohne Posten wie bisher.
-            $key = $event . '|' . $datum . '|' . $von . '|' . mb_strtolower($taet) . '|' . $posten;
+            // Taetigkeit bleiben zwei Schichten (Review I-1). Ende ebenfalls (Markus 06.11.):
+            // zwei „andere“ Schichten 17–23 und 17–03 duerfen sich nicht ueberschreiben.
+            $key = $event . '|' . $datum . '|' . $von . '|' . $bis . '|' . mb_strtolower($taet) . '|' . $posten;
             if ($gesucht <= 0) {
                 unset($out[$key]);
                 continue;

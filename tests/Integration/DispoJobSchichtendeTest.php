@@ -89,9 +89,12 @@ final class DispoJobSchichtendeTest extends TestCase
         ]);
     }
 
-    private function schicht(RecDispoJobRequest $r, string $von, string $bis, int $event = 1750, ?string $datum = null, int $gesucht = 30): RecDispoJobShift
+    private function schicht(RecDispoJobRequest $r, string $von, string $bis, int $event = 1750, ?string $datum = null, int $gesucht = 30, ?string $posten = null): RecDispoJobShift
     {
-        return $r->shifts()->create(['rec_dispo_event_id' => $event, 'datum' => $datum ?? self::tag(), 'von' => $von, 'bis' => $bis, 'taetigkeit' => 'Servicekräfte', 'gesucht' => $gesucht, 'dispoposten_id' => '1251' . $von[0] . $bis[0]]);
+        static $n = 0;
+        $n++;
+
+        return $r->shifts()->create(['rec_dispo_event_id' => $event, 'datum' => $datum ?? self::tag(), 'von' => $von, 'bis' => $bis, 'taetigkeit' => 'Servicekräfte', 'gesucht' => $gesucht, 'dispoposten_id' => $posten ?? ('1251' . $n)]);
     }
 
     private function person(string $pnr = 'RG1'): RecEmployee
@@ -239,7 +242,7 @@ final class DispoJobSchichtendeTest extends TestCase
 
     // ----------------------------------------------------------- Verschieben
 
-    public function test_verschieben_nimmt_die_zusage_mit_und_laesst_den_haken_zurueck(): void
+    public function test_verschieben_nimmt_die_zusage_mit_ihrem_zeitpunkt_mit(): void
     {
         $r = $this->anfrage();
         $s23 = $this->schicht($r, '17:00', '23:00');
@@ -247,19 +250,118 @@ final class DispoJobSchichtendeTest extends TestCase
         $e = $this->person();
         $os = $this->angebot($r, $e, [$s23, $s01]);
         $zeit = now()->subHours(3);
-        $os[$s23->id]->update(['accepted_at' => $zeit, 'zas_entered_at' => now()->subHour(), 'zas_entered_by_user_id' => 9]);
+        $os[$s23->id]->update(['accepted_at' => $zeit]);
 
         $this->assertSame(DispoJobZusageVerschieben::OK, DispoJobZusageVerschieben::ausfuehren($r, $os[$s23->id]->id, $s01->id));
 
         $quelle = $os[$s23->id]->fresh();
         $ziel = $os[$s01->id]->fresh();
         $this->assertNull($quelle->accepted_at);
-        $this->assertNull($quelle->zas_entered_at);
-        $this->assertNull($quelle->zas_entered_by_user_id);
         $this->assertSame($zeit->format('Y-m-d H:i:s'), $ziel->accepted_at->format('Y-m-d H:i:s'), 'Zeitpunkt der Zusage wandert mit');
-        $this->assertNull($ziel->zas_entered_at, 'Haken wandert nicht: in ZAS steht die neue Schicht noch nicht');
+        $this->assertNull($ziel->zas_entered_at);
 
         $this->assertSame(DispoJobZusageVerschieben::WEG, DispoJobZusageVerschieben::ausfuehren($r, $os[$s23->id]->id, $s01->id), 'Quelle ist keine Zusage mehr');
+    }
+
+    /** Review 06.11. Fund 6: Hand-Haken heisst „steht in ZAS“ — dann nur dort umbuchen. */
+    public function test_verschieben_verweigert_bei_hand_haken(): void
+    {
+        $r = $this->anfrage();
+        $s23 = $this->schicht($r, '17:00', '23:00');
+        $s01 = $this->schicht($r, '16:00', '01:00');
+        $e = $this->person();
+        $os = $this->angebot($r, $e, [$s23, $s01]);
+        $os[$s23->id]->update(['accepted_at' => now(), 'zas_entered_at' => now(), 'zas_entered_by_user_id' => 9]);
+
+        $this->assertSame(DispoJobZusageVerschieben::IN_ZAS, DispoJobZusageVerschieben::ausfuehren($r, $os[$s23->id]->id, $s01->id));
+        $this->assertNotNull($os[$s23->id]->fresh()->accepted_at);
+        $this->assertNotNull($os[$s23->id]->fresh()->zas_entered_at, 'Haken bleibt');
+    }
+
+    /** Review 06.11. Fund 7: eine Absage auf der Zielschicht wird nicht ueberschrieben. */
+    public function test_verschieben_verweigert_auf_abgesagte_zielschicht(): void
+    {
+        $r = $this->anfrage();
+        $s23 = $this->schicht($r, '17:00', '23:00');
+        $s01 = $this->schicht($r, '16:00', '01:00');
+        $e = $this->person();
+        $os = $this->angebot($r, $e, [$s23, $s01]);
+        $os[$s23->id]->update(['accepted_at' => now()]);
+        $os[$s01->id]->update(['declined_at' => now(), 'declined_reason' => 'krank']);
+
+        $this->assertSame(DispoJobZusageVerschieben::ABGESAGT, DispoJobZusageVerschieben::ausfuehren($r, $os[$s23->id]->id, $s01->id));
+        $this->assertSame('krank', $os[$s01->id]->fresh()->declined_reason);
+        $this->assertNotNull($os[$s23->id]->fresh()->accepted_at);
+    }
+
+    /** Review 06.11. Fund 1: Mit-Zusage (§9) in einer anderen Anfrage bleibt sonst als zweite Zusage am Tag stehen. */
+    public function test_verschieben_verweigert_wenn_dieselbe_schicht_in_anderer_anfrage_mitzugesagt_ist(): void
+    {
+        $r1 = $this->anfrage();
+        $r2 = $this->anfrage();
+        $a23 = $this->schicht($r1, '17:00', '23:00');
+        $a01 = $this->schicht($r1, '16:00', '01:00');
+        $b23 = $this->schicht($r2, '17:00', '23:00');
+        $e = $this->person();
+        $osA = $this->angebot($r1, $e, [$a23, $a01]);
+        $osB = $this->angebot($r2, $e, [$b23])[$b23->id];
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($osA[$a23->id]->id, [$e->id]));
+        $this->assertNotNull($osB->fresh()->accepted_at, 'Schwester mitzugesagt');
+
+        $this->assertSame(DispoJobZusageVerschieben::SCHWESTER, DispoJobZusageVerschieben::ausfuehren($r1, $osA[$a23->id]->id, $a01->id));
+        $this->assertNotNull($osA[$a23->id]->fresh()->accepted_at, 'nichts veraendert');
+
+        $r2->update(['status' => 'abgeschlossen', 'closed_at' => now()]);
+        $this->assertSame(DispoJobZusageVerschieben::OK, DispoJobZusageVerschieben::ausfuehren($r1, $osA[$a23->id]->id, $a01->id), 'abgeschlossene Anfrage zaehlt nicht mehr');
+    }
+
+    /** Review 06.11. Fund 2: Modus „zuerst“ — Ziel schliesst bei voll, Quelle oeffnet wieder; volle Ziele werden verweigert. */
+    public function test_verschieben_zieht_die_vollzaehlung_im_modus_zuerst_nach(): void
+    {
+        $r = $this->anfrage();
+        $r->update(['modus' => RecDispoJobRequest::MODUS_ZUERST]);
+        $r = $r->fresh();
+        $s23 = $this->schicht($r, '17:00', '23:00', gesucht: 1);
+        $s01 = $this->schicht($r, '16:00', '01:00', gesucht: 1);
+        $e = $this->person();
+        $os = $this->angebot($r, $e, [$s23, $s01]);
+
+        $this->assertSame('ok', JobOffersZusage::ausfuehren($os[$s23->id]->id, [$e->id]));
+        $this->assertNotNull($s23->fresh()->closed_at, 'gesucht 1 erreicht: zu');
+
+        $this->assertSame(DispoJobZusageVerschieben::OK, DispoJobZusageVerschieben::ausfuehren($r, $os[$s23->id]->id, $s01->id));
+        $this->assertNull($s23->fresh()->closed_at, 'Platz frei: Quelle wieder offen');
+        $this->assertNotNull($s01->fresh()->closed_at, 'Ziel voll: zu');
+
+        $zweite = $this->person('RG2');
+        $os2 = $this->angebot($r, $zweite, [$s23, $s01]);
+        $os2[$s23->id]->update(['accepted_at' => now()]);
+        $this->assertSame(DispoJobZusageVerschieben::VOLL, DispoJobZusageVerschieben::ausfuehren($r, $os2[$s23->id]->id, $s01->id), 'volles Ziel wird nicht ueberbucht');
+
+        $s01->update(['closed_at' => null, 'gedeckt_manuell_at' => now()]);
+        $this->assertSame(DispoJobZusageVerschieben::VOLL, DispoJobZusageVerschieben::ausfuehren($r, $os2[$s23->id]->id, $s01->id), 'von Hand gedeckt ebenso');
+    }
+
+    /** Review 06.11. Fund 3: Posten mit mehreren Zeitvarianten — ZAS bucht in Variante 2, die Schicht traegt Variante 1. */
+    public function test_abgleich_erkennt_jede_zeitvariante_des_postens(): void
+    {
+        $r = $this->anfrage();
+        $s = $this->schicht($r, '08:30', '16:45', posten: '120988');
+        \Platform\Recruiting\Models\RecDispoBedarf::create([
+            'rec_dispo_event_id' => 1750, 'dispoposten_id' => '120988', 'datum' => self::tag(), 'von' => '08:30', 'bis' => '16:45',
+            'zeiten' => [['von' => '08:30', 'bis' => '16:45'], ['von' => '08:45', 'bis' => '16:45']], 'taetigkeit' => 'Servicekräfte', 'anzahl' => 2, 'status_id' => 1,
+        ]);
+        $e = $this->person();
+        $os = $this->angebot($r, $e, [$s])[$s->id];
+        $os->update(['accepted_at' => now()]);
+        $variante2 = $this->einbuchung($e, '08:45', '16:45');
+
+        (new DispoJobZasAbgleich())->run();
+
+        $this->assertSame($variante2->id, $os->fresh()->zas_assignment_id);
+        $stand = DispoJobZasStand::andereSchicht(RecDispoJobOfferShift::query()->with('offer')->whereKey($os->id)->get(), $r->shifts()->get());
+        $this->assertSame([], $stand, 'Variante des Postens ist dieselbe Schicht');
     }
 
     public function test_verschieben_legt_die_angebotszeile_an_wenn_die_person_die_zielschicht_nicht_hatte(): void

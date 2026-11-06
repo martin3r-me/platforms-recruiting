@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 
 /**
  * Einmalige Bereinigung (Markus 06.11., Anfrage 16): bis zum Fix galten zwei
@@ -81,10 +82,25 @@ class DispoZusagenEntdoppelnCommand extends Command
             $this->line('Vorschau — mit --ausfuehren wird geschrieben.');
             return self::SUCCESS;
         }
-        foreach ($entfernen as $z) {
-            RecDispoJobOfferShift::query()->whereKey($z->id)->update(['accepted_at' => null, 'zas_entered_at' => null, 'zas_entered_by_user_id' => null]);
-        }
-        $this->info(sprintf('%d Zusagen entfernt.', count($entfernen)));
+        $entfernt = 0;
+        \Illuminate\Support\Facades\DB::transaction(function () use ($entfernen, $request, &$entfernt) {
+            $schichten = [];
+            foreach ($entfernen as $z) {
+                // Bedingt: hat ZAS die Zeile inzwischen abgeholt oder wurde sie eingetragen, bleibt sie (Review 06.11.).
+                $entfernt += RecDispoJobOfferShift::query()->whereKey($z->id)
+                    ->whereNotNull('accepted_at')
+                    ->whereNull('zas_exported_at')->whereNull('zas_entered_at')->whereNull('zas_assignment_id')
+                    ->update(['accepted_at' => null]);
+                $schichten[(int) $z->shift_id] = true;
+            }
+            foreach (array_keys($schichten) as $shiftId) {
+                $shift = $request->shifts()->whereKey($shiftId)->first();
+                if ($shift !== null) {
+                    DispoJobGedeckt::nachzaehlen($request, $shift);
+                }
+            }
+        }, 3);
+        $this->info(sprintf('%d Zusagen entfernt.', $entfernt));
 
         return self::SUCCESS;
     }

@@ -159,6 +159,20 @@ class DispoJobCreateFlowTest extends TestCase
         $this->assertSame([['', 'Zapfer', 1], ['17:00', 'Zapfer', 9]], $rows, 'letztes gesucht gewinnt');
     }
 
+    /** Markus 06.11. / Review Fund 4: zwei „andere“ Schichten 17–23 und 17–03 ohne Posten bleiben zwei Schichten. */
+    public function test_gleicher_beginn_mit_anderem_ende_bleibt_zwei_schichten(): void
+    {
+        $daten = self::daten(['schichten' => [
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Servicekräfte', 'gesucht' => 30],
+            ['event' => 5, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '03:00', 'taetigkeit' => 'Servicekräfte', 'gesucht' => 40],
+        ]]);
+        $request = DispoJobAnfrageAnlegen::anlegen($daten, 3, null);
+
+        $rows = RecDispoJobShift::where('request_id', $request->id)->orderBy('bis')->get()
+            ->map(fn ($s) => [$s->von, $s->bis, $s->gesucht])->all();
+        $this->assertSame([['17:00', '03:00', 40], ['17:00', '23:00', 30]], $rows);
+    }
+
     public function test_ohne_gesuchte_schicht_wird_nichts_angelegt(): void
     {
         try {

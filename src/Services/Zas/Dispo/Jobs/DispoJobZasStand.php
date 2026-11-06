@@ -40,6 +40,7 @@ final class DispoJobZasStand
             ->orderBy('id')
             ->get(['id', 'rec_employee_id', 'rec_dispo_event_id', 'datum', 'von', 'bis']);
 
+        $varianten = DispoJobZasAbgleich::zeitvarianten($schichten);
         $out = [];
         foreach ($zeilen as $z) {
             $schicht = $schichtenById[(int) $z->shift_id] ?? null;
@@ -47,6 +48,7 @@ final class DispoJobZasStand
             if ($schicht === null || $emp === 0) {
                 continue;
             }
+            $zeiten = $varianten[(int) $schicht->id] ?? [[$schicht->von, $schicht->bis]];
             $ids = array_fill_keys($groups[$emp] ?? [$emp], true);
             $eigene = $assignments->filter(fn ($a) => isset($ids[(int) $a->rec_employee_id])
                 && (int) $a->rec_dispo_event_id === (int) $schicht->rec_dispo_event_id
@@ -57,10 +59,10 @@ final class DispoJobZasStand
             // Steht die Person in ZAS auf DIESER Schicht, ist alles gut — auch wenn eine alte
             // Verknuepfung (vor dem Fix) auf eine andere Einbuchung zeigt. Sonst die verknuepfte
             // nennen, sonst irgendeine des Tages.
-            $passend = $eigene->first(fn ($a) => DispoJobZasAbgleich::zeitPasst($a, $schicht->von, $schicht->bis));
+            $passend = $eigene->first(fn ($a) => DispoJobZasAbgleich::zeitPasstEine($a, $zeiten));
             $verknuepft = $z->zas_assignment_id !== null ? $eigene->firstWhere('id', (int) $z->zas_assignment_id) : null;
             $massgeblich = $passend ?? $verknuepft ?? $eigene->first();
-            if ($massgeblich !== null && !DispoJobZasAbgleich::zeitPasst($massgeblich, $schicht->von, $schicht->bis)) {
+            if ($massgeblich !== null && !DispoJobZasAbgleich::zeitPasstEine($massgeblich, $zeiten)) {
                 $out[(int) $z->id] = DispoJobZeit::spanne($massgeblich->von, $massgeblich->bis);
             }
         }
