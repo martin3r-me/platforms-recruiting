@@ -469,6 +469,30 @@ final class DispoJobSchichtendeTest extends TestCase
         $this->assertNotNull($c[$s01->id]->fresh()->accepted_at);
     }
 
+    /** Prod 06.11.: beide Zeilen an derselben ZAS-Buchung (alter Abgleich nach Tag) — nur die passende bleibt. */
+    public function test_entdoppeln_loest_die_falsche_verknuepfung_wenn_beide_zeilen_auf_dieselbe_buchung_zeigen(): void
+    {
+        $r = $this->anfrage();
+        $s23 = $this->schicht($r, '17:00', '23:00');
+        $s03 = $this->schicht($r, '17:00', '03:00');
+        $e = $this->person();
+        $buchung = $this->einbuchung($e, '17:00', '23:00');
+        $os = $this->angebot($r, $e, [$s23, $s03]);
+        $os[$s23->id]->update(['accepted_at' => now(), 'zas_entered_at' => now(), 'zas_assignment_id' => $buchung->id]);
+        $os[$s03->id]->update(['accepted_at' => now(), 'zas_assignment_id' => $buchung->id]);
+
+        [$code, $out] = $this->befehl(['requestId' => (string) $r->id, '--ausfuehren' => true]);
+
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('1 Zusagen entfernt', $out);
+        $falsch = $os[$s03->id]->fresh();
+        $this->assertNull($falsch->accepted_at);
+        $this->assertNull($falsch->zas_assignment_id, 'Verknuepfung mit geloest');
+        $richtig = $os[$s23->id]->fresh();
+        $this->assertNotNull($richtig->accepted_at);
+        $this->assertSame($buchung->id, $richtig->zas_assignment_id);
+    }
+
     public function test_entdoppeln_ohne_entscheidung_laesst_alles_stehen(): void
     {
         $r = $this->anfrage();
