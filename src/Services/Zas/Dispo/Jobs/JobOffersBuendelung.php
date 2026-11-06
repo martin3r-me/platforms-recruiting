@@ -22,7 +22,7 @@ final class JobOffersBuendelung
     {
         $gruppen = [];
         foreach ($rows as $row) {
-            $key = DispoJobRecipientPlanner::schichtSchluessel($row['event'] ?? 0, (string) $row['datum'], $row['von'] ?? '', $row['taetigkeit'] ?? '');
+            $key = DispoJobRecipientPlanner::schichtSchluessel($row['event'] ?? 0, (string) $row['datum'], $row['von'] ?? '', $row['bis'] ?? '', $row['taetigkeit'] ?? '');
             $gruppen[$key][] = $row;
         }
 

@@ -420,14 +420,20 @@
                                         @php
                                             $zasHinweis = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasUebergabe::hinweis(
                                                 $z->zas_assignment_id !== null, $z->zas_exported_at, $z->zas_entered_at,
-                                                $s->dispoposten_id, $info['personnel_number'] ?? '', $letzteLieferung
+                                                $s->dispoposten_id, $info['personnel_number'] ?? '', $letzteLieferung,
+                                                $this->zasAndereSchicht[$z->id] ?? null
                                             );
                                             $zasHinweisKlasse = match ($zasHinweis['art'] ?? '') {
                                                 'angekommen' => 'rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700',
                                                 'ausstehend' => 'rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700',
+                                                'anders'     => 'rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700',
                                                 'uebergeben' => 'rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600',
                                                 default      => 'text-xs text-gray-400',
                                             };
+                                            // Verschieben (Markus 06.11.): nur solange die Zusage nicht in ZAS ist, nur auf Schichten desselben Tages.
+                                            $verschiebeZiele = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageVerschieben::erlaubt($z)
+                                                ? ($this->verschiebeZiele[$s->id] ?? [])
+                                                : [];
                                         @endphp
                                         <div class="flex flex-wrap items-center gap-3">
                                             <label class="flex cursor-pointer items-center gap-1.5 text-xs">
@@ -436,6 +442,15 @@
                                             </label>
                                             @if ($zasHinweis !== null)
                                                 <span class="{{ $zasHinweisKlasse }}">{{ $zasHinweis['text'] }}</span>
+                                            @endif
+                                            @if ($verschiebeZiele !== [])
+                                                <select wire:change="verschieben({{ $z->id }}, $event.target.value)" wire:key="verschieben-{{ $z->id }}"
+                                                        class="rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600" title="Zusage auf eine andere Schicht dieses Tages ziehen">
+                                                    <option value="0">Verschieben nach …</option>
+                                                    @foreach ($verschiebeZiele as $ziel)
+                                                        <option value="{{ $ziel['id'] }}">{{ $ziel['label'] }}</option>
+                                                    @endforeach
+                                                </select>
                                             @endif
                                         </div>
                                     </td>

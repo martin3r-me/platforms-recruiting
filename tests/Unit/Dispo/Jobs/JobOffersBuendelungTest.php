@@ -10,7 +10,7 @@ final class JobOffersBuendelungTest extends TestCase
 {
     private static function row(int $id, array $extra = []): array
     {
-        return $extra + ['offer_shift_id' => $id, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer',
+        return $extra + ['offer_shift_id' => $id, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer',
             'accepted' => false, 'closed' => false, 'zuerst' => true, 'frei' => 3, 'zurueck' => false, 'eingetragen' => false];
     }
 
@@ -60,8 +60,10 @@ final class JobOffersBuendelungTest extends TestCase
             self::row(3, ['datum' => '2026-10-25']),
             self::row(4, ['von' => '18:00']),
             self::row(5, ['taetigkeit' => 'Spüler']),
+            // Markus 06.11. (Anfrage 16): 17–23 und 17–03 sind zwei Schichten, nicht eine.
+            self::row(6, ['bis' => '03:00']),
         ]);
 
-        $this->assertSame([1, 2, 3, 4, 5], array_column($out, 'offer_shift_id'));
+        $this->assertSame([1, 2, 3, 4, 5, 6], array_column($out, 'offer_shift_id'));
     }
 }

@@ -25,6 +25,8 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasHaken;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasStand;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageVerschieben;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo;
 
 /**
@@ -378,6 +380,60 @@ class Show extends Component
     public function zasHaken(int $offerShiftId): void
     {
         DispoJobZasHaken::umschalten($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
+    }
+
+    /**
+     * Zusage auf eine andere Schicht derselben VA am selben Tag ziehen (Markus 06.11.).
+     * Zielschicht kommt aus der Auswahl in der Zeile; „0“ = Platzhalter, nichts tun.
+     */
+    public function verschieben(int $offerShiftId, int $zielShiftId): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        if ($zielShiftId <= 0) {
+            return;
+        }
+        $ergebnis = DispoJobZusageVerschieben::ausfuehren($this->anfrage(), $offerShiftId, $zielShiftId);
+        if ($ergebnis === DispoJobZusageVerschieben::OK) {
+            $this->hinweis = DispoJobZusageVerschieben::TEXTE[$ergebnis];
+        } else {
+            $this->fehler = DispoJobZusageVerschieben::TEXTE[$ergebnis] ?? DispoJobZusageVerschieben::TEXTE[DispoJobZusageVerschieben::WEG];
+        }
+        unset($this->rueckmeldungen, $this->schichten, $this->fortschritt, $this->zasAndereSchicht);
+    }
+
+    /**
+     * Zielschichten je Schicht fuer „Verschieben nach …“: andere Schichten der Anfrage auf derselben VA am selben Tag.
+     *
+     * @return array<int, list<array{id:int, label:string}>> shift_id => Ziele
+     */
+    #[Computed]
+    public function verschiebeZiele(): array
+    {
+        $out = [];
+        foreach ($this->schichten as $s) {
+            $out[(int) $s->id] = DispoJobZusageVerschieben::ziele($s, $this->schichten);
+        }
+
+        return $out;
+    }
+
+    /**
+     * ZAS fuehrt die Person in einer anderen Schicht (Markus 06.11.). Nebeninformation:
+     * ein Fehler hier darf die Seite nicht abschiessen.
+     *
+     * @return array<int, string> offer_shift_id => „17:00–03:00“
+     */
+    #[Computed]
+    public function zasAndereSchicht(): array
+    {
+        try {
+            $zeilen = collect($this->rueckmeldungen['zeilen'])->flatten(1);
+
+            return DispoJobZasStand::andereSchicht($zeilen, $this->schichten);
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     public function alleEintragen(int $shiftId): void

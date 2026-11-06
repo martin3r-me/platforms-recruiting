@@ -81,13 +81,13 @@ final class DispoJobRecipientPlannerTest extends TestCase
     public function testSchonAnderswoZugesagteSchichtFaelltWeg(): void
     {
         $schichten = [
-            ['id' => 11, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'taetigkeit' => 'Zapfer'],
-            ['id' => 12, 'event' => 1, 'datum' => '2026-10-25', 'von' => '17:00', 'taetigkeit' => 'Zapfer'],
+            ['id' => 11, 'event' => 1, 'datum' => '2026-10-24', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer'],
+            ['id' => 12, 'event' => 1, 'datum' => '2026-10-25', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Zapfer'],
         ];
         $schon = [
-            1 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', 'zapfer ')],
-            2 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', 'Zapfer'), DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-25', '17:00', 'Zapfer')],
-            3 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '18:00', 'Zapfer')], // anderer Beginn: zaehlt nicht
+            1 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', '23:00', 'zapfer ')],
+            2 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '17:00', '23:00', 'Zapfer'), DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-25', '17:00', '23:00', 'Zapfer')],
+            3 => [DispoJobRecipientPlanner::schichtSchluessel(1, '2026-10-24', '18:00', '23:00', 'Zapfer')], // anderer Beginn: zaehlt nicht
         ];
         $r = DispoJobRecipientPlanner::plan([self::kandidat(1), self::kandidat(2), self::kandidat(3)], $schichten, [], [], [], self::auswahl(), $schon);
 

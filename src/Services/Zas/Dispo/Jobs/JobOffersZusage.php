@@ -120,7 +120,7 @@ final class JobOffersZusage
      */
     private static function tagBelegt(RecDispoJobShift $shift, array $employeeIds): bool
     {
-        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
+        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->bis, $shift->taetigkeit);
         // Erst die Angebote der Person (ohne Sperre), dann sperrend nur ueber deren offer_id-Index —
         // ein FOR UPDATE mit whereHas scannt unter InnoDB die ganze Tabelle samt Luecken (Review 27.10.).
         $offerIds = RecDispoJobOffer::query()->whereIn('rec_employee_id', $employeeIds)->pluck('id')->map(fn ($v) => (int) $v)->all();
@@ -138,7 +138,7 @@ final class JobOffersZusage
         $andere = $andere->filter(fn ($os) => $os->shift !== null && $os->shift->datum->format('Y-m-d') === $tag);
 
         return $andere->contains(fn ($os) => $os->shift !== null && DispoJobRecipientPlanner::schichtSchluessel(
-            $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'), $os->shift->von, $os->shift->taetigkeit
+            $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'), $os->shift->von, $os->shift->bis, $os->shift->taetigkeit
         ) !== $schluessel);
     }
 }

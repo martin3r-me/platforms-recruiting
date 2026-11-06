@@ -19,8 +19,11 @@ final class DispoJobZasUebergabe
     public const ART_AUSSTEHEND = 'ausstehend';
     public const ART_UEBERGEBEN = 'uebergeben';
     public const ART_HAND = 'hand';
+    /** ZAS fuehrt die Person an dem Tag auf dieser VA, aber in einer anderen Schicht (Markus 06.11.). */
+    public const ART_ANDERS = 'anders';
 
     /**
+     * @param ?string $andereZeit Schicht, in der ZAS die Person stattdessen fuehrt („17:00–03:00“), sonst null
      * @return array{art:string, text:string}|null null = nichts anzeigen (Haken wie bisher)
      */
     public static function hinweis(
@@ -30,9 +33,16 @@ final class DispoJobZasUebergabe
         ?string $posten,
         ?string $personalnummer,
         ?\DateTimeInterface $letzteLieferung,
+        ?string $andereZeit = null,
     ): ?array {
+        if ($angekommen && $andereZeit !== null) {
+            return ['art' => self::ART_ANDERS, 'text' => '✓ in ZAS, dort ' . $andereZeit];
+        }
         if ($angekommen) {
             return ['art' => self::ART_ANGEKOMMEN, 'text' => '✓ in ZAS angekommen'];
+        }
+        if ($andereZeit !== null) {
+            return ['art' => self::ART_ANDERS, 'text' => 'in ZAS auf ' . $andereZeit . ' · hier nicht'];
         }
         if ($uebergebenAm !== null) {
             $wann = $uebergebenAm->format('d.m. H:i');

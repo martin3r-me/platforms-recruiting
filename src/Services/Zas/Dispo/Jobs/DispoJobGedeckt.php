@@ -40,7 +40,7 @@ final class DispoJobGedeckt
             ->get()
             ->reject(fn (RecDispoJobShift $s) => self::istGedeckt($s, (int) $s->zugesagt))
             ->map(fn (RecDispoJobShift $s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
-                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von])
+                'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von, 'bis' => (string) $s->bis])
             ->values()->all();
     }
 

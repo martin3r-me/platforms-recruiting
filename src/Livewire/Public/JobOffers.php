@@ -113,7 +113,7 @@ class JobOffers extends Component
         foreach ($alle as $os) {
             if ($os->accepted_at !== null && $os->declined_at === null) {
                 $zugesagtTage[$os->shift->datum->toDateString()] = true;
-                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->taetigkeit)] = true;
+                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->bis, $os->shift->taetigkeit)] = true;
             }
         }
 
@@ -157,7 +157,7 @@ class JobOffers extends Component
         $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht, $zugesagtTage, $zugesagtSchluessel, $naechsteWelle) {
             $shift = $os->shift;
             $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
-            $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->toDateString(), $shift->von, $shift->taetigkeit);
+            $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->toDateString(), $shift->von, $shift->bis, $shift->taetigkeit);
             $bis = $naechsteWelle[$shift->request_id] ?? null;
 
             return [
@@ -165,6 +165,7 @@ class JobOffers extends Component
                 'event'          => (int) $shift->rec_dispo_event_id,
                 'datum'          => $shift->datum->toDateString(),
                 'von'            => $shift->von,
+                'bis'            => $shift->bis,
                 'zeit'           => DispoJobZeit::spanne($shift->von, $shift->bis),
                 'taetigkeit'     => $shift->taetigkeit,
                 'laeuft'         => $shift->request->laeuft(),

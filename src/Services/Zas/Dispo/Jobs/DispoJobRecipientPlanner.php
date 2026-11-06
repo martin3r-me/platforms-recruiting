@@ -99,15 +99,19 @@ final class DispoJobRecipientPlanner
         }));
     }
 
-    /** Gleiche Schicht ueber Anfragen hinweg: VA | Tag | Beginn | Taetigkeit (case-/trim-unempfindlich). */
-    public static function schichtSchluessel(int|string|null $event, string $datum, ?string $von, ?string $taetigkeit): string
+    /**
+     * Gleiche Schicht ueber Anfragen hinweg: VA | Tag | Beginn | Ende | Taetigkeit (case-/trim-unempfindlich).
+     * Das Ende gehoert dazu (Markus 06.11.): 17–23 und 17–03 derselben VA sind zwei Schichten —
+     * ohne Ende galten sie als eine, die Seite zeigte nur eine und die Zusage landete auf beiden.
+     */
+    public static function schichtSchluessel(int|string|null $event, string $datum, ?string $von, ?string $bis, ?string $taetigkeit): string
     {
-        return (int) $event . '|' . substr($datum, 0, 10) . '|' . trim((string) $von) . '|' . mb_strtolower(trim((string) $taetigkeit));
+        return (int) $event . '|' . substr($datum, 0, 10) . '|' . trim((string) $von) . '|' . trim((string) $bis) . '|' . mb_strtolower(trim((string) $taetigkeit));
     }
 
     /**
      * @param list<array{anchor:int, employee_id:int, phone:?string, first_name:string, portal_token:string, block:?int, portal_locked:bool, taetigkeiten:list<string>}> $kandidaten
-     * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string}> $schichten
+     * @param list<array{id:int, datum:string, taetigkeit:string, event?:int, von?:string, bis?:string}> $schichten
      * @param array<int,int> $einsaetze Anker => Einsaetze im Monat
      * @param array<int,array<string,true>> $gebucht Anker => gebuchte Tage
      * @param array<int,true> $schonAngeschrieben Anker => true
@@ -165,7 +169,7 @@ final class DispoJobRecipientPlanner
             $zugesagt = array_fill_keys($schonZugesagt[$anchor] ?? [], true);
             if ($zugesagt !== []) {
                 $frei = array_values(array_filter($frei, fn ($s) => !isset($zugesagt[self::schichtSchluessel(
-                    $s['event'] ?? 0, (string) $s['datum'], $s['von'] ?? '', (string) $s['taetigkeit']
+                    $s['event'] ?? 0, (string) $s['datum'], $s['von'] ?? '', $s['bis'] ?? '', (string) $s['taetigkeit']
                 )])));
                 if ($frei === []) {
                     self::topf($skipped, $skippedIds, 'schon_zugesagt', $anchor);

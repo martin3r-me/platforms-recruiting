@@ -8,7 +8,7 @@ use Platform\Recruiting\Models\RecDispoJobShift;
 
 /**
  * Spec Runde 1 §9: Angebots-Zeilen derselben Person fuer DIESELBE Schicht
- * (VA, Tag, Beginn, Taetigkeit) in anderen laufenden Anfragen. Die Zusage
+ * (VA, Tag, Beginn, Ende, Taetigkeit) in anderen laufenden Anfragen. Die Zusage
  * behandelt sie mit.
  */
 final class JobOffersSchwestern
@@ -19,7 +19,7 @@ final class JobOffersSchwestern
      */
     public static function finden(RecDispoJobShift $shift, array $employeeIds, int $ohneId): array
     {
-        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->taetigkeit);
+        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->bis, $shift->taetigkeit);
 
         return RecDispoJobOfferShift::query()
             ->with('shift')
@@ -33,7 +33,7 @@ final class JobOffersSchwestern
             ->get()
             // Beginn/Taetigkeit wie auf der Seite vergleichen (trim, Gross-/Kleinschreibung).
             ->filter(fn ($s) => $s->shift !== null && DispoJobRecipientPlanner::schichtSchluessel(
-                $s->shift->rec_dispo_event_id, $s->shift->datum->format('Y-m-d'), $s->shift->von, $s->shift->taetigkeit
+                $s->shift->rec_dispo_event_id, $s->shift->datum->format('Y-m-d'), $s->shift->von, $s->shift->bis, $s->shift->taetigkeit
             ) === $schluessel)
             ->values()->all();
     }
