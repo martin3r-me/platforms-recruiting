@@ -19,8 +19,16 @@ class EinladungUngueltig extends NotFoundHttpException
 {
     public const HINWEIS = 'recruiting.konto.einladung_ungueltig';
 
+    /**
+     * NICHT ueber redirect() (07.11.2026, 500er bei Markus): die Ausnahme
+     * faellt in mount(), und solange die Komponente laeuft, ist 'redirect'
+     * Livewires Redirector — dessen route() liefert sich selbst statt einer
+     * RedirectResponse. Deshalb Antwort und Hinweis direkt.
+     */
     public function render(): \Illuminate\Http\RedirectResponse
     {
-        return redirect()->route('recruiting.public.konto')->with(self::HINWEIS, true);
+        session()->flash(self::HINWEIS, true);
+
+        return new \Illuminate\Http\RedirectResponse(route('recruiting.public.konto'));
     }
 }

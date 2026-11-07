@@ -436,8 +436,15 @@ final class KontoAnlegenTest extends TestCase
             $this->fail('keine Ausnahme');
         } catch (\Platform\Recruiting\Exceptions\EinladungUngueltig $e) {
             $this->router();
-            $this->container->instance('redirect', new \Illuminate\Routing\Redirector($this->container->make('url')));
-            $this->container->make('redirect')->setSession($this->session);
+            // Wie auf dem Wirt (07.11.2026, 500er bei Markus): waehrend eine
+            // Livewire-Komponente laeuft, ist 'redirect' Livewires Redirector.
+            // Dessen route() liefert sich selbst statt einer RedirectResponse.
+            $livewire = new \Livewire\Features\SupportRedirects\Redirector($this->container->make('url'));
+            $livewire->setSession($this->session);
+            $livewire->component(new class extends \Livewire\Component {
+                public function redirect($url, $navigate = false) {}
+            });
+            $this->container->instance('redirect', $livewire);
             $antwort = $e->render();
         }
 
