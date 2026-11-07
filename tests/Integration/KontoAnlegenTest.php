@@ -451,6 +451,7 @@ final class KontoAnlegenTest extends TestCase
         $this->assertInstanceOf(\Illuminate\Http\RedirectResponse::class, $antwort);
         $this->assertSame('http://localhost/konto', $antwort->getTargetUrl());
         $this->assertTrue((bool) $this->session->get('recruiting.konto.einladung_ungueltig'));
+        $this->assertContains('recruiting.konto.einladung_ungueltig', $this->session->get('_flash.new', []), 'nur fuer den naechsten Aufruf');
         $this->assertFileDoesNotExist(dirname(__DIR__, 2) . '/resources/views/public/einladung-ungueltig.blade.php');
     }
 
