@@ -132,6 +132,16 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertMatchesRegularExpression('/\.absage textarea\{[^}]*background:var\(--surface\); color:var\(--ink\)/', $view);
     }
 
+    /** Markus 12.11.2026: die Abfrage allein reicht nicht — Liste und Ansicht muessen sie nutzen. */
+    public function test_va_liste_zeigt_bestaetigung_versendet(): void
+    {
+        $this->assertStringContainsString('$this->mitVersandStand($query);', self::datei('src/Livewire/Dispo/Events/Index.php'));
+        $view = self::datei('resources/views/livewire/dispo/events/index.blade.php');
+        $this->assertStringContainsString('>Bestätigung versendet</th>', $view);
+        $this->assertSame(2, substr_count($view, 'Carbon::parse($event->reminder_last_sent_at)'), 'Tabelle und Handy-Karte');
+        $this->assertStringContainsString('colspan="9"', $view);
+    }
+
     public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void
     {
         $src = self::datei('src/Livewire/Dispo/Jobs/Index.php');

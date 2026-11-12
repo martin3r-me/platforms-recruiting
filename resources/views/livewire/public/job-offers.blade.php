@@ -6,8 +6,9 @@
    weisse Schrift muss im hellen und im dunklen Modus lesbar bleiben. */
 .rg-crew .jobrow{flex-wrap:wrap}
 .rg-crew .jobrow .side{display:flex; flex-direction:column; gap:6px; align-items:stretch}
-.rg-crew .entscheid{flex-basis:100%; display:flex; gap:8px}
-.rg-crew .btn-ja, .rg-crew .btn-rot{flex:1; border:none; border-radius:var(--r); padding:12px 10px; color:#fff; font-family:var(--display); font-size:16px; letter-spacing:.01em; cursor:pointer; transition:filter .12s, transform .12s}
+.rg-crew .entscheid{flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px}
+/* nowrap + Mindestbreite: auf sehr schmalen Handys stehen die Knoepfe untereinander statt zweizeilig. */
+.rg-crew .btn-ja, .rg-crew .btn-rot{flex:1 1 118px; white-space:nowrap; border:none; border-radius:var(--r); padding:12px 10px; color:#fff; font-family:var(--display); font-size:16px; letter-spacing:.01em; cursor:pointer; transition:filter .12s, transform .12s}
 .rg-crew .btn-ja{background:#15803d}
 .rg-crew .btn-rot{background:#b42318}
 .rg-crew .btn-ja:hover, .rg-crew .btn-rot:hover{filter:brightness(1.07)}
@@ -22,9 +23,9 @@
 .rg-crew .absage .gruende input{position:absolute; opacity:0; width:0; height:0}
 .rg-crew .absage textarea{width:100%; margin-top:10px; border:1px solid var(--line-2); border-radius:var(--r); padding:8px 10px; font:inherit; font-size:14px; resize:vertical; background:var(--surface); color:var(--ink)}
 .rg-crew .absage textarea::placeholder{color:var(--ink-3)}
-.rg-crew .absage .knoepfe{display:flex; gap:8px; margin-top:10px}
-.rg-crew .absage .btn-ja{padding:11px; font-size:15px}
-.rg-crew .absage .btn-nein{flex:1; border:1px solid var(--crit); border-radius:var(--r); padding:11px; background:var(--surface); color:var(--crit); font-size:14px; font-weight:600; cursor:pointer}
+.rg-crew .absage .knoepfe{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+.rg-crew .absage .btn-ja{flex:1 1 150px; padding:11px; font-size:15px}
+.rg-crew .absage .btn-nein{flex:1 1 150px; white-space:nowrap; border:1px solid var(--crit); border-radius:var(--r); padding:11px; background:var(--surface); color:var(--crit); font-size:14px; font-weight:600; cursor:pointer}
 .rg-crew .evhead .satz{margin-top:4px; font-size:13.5px; opacity:.92}
 .rg-crew .evhead .bis{margin-top:6px; font-size:13px; font-weight:700}
 .rg-crew .fussnote{padding:8px 16px 12px; font-size:12px; color:var(--ink-2)}
@@ -143,6 +144,10 @@
                                         @endforeach
                                     </div>
                                     <textarea rows="2" maxlength="200" placeholder="Magst du uns kurz sagen, warum? (freiwillig)" wire:model="absageNotiz"></textarea>
+                                    {{-- Der Hinweis oben auf der Seite ist bei langer Liste nicht im Blick („Bitte wähle einen Grund“). --}}
+                                    @if ($hinweis !== '' && !$hinweisOk)
+                                        <div class="notice">{{ $hinweis }}</div>
+                                    @endif
                                     <div class="knoepfe">
                                         <button type="button" class="btn-nein" wire:click="absagen" wire:loading.attr="disabled">Ja, ich kann nicht</button>
                                         <button type="button" class="btn-ja" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Doch, ich bin dabei</button>
