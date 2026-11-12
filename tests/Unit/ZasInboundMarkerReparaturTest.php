@@ -94,6 +94,66 @@ class ZasInboundMarkerReparaturTest extends TestCase
         $this->assertStringContainsString("\"Muster; geb. Alt\";Anna;RG1;70;|;\n", $r['content']);
     }
 
+    /** Klassischer Versatz: Semikolon im ungeschuetzten Wert, Marker fehlt — die Zeile hat dann so viele Felder wie der Kopf. */
+    public function test_zeile_ohne_marker_mit_voller_feldzahl_lehnt_ab(): void
+    {
+        $r = R::pruefen(self::KOPF . "\nMuster;geb. Alt;Anna;RG1;70;\n");
+
+        $this->assertSame(R::ABGELEHNT, $r['stand']);
+    }
+
+    /** Letzter Wert leer, aber die Zeile endet nicht mit dem Trennzeichen: Anhaengen ergaebe `""|;`. */
+    public function test_zeile_die_mit_leeren_anfuehrungszeichen_endet_lehnt_ab(): void
+    {
+        $r = R::pruefen(self::KOPF . "\nMuster;Anna;RG1;70;\"\"\n");
+
+        $this->assertSame(R::ABGELEHNT, $r['stand']);
+    }
+
+    public function test_wert_der_selbst_der_marker_ist_lehnt_ab(): void
+    {
+        $r = R::pruefen(self::KOPF . "\nMuster;|;RG1;70;\n");
+
+        $this->assertSame(R::ABGELEHNT, $r['stand']);
+    }
+
+    /** Kopf braucht beides: die Marker-Spalte UND das leere Feld dahinter. */
+    public function test_kopf_mit_nur_halbem_zeilenende_lehnt_ab(): void
+    {
+        $this->assertSame(R::ABGELEHNT, R::pruefen("Name;Vorname;ZasPersonalNr;|\nMuster;Anna;RG1\n")['stand']);
+        $this->assertSame(R::ABGELEHNT, R::pruefen("Name;Vorname;ZasPersonalNr;\nMuster;Anna;RG1\n")['stand']);
+    }
+
+    /** Intakte Zeile heisst: Marker UND leeres Feld dahinter — `…;|;x` ist es nicht. */
+    public function test_zeile_mit_marker_aber_wert_dahinter_lehnt_ab(): void
+    {
+        $r = R::pruefen(self::KOPF . "\nMuster;Anna;RG1;70;|;x\n");
+
+        $this->assertSame(R::ABGELEHNT, $r['stand']);
+    }
+
+    /**
+     * Anker (Review 12.11.2026): ein Feld fehlt VOR der Personalnummer und hinten haengt ein leeres zu viel —
+     * die Feldzahl stimmt, aber in der Spalte ZasPersonalNr steht dann keine Nummer.
+     */
+    public function test_versatz_vor_der_personalnummer_faellt_am_anker_auf(): void
+    {
+        // Wie in der echten Datei: hinter der Personalnummer steht ein Textfeld (Ersthelfer Ja/Nein).
+        $r = R::pruefen("Name;Vorname;ZasPersonalNr;Ersthelfer;|;\nMuster;RG1;Nein;;\n");
+
+        $this->assertSame(R::ABGELEHNT, $r['stand']);
+        $this->assertStringContainsString('ZasPersonalNr', $r['grund']);
+    }
+
+    /** Leere Personalnummer ist Sache des Importers (er weist die Zeile ab) — die Datei laeuft trotzdem. */
+    public function test_leere_personalnummer_lehnt_die_datei_nicht_ab(): void
+    {
+        $r = R::pruefen(self::KOPF . "\nMuster;Anna;;70;\nBeispiel;Bernd;MA1000000878;5;\n");
+
+        $this->assertSame(R::ERGAENZT, $r['stand']);
+        $this->assertSame(2, $r['ergaenzt']);
+    }
+
     public function test_leere_datei_lehnt_ab(): void
     {
         $this->assertSame(R::ABGELEHNT, R::pruefen("\n\n")['stand']);

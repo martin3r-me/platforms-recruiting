@@ -279,8 +279,55 @@ class ZasInboundReprocessCommandTest extends TestCase
         $this->assertSame('processed', $fresh->status, 'die Lieferung ist jetzt angekommen');
         $this->assertSame('2026-08-25 13:56:19', $fresh->processed_at->format('Y-m-d H:i:s'));
         $this->assertStringContainsString('Zeilenende-Marker', $notes['failed'][0]['reason'], 'der Beleg von damals bleibt');
-        $this->assertSame(1, $notes['marker_nachlauf']['marker_ergaenzt']);
-        $this->assertSame(1, $notes['marker_nachlauf']['pnr_filled']);
+        $this->assertCount(1, $notes['marker_nachlauf']);
+        $this->assertSame(1, $notes['marker_nachlauf'][0]['marker_ergaenzt']);
+        $this->assertSame(1, $notes['marker_nachlauf'][0]['pnr_filled']);
+    }
+
+    /** Review 12.11.2026: ein zweiter Lauf („alles schon da“) haengt an und ueberschreibt weder Bericht noch Status. */
+    public function test_zweiter_marker_nachlauf_haengt_an_statt_zu_ueberschreiben(): void
+    {
+        $this->employee();
+        $file = $this->file(['status' => 'failed']);
+        $pruefung = \Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur::pruefen($this->csvOhneMarker());
+
+        $this->command()->reprocess($file, $pruefung['content'], false, 100, $pruefung['ergaenzt']);
+        $this->command()->reprocess($file->fresh(), $pruefung['content'], false, 100, $pruefung['ergaenzt']);
+
+        $laeufe = json_decode((string) $file->fresh()->notes, true)['marker_nachlauf'];
+        $this->assertCount(2, $laeufe);
+        $this->assertSame(1, $laeufe[0]['pnr_filled'], 'der Bericht des echten Nachlaufs bleibt');
+        $this->assertSame(0, $laeufe[1]['pnr_filled']);
+        $this->assertSame('processed', $file->fresh()->status);
+    }
+
+    /** Alter Bericht ist kein JSON (oder leer): er wandert unter „vorher“, nichts geht verloren. */
+    public function test_marker_nachlauf_bewahrt_auch_einen_bericht_der_kein_json_ist(): void
+    {
+        $this->employee();
+        $file = $this->file(['status' => 'failed', 'notes' => 'frei getippter Vermerk']);
+        $pruefung = \Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur::pruefen($this->csvOhneMarker());
+
+        $this->command()->reprocess($file, $pruefung['content'], false, 100, $pruefung['ergaenzt']);
+
+        $notes = json_decode((string) $file->fresh()->notes, true);
+        $this->assertSame('frei getippter Vermerk', $notes['vorher']);
+        $this->assertCount(1, $notes['marker_nachlauf']);
+    }
+
+    /** Scheitert im Nachlauf eine Zeile (hier: keine Personalnummer), wird die Datei nicht als verarbeitet gestempelt. */
+    public function test_marker_nachlauf_mit_fehlern_ist_nicht_verarbeitet(): void
+    {
+        $this->employee();
+        $file = $this->file(['status' => 'failed']);
+        $pruefung = \Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur::pruefen(
+            "UUID;ZasPersonalNr;Status;|;\n" . self::UUID . ";17944;GO;\nfremd;;GO;\n"
+        );
+
+        $summary = $this->command()->reprocess($file, $pruefung['content'], false, 100, $pruefung['ergaenzt']);
+
+        $this->assertSame(1, $summary['failed']);
+        $this->assertSame('partial', $file->fresh()->status);
     }
 
     public function test_marker_nachlauf_im_trockenlauf_schreibt_nichts(): void

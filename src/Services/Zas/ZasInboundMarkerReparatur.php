@@ -16,6 +16,13 @@ namespace Platform\Recruiting\Services\Zas;
  * Trennzeichen, und der Marker steht nirgends in der Zeile. Passt eine einzige
  * Zeile weder dazu noch zur intakten Form, wird die ganze Datei abgelehnt —
  * dann ist mehr verrutscht als der Marker. Rein.
+ *
+ * Grenze (Review 12.11.2026): an der Feldzahl allein ist nicht zu erkennen, wenn
+ * in einer Zeile ein Feld fehlt UND an anderer Stelle eines zu viel ist. Dafuer
+ * der Anker: der Wert in der Spalte ZasPersonalNr muss wie eine Personalnummer
+ * aussehen. Verrutscht die Zeile VOR dieser Spalte, steht dort etwas anderes
+ * und die Datei wird abgelehnt; ein Versatz dahinter bleibt unerkannt — genau
+ * wie im laufenden Eingang, der dieselbe Zeile mit Marker auch annaehme.
  */
 final class ZasInboundMarkerReparatur
 {
@@ -25,6 +32,9 @@ final class ZasInboundMarkerReparatur
 
     private const TRENNER = ';';
     private const MARKER = '|';
+    private const ANKER_SPALTE = 'ZasPersonalNr';
+    /** RG18711, MA1000000878, 17944 — leer prueft der Importer selbst (Zeile wird dort abgewiesen). */
+    private const ANKER_MUSTER = '/^(\p{L}{1,4})?\d+$/u';
 
     /**
      * @return array{stand: string, content: string, ergaenzt: int, zeilen: int, grund: string}
@@ -46,6 +56,8 @@ final class ZasInboundMarkerReparatur
             return $ablehnen('Kopfzeile endet nicht mit „;|;“');
         }
 
+        $anker = array_search(self::ANKER_SPALTE, $kopf, true);
+
         $ergaenzt = 0;
         foreach ($lines as $i => $line) {
             if ($i === 0) {
@@ -62,6 +74,9 @@ final class ZasInboundMarkerReparatur
                 && !in_array(self::MARKER, $werte, true);
             if (!$nurMarkerFehlt) {
                 return $ablehnen(sprintf('Zeile %d: %d Felder statt %d, oder der Marker steht an falscher Stelle — mehr als der fehlende Marker', $i, $anzahl, $n));
+            }
+            if ($anker !== false && ($werte[$anker] ?? '') !== '' && preg_match(self::ANKER_MUSTER, $werte[$anker]) !== 1) {
+                return $ablehnen(sprintf('Zeile %d: in der Spalte %s steht keine Personalnummer — die Zeile ist verrutscht', $i, self::ANKER_SPALTE));
             }
             $lines[$i] = rtrim($line) . self::MARKER . self::TRENNER;
             $ergaenzt++;

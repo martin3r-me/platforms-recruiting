@@ -89,6 +89,11 @@ class ZasInboundReprocess extends Command
 
             return self::FAILURE;
         }
+        if ($this->argument('fileId') !== null && $von !== null) {
+            $this->error('Entweder eine Datei-ID oder --von/--bis, nicht beides.');
+
+            return self::FAILURE;
+        }
         if ($markerFehlt && $this->argument('fileId') === null && $von === null) {
             $this->error('--marker-fehlt verlangt eine Datei-ID oder --von (nie „alle“).');
 
@@ -117,11 +122,16 @@ class ZasInboundReprocess extends Command
             return self::SUCCESS;
         }
 
+        // Bilanz ueber alle Dateien — bei einem Bereich von 176 Paketen gehen einzelne Zeilen sonst unter.
+        $gesamt = ['dateien' => 0, 'ausgelassen' => 0, 'rows' => 0, 'created' => 0, 'updated' => 0, 'pnr_filled' => 0,
+            'skipped' => 0, 'failed' => 0, 'warnings' => 0, 'suspected' => 0, 'field_counts' => []];
+
         foreach ($files as $file) {
             try {
                 $content = (string) Storage::disk((string) $file->disk)->get((string) $file->stored_path);
             } catch (\Throwable $e) {
                 $this->error("#{$file->id}: Rohdatei nicht lesbar ({$file->stored_path}): {$e->getMessage()}");
+                $gesamt['ausgelassen']++;
                 continue;
             }
 
@@ -130,6 +140,15 @@ class ZasInboundReprocess extends Command
                 $pruefung = ZasInboundMarkerReparatur::pruefen($content);
                 if ($pruefung['stand'] === ZasInboundMarkerReparatur::ABGELEHNT) {
                     $this->error("#{$file->id}: ausgelassen — {$pruefung['grund']}");
+                    $gesamt['ausgelassen']++;
+                    continue;
+                }
+                // Der Schalter ist fuer die abgewiesenen Lieferungen da. Eine intakte, schon
+                // verarbeitete Datei im Bereich (z. B. nach der Reparatur bei ZAS) liefe sonst
+                // ein zweites Mal durch — ohne Spur im Bericht (Review 12.11.2026).
+                if ($pruefung['stand'] === ZasInboundMarkerReparatur::INTAKT && $file->processed_at !== null) {
+                    $this->line("#{$file->id}: Marker vorhanden und schon verarbeitet — ausgelassen.");
+                    $gesamt['ausgelassen']++;
                     continue;
                 }
                 $content = $pruefung['content'];
@@ -139,7 +158,21 @@ class ZasInboundReprocess extends Command
                 }
             }
 
-            $summary = $this->reprocess($file, $content, $dryRun, $chunk, $markerErgaenzt);
+            // Ein Fehler in einer Datei (DB weg, Schreibfehler) bricht den Bereich nicht ab.
+            try {
+                $summary = $this->reprocess($file, $content, $dryRun, $chunk, $markerErgaenzt);
+            } catch (\Throwable $e) {
+                $this->error("#{$file->id}: abgebrochen — {$e->getMessage()}");
+                $gesamt['ausgelassen']++;
+                continue;
+            }
+            $gesamt['dateien']++;
+            foreach (['rows', 'created', 'updated', 'pnr_filled', 'skipped', 'failed', 'warnings', 'suspected'] as $k) {
+                $gesamt[$k] += $summary[$k];
+            }
+            foreach ($summary['field_counts'] as $field => $n) {
+                $gesamt['field_counts'][$field] = ($gesamt['field_counts'][$field] ?? 0) + $n;
+            }
 
             $this->line(sprintf(
                 '#%d %s%s: %d Zeilen — angelegt %d, aktualisiert %d (davon PersNr nachgetragen %d),'
@@ -168,6 +201,13 @@ class ZasInboundReprocess extends Command
             foreach ($summary['failed_details'] as $f) {
                 $this->warn('    FEHLER ' . ($f['personnel_number'] ?? '-') . ': ' . $f['reason']);
             }
+            // Warnungen des Mappers (ungueltiges Datum, kein Lookup-Treffer) sind der einzige Hinweis auf
+            // eine still verrutschte Zeile — beim Marker-Nachlauf deshalb immer zeigen, sonst mit -v.
+            if ($markerFehlt || $this->getOutput()->isVerbose()) {
+                foreach ($summary['warning_details'] as $w) {
+                    $this->line('    WARNUNG ' . $w);
+                }
+            }
             foreach ($summary['suspected_details'] as $s) {
                 $treffer = array_map(
                     fn ($m) => $m['field'] . '=MA#' . $m['employee_id'] . ' (' . $m['confidence'] . ')',
@@ -178,7 +218,26 @@ class ZasInboundReprocess extends Command
             }
         }
 
-        return self::SUCCESS;
+        if ($files->count() > 1 || $gesamt['ausgelassen'] > 0) {
+            arsort($gesamt['field_counts']);
+            $this->info(sprintf(
+                'GESAMT%s: %d Dateien, %d ausgelassen — %d Zeilen, angelegt %d, aktualisiert %d (davon PersNr nachgetragen %d),'
+                . ' uebersprungen %d, fehlgeschlagen %d, Warnungen %d, Dublettenverdacht %d',
+                $dryRun ? ' [TROCKENLAUF]' : '',
+                $gesamt['dateien'], $gesamt['ausgelassen'], $gesamt['rows'], $gesamt['created'], $gesamt['updated'],
+                $gesamt['pnr_filled'], $gesamt['skipped'], $gesamt['failed'], $gesamt['warnings'], $gesamt['suspected'],
+            ));
+            if ($gesamt['field_counts'] !== []) {
+                $this->line('    Geaenderte Felder gesamt: ' . implode(', ', array_map(
+                    fn ($field, $n) => "{$field} {$n}",
+                    array_keys($gesamt['field_counts']),
+                    $gesamt['field_counts'],
+                )));
+            }
+        }
+
+        // Ausgelassene Dateien sind kein Erfolg — ein Skript drumherum soll das merken.
+        return $gesamt['ausgelassen'] > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     /**
@@ -198,7 +257,7 @@ class ZasInboundReprocess extends Command
         $summary = [
             'rows' => 0, 'created' => 0, 'updated' => 0, 'pnr_filled' => 0,
             'skipped' => 0, 'failed' => 0, 'warnings' => 0, 'suspected' => 0,
-            'failed_details' => [], 'suspected_details' => [],
+            'failed_details' => [], 'suspected_details' => [], 'warning_details' => [],
             // Feldname → wie viele Mitarbeiter; nur Namen, keine Werte.
             'field_counts' => [],
         ];
@@ -227,12 +286,13 @@ class ZasInboundReprocess extends Command
 
             $summary['failed_details']    = array_merge($summary['failed_details'], $report['failed']);
             $summary['suspected_details'] = array_merge($summary['suspected_details'], $report['suspected']);
+            $summary['warning_details']   = array_merge($summary['warning_details'], $report['warnings']);
         }
 
         Log::info('ZAS-Inbound Reprocess', [
             'inbound_file_id' => $file->id,
             'dry_run'         => $dryRun,
-            'summary'         => array_diff_key($summary, ['failed_details' => 1, 'suspected_details' => 1]),
+            'summary'         => array_diff_key($summary, ['failed_details' => 1, 'suspected_details' => 1, 'warning_details' => 1]),
         ]);
 
         // Den Bericht einer bereits verarbeiteten Lieferung NICHT ueberschreiben:
@@ -258,10 +318,12 @@ class ZasInboundReprocess extends Command
         } elseif (!$dryRun && $markerErgaenzt > 0) {
             // Marker-Nachlauf einer schon (als abgewiesen) verarbeiteten Lieferung: der Beleg von
             // damals bleibt stehen, das Ergebnis des Nachlaufs kommt DAZU — und der Status zeigt,
-            // dass die Lieferung inzwischen angekommen ist.
+            // dass die Lieferung inzwischen angekommen ist. Als Liste: ein zweiter Lauf („0 angelegt,
+            // alles schon da“) darf den Bericht des ersten nicht ueberschreiben (Review 12.11.2026).
             $notes = json_decode((string) $file->notes, true);
             $notes = is_array($notes) ? $notes : ['vorher' => (string) $file->notes];
-            $notes['marker_nachlauf'] = [
+            $laeufe = isset($notes['marker_nachlauf']) && is_array($notes['marker_nachlauf']) ? array_values($notes['marker_nachlauf']) : [];
+            $laeufe[] = [
                 'am'              => now()->toDateTimeString(),
                 'marker_ergaenzt' => $markerErgaenzt,
                 'created'         => $summary['created'],
@@ -269,14 +331,21 @@ class ZasInboundReprocess extends Command
                 'pnr_filled'      => $summary['pnr_filled'],
                 'skipped'         => $summary['skipped'],
                 'failed'          => $summary['failed_details'],
+                'warnings'        => $summary['warning_details'],
                 'suspected'       => $summary['suspected_details'],
             ];
-            $file->update([
-                'status' => $summary['failed'] > 0
-                    ? ($summary['created'] + $summary['updated'] + $summary['skipped'] > 0 ? 'partial' : 'failed')
-                    : 'processed',
-                'notes'  => json_encode($notes, JSON_UNESCAPED_UNICODE),
-            ]);
+            $notes['marker_nachlauf'] = $laeufe;
+            // Ungueltige Bytes (Windows-1252 in Namen/Fehlertexten) liessen json_encode false liefern —
+            // das stuende dann anstelle des alten Berichts in der Spalte. Ersetzen statt verlieren.
+            $json = json_encode($notes, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            $status = $summary['failed'] > 0
+                ? ($summary['created'] + $summary['updated'] + $summary['skipped'] > 0 ? 'partial' : 'failed')
+                : 'processed';
+            // Erster Nachlauf setzt den Status; ein spaeterer („alles schon da“) laesst ihn stehen.
+            $file->update(array_filter([
+                'status' => count($laeufe) === 1 ? $status : null,
+                'notes'  => $json === false ? null : $json,
+            ], fn ($v) => $v !== null));
         }
 
         return $summary;
