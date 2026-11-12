@@ -8,8 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Platform\Core\Models\CoreAiProvider;
-use Platform\Core\Services\OpenAiService;
+use Platform\Core\Services\AnthropicProvider;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosting;
@@ -137,7 +136,8 @@ class MatchApplicantToPostingJob implements ShouldQueue
         ];
 
         try {
-            $result = app(OpenAiService::class)->chat($messages, $this->determineModel(), [
+            $result = app(AnthropicProvider::class)->chat($messages, [
+                'model' => 'fast',
                 'max_tokens' => 300,
             ]);
         } catch (\Throwable $e) {
@@ -187,19 +187,5 @@ class MatchApplicantToPostingJob implements ShouldQueue
             'confidence' => $confidence,
             'reason' => mb_substr((string) ($json['reason'] ?? ''), 0, 500),
         ];
-    }
-
-    private function determineModel(): string
-    {
-        try {
-            $provider = CoreAiProvider::where('key', 'openai')->where('is_active', true)->with('defaultModel')->first();
-            $fallback = $provider?->defaultModel?->model_id;
-            if (is_string($fallback) && $fallback !== '') {
-                return $fallback;
-            }
-        } catch (\Throwable $e) {
-        }
-
-        return 'gpt-5.2';
     }
 }
