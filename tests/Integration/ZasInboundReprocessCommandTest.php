@@ -344,4 +344,100 @@ class ZasInboundReprocessCommandTest extends TestCase
         $this->assertSame('failed', $file->fresh()->status);
         $this->assertSame($original, $file->fresh()->notes);
     }
+
+    // ---------------- handle(): Schalter, Auswahl, Bilanz ----------------
+
+    /** @param array<string,string> $dateien stored_path => Inhalt */
+    private function lauf(array $args, array $dateien): array
+    {
+        $container = Container::getInstance();
+        $container->instance('filesystem', new class($dateien) {
+            public function __construct(private array $dateien) {}
+            public function disk($name = null) { return $this; }
+            public function get($path) { return $this->dateien[$path] ?? throw new \RuntimeException('fehlt'); }
+        });
+        Facade::clearResolvedInstance('filesystem');
+        $command = $this->command();
+        $command->setLaravel(new ZasInboundReprocessFakeLaravel());
+        $out = new \Symfony\Component\Console\Output\BufferedOutput();
+        try {
+            $code = $command->run(new \Symfony\Component\Console\Input\ArrayInput($args), $out);
+        } finally {
+            $container->forgetInstance('filesystem');
+            Facade::clearResolvedInstance('filesystem');
+        }
+
+        return [$code, $out->fetch()];
+    }
+
+    public function test_handle_marker_fehlt_verlangt_id_oder_bereich(): void
+    {
+        [$code, $text] = $this->lauf(['--marker-fehlt' => true], []);
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('verlangt eine Datei-ID oder --von', $text);
+
+        [$code, $text] = $this->lauf(['--bis' => '5'], []);
+        $this->assertSame(1, $code);
+
+        [$code] = $this->lauf(['fileId' => '1', '--von' => '1'], []);
+        $this->assertSame(1, $code);
+
+        [$code] = $this->lauf(['--von' => 'abc'], []);
+        $this->assertSame(1, $code);
+    }
+
+    public function test_handle_bereich_repariert_laesst_intakte_und_kaputte_aus_und_zieht_bilanz(): void
+    {
+        $employee = $this->employee();
+        $davor   = $this->file(['uuid' => 'a', 'stored_path' => 'davor.csv', 'status' => 'failed']);
+        $kaputt  = $this->file(['uuid' => 'b', 'stored_path' => 'ohne-marker.csv', 'status' => 'failed']);
+        $intakt  = $this->file(['uuid' => 'c', 'stored_path' => 'intakt.csv']);
+        $schief  = $this->file(['uuid' => 'd', 'stored_path' => 'schief.csv', 'status' => 'failed']);
+        $test    = $this->file(['uuid' => 'e', 'stored_path' => 'ohne-marker.csv', 'status' => 'failed', 'is_test' => true]);
+        $danach  = $this->file(['uuid' => 'f', 'stored_path' => 'ohne-marker.csv', 'status' => 'failed']);
+
+        [$code, $text] = $this->lauf(['--marker-fehlt' => true, '--von' => (string) $kaputt->id, '--bis' => (string) $test->id], [
+            'ohne-marker.csv' => $this->csvOhneMarker(),
+            'intakt.csv'      => "UUID;ZasPersonalNr;Status;|;\n" . self::UUID . ";17944;GO;|;\n",
+            'schief.csv'      => "UUID;ZasPersonalNr;Status;|;\n" . self::UUID . ";17944;\n",
+        ]);
+
+        $this->assertSame('17944', $employee->fresh()->personnel_number);
+        $this->assertSame('processed', $kaputt->fresh()->status);
+        $this->assertSame('failed', $davor->fresh()->status, 'vor --von: unberuehrt');
+        $this->assertSame('failed', $danach->fresh()->status, 'nach --bis: unberuehrt');
+        $this->assertSame('failed', $test->fresh()->status, 'Test-Lieferungen gehoeren nicht in den Bereich');
+        $this->assertSame('failed', $schief->fresh()->status);
+        $this->assertStringContainsString("#{$kaputt->id}: Zeilenende-Marker in 1 von 1 Zeilen ergaenzt", $text);
+        $this->assertStringContainsString("#{$intakt->id}: Marker vorhanden und schon verarbeitet — ausgelassen", $text);
+        $this->assertStringContainsString("#{$schief->id}: ausgelassen", $text);
+        $this->assertStringContainsString('GESAMT: 1 Dateien, 2 ausgelassen', $text);
+        $this->assertStringContainsString('PersNr nachgetragen 1', $text);
+        $this->assertSame(1, $code, 'ausgelassene Dateien sind kein Erfolg');
+    }
+
+    public function test_handle_trockenlauf_ueber_bereich_schreibt_nichts(): void
+    {
+        $employee = $this->employee();
+        $kaputt = $this->file(['stored_path' => 'ohne-marker.csv', 'status' => 'failed']);
+
+        [$code, $text] = $this->lauf(['--marker-fehlt' => true, '--von' => (string) $kaputt->id, '--dry-run' => true], [
+            'ohne-marker.csv' => $this->csvOhneMarker(),
+        ]);
+
+        $this->assertSame(0, $code);
+        $this->assertNull($employee->fresh()->personnel_number);
+        $this->assertSame('failed', $kaputt->fresh()->status);
+        $this->assertStringContainsString('[TROCKENLAUF]', $text);
+        $this->assertStringContainsString('PersNr nachgetragen 1', $text);
+    }
+}
+
+/** Illuminate\Console\Command::run() fragt die Anwendung nach runningUnitTests(), sonst nichts (Muster BackfillPersonsTest). */
+class ZasInboundReprocessFakeLaravel extends Container
+{
+    public function runningUnitTests(): bool
+    {
+        return true;
+    }
 }
