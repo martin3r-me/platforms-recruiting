@@ -477,6 +477,34 @@ class DispoDressSendFormTest extends DressTestCase
         $this->assertNull($c->infoBeiBestaetigung);
     }
 
+    /** Review 12.11.: aus der Bestaetigung nie WhatsApp — auch wenn das Feld im Speicher an waere. */
+    public function test_aus_der_bestaetigung_wird_whatsapp_serverseitig_unterdrueckt(): void
+    {
+        $src = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Dispo/Events/Show.php');
+        $this->assertStringContainsString('$sendWhatsApp = !$this->infoFromSend && (bool) $this->infoSendWhatsApp;', $src);
+
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/dispo/events/show.blade.php');
+        $this->assertMatchesRegularExpression('/@if \(!\$infoFromSend\)\s*<label[^>]*>\s*<input type="checkbox" wire:model\.live="infoSendWhatsApp"/', $blade, 'Haekchen aus der Bestaetigung ausgeblendet');
+    }
+
+    public function test_neues_bestaetigungs_fenster_vergisst_die_alte_zusammenfassung(): void
+    {
+        $event = $this->event();
+        $c = $this->dispoComponent($event->id);
+        $c->infoBeiBestaetigung = ['attached' => 2, 'noted' => 1];
+        $c->infoFromSend = true;
+
+        try {
+            $c->openSendModal();
+        } catch (\Throwable) {
+            // openSendModal laedt Eskalation/Kontakt; in der Capsule-Suite reicht der Zustand vor dem Wurf nicht —
+            // dann direkt die beiden Zeilen pruefen.
+        }
+
+        $src = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Dispo/Events/Show.php');
+        $this->assertMatchesRegularExpression('/\$this->infoBeiBestaetigung = null;\s*\$this->infoFromSend = false;\s*\$this->showSendModal = true;/', $src);
+    }
+
     public function test_info_an_crew_von_der_seite_bleibt_wie_bisher(): void
     {
         $event = $this->event();

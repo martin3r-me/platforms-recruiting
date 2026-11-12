@@ -2036,7 +2036,8 @@ class Show extends Component
                 [], ['infoUploads' => 'Dateien', 'infoUploads.*' => 'Datei']
             );
         }
-        $sendWhatsApp = (bool) $this->infoSendWhatsApp;
+        // Aus dem Bestaetigungs-Fenster NIE WhatsApp (Review 12.11.): sonst doch die zweite Nachricht.
+        $sendWhatsApp = !$this->infoFromSend && (bool) $this->infoSendWhatsApp;
         $templateId = (int) (RecApplicantSettings::getOrCreateForTeam($this->settingsTeamId())->getSetting('dispo_info_template_id') ?: 0);
         if ($sendWhatsApp && $templateId === 0) {
             $this->addError('infoNote', 'Kein Info-Template konfiguriert (Disposition → Einstellungen) — oder „WhatsApp senden" abwählen.');

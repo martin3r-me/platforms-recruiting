@@ -26,6 +26,14 @@ final class HinweisTextTest extends TestCase
         $this->assertStringEndsWith('</a>)', HinweisText::html('(siehe https://de.wikipedia.org/wiki/Messe_(Begriff))'));
     }
 
+    public function testUmlauteVorUndNachDemLinkVerschiebenNichts(): void
+    {
+        $this->assertSame(
+            'Bitte früh da: <a href="https://messe.de/ablauf" target="_blank" rel="noopener noreferrer" class="hint-link">https://messe.de/ablauf</a> – Grüße',
+            HinweisText::html('Bitte früh da: https://messe.de/ablauf – Grüße')
+        );
+    }
+
     public function testWwwBekommtHttps(): void
     {
         $this->assertStringContainsString('href="https://www.messe-duesseldorf.de"', HinweisText::html('Infos: www.messe-duesseldorf.de'));

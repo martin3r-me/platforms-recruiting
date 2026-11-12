@@ -1207,15 +1207,22 @@
                     @error('infoUploads') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                     @error('infoUploads.*') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
-                    <label class="flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
-                        WhatsApp „Neue Infos" mitschicken
-                    </label>
+                    @if (!$infoFromSend)
+
+                    {{-- Aus dem Bestaetigungs-Fenster gibt es keine WhatsApp „Neue Infos“ — die Bestaetigung bringt den Link (Review 12.11.). --}}
+                    @if (!$infoFromSend)
+                        <label class="flex items-center gap-2 text-sm text-gray-700">
+                            <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
+                            WhatsApp „Neue Infos" mitschicken
+                        </label>
+                    @endif
+
+                    @endif
 
                     @php
                         $infoSelected = collect($infoPrev['persons'])->where('selected', true);
                         $infoSelNoPhone = $infoSelected->whereNull('phone')->count();
-                        $infoWaOn = (bool) $infoSendWhatsApp;
+                        $infoWaOn = !$infoFromSend && (bool) $infoSendWhatsApp;
                     @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         @if ($infoWaOn)
@@ -1264,7 +1271,7 @@
                                 @if ($infoSelected->count() === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
                             <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : ($infoFromSend ? 'Hinterlegen und zurück' : 'Zuweisen') }}</span>
-                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
+                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : ($infoFromSend ? 'Wird hinterlegt …' : 'Wird zugewiesen …') }}</span>
                         </button>
                     </div>
                 @else
