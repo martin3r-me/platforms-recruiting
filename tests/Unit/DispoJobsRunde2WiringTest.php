@@ -142,6 +142,19 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('colspan="9"', $view);
     }
 
+    /** Markus 12.11.2026: je Schicht die Liste zum persoenlichen Ansprechen — nur auf Klick geladen. */
+    public function test_schicht_hat_liste_wer_ist_frei(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Show.php');
+        $this->assertStringContainsString('DispoJobFreieListe::laden($teamId, $this->vorgang, $schicht)', $src);
+        $this->assertStringContainsString('public function freiUmschalten(int $shiftId): void', $src);
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+        $this->assertStringContainsString('wire:click="freiUmschalten({{ (int) $s->id }})"', $view);
+        $this->assertStringContainsString('$frei = $freiHier ? $this->freieListe : null;', $view, 'geschlossen wird nichts geladen');
+        $this->assertStringContainsString('angeschrieben, keine Antwort', $view);
+    }
+
     public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void
     {
         $src = self::datei('src/Livewire/Dispo/Jobs/Index.php');

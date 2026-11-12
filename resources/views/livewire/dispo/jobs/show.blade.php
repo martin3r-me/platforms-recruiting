@@ -365,6 +365,84 @@
                         </ul>
                     </details>
                 @endif
+                {{-- „Wer ist an dem Tag frei?“ (Markus 12.11.2026): zum persoenlichen Ansprechen ausserhalb der Wellen. --}}
+                @php
+                    $freiMoeglich = $offen && $s->datum->format('Y-m-d') >= now()->toDateString();
+                    $freiHier = $freiMoeglich && $freiOffen === (int) $s->id;
+                    $frei = $freiHier ? $this->freieListe : null;
+                @endphp
+                @if ($freiMoeglich)
+                    <div class="text-xs">
+                        <button type="button" wire:click="freiUmschalten({{ (int) $s->id }})" class="text-blue-700 hover:underline">
+                            {{ $freiHier ? 'Liste schließen' : 'Wer ist an dem Tag frei?' }}
+                        </button>
+                        <span wire:loading wire:target="freiUmschalten({{ (int) $s->id }})" class="ml-2 text-gray-400">lädt …</span>
+                    </div>
+                @endif
+                @if ($frei !== null)
+                    @php
+                        $freiAnzahl = count($frei['zeilen']);
+                        $freiOhne = [];
+                        foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreieListe::OHNE as $ohneKey => $ohneLabel) {
+                            if (($frei['ohne'][$ohneKey] ?? 0) > 0) {
+                                $freiOhne[] = $frei['ohne'][$ohneKey] . ' ' . $ohneLabel;
+                            }
+                        }
+                        $freiFilialen = $frei['filialen'] === [] ? 'alle Filialen' : 'Filialen dieser Anfrage: ' . implode(', ', $frei['filialen']);
+                    @endphp
+                    <div wire:key="frei-{{ $s->id }}" class="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-2">
+                        <div class="text-xs text-gray-700">
+                            <strong>{{ $freiAnzahl }}</strong> {{ $freiAnzahl === 1 ? 'Person' : 'Personen' }} mit Tätigkeit „{{ $s->taetigkeit }}“,
+                            die am {{ $s->datum->locale('de')->isoFormat('dd DD.MM.') }} weder gebucht sind noch zugesagt haben
+                            · {{ $freiFilialen }} · Stand {{ $frei['um'] }} Uhr
+                        </div>
+                        @if ($freiAnzahl > 0)
+                            <div class="max-h-96 overflow-y-auto rounded border border-gray-200 bg-white">
+                                <table class="w-full text-sm">
+                                    <thead class="sticky top-0 bg-white text-left text-xs text-gray-500">
+                                        <tr>
+                                            <th class="px-3 py-1.5 font-medium">Name</th>
+                                            <th class="px-3 py-1.5 font-medium">Telefon</th>
+                                            <th class="px-3 py-1.5 font-medium">Filiale</th>
+                                            <th class="px-3 py-1.5 font-medium">Status</th>
+                                            <th class="px-3 py-1.5 font-medium text-right" title="Einsätze der letzten 30 Tage bis zum Tag der Schicht — wie bei der Reihenfolge der Wellen">Einsätze</th>
+                                            <th class="px-3 py-1.5 font-medium">In dieser Anfrage</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        @foreach ($frei['zeilen'] as $fz)
+                                            <tr wire:key="frei-{{ $s->id }}-{{ $fz['anchor'] }}">
+                                                <td class="px-3 py-1.5">
+                                                    <a href="{{ route('recruiting.employees.show', ['employee' => $fz['employee_id']]) }}" class="text-blue-700 hover:underline">{{ $fz['name'] }}</a>
+                                                </td>
+                                                <td class="px-3 py-1.5 whitespace-nowrap tabular-nums">
+                                                    @if ($fz['phone'] !== '')
+                                                        <a href="tel:{{ $fz['phone'] }}" class="text-gray-800 hover:underline">{{ $fz['phone'] }}</a>
+                                                    @else
+                                                        <span class="text-gray-400">keine Nummer</span>
+                                                    @endif
+                                                </td>
+                                                <td class="px-3 py-1.5">{{ $fz['filiale'] }}</td>
+                                                <td class="px-3 py-1.5">{{ $fz['status'] }}</td>
+                                                <td class="px-3 py-1.5 text-right tabular-nums">{{ $fz['einsaetze'] }}</td>
+                                                <td class="px-3 py-1.5 text-xs">
+                                                    @if ($fz['angeschrieben'])
+                                                        <span class="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">angeschrieben, keine Antwort</span>
+                                                    @else
+                                                        <span class="text-gray-500">noch nicht angeschrieben</span>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                        @if ($freiOhne !== [])
+                            <div class="text-xs text-gray-500">Nicht in der Liste: {{ implode(' · ', $freiOhne) }}</div>
+                        @endif
+                    </div>
+                @endif
                 @if ($zeilen === [])
                     <p class="text-xs text-gray-400">Noch keine Zusage.</p>
                 @else

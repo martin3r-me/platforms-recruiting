@@ -17,6 +17,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreieListe;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFolgewelle;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
@@ -66,6 +67,9 @@ class Show extends Component
     /** Vorschau-Zahlen der neuen Welle — nur bei Aenderung der Auswahl gerechnet, nicht bei jedem Poll. */
     #[Locked]
     public ?array $wZahlen = null;
+
+    /** Schicht, deren Liste „Wer ist an dem Tag frei?“ offen ist (Markus 12.11.2026). */
+    public ?int $freiOffen = null;
 
     public string $fehler = '';
     public string $hinweis = '';
@@ -220,6 +224,42 @@ class Show extends Component
             // „Kann nicht“ je Schicht (Spec 2026-10-27 §5), sichtbar fuer alle.
             'absagen' => DispoJobAbsagen::jeSchichten($shiftIds),
         ];
+    }
+
+    public function freiUmschalten(int $shiftId): void
+    {
+        $this->freiOffen = $this->freiOffen === $shiftId ? null : $shiftId;
+    }
+
+    /**
+     * „Wer ist an dem Tag frei?“ fuer die aufgeklappte Schicht (Markus 12.11.2026):
+     * zum persoenlichen Ansprechen ausserhalb der Wellen. Grundmenge = Filialen,
+     * an die diese Anfrage bisher ging (ohne Welle: alle). Eine Minute gepuffert —
+     * die Seite pollt, und die Kandidaten-Abfrage laedt alle aktiven Mitarbeiter.
+     *
+     * @return ?array{zeilen: list<array<string,mixed>>, ohne: array<string,int>, filialen: list<string>, um: string}
+     */
+    #[Computed]
+    public function freieListe(): ?array
+    {
+        $schicht = $this->freiOffen === null ? null : $this->schichten->firstWhere('id', $this->freiOffen);
+        if ($schicht === null || $schicht->datum->format('Y-m-d') < now()->toDateString()) {
+            return null;
+        }
+        $teamId = $this->teamId();
+
+        return Cache::remember('dispo-jobs-frei:' . $teamId . ':' . (int) $schicht->id, 60, function () use ($schicht, $teamId) {
+            $liste = DispoJobFreieListe::laden($teamId, $this->vorgang, $schicht);
+            foreach ($liste['zeilen'] as &$z) {
+                $z['filiale'] = DispoJobKandidaten::blockLabel($z['block']);
+            }
+            unset($z);
+
+            return $liste + [
+                'filialen' => $liste['bloecke'] === null ? [] : array_map(fn ($b) => DispoJobKandidaten::blockLabel($b), $liste['bloecke']),
+                'um'       => now()->format('H:i'),
+            ];
+        });
     }
 
     /** @return list<array<string,mixed>> */
