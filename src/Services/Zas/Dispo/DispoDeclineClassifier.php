@@ -2,7 +2,8 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
-use Platform\Core\Services\AnthropicProvider;
+use Platform\Core\Models\CoreAiProvider;
+use Platform\Core\Services\OpenAiService;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 
@@ -27,10 +28,14 @@ class DispoDeclineClassifier
      */
     public function classify(CommsWhatsAppThread $thread, CommsWhatsAppMessage $message, array $candidates): ?array
     {
-        // Claude-API, kleines Modell — reine Klassifikation, keine Werkzeuge.
-        $result = app(AnthropicProvider::class)->chat($this->prompt($thread, $message, $candidates), [
-            'model'      => 'fast',
-            'max_tokens' => 1000,
+        // tools/with_context aus: sonst haengt OpenAiService alle Plattform-
+        // Werkzeuge und einen eigenen Assistenten-Systemtext an — das Modell kann
+        // dann mit einem Werkzeug-Aufruf statt mit Text antworten. Das Budget
+        // deckt bei Denk-Modellen auch die Denk-Tokens; die Antwort selbst ist kurz.
+        $result = app(OpenAiService::class)->chat($this->prompt($thread, $message, $candidates), $this->determineModel(), [
+            'max_tokens'   => 1000,
+            'tools'        => false,
+            'with_context' => false,
         ]);
 
         $content = trim((string) ($result['content'] ?? ''));
@@ -87,5 +92,19 @@ class DispoDeclineClassifier
             fn ($m) => ($m['direction'] === 'inbound' ? 'MA: ' : 'Wir: ') . mb_substr((string) $m['body'], 0, 600),
             array_slice($rows, -self::CONTEXT_MESSAGES),
         );
+    }
+
+    private function determineModel(): string
+    {
+        try {
+            $provider = CoreAiProvider::where('key', 'openai')->where('is_active', true)->with('defaultModel')->first();
+            $fallback = $provider?->defaultModel?->model_id;
+            if (is_string($fallback) && $fallback !== '') {
+                return $fallback;
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return 'gpt-5.2';
     }
 }
