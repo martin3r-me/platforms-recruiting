@@ -242,4 +242,59 @@ class ZasInboundReprocessCommandTest extends TestCase
         $this->assertSame('processed', $fresh->status);
         $this->assertStringContainsString('updated', (string) $fresh->notes);
     }
+
+    // ---------------- Marker-Nachlauf (Vorfall 06.11.–12.11.2026) ----------------
+
+    private function csvOhneMarker(): string
+    {
+        return "UUID;ZasPersonalNr;Status;|;\n" . self::UUID . ";17944;GO;\n";
+    }
+
+    /** So kam es eine Woche lang an: der strenge Eingang weist die Zeile ab — und das soll er auch weiter tun. */
+    public function test_zeile_ohne_marker_wird_ohne_reparatur_abgewiesen(): void
+    {
+        $employee = $this->employee();
+
+        $summary = $this->command()->reprocess($this->file(), $this->csvOhneMarker(), false, 100);
+
+        $this->assertSame(1, $summary['failed']);
+        $this->assertStringContainsString('Zeilenende-Marker', $summary['failed_details'][0]['reason']);
+        $this->assertNull($employee->fresh()->personnel_number);
+    }
+
+    public function test_mit_ergaenztem_marker_laeuft_dieselbe_zeile_durch_und_der_alte_beleg_bleibt(): void
+    {
+        $employee = $this->employee();
+        $file = $this->file(['status' => 'failed', 'notes' => '{"created":[],"failed":[{"personnel_number":"17944","reason":"Zeile 1: Zeilenende-Marker verschoben"}]}']);
+        $pruefung = \Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur::pruefen($this->csvOhneMarker());
+
+        $summary = $this->command()->reprocess($file, $pruefung['content'], false, 100, $pruefung['ergaenzt']);
+
+        $this->assertSame(0, $summary['failed']);
+        $this->assertSame(1, $summary['pnr_filled']);
+        $this->assertSame('17944', $employee->fresh()->personnel_number);
+
+        $fresh = $file->fresh();
+        $notes = json_decode((string) $fresh->notes, true);
+        $this->assertSame('processed', $fresh->status, 'die Lieferung ist jetzt angekommen');
+        $this->assertSame('2026-08-25 13:56:19', $fresh->processed_at->format('Y-m-d H:i:s'));
+        $this->assertStringContainsString('Zeilenende-Marker', $notes['failed'][0]['reason'], 'der Beleg von damals bleibt');
+        $this->assertSame(1, $notes['marker_nachlauf']['marker_ergaenzt']);
+        $this->assertSame(1, $notes['marker_nachlauf']['pnr_filled']);
+    }
+
+    public function test_marker_nachlauf_im_trockenlauf_schreibt_nichts(): void
+    {
+        $employee = $this->employee();
+        $file = $this->file(['status' => 'failed']);
+        $original = $file->notes;
+        $pruefung = \Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur::pruefen($this->csvOhneMarker());
+
+        $summary = $this->command()->reprocess($file, $pruefung['content'], true, 100, $pruefung['ergaenzt']);
+
+        $this->assertSame(1, $summary['pnr_filled']);
+        $this->assertNull($employee->fresh()->personnel_number);
+        $this->assertSame('failed', $file->fresh()->status);
+        $this->assertSame($original, $file->fresh()->notes);
+    }
 }

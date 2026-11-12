@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Storage;
 use Platform\Recruiting\Models\RecZasInboundFile;
 use Platform\Recruiting\Services\Zas\ZasInboundCsvParser;
 use Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter;
+use Platform\Recruiting\Services\Zas\ZasInboundMarkerReparatur;
 
 /**
  * Schickt gespeicherte ZAS-Mitarbeiter-Lieferungen (erneut) durch den Import.
@@ -36,6 +37,14 @@ use Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter;
  * Lauf ein (recruiting.zas.inbound_overwrite_zas_owned) — damit laesst sich
  * vor dem Einschalten per Trockenlauf sehen, welche Felder sich wie oft
  * aendern wuerden. Die Ausgabe nennt nur Feldnamen und Anzahlen.
+ *
+ * --marker-fehlt (Vorfall 06.11.–12.11.2026): ZAS lieferte die Datenzeilen ohne
+ * den Zeilenende-Marker, der Eingang wies eine Woche lang alles ab. Der Schalter
+ * ergaenzt den Marker NUR im Speicher und nur, wenn je Zeile nachweislich nichts
+ * ausser dem Marker fehlt (ZasInboundMarkerReparatur); sonst wird die Datei
+ * ausgelassen. Verlangt eine Datei-ID oder --von, damit nie versehentlich alles
+ * laeuft. Der laufende Eingang bleibt streng.
+ *   php artisan recruiting:zas-inbound-reprocess --marker-fehlt --von=5381 --bis=5556 --dry-run
  */
 class ZasInboundReprocess extends Command
 {
@@ -43,7 +52,10 @@ class ZasInboundReprocess extends Command
                             {fileId? : ID aus rec_zas_inbound_files; ohne Angabe alle unverarbeiteten}
                             {--dry-run : nur rechnen und berichten, nichts schreiben}
                             {--chunk=100 : Zeilen pro Portion}
-                            {--overwrite : ZAS-Bestand ueberschreiben, nur fuer diesen Lauf (mit --dry-run zum Vorab-Pruefen)}';
+                            {--overwrite : ZAS-Bestand ueberschreiben, nur fuer diesen Lauf (mit --dry-run zum Vorab-Pruefen)}
+                            {--marker-fehlt : fehlenden Zeilenende-Marker im Speicher ergaenzen (nur mit Datei-ID oder --von)}
+                            {--von= : erste Datei-ID eines Bereichs (Echt-Lieferungen, auch bereits verarbeitete)}
+                            {--bis= : letzte Datei-ID des Bereichs}';
 
     protected $description = 'Gespeicherte ZAS-Mitarbeiter-Lieferungen (erneut) verarbeiten';
 
@@ -62,13 +74,42 @@ class ZasInboundReprocess extends Command
             config(['recruiting.zas.inbound_overwrite_zas_owned' => true]);
         }
 
-        $files = $this->argument('fileId') !== null
-            ? RecZasInboundFile::query()->whereKey((int) $this->argument('fileId'))->get()
-            : RecZasInboundFile::query()
+        $markerFehlt = (bool) $this->option('marker-fehlt');
+        $von = $this->option('von');
+        $bis = $this->option('bis');
+        foreach (['von' => $von, 'bis' => $bis] as $name => $wert) {
+            if ($wert !== null && !ctype_digit((string) $wert)) {
+                $this->error("--{$name} muss eine Datei-ID sein.");
+
+                return self::FAILURE;
+            }
+        }
+        if ($bis !== null && $von === null) {
+            $this->error('--bis geht nur zusammen mit --von.');
+
+            return self::FAILURE;
+        }
+        if ($markerFehlt && $this->argument('fileId') === null && $von === null) {
+            $this->error('--marker-fehlt verlangt eine Datei-ID oder --von (nie „alle“).');
+
+            return self::FAILURE;
+        }
+
+        $files = match (true) {
+            $this->argument('fileId') !== null => RecZasInboundFile::query()->whereKey((int) $this->argument('fileId'))->get(),
+            // Bereich: Echt-Lieferungen, auch bereits verarbeitete (z. B. die abgewiesenen des Marker-Vorfalls).
+            $von !== null => RecZasInboundFile::query()
+                ->where('is_test', false)
+                ->where('id', '>=', (int) $von)
+                ->when($bis !== null, fn ($q) => $q->where('id', '<=', (int) $bis))
+                ->orderBy('id')
+                ->get(),
+            default => RecZasInboundFile::query()
                 ->where('is_test', false)
                 ->whereNull('processed_at')
                 ->orderBy('id')
-                ->get();
+                ->get(),
+        };
 
         if ($files->isEmpty()) {
             $this->info('Keine passenden Lieferungen.');
@@ -84,7 +125,21 @@ class ZasInboundReprocess extends Command
                 continue;
             }
 
-            $summary = $this->reprocess($file, $content, $dryRun, $chunk);
+            $markerErgaenzt = 0;
+            if ($markerFehlt) {
+                $pruefung = ZasInboundMarkerReparatur::pruefen($content);
+                if ($pruefung['stand'] === ZasInboundMarkerReparatur::ABGELEHNT) {
+                    $this->error("#{$file->id}: ausgelassen — {$pruefung['grund']}");
+                    continue;
+                }
+                $content = $pruefung['content'];
+                $markerErgaenzt = $pruefung['ergaenzt'];
+                if ($markerErgaenzt > 0) {
+                    $this->line("#{$file->id}: Zeilenende-Marker in {$markerErgaenzt} von {$pruefung['zeilen']} Zeilen ergaenzt (nur im Speicher).");
+                }
+            }
+
+            $summary = $this->reprocess($file, $content, $dryRun, $chunk, $markerErgaenzt);
 
             $this->line(sprintf(
                 '#%d %s%s: %d Zeilen — angelegt %d, aktualisiert %d (davon PersNr nachgetragen %d),'
@@ -136,7 +191,7 @@ class ZasInboundReprocess extends Command
      *               failed:int, warnings:int, suspected:int,
      *               failed_details:list<array>, suspected_details:list<array>}
      */
-    public function reprocess(RecZasInboundFile $file, string $content, bool $dryRun, int $chunk): array
+    public function reprocess(RecZasInboundFile $file, string $content, bool $dryRun, int $chunk, int $markerErgaenzt = 0): array
     {
         $parsed = $this->parser->parse($content);
 
@@ -199,6 +254,28 @@ class ZasInboundReprocess extends Command
                     'failed'      => $summary['failed_details'],
                     'suspected'   => $summary['suspected_details'],
                 ], JSON_UNESCAPED_UNICODE),
+            ]);
+        } elseif (!$dryRun && $markerErgaenzt > 0) {
+            // Marker-Nachlauf einer schon (als abgewiesen) verarbeiteten Lieferung: der Beleg von
+            // damals bleibt stehen, das Ergebnis des Nachlaufs kommt DAZU — und der Status zeigt,
+            // dass die Lieferung inzwischen angekommen ist.
+            $notes = json_decode((string) $file->notes, true);
+            $notes = is_array($notes) ? $notes : ['vorher' => (string) $file->notes];
+            $notes['marker_nachlauf'] = [
+                'am'              => now()->toDateTimeString(),
+                'marker_ergaenzt' => $markerErgaenzt,
+                'created'         => $summary['created'],
+                'updated'         => $summary['updated'],
+                'pnr_filled'      => $summary['pnr_filled'],
+                'skipped'         => $summary['skipped'],
+                'failed'          => $summary['failed_details'],
+                'suspected'       => $summary['suspected_details'],
+            ];
+            $file->update([
+                'status' => $summary['failed'] > 0
+                    ? ($summary['created'] + $summary['updated'] + $summary['skipped'] > 0 ? 'partial' : 'failed')
+                    : 'processed',
+                'notes'  => json_encode($notes, JSON_UNESCAPED_UNICODE),
             ]);
         }
 
