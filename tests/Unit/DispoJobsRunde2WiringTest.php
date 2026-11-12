@@ -112,6 +112,26 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringNotContainsString('zurückgezogen', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
     }
 
+    /** Markus 12.11.2026: bei „dringend“ gruen/rot unter der Schicht statt kleinem Link. */
+    public function test_dringend_hat_zwei_knoepfe_statt_link(): void
+    {
+        $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
+        $this->assertStringNotContainsString('btn-link', $view);
+        $this->assertMatchesRegularExpression('/class="btn-ja" wire:click="zusagen\(.+?\)"[^>]*>Ich bin dabei</', $view);
+        $this->assertMatchesRegularExpression('/class="btn-rot" wire:click="absageOeffnen\(.+?\)"[^>]*>Ich kann nicht</', $view);
+        // Andere Anlaesse behalten ihren einen Knopf.
+        $this->assertStringContainsString("@if (!\$shift['dringend'])", $view);
+    }
+
+    /** Janine 12.11.2026: festes Weiss ergab im Dunkelmodus helle Schrift auf weissem Grund. */
+    public function test_absage_box_hat_keine_festen_hintergruende(): void
+    {
+        $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
+        $this->assertStringNotContainsString('background:#fff', $view);
+        $this->assertStringNotContainsString('rgba(0,0,0', $view);
+        $this->assertMatchesRegularExpression('/\.absage textarea\{[^}]*background:var\(--surface\); color:var\(--ink\)/', $view);
+    }
+
     public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void
     {
         $src = self::datei('src/Livewire/Dispo/Jobs/Index.php');

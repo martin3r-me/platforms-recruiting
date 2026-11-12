@@ -1,21 +1,30 @@
 <div class="rg-crew">
 @include('recruiting::livewire.public._crew-stil')
 <style>
-/* „Kann nicht“ (nur Dringend) — bewusst klein unter dem grossen Knopf. */
+/* Dringend: zwei gleich grosse Knoepfe unter der Schicht, gruen und rot (Markus 12.11.2026 —
+   am kleinen „Kann nicht“-Link haben sich die Leute vertippt). Feste Farben statt Variablen:
+   weisse Schrift muss im hellen und im dunklen Modus lesbar bleiben. */
 .rg-crew .jobrow{flex-wrap:wrap}
 .rg-crew .jobrow .side{display:flex; flex-direction:column; gap:6px; align-items:stretch}
-.rg-crew .btn-link{background:none; border:none; padding:4px 0; color:var(--ink-2); font-size:12.5px; text-decoration:underline; cursor:pointer}
+.rg-crew .entscheid{flex-basis:100%; display:flex; gap:8px}
+.rg-crew .btn-ja, .rg-crew .btn-rot{flex:1; border:none; border-radius:var(--r); padding:12px 10px; color:#fff; font-family:var(--display); font-size:16px; letter-spacing:.01em; cursor:pointer; transition:filter .12s, transform .12s}
+.rg-crew .btn-ja{background:#15803d}
+.rg-crew .btn-rot{background:#b42318}
+.rg-crew .btn-ja:hover, .rg-crew .btn-rot:hover{filter:brightness(1.07)}
+.rg-crew .btn-ja:active, .rg-crew .btn-rot:active{transform:scale(.99)}
 .rg-crew .absage{flex-basis:100%; margin-top:8px; background:var(--surface-2); border-radius:var(--r); padding:12px 13px}
 .rg-crew .absage .frage{font-family:var(--display); font-size:16px; color:var(--ink)}
 .rg-crew .absage .zaehler{margin-top:4px; font-size:12.5px; color:var(--ink-2)}
 .rg-crew .absage .gruende{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
-.rg-crew .absage .gruende label{border:1px solid rgba(0,0,0,.15); border-radius:999px; padding:6px 11px; font-size:13px; cursor:pointer; background:#fff}
+/* Farben nur ueber Variablen (Janine 12.11.2026): festes Weiss ergab im Dunkelmodus helle Schrift auf weissem Grund. */
+.rg-crew .absage .gruende label{border:1px solid var(--line-2); border-radius:999px; padding:6px 11px; font-size:13px; cursor:pointer; background:var(--surface); color:var(--ink)}
 .rg-crew .absage .gruende label:has(input:checked){background:var(--brand); color:#fff; border-color:var(--brand)}
 .rg-crew .absage .gruende input{position:absolute; opacity:0; width:0; height:0}
-.rg-crew .absage textarea{width:100%; margin-top:10px; border:1px solid rgba(0,0,0,.15); border-radius:var(--r); padding:8px 10px; font:inherit; font-size:14px; resize:vertical}
+.rg-crew .absage textarea{width:100%; margin-top:10px; border:1px solid var(--line-2); border-radius:var(--r); padding:8px 10px; font:inherit; font-size:14px; resize:vertical; background:var(--surface); color:var(--ink)}
+.rg-crew .absage textarea::placeholder{color:var(--ink-3)}
 .rg-crew .absage .knoepfe{display:flex; gap:8px; margin-top:10px}
-.rg-crew .absage .btn-confirm{padding:11px; font-size:15px}
-.rg-crew .absage .btn-nein{flex:1; border:1px solid rgba(0,0,0,.2); border-radius:var(--r); padding:11px; background:#fff; color:var(--ink); font-size:14px; cursor:pointer}
+.rg-crew .absage .btn-ja{padding:11px; font-size:15px}
+.rg-crew .absage .btn-nein{flex:1; border:1px solid var(--crit); border-radius:var(--r); padding:11px; background:var(--surface); color:var(--crit); font-size:14px; font-weight:600; cursor:pointer}
 .rg-crew .evhead .satz{margin-top:4px; font-size:13.5px; opacity:.92}
 .rg-crew .evhead .bis{margin-top:6px; font-size:13px; font-weight:700}
 .rg-crew .fussnote{padding:8px 16px 12px; font-size:12px; color:var(--ink-2)}
@@ -110,12 +119,17 @@
                             @if ($shift['accepted'])
                                 <div class="btn-done">✓ Du bist dabei</div>
                             @elseif (!$shift['voll'] && !$shift['declined'] && !$shift['tag_belegt'])
-                                <div class="side">
-                                    <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
-                                    @if ($shift['dringend'] && !$absageHier)
-                                        <button type="button" class="btn-link" wire:click="absageOeffnen({{ $shift['offer_shift_id'] }})">Kann nicht</button>
-                                    @endif
-                                </div>
+                                @if (!$shift['dringend'])
+                                    <div class="side">
+                                        <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
+                                    </div>
+                                @elseif (!$absageHier)
+                                    {{-- Ist die Rueckfrage offen, stehen beide Antworten dort — sonst gaebe es „dabei“ doppelt. --}}
+                                    <div class="entscheid">
+                                        <button type="button" class="btn-ja" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
+                                        <button type="button" class="btn-rot" wire:click="absageOeffnen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich kann nicht</button>
+                                    </div>
+                                @endif
                             @endif
                             @if ($absageHier && $shift['dringend'] && !$shift['accepted'] && !$shift['declined'])
                                 <div class="absage" wire:key="absage-{{ $shift['offer_shift_id'] }}">
@@ -131,7 +145,7 @@
                                     <textarea rows="2" maxlength="200" placeholder="Magst du uns kurz sagen, warum? (freiwillig)" wire:model="absageNotiz"></textarea>
                                     <div class="knoepfe">
                                         <button type="button" class="btn-nein" wire:click="absagen" wire:loading.attr="disabled">Ja, ich kann nicht</button>
-                                        <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Doch, ich bin dabei</button>
+                                        <button type="button" class="btn-ja" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Doch, ich bin dabei</button>
                                     </div>
                                 </div>
                             @endif
