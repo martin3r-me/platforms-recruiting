@@ -153,6 +153,10 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('wire:click="freiUmschalten({{ (int) $s->id }})"', $view);
         $this->assertStringContainsString('$frei = $freiHier ? $this->freieListe : null;', $view, 'geschlossen wird nichts geladen');
         $this->assertStringContainsString('angeschrieben, keine Antwort', $view);
+        // Suche im Browser (Sebastian 12.11.2026): jede Zeile traegt Suchtext und Stand.
+        $this->assertStringContainsString('x-model="q"', $view);
+        $this->assertStringContainsString('data-suche="{{ $fzSuche }}" data-stand="{{ $fzStand }}" x-show="passt($el)"', $view);
+        $this->assertStringContainsString("preg_replace('/^\\+49/', '0', \$fz['phone'])", $view, 'Nummer auch mit fuehrender 0 suchbar');
     }
 
     public function test_uebersicht_hat_filter_quote_und_noch_in_zas(): void

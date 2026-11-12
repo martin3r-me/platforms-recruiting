@@ -391,13 +391,38 @@
                         }
                         $freiFilialen = $frei['filialen'] === [] ? 'alle Filialen' : 'Filialen dieser Anfrage: ' . implode(', ', $frei['filialen']);
                     @endphp
-                    <div wire:key="frei-{{ $s->id }}" class="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-2">
+                    {{-- Suche und Filter laufen im Browser (kein Server-Aufruf je Tastendruck): jede Zeile traegt ihren Suchtext. --}}
+                    <div wire:key="frei-{{ $s->id }}" class="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-2"
+                         x-data="{
+                            q: '',
+                            stand: '',
+                            passt(el) {
+                                if (this.stand !== '' && el.dataset.stand !== this.stand) { return false; }
+                                const q = this.q.trim().toLowerCase();
+                                if (q === '') { return true; }
+                                return el.dataset.suche.includes(q) || el.dataset.suche.includes(q.replace(/\s+/g, ''));
+                            },
+                            treffer() {
+                                return Array.from(this.$refs.zeilen.querySelectorAll('tr')).filter((tr) => this.passt(tr)).length;
+                            },
+                         }">
                         <div class="text-xs text-gray-700">
                             <strong>{{ $freiAnzahl }}</strong> {{ $freiAnzahl === 1 ? 'Person' : 'Personen' }} mit Tätigkeit „{{ $s->taetigkeit }}“,
                             die am {{ $s->datum->locale('de')->isoFormat('dd DD.MM.') }} weder gebucht sind noch zugesagt haben
                             · {{ $freiFilialen }} · Stand {{ $frei['um'] }} Uhr
                         </div>
                         @if ($freiAnzahl > 0)
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <input type="search" x-model="q" placeholder="Name, Telefon oder Filiale suchen"
+                                       class="w-64 max-w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 placeholder-gray-400">
+                                <select x-model="stand" class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900">
+                                    <option value="">alle</option>
+                                    <option value="neu">noch nicht angeschrieben</option>
+                                    <option value="angeschrieben">angeschrieben, keine Antwort</option>
+                                </select>
+                                <span class="text-gray-500 tabular-nums"><span x-text="treffer()">{{ $freiAnzahl }}</span> von {{ $freiAnzahl }}</span>
+                                <button type="button" x-show="q !== '' || stand !== ''" x-cloak x-on:click="q = ''; stand = ''" class="text-blue-700 hover:underline">zurücksetzen</button>
+                            </div>
                             <div class="max-h-96 overflow-y-auto rounded border border-gray-200 bg-white">
                                 <table class="w-full text-sm">
                                     <thead class="sticky top-0 bg-white text-left text-xs text-gray-500">
@@ -410,9 +435,14 @@
                                             <th class="px-3 py-1.5 font-medium">In dieser Anfrage</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-gray-100">
+                                    <tbody class="divide-y divide-gray-100" x-ref="zeilen">
                                         @foreach ($frei['zeilen'] as $fz)
-                                            <tr wire:key="frei-{{ $s->id }}-{{ $fz['anchor'] }}">
+                                            @php
+                                                // Nummer auch in der Schreibweise mit 0 — getippt wird „0176“, gespeichert ist „+49176“.
+                                                $fzSuche = mb_strtolower(implode(' ', [$fz['name'], $fz['phone'], preg_replace('/^\+49/', '0', $fz['phone']), $fz['filiale'], $fz['status']]));
+                                                $fzStand = $fz['angeschrieben'] ? 'angeschrieben' : 'neu';
+                                            @endphp
+                                            <tr wire:key="frei-{{ $s->id }}-{{ $fz['anchor'] }}" data-suche="{{ $fzSuche }}" data-stand="{{ $fzStand }}" x-show="passt($el)">
                                                 <td class="px-3 py-1.5">
                                                     <a href="{{ route('recruiting.employees.show', ['employee' => $fz['employee_id']]) }}" class="text-blue-700 hover:underline">{{ $fz['name'] }}</a>
                                                 </td>
@@ -438,6 +468,7 @@
                                     </tbody>
                                 </table>
                             </div>
+                            <div x-show="treffer() === 0" x-cloak class="text-xs text-gray-500">Kein Treffer für diese Suche.</div>
                         @endif
                         @if ($freiOhne !== [])
                             <div class="text-xs text-gray-500">Nicht in der Liste: {{ implode(' · ', $freiOhne) }}</div>
