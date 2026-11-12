@@ -65,6 +65,7 @@
                     $range .= ' – ' . $event->ends_on->format('d.m.Y');
                 }
                 $subParts = array_filter([$event->filiale_label, $event->einsatzfirma]);
+                $versandAm = $event->reminder_last_sent_at ? \Illuminate\Support\Carbon::parse($event->reminder_last_sent_at)->format('d.m.Y H:i') : null;
             @endphp
             <a href="{{ route('recruiting.dispo.events.show', ['eventId' => $event->id]) }}"
                class="block rounded-xl border border-gray-200 bg-white p-4 shadow-sm active:bg-gray-50">
@@ -94,6 +95,9 @@
                         <span class="rounded bg-orange-50 px-1.5 py-0.5 font-semibold text-orange-600">{{ $open }} offen</span>
                     @endif
                 </div>
+                @if ($versandAm !== null)
+                    <div class="mt-1 text-xs text-gray-500 tabular-nums">Bestätigung versendet: {{ $versandAm }} · {{ $event->reminder_sent_count }} von {{ $event->assignments_count }}</div>
+                @endif
             </a>
         @empty
             @php
@@ -119,6 +123,7 @@
                     <th class="px-4 py-2 font-medium">Kunde</th>
                     <th class="px-4 py-2 font-medium">Adresse</th>
                     <th class="px-4 py-2 font-medium">Disposition</th>
+                    <th class="px-4 py-2 font-medium" title="Zeitpunkt des letzten Versands. Wird neu verschickt, zählt der neue Zeitpunkt.">Bestätigung versendet</th>
                     <th class="px-4 py-2 font-medium text-center">Kleidung</th>
                     <th class="px-4 py-2"></th>
                 </tr>
@@ -127,6 +132,7 @@
                 @forelse ($events as $event)
                     @php
                         $open = $event->assignments_count - $event->confirmed_count;
+                        $versandAm = $event->reminder_last_sent_at ? \Illuminate\Support\Carbon::parse($event->reminder_last_sent_at)->format('d.m.Y H:i') : null;
                     @endphp
                     <tr>
                         <td class="px-4 py-2 whitespace-nowrap">
@@ -162,6 +168,14 @@
                                 <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">{{ $open }} offen</span>
                             @endif
                         </td>
+                        <td class="px-4 py-2 whitespace-nowrap tabular-nums">
+                            @if ($versandAm !== null)
+                                {{ $versandAm }}
+                                <span class="block text-xs text-gray-500">{{ $event->reminder_sent_count }} von {{ $event->assignments_count }}</span>
+                            @else
+                                <span class="text-gray-400">—</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-2 text-center">
                             @if ($event->dresscode)
                                 <span class="text-green-600">✓</span>
@@ -175,7 +189,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                        <td colspan="9" class="px-4 py-8 text-center text-gray-500">
                             @php
                                 $filterActive = $dateFrom !== '' || $dateTo !== '' || $filialeFilter !== '';
                                 $emptyText = $filterActive

@@ -123,6 +123,19 @@ class Index extends Component
     }
 
     /**
+     * Spalte „Bestätigung versendet“ (Markus 12.11.2026): wann zuletzt und an
+     * wie viele. Gleicher Zaehl-Rahmen wie „gesamt/bestätigt“, damit die Zahlen
+     * einer Zeile zusammenpassen. Der Stempel wird bei Neubestaetigung und
+     * Personenwechsel geleert — die Spalte zeigt den aktuellen Stand, keine Historie.
+     */
+    private function mitVersandStand($query)
+    {
+        return $query
+            ->withMax(['assignments as reminder_last_sent_at' => fn ($q) => $this->countScope($q)], 'reminder_sent_at')
+            ->withCount(['assignments as reminder_sent_count' => fn ($q) => $this->countScope($q)->whereNotNull('reminder_sent_at')]);
+    }
+
+    /**
      * „ZAS-Stand“ (Spec 2026-11-04): von wann die Einbuchungen sind. Laeuft
      * mit dem 30-s-Poll der Seite mit, damit eine verarbeitete Lieferung von
      * selbst erscheint. Nebeninformation: darf die VA-Liste nicht abschiessen.
@@ -163,6 +176,7 @@ class Index extends Component
                 }),
                 'alarmMessage as alarm_failed' => fn ($q) => $q->where('status', 'failed'),
             ]);
+        $this->mitVersandStand($query);
 
         if (!$this->showPast) {
             $query->where(fn ($q) => $q->whereNull('ends_on')->orWhereDate('ends_on', '>=', now()->toDateString()));
