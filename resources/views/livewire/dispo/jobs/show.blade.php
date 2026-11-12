@@ -367,7 +367,8 @@
                 @endif
                 {{-- „Wer ist an dem Tag frei?“ (Markus 12.11.2026): zum persoenlichen Ansprechen ausserhalb der Wellen. --}}
                 @php
-                    $freiMoeglich = $offen && $s->datum->format('Y-m-d') >= now()->toDateString();
+                    // Gedeckte Schichten suchen niemanden mehr — dort kein Link (Review 12.11.2026).
+                    $freiMoeglich = $offen && !$voll && $s->datum->format('Y-m-d') >= now()->toDateString();
                     $freiHier = $freiMoeglich && $freiOffen === (int) $s->id;
                     $frei = $freiHier ? $this->freieListe : null;
                 @endphp

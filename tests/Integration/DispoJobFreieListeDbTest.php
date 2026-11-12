@@ -46,6 +46,7 @@ class DispoJobFreieListeDbTest extends TestCase
             [$own, 'database/migrations/2026_02_09_000001_create_rec_positions_table.php'],
             [$own, 'database/migrations/2026_05_21_000006_add_cost_center_to_rec_positions.php'],
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_10_21_000001_add_is_test_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_21_000005_add_zas_export_markers_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own, 'database/migrations/2026_07_07_000001_add_cost_center_to_rec_employees.php'],
@@ -174,6 +175,71 @@ class DispoJobFreieListeDbTest extends TestCase
 
         $this->assertSame(['Anna'], $this->namen($liste));
         $this->assertSame(1, $liste['ohne']['gebucht']);
+    }
+
+    private function paaren(int $kontakt, int ...$ids): void
+    {
+        foreach ($ids as $id) {
+            Capsule::table('crm_contact_links')->insert([
+                'uuid' => (string) \Illuminate\Support\Str::uuid(), 'contact_id' => $kontakt, 'team_id' => 3, 'created_by_user_id' => 1,
+                'linkable_id' => $id, 'linkable_type' => (new \Platform\Recruiting\Models\RecEmployee())->getMorphClass(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /**
+     * Review 12.11.2026: Zusage/Absage haengt am Datensatz von damals. Wird der aeltere
+     * Datensatz der Person deaktiviert, wandert ihr Anker — sie darf trotzdem nicht als frei erscheinen.
+     */
+    public function test_zusage_auf_inzwischen_deaktiviertem_datensatz_zaehlt_fuer_die_person(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            [$request, $shift] = $this->anfrage();
+            $altJa = $this->employee('AltJa');
+            $neuJa = $this->employee('NeuJa');
+            $altNein = $this->employee('AltNein');
+            $neuNein = $this->employee('NeuNein');
+            $this->employee('Frei');
+            $this->paaren(71, $altJa, $neuJa);
+            $this->paaren(72, $altNein, $neuNein);
+            $this->angebot($request, $shift, $altJa, ['accepted_at' => now()]);
+            $this->angebot($request, $shift, $altNein, ['declined_at' => now(), 'declined_reason' => 'krank']);
+            Capsule::table('rec_employees')->whereIn('id', [$altJa, $altNein])->update(['is_active' => false]);
+
+            $liste = DispoJobFreieListe::laden(3, $request, $shift);
+
+            $this->assertSame(['Frei'], $this->namen($liste));
+            $this->assertSame(1, $liste['ohne']['zugesagt']);
+            $this->assertSame(1, $liste['ohne']['abgesagt']);
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
+    }
+
+    /** Dasselbe fuer die Tagesregel: Zusage in einer ANDEREN Anfrage am selben Tag, gespeichert unter dem alten Anker. */
+    public function test_zusage_am_selben_tag_in_anderer_anfrage_auch_nach_ankerwechsel(): void
+    {
+        config(['recruiting.zas.inbound_team_id' => 3]);
+        try {
+            [$request, $shift] = $this->anfrage();
+            [$andere, $andereSchicht] = $this->anfrage();
+            $alt = $this->employee('Alt');
+            $neu = $this->employee('Neu');
+            $direkt = $this->employee('Direkt');
+            $this->employee('Frei');
+            $this->paaren(71, $alt, $neu);
+            $this->angebot($andere, $andereSchicht, $alt, ['accepted_at' => now()]);
+            $this->angebot($andere, $andereSchicht, $direkt, ['accepted_at' => now()]);
+            Capsule::table('rec_employees')->where('id', $alt)->update(['is_active' => false]);
+
+            $liste = DispoJobFreieListe::laden(3, $request, $shift);
+
+            $this->assertSame(['Frei'], $this->namen($liste));
+            $this->assertSame(2, $liste['ohne']['zugesagt']);
+        } finally {
+            config(['recruiting.zas.inbound_team_id' => 0]);
+        }
     }
 
     /** Grundmenge = Filialen ALLER Wellen der Anfrage; ohne Welle alle. */

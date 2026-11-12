@@ -2,9 +2,12 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo\Jobs;
 
+use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
+use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\ZasStatus;
 
 /**
@@ -40,11 +43,14 @@ final class DispoJobFreieListe
     public static function laden(int $teamId, RecDispoJobRequest $anfrage, RecDispoJobShift $schicht): array
     {
         $tag = $schicht->datum->format('Y-m-d');
-        $stand = [];
+        $daten = DispoJobKandidaten::laden($teamId, [$tag], now()->format('Y-m'));
+
+        // Stand je Datensatz, der das Angebot bekam; der gespeicherte Anker ist nur Rueckfall (siehe heutigeAnker).
+        $roh = [];
         RecDispoJobOfferShift::query()->where('shift_id', $schicht->id)
-            ->with('offer:id,anchor_employee_id,sent_at')
+            ->with('offer:id,rec_employee_id,anchor_employee_id,sent_at')
             ->get(['id', 'offer_id', 'accepted_at', 'declined_at'])
-            ->each(function ($os) use (&$stand) {
+            ->each(function ($os) use (&$roh) {
                 if ($os->offer === null) {
                     return;
                 }
@@ -55,12 +61,29 @@ final class DispoJobFreieListe
                     $os->offer->sent_at !== null => self::STAND_ANGESCHRIEBEN,
                     default => null,
                 };
-                $anchor = (int) $os->offer->anchor_employee_id;
-                // Zusage/Absage gewinnt gegen ein weiteres, unbeantwortetes Angebot derselben Person.
-                if ($neu !== null && ($stand[$anchor] ?? self::STAND_ANGESCHRIEBEN) === self::STAND_ANGESCHRIEBEN) {
-                    $stand[$anchor] = $neu;
+                if ($neu !== null) {
+                    $roh[] = [(int) $os->offer->rec_employee_id, (int) $os->offer->anchor_employee_id, $neu];
                 }
             });
+        $zugesagtRoh = DispoJobSchonZugesagt::laden($teamId);
+
+        $anker = self::heutigeAnker(
+            array_merge(array_column($roh, 0), array_column($roh, 1), array_keys($zugesagtRoh)),
+            array_map('intval', array_column($daten['kandidaten'], 'anchor'))
+        );
+        $stand = [];
+        foreach ($roh as [$employeeId, $gespeichert, $neu]) {
+            $a = $anker[$employeeId] ?? $anker[$gespeichert] ?? $gespeichert;
+            // Zusage/Absage gewinnt gegen ein weiteres, unbeantwortetes Angebot derselben Person.
+            if (($stand[$a] ?? self::STAND_ANGESCHRIEBEN) === self::STAND_ANGESCHRIEBEN) {
+                $stand[$a] = $neu;
+            }
+        }
+        $schonZugesagt = [];
+        foreach ($zugesagtRoh as $gespeichert => $schluessel) {
+            $a = $anker[(int) $gespeichert] ?? (int) $gespeichert;
+            $schonZugesagt[$a] = array_merge($schonZugesagt[$a] ?? [], $schluessel);
+        }
 
         $wellen = $anfrage->waves()->get(['id', 'ma_bloecke']);
         $bloecke = null;
@@ -74,13 +97,79 @@ final class DispoJobFreieListe
             $bloecke = array_values($bloecke);
         }
 
-        return self::fuerSchicht(
-            DispoJobKandidaten::laden($teamId, [$tag], now()->format('Y-m')),
-            ['datum' => $tag, 'taetigkeit' => (string) $schicht->taetigkeit],
-            $stand,
-            DispoJobSchonZugesagt::laden($teamId),
-            $bloecke
-        ) + ['bloecke' => $bloecke];
+        return self::fuerSchicht($daten, ['datum' => $tag, 'taetigkeit' => (string) $schicht->taetigkeit], $stand, $schonZugesagt, $bloecke)
+            + ['bloecke' => $bloecke];
+    }
+
+    /**
+     * Angebote und Zusagen tragen den Anker vom Tag des Versands. Der Anker einer Person
+     * (kleinste aktive ID ihrer Gruppe) wandert aber, wenn ihr aeltester Datensatz
+     * deaktiviert oder ein aelterer dazugepaart wird — dann stuende jemand mit Zusage
+     * als „frei, noch nicht angeschrieben“ in der Liste (Review 12.11.2026). Deshalb:
+     * jede gespeicherte ID auf den HEUTIGEN Anker abbilden. Erst ueber die Gruppe der
+     * ID selbst; ist sie inaktiv, ueber ihren CRM-Kontakt zu den aktiven Geschwistern.
+     *
+     * @param list<int> $ids gespeicherte Datensatz- und Anker-IDs
+     * @param list<int> $heutige Anker der heutigen Kandidaten
+     * @return array<int,int> ID => heutiger Anker (nur aufgeloeste)
+     */
+    private static function heutigeAnker(array $ids, array $heutige): array
+    {
+        $heutigeSet = array_fill_keys($heutige, true);
+        $out = [];
+        $offen = [];
+        foreach (array_unique(array_map('intval', $ids)) as $id) {
+            if ($id <= 0) {
+                continue;
+            }
+            if (isset($heutigeSet[$id])) {
+                $out[$id] = $id;
+            } else {
+                $offen[] = $id;
+            }
+        }
+        if ($offen === []) {
+            return $out;
+        }
+
+        $resolver = app(DispoIdentityResolver::class);
+        $inaktiv = [];
+        foreach ($resolver->groupsFor($offen) as $id => $gruppe) {
+            $a = (int) min($gruppe);
+            if (isset($heutigeSet[$a])) {
+                $out[(int) $id] = $a;
+            } else {
+                $inaktiv[] = (int) $id;
+            }
+        }
+
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: 0);
+        if ($inaktiv === [] || $teamId <= 0) {
+            return $out;
+        }
+        $kontakte = CrmContactLink::query()
+            ->where('linkable_type', (new RecEmployee())->getMorphClass())->where('team_id', $teamId)
+            ->whereIn('linkable_id', $inaktiv)
+            ->get(['contact_id', 'linkable_id']);
+        $aktive = $resolver->employeeIdsByContact($kontakte->pluck('contact_id')->map(fn ($v) => (int) $v)->all());
+        $geschwister = [];
+        foreach ($kontakte as $link) {
+            $erste = $aktive[(int) $link->contact_id][0] ?? null;
+            if ($erste !== null) {
+                $geschwister[(int) $link->linkable_id] = (int) $erste;
+            }
+        }
+        if ($geschwister !== []) {
+            $gruppen = $resolver->groupsFor(array_values(array_unique($geschwister)));
+            foreach ($geschwister as $id => $aktiv) {
+                $a = (int) min($gruppen[$aktiv] ?? [$aktiv]);
+                if (isset($heutigeSet[$a])) {
+                    $out[$id] = $a;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**
