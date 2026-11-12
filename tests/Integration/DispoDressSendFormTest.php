@@ -418,6 +418,82 @@ class DispoDressSendFormTest extends DressTestCase
      * stehender, noch nicht per "Nur Kleidung speichern" gesicherter Klick
      * auf "Text in den Hinweis übernehmen" lautlos verloren.
      */
+    /**
+     * Markus 12.11.: „Infos mitschicken“ aus dem Bestaetigungs-Fenster oeffnet
+     * „Info an Crew“ OHNE WhatsApp (keine zweite Nachricht), laesst das
+     * Sende-Formular im Speicher und fuehrt beim Schliessen dorthin zurueck.
+     */
+    public function test_infos_mitschicken_oeffnet_info_ohne_whatsapp_und_fuehrt_zurueck(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext', 'hinweis' => 'Alter Hinweis']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->eventHinweis = "Alter Hinweis\n\nnoch nicht gespeichert";
+
+        $c->openInfoModalFromSend();
+
+        $this->assertTrue($c->showInfoModal);
+        $this->assertFalse($c->showSendModal);
+        $this->assertFalse((bool) $c->infoSendWhatsApp, 'aus der Bestaetigung: keine WhatsApp „Neue Infos“');
+        $this->assertTrue($c->infoFromSend);
+        $this->assertSame("Alter Hinweis\n\nnoch nicht gespeichert", $c->eventHinweis, 'Sende-Formular bleibt im Speicher');
+
+        $c->closeInfoModal();
+
+        $this->assertFalse($c->showInfoModal);
+        $this->assertTrue($c->showSendModal, 'Rueckweg ins Bestaetigungs-Fenster');
+        $this->assertFalse($c->infoFromSend);
+    }
+
+    public function test_nach_dem_hinterlegen_zurueck_zur_bestaetigung_mit_zusammenfassung(): void
+    {
+        $event = $this->event();
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openInfoModalFromSend();
+
+        $this->callPrivate($c, 'nachHinterlegenZurueck', [4, 2]);
+        $this->assertTrue($c->showSendModal);
+        $this->assertFalse($c->showInfoModal);
+        $this->assertSame(['attached' => 4, 'noted' => 2], $c->infoBeiBestaetigung);
+
+        $c->openInfoModalFromSend();
+        $this->callPrivate($c, 'nachHinterlegenZurueck', [1, 0]);
+        $this->assertSame(['attached' => 5, 'noted' => 2], $c->infoBeiBestaetigung, 'zweites Hinterlegen summiert');
+
+        // Von der VA-Seite aus: kein Sprung, keine Zusammenfassung im Sende-Fenster.
+        $c->showSendModal = false;
+        $c->infoBeiBestaetigung = null;
+        $c->openInfoModal();
+        $this->callPrivate($c, 'nachHinterlegenZurueck', [3, 3]);
+        $this->assertTrue($c->showInfoModal, 'Ergebnis-Anzeige bleibt stehen');
+        $this->assertFalse($c->showSendModal);
+        $this->assertNull($c->infoBeiBestaetigung);
+    }
+
+    public function test_info_an_crew_von_der_seite_bleibt_wie_bisher(): void
+    {
+        $event = $this->event();
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+
+        $c = $this->dispoComponent($event->id);
+        $c->openInfoModal();
+
+        $this->assertTrue((bool) $c->infoSendWhatsApp, 'von der VA-Seite: WhatsApp wie bisher vorbelegt');
+        $this->assertFalse($c->infoFromSend);
+
+        $c->closeInfoModal();
+
+        $this->assertFalse($c->showInfoModal);
+        $this->assertFalse($c->showSendModal, 'kein Sprung ins Bestaetigungs-Fenster');
+    }
+
     public function test_open_dress_modal_from_send_keeps_the_already_loaded_form_state(): void
     {
         $event = $this->event(['dresscode' => 'Testtext', 'hinweis' => 'Alter Hinweis']);

@@ -597,6 +597,25 @@
                         @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                     </label>
 
+                    {{-- Infos mitschicken (Markus 12.11.): Ticket, Ablauf, Video-Link landen
+                         auf der Einsatz-Seite, BEVOR die Bestaetigung rausgeht — eine Nachricht. --}}
+                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-1">
+                        <div class="flex items-center justify-between">
+                            <div class="font-medium text-gray-700">Infos für die Crew <span class="text-gray-400">(optional)</span></div>
+                            <button type="button" wire:click="openInfoModalFromSend" class="text-xs text-blue-600 hover:underline">Infos mitschicken</button>
+                        </div>
+                        @if ($infoBeiBestaetigung !== null)
+                            @php
+                                $infoTeile = [];
+                                if ($infoBeiBestaetigung['attached'] > 0) { $infoTeile[] = $infoBeiBestaetigung['attached'] . ' × Datei'; }
+                                if ($infoBeiBestaetigung['noted'] > 0) { $infoTeile[] = 'Hinweis an ' . $infoBeiBestaetigung['noted'] . ' Einbuchung(en)'; }
+                            @endphp
+                            <p class="text-xs text-green-700">✓ Hinterlegt: {{ $infoTeile !== [] ? implode(', ', $infoTeile) : 'nichts Neues (schon vorhanden)' }}. Die Crew sieht es über den Link in der Bestätigung.</p>
+                        @else
+                            <p class="text-xs text-gray-500">Dateien und Hinweise (z. B. Ticket, Ablauf, Link zum Video) stehen dann auf der Einsatz-Seite, die die Bestätigung verlinkt. Keine zweite Nachricht.</p>
+                        @endif
+                    </div>
+
                     {{-- Kleidung-Umzug (10/2026): die Pflege ist auf die VA-Seite
                          gewandert (openDressModal). Hier bleibt nur die
                          Zusammenfassung plus der Riegel, der den Versand bedient —
@@ -1101,7 +1120,7 @@
     {{-- "Info an Crew" (Kunde 03.09.): Anhang/Hinweis gefiltert nach Qualifikation
          an viele MA auf einmal + Info-WhatsApp mit Link auf die Einsatz-Seite. --}}
     @if ($showInfoModal)
-        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="$set('showInfoModal', false)">
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeInfoModal">
             <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
                 <div class="shrink-0 px-6 pt-6 pb-3">
                     <h2 class="text-lg font-semibold">Info an Crew</h2>
@@ -1179,6 +1198,7 @@
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Hinweis <span class="text-gray-400">(optional, für alle identisch)</span></span>
                         <textarea wire:model="infoNote" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="z. B. Treffpunkt geändert: Eingang Nord, Tor 3"></textarea>
+                        <span class="mt-1 block text-xs text-gray-500">Links, z. B. zu einem Video, sind auf der Einsatz-Seite anklickbar.</span>
                         @if ($withNote > 0)
                             <span class="mt-1 block text-xs text-gray-500">{{ $withNote }} der ausgewählten Personen {{ $withNote === 1 ? 'hat' : 'haben' }} bereits einen Hinweis — der neue Text wird darunter ergänzt.</span>
                         @endif
@@ -1238,18 +1258,18 @@
                 <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 @if ($infoResult === null)
                     <div class="flex justify-end gap-3">
-                        <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button wire:click="closeInfoModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">{{ $infoFromSend ? 'Zurück zur Bestätigung' : 'Abbrechen' }}</button>
                         <button wire:click="sendCrewInfo"
                                 wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUploads"
                                 @if ($infoSelected->count() === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
-                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
+                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : ($infoFromSend ? 'Hinterlegen und zurück' : 'Zuweisen') }}</span>
                             <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
                         </button>
                     </div>
                 @else
                     <div class="flex justify-end">
-                        <button wire:click="$set('showInfoModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
+                        <button wire:click="closeInfoModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{{ $infoFromSend ? 'Zurück zur Bestätigung' : 'Schließen' }}</button>
                     </div>
                 @endif
                 </div>

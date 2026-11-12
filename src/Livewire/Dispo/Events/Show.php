@@ -1761,11 +1761,80 @@ class Show extends Component
     /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
     public ?array $infoResult = null;
 
+    /** „Info an Crew“ wurde aus dem Bestaetigungs-Fenster geoeffnet — Schliessen fuehrt dorthin zurueck. */
+    public bool $infoFromSend = false;
+
+    /**
+     * Was in dieser Sitzung ueber „Infos mitschicken“ hinterlegt wurde — fuers
+     * Bestaetigungs-Fenster („2 Dateien und Hinweis hinterlegt“). Null = nichts.
+     *
+     * @var array{attached:int, noted:int}|null
+     */
+    public ?array $infoBeiBestaetigung = null;
+
     public function openInfoModal(): void
     {
         if ($this->blockedForEventOnly()) {
             return;
         }
+        $this->infoFormLeeren();
+        $this->infoFromSend = false;
+        $this->showInfoModal = true;
+    }
+
+    /**
+     * „Infos mitschicken“ im Bestaetigungs-Fenster (Markus 12.11.: Ticket, Ablauf,
+     * Video zur Messe sollen MIT der Bestaetigung raus, keine zweite Nachricht).
+     * Oeffnet „Info an Crew“ mit abgewaehlter WhatsApp: Dateien und Hinweis
+     * werden nur hinterlegt, die Bestaetigung bringt den Link auf die Einsatz-
+     * Seite, dort stehen sie dann. Muster wie openDressModalFromSend(): das
+     * Sende-Fenster wird nur verdeckt, sein Formular bleibt im Speicher.
+     */
+    public function openInfoModalFromSend(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->infoFormLeeren();
+        $this->infoSendWhatsApp = false;
+        $this->infoFromSend = true;
+        $this->showSendModal = false;
+        $this->showInfoModal = true;
+    }
+
+    /**
+     * Schliessen von „Info an Crew“: kam es aus dem Sende-Fenster, geht es
+     * dorthin zurueck (ohne openSendModal() — das wuerde das Formular neu
+     * laden und Eingaben verwerfen, siehe openDressModalFromSend()).
+     */
+    public function closeInfoModal(): void
+    {
+        $this->showInfoModal = false;
+        if ($this->infoFromSend) {
+            $this->infoFromSend = false;
+            $this->showSendModal = true;
+        }
+    }
+
+    /**
+     * Nach dem Hinterlegen ohne WhatsApp: kam „Info an Crew“ aus dem Bestaetigungs-
+     * Fenster, direkt dorthin zurueck und dort zusammenfassen, was hinterlegt wurde
+     * (mehrfaches Hinterlegen summiert). Sonst bleibt die Ergebnis-Anzeige stehen.
+     */
+    private function nachHinterlegenZurueck(int $attached, int $noted): void
+    {
+        if (!$this->infoFromSend) {
+            return;
+        }
+        $this->infoBeiBestaetigung = [
+            'attached' => (int) ($this->infoBeiBestaetigung['attached'] ?? 0) + $attached,
+            'noted'    => (int) ($this->infoBeiBestaetigung['noted'] ?? 0) + $noted,
+        ];
+        $this->closeInfoModal();
+    }
+
+    private function infoFormLeeren(): void
+    {
         $this->infoFilter = '';
         $this->infoExcluded = [];
         $this->infoNote = '';
@@ -1773,7 +1842,6 @@ class Show extends Component
         $this->infoUploads = [];
         $this->infoResult = null;
         $this->resetErrorBag('infoNote');
-        $this->showInfoModal = true;
     }
 
     /** Filterwechsel verwirft die Einzel-Abwahl — sie bezog sich auf die alte Menge. */
@@ -2058,6 +2126,7 @@ class Show extends Component
                 ];
                 $this->infoUploads = [];
                 unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
+                $this->nachHinterlegenZurueck($attached, (int) $noted);
                 return;
             }
 
@@ -2772,6 +2841,9 @@ class Show extends Component
         $this->loadDressForm();
         $this->dressSaved = false;
         $this->resetErrorBag('dressAck');
+
+        $this->infoBeiBestaetigung = null;
+        $this->infoFromSend = false;
 
         $this->showSendModal = true;
     }

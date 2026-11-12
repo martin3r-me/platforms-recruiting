@@ -80,6 +80,7 @@
 .rg-crew .hint{margin:10px 16px 0; background:var(--warn-bg); border-radius:var(--r); padding:11px 13px}
 .rg-crew .hint .h{font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--warn)}
 .rg-crew .hint .b{font-size:13.5px; margin-top:3px; color:var(--warn); line-height:1.4; white-space:pre-line}
+.rg-crew .hint .b a.hint-link{color:inherit; text-decoration:underline; font-weight:600; word-break:break-all}
 
 .rg-crew .evfoot{padding:14px 16px 16px}
 .rg-crew .btn-confirm{width:100%; border:none; border-radius:var(--r); padding:14px; background:var(--brand); color:#fff; font-family:var(--display); font-size:17px; letter-spacing:.01em; cursor:pointer; transition:filter .12s, transform .12s}

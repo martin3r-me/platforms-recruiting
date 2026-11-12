@@ -205,7 +205,8 @@
                                             <span class="newtag">NEU</span>
                                         @endif
                                     </div>
-                                    <div class="b">{{ $day['individual_note'] }}</div>
+                                    {{-- Links anklickbar (Markus 12.11.); HinweisText escapt alles und wickelt nur http(s)-Adressen. --}}
+                                    <div class="b">{!! \Platform\Recruiting\Support\HinweisText::html($day['individual_note']) !!}</div>
                                 </div>
                             @endif
                             @if ($day['dress'])
@@ -258,7 +259,8 @@
                                     <span class="newtag">NEU</span>
                                 @endif
                             </div>
-                            <div class="b">{{ $singleNote }}</div>
+                            {{-- Links anklickbar (Markus 12.11.); HinweisText escapt alles und wickelt nur http(s)-Adressen. --}}
+                            <div class="b">{!! \Platform\Recruiting\Support\HinweisText::html($singleNote) !!}</div>
                         </div>
                     @endif
                 </div>
