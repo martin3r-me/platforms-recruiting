@@ -262,4 +262,42 @@ class DispoJobCreateFlowTest extends TestCase
         $shifts = RecDispoJobShift::query()->where('request_id', $request->id)->orderBy('id')->get();
         $this->assertSame([['1', 1], ['2', 3], [null, 2]], $shifts->map(fn ($s) => [$s->dispoposten_id, $s->gesucht])->all());
     }
+
+    /** Versandweg + Freigabe-Pflicht beim Anlegen (Markus 13.11.2026, Spec 6.2/6.4). */
+    public function test_anlegen_ohne_versandweg_bleibt_whatsapp_ohne_pflicht(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(), 3, 42)->fresh();
+
+        $this->assertSame(RecDispoJobRequest::WEG_WHATSAPP, $request->versandweg);
+        $this->assertFalse($request->freigabe_pflicht);
+        $this->assertNull($request->freigabe_beantragt_at);
+        $this->assertNull($request->freigabe_beantragt_by_user_id);
+    }
+
+    public function test_anlegen_im_portal_ohne_vorlage_speichert_keine_vorlage(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['versandweg' => 'portal', 'template_id' => 0]), 3, 42)->fresh();
+
+        $this->assertSame(RecDispoJobRequest::WEG_PORTAL, $request->versandweg);
+        $this->assertNull($request->whatsapp_template_id, 'template_id <= 0 = keine Vorlage');
+        $this->assertFalse($request->freigabe_pflicht);
+    }
+
+    public function test_anlegen_mit_freigabepflicht_haelt_den_antrag_fest(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['anlass' => 'vier_wochen', 'freigabe_pflicht' => true]), 3, 42)->fresh();
+
+        $this->assertTrue($request->freigabe_pflicht);
+        $this->assertSame('2026-10-12 10:00:00', $request->freigabe_beantragt_at->format('Y-m-d H:i:s'));
+        $this->assertSame(42, $request->freigabe_beantragt_by_user_id);
+        $this->assertNull($request->freigegeben_at);
+        $this->assertTrue($request->wartetAufFreigabe());
+    }
+
+    public function test_unbekannter_versandweg_faellt_auf_whatsapp(): void
+    {
+        $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['versandweg' => 'brieftaube']), 3, null)->fresh();
+
+        $this->assertSame(RecDispoJobRequest::WEG_WHATSAPP, $request->versandweg);
+    }
 }

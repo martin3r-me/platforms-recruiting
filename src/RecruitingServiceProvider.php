@@ -129,6 +129,12 @@ class RecruitingServiceProvider extends ServiceProvider
             \Platform\Recruiting\Services\ReservedSendTrigger::class,
             \Platform\Recruiting\Services\QueueReservedSendTrigger::class,
         );
+
+        // Push ans Mitarbeiter-Portal (Spec Jobs anbieten 6.7): ohne Dienst nichts senden.
+        $this->app->bind(
+            \Platform\Recruiting\Services\Push\PortalPush::class,
+            \Platform\Recruiting\Services\Push\KeinPush::class,
+        );
     }
 
     public function boot(): void

@@ -16,11 +16,12 @@ use Symfony\Component\Uid\UuidV7;
 final class DispoJobAnfrageAnlegen
 {
     /**
-     * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int,
+     * @param array{filial_nr:int, von:string, bis:string, modus:string, anlass:string, template_id:int, versandweg?:string, freigabe_pflicht?:bool,
      *   schichten: list<array{event:int, datum:string, von:?string, bis?:string, taetigkeit:string, dispoposten?:?string, gesucht:int|string}>,
      *   bloecke: list<int|null>, gruppen: list<string>, nur_passend: bool, stati?: ?list<string>, firmen?: ?list<string>, welle_max?: int, welle_abstand_minuten?: int, minuten: int} $daten
      * template_id = die beim Anlegen aus dem Anlass aufgeloeste Vorlage (bleibt fuer
-     * spaetere Wellen fest, auch wenn die Einstellung sich aendert).
+     * spaetere Wellen fest, auch wenn die Einstellung sich aendert); <= 0 = keine (Portal-Weg).
+     * Optional versandweg ('whatsapp'|'portal', Vorgabe whatsapp) und freigabe_pflicht (Vorgabe false).
      * @throws \InvalidArgumentException wenn keine Schicht mit gesucht > 0 uebrig bleibt
      */
     public static function anlegen(array $daten, int $teamId, ?int $userId): RecDispoJobRequest
@@ -30,7 +31,10 @@ final class DispoJobAnfrageAnlegen
             throw new \InvalidArgumentException('Keine Schicht mit gesucht > 0.');
         }
 
-        return DB::transaction(function () use ($daten, $teamId, $userId, $schichten) {
+        $weg = ($daten['versandweg'] ?? null) === RecDispoJobRequest::WEG_PORTAL ? RecDispoJobRequest::WEG_PORTAL : RecDispoJobRequest::WEG_WHATSAPP;
+        $pflicht = (bool) ($daten['freigabe_pflicht'] ?? false);
+
+        return DB::transaction(function () use ($daten, $teamId, $userId, $schichten, $weg, $pflicht) {
             $request = RecDispoJobRequest::create([
                 'team_id'              => $teamId,
                 'filial_nr'            => (int) $daten['filial_nr'],
@@ -38,9 +42,15 @@ final class DispoJobAnfrageAnlegen
                 'zeitraum_bis'         => $daten['bis'],
                 'modus'                => $daten['modus'],
                 'anlass'               => DispoJobAnlass::istGueltig((string) ($daten['anlass'] ?? '')) ? (string) $daten['anlass'] : null,
-                'whatsapp_template_id' => (int) $daten['template_id'],
+                // Portal-Weg ohne Vorlage: 0/leer = keine (Markus 13.11.2026).
+                'whatsapp_template_id' => (int) ($daten['template_id'] ?? 0) > 0 ? (int) $daten['template_id'] : null,
                 'status'               => RecDispoJobRequest::STATUS_ENTWURF,
                 'created_by_user_id'   => $userId,
+                // Versandweg + Freigabepflicht stehen ab hier fest (Spec 6.4); der Aufrufer entscheidet die Pflicht.
+                'versandweg'                    => $weg,
+                'freigabe_pflicht'              => $pflicht,
+                'freigabe_beantragt_at'         => $pflicht ? now() : null,
+                'freigabe_beantragt_by_user_id' => $pflicht ? $userId : null,
                 // Wellenplan (Spec 2026-10-27 §2): 0/leer = alle bzw. keine Folgewelle.
                 'welle_max'             => (int) ($daten['welle_max'] ?? 0) > 0 ? (int) $daten['welle_max'] : null,
                 'welle_abstand_minuten' => (int) ($daten['welle_abstand_minuten'] ?? 0) > 0 ? (int) $daten['welle_abstand_minuten'] : null,

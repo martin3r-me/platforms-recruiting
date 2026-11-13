@@ -21,6 +21,7 @@ use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
+use Platform\Recruiting\Services\Push\PortalPush;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOfferSender;
 
 /** Welle-Job: plant beim Start neu, sendet ueber den ECHTEN Sender (Meta-Stub), schliesst die Welle. */
@@ -461,5 +462,237 @@ class SendDispoJobWaveJobTest extends TestCase
         $this->jobOhneBus($wartend->id)->handle($this->cache(), $this->sender());
         $this->assertSame('automatik_aus', $wartend->fresh()->summary['gestoppt']);
         $this->assertSame(1, $this->stub->calls, 'die gestoppte Automatik-Welle hat nichts gesendet');
+    }
+
+    // ---- Versandweg Portal + Freigabe (Markus 13.11.2026, Spec 6.3/6.4) ----
+
+    /** PortalPush-Attrappe: merkt sich die Aufrufe, wirft auf Wunsch. */
+    private function pushAttrappe(bool $wirft = false): object
+    {
+        $push = new class($wirft) implements PortalPush {
+            public array $aufrufe = [];
+            public function __construct(private bool $wirft) {}
+            public function aktiv(): bool { return true; }
+            public function neueAngebote(array $employeeIds): void
+            {
+                $this->aufrufe[] = $employeeIds;
+                if ($this->wirft) {
+                    throw new \RuntimeException('Push-Dienst weg');
+                }
+            }
+            public function probe(int $employeeId): void {}
+        };
+        Container::getInstance()->instance(PortalPush::class, $push);
+
+        return $push;
+    }
+
+    /** Portal-Anfrage ganz ohne Vorlage: keine Vorlagenzeile in der Tabelle, whatsapp_template_id null. */
+    private function portalAnfrage(array $wave = []): array
+    {
+        [$request, $w, $datum] = $this->anfrage($wave);
+        Capsule::table('integrations_whatsapp_templates')->delete();
+        $request->update(['versandweg' => RecDispoJobRequest::WEG_PORTAL, 'whatsapp_template_id' => null]);
+
+        return [$request->fresh(), $w, $datum];
+    }
+
+    public function test_portal_welle_stellt_bereit_ohne_whatsapp_und_kettet_die_folgewelle(): void
+    {
+        Carbon::setTestNow('2026-11-13 10:00:00');
+        [$request, $wave] = $this->portalAnfrage();
+        $request->update(['welle_max' => 2, 'welle_abstand_minuten' => 60]);
+        $this->employee('Anna', '0176 1');
+        $this->employee('Ben', '0176 2');
+        $this->employee('Cleo', '0176 3');
+
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertSame(0, $this->stub->calls, 'kein WhatsApp-Aufruf');
+        $this->assertSame(2, $wave->summary['sent'], 'welle_max greift');
+        $this->assertSame(0, $wave->summary['failed']);
+        $this->assertSame([], $wave->summary['errors']);
+        $this->assertSame(1, $wave->summary['rest']);
+        $this->assertNotNull($wave->finished_at);
+        $offers = RecDispoJobOffer::where('wave_id', $wave->id)->get();
+        $this->assertCount(2, $offers);
+        foreach ($offers as $o) {
+            $this->assertSame('portal', $o->kanal);
+            $this->assertNotNull($o->sent_at);
+            $this->assertNull($o->message_id);
+        }
+        $naechste = $request->waves()->where('nr', 2)->first();
+        $this->assertNotNull($naechste, 'Folgewelle auch im Portal-Weg');
+        $this->assertTrue((bool) $naechste->auto);
+        $this->assertSame('2026-11-13 11:00:00', $naechste->scheduled_for->format('Y-m-d H:i:s'));
+        $this->assertSame([(int) $naechste->id], $job->gestartet);
+        $this->assertSame(RecDispoJobRequest::STATUS_LAEUFT, $request->fresh()->status);
+        Carbon::setTestNow();
+    }
+
+    public function test_portal_welle_ohne_vorlage_laeuft_durch(): void
+    {
+        [, $wave] = $this->portalAnfrage();
+        $this->employee('Anna', '0176 1');
+        $this->assertSame(0, Capsule::table('integrations_whatsapp_templates')->count());
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $wave->refresh();
+        $this->assertSame(1, $wave->summary['sent']);
+        $this->assertSame([], $wave->summary['errors'], 'weder „Vorlage passt nicht“ noch „keine Vorlage gewählt“');
+        $this->assertSame(0, $this->stub->calls);
+    }
+
+    public function test_whatsapp_anfrage_ohne_vorlage_scheitert_wie_bisher(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['whatsapp_template_id' => null]);
+        $this->employee('Anna', '0176 1');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        // Der Vorlagen-Waechter fasst den WhatsApp-Weg ohne Vorlage schon vor der Planung.
+        $wave->refresh();
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(0, $wave->summary['sent']);
+        $this->assertSame(['Vorlage passt nicht: Es ist keine Vorlage gewählt.'], $wave->summary['errors']);
+        $this->assertNotNull($wave->finished_at);
+    }
+
+    public function test_wartende_freigabe_beansprucht_die_welle_nicht_und_sendet_nach_der_freigabe(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['anlass' => 'vier_wochen', 'freigabe_pflicht' => true, 'freigabe_beantragt_at' => now()]);
+        $this->employee('Anna', '0176 1');
+        $job = new SendDispoJobWave($wave->id, 3, 9);
+
+        $job->handle($this->cache(), $this->sender());
+
+        $this->assertNull($wave->fresh()->started_at, 'Welle bleibt unbeansprucht');
+        $this->assertNull($wave->fresh()->finished_at);
+        $this->assertSame(0, RecDispoJobOffer::count());
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(RecDispoJobRequest::STATUS_ENTWURF, $request->fresh()->status, 'nichts geschrieben');
+
+        $request->update(['freigegeben_at' => now(), 'freigegeben_by_user_id' => 1]);
+        $job->handle($this->cache(), $this->sender());
+
+        $this->assertNotNull($wave->fresh()->started_at);
+        $this->assertSame(1, $this->stub->calls, 'derselbe Job sendet nach der Freigabe');
+        $this->assertSame(1, RecDispoJobOffer::count());
+    }
+
+    public function test_abgelehnte_freigabe_sendet_nicht(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['anlass' => 'naechste_woche', 'freigabe_pflicht' => true, 'freigabe_abgelehnt_at' => now()]);
+        $this->employee('Anna', '0176 1');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $this->assertNull($wave->fresh()->started_at);
+        $this->assertSame(0, $this->stub->calls);
+    }
+
+    public function test_sperre_gilt_auch_fuer_die_automatische_folgewelle(): void
+    {
+        [$request, $wave] = $this->anfrage(['auto' => true]);
+        $request->update(['anlass' => 'vier_wochen', 'welle_abstand_minuten' => 60, 'freigabe_pflicht' => true]);
+        $this->employee('Anna', '0176 1');
+
+        $this->jobOhneBus($wave->id)->handle($this->cache(), $this->sender());
+        $this->assertNull($wave->fresh()->started_at);
+        $this->assertSame(0, $this->stub->calls);
+
+        // Auch bei gestoppter Automatik schreibt die Sperre nichts (die Welle bleibt fuer die Freigabe liegen).
+        $request->update(['welle_abstand_minuten' => null]);
+        $this->jobOhneBus($wave->id)->handle($this->cache(), $this->sender());
+        $this->assertNull($wave->fresh()->started_at);
+        $this->assertNull($wave->fresh()->summary);
+    }
+
+    public function test_dringend_ohne_freigabepflicht_sendet_wie_bisher(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['anlass' => 'dringend', 'freigabe_pflicht' => false]);
+        $this->employee('Anna', '0176 1');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $this->assertSame(1, $this->stub->calls);
+        $this->assertSame('whatsapp', RecDispoJobOffer::first()->kanal);
+    }
+
+    public function test_push_bekommt_genau_die_personen_der_portal_welle(): void
+    {
+        $push = $this->pushAttrappe();
+        try {
+            [$request, $wave, $datum] = $this->portalAnfrage();
+            $anna = $this->employee('Anna', '0176 1');
+            $ben = $this->employee('Ben', '0176 2');
+            $cleo = $this->employee('Cleo', '0176 3');
+            // Ben ist schon gebucht und faellt raus; Cleo stand schon in einer frueheren Welle derselben Anfrage.
+            $event = RecDispoEvent::create(['einsatz_ref' => 'P1']);
+            RecDispoAssignment::create(['ds_ref' => 'p1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'x', 'rec_employee_id' => $ben, 'datum' => $datum, 'status_id' => 1, 'taetigkeit' => 'Zapfer']);
+            RecDispoJobOffer::create(['wave_id' => 999, 'request_id' => $request->id, 'rec_employee_id' => $cleo, 'anchor_employee_id' => $cleo, 'kanal' => 'portal', 'sent_at' => now()]);
+
+            (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+            $this->assertSame([[$anna]], $push->aufrufe);
+        } finally {
+            Container::getInstance()->forgetInstance(PortalPush::class);
+        }
+    }
+
+    public function test_whatsapp_welle_loest_keinen_push_aus(): void
+    {
+        $push = $this->pushAttrappe();
+        try {
+            [, $wave] = $this->anfrage();
+            $this->employee('Anna', '0176 1');
+
+            (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+            $this->assertSame(1, $this->stub->calls);
+            $this->assertSame([], $push->aufrufe);
+        } finally {
+            Container::getInstance()->forgetInstance(PortalPush::class);
+        }
+    }
+
+    public function test_push_fehler_bricht_die_welle_nicht_ab(): void
+    {
+        $push = $this->pushAttrappe(true);
+        try {
+            [, $wave] = $this->portalAnfrage();
+            $anna = $this->employee('Anna', '0176 1');
+
+            (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+            $wave->refresh();
+            $this->assertSame([[$anna]], $push->aufrufe);
+            $this->assertNotNull($wave->finished_at);
+            $this->assertTrue($wave->summary['done']);
+            $this->assertSame(1, $wave->summary['sent']);
+            $this->assertSame(1, RecDispoJobOffer::where('wave_id', $wave->id)->whereNotNull('sent_at')->count(), 'Angebote stehen');
+        } finally {
+            Container::getInstance()->forgetInstance(PortalPush::class);
+        }
+    }
+
+    public function test_portal_welle_ohne_gebundenen_push_laeuft(): void
+    {
+        Container::getInstance()->forgetInstance(PortalPush::class);
+        $this->assertFalse(Container::getInstance()->bound(PortalPush::class));
+        [, $wave] = $this->portalAnfrage();
+        $this->employee('Anna', '0176 1');
+
+        (new SendDispoJobWave($wave->id, 3, 9))->handle($this->cache(), $this->sender());
+
+        $this->assertSame(1, $wave->fresh()->summary['sent']);
+        $this->assertSame([], $wave->fresh()->summary['errors']);
     }
 }

@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Jobs;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -11,11 +12,14 @@ use Illuminate\Queue\SerializesModels;
 use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobWave;
+use Platform\Recruiting\Services\Push\KeinPush;
+use Platform\Recruiting\Services\Push\PortalPush;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFolgewelle;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOfferSender;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobPortalBereitsteller;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchonZugesagt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
@@ -87,8 +91,10 @@ class SendDispoJobWave implements ShouldQueue
         }
     }
 
-    public function handle(Cache $cache, DispoJobOfferSender $sender): void
+    /** $bereitsteller optional: bestehende Aufrufe (Tests) uebergeben nur Cache + Sender. */
+    public function handle(Cache $cache, DispoJobOfferSender $sender, ?DispoJobPortalBereitsteller $bereitsteller = null): void
     {
+        $bereitsteller ??= new DispoJobPortalBereitsteller();
         $wave = RecDispoJobWave::query()->with('request')->find($this->waveId);
         if ($wave === null || $wave->started_at !== null) {
             return;
@@ -100,6 +106,14 @@ class SendDispoJobWave implements ShouldQueue
         if ($request === null || $request->closed_at !== null) {
             return;
         }
+        // Sicherung (Spec Jobs anbieten 6.4, Markus 13.11.2026): Anfrage mit Freigabepflicht
+        // sendet erst nach der Freigabe. Vor jedem Schreiben — die Welle bleibt unbeansprucht
+        // und laeuft nach der Freigabe mit demselben Job. Gelesen wird nur die Anfrage, nie die
+        // aktuelle Einstellung; das faengt Welle 1, Folgewellen und „Neue Welle“ gleich ab.
+        if (!$request->darfSenden()) {
+            return;
+        }
+        $portal = $request->istPortal();
         // Automatik inzwischen gestoppt (Rennen zwischen Klick und Anlegen der Folgewelle): nicht senden.
         if ($wave->auto && $request->welle_abstand_minuten === null) {
             $progress = self::initialProgress(0);
@@ -120,7 +134,9 @@ class SendDispoJobWave implements ShouldQueue
         $key = self::cacheKey($wave->job_uuid);
 
         // Vorlage je Welle neu pruefen — sie kann seit dem Anlegen bei Meta geaendert oder abgelehnt worden sein.
-        $vorlagenProblem = DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
+        // Im Portal-Weg gibt es keine Vorlage (Spec 6.3).
+        $vorlagenProblem = $portal ? null
+            : DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
         if ($vorlagenProblem !== null) {
             $progress = self::initialProgress(0);
             $progress['done'] = true;
@@ -164,13 +180,16 @@ class SendDispoJobWave implements ShouldQueue
         }
 
         // Pakete, damit der Fortschritt waehrend des Laufs sichtbar ist.
+        $bereitgestellt = []; // employee_id der im Portal Bereitgestellten — fuer den Push
         foreach (array_chunk($plan['recipients'], 10) as $paket) {
-            if ($request->whatsapp_template_id === null) {
+            if (!$portal && $request->whatsapp_template_id === null) {
                 $progress['failed'] += count($paket);
                 $this->keepError($progress, 'keine Vorlage gewählt');
                 continue;
             }
-            $r = $sender->send($wave, $paket, (int) $request->whatsapp_template_id);
+            $r = $portal
+                ? $bereitsteller->bereitstellen($wave, $paket)
+                : $sender->send($wave, $paket, (int) $request->whatsapp_template_id);
             if (!$r['ok']) {
                 $progress['failed'] += count($paket);
                 $this->keepError($progress, (string) $r['message']);
@@ -180,8 +199,25 @@ class SendDispoJobWave implements ShouldQueue
                 foreach ($r['failed'] as $f) {
                     $this->keepError($progress, 'MA ' . $f['anchor'] . ': ' . $f['error']);
                 }
+                if ($portal) {
+                    $fehlAnker = array_flip(array_map(fn ($f) => (int) $f['anchor'], $r['failed']));
+                    foreach ($paket as $p) {
+                        if (!isset($fehlAnker[(int) $p['anchor']])) {
+                            $bereitgestellt[] = (int) $p['employee_id'];
+                        }
+                    }
+                }
             }
             $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+        }
+
+        // Push nur fuer Portal-Wellen (Spec 6.7); ein Push-Fehler bricht die Welle nie ab (Spec 4).
+        if ($portal && $bereitgestellt !== []) {
+            try {
+                self::portalPush()->neueAngebote($bereitgestellt);
+            } catch (\Throwable $e) {
+                $this->keepError($progress, 'Push fehlgeschlagen: ' . $e->getMessage());
+            }
         }
 
         // Folgewelle (Spec 2026-10-27 §2.4): gleiche Filter, naechste Personen, nach dem Abstand.
@@ -215,6 +251,17 @@ class SendDispoJobWave implements ShouldQueue
     protected function folgewelleStarten(RecDispoJobWave $wave): void
     {
         DispoJobAnfrageAnlegen::starten($wave, $this->teamId, $this->userId);
+    }
+
+    /**
+     * Gebundener Push-Dienst (RecruitingServiceProvider: KeinPush), Tests setzen eine
+     * Container-Instanz. Ohne Bindung (handgebauter Container) KeinPush statt Fehler.
+     */
+    private static function portalPush(): PortalPush
+    {
+        $c = Container::getInstance();
+
+        return $c->bound(PortalPush::class) ? $c->make(PortalPush::class) : new KeinPush();
     }
 
     private function keepError(array &$progress, string $line): void
