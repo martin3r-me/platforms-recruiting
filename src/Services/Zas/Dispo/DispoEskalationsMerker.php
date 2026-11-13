@@ -8,8 +8,8 @@ namespace Platform\Recruiting\Services\Zas\Dispo;
  * Projekte die man bestätigt ein Vorteil“). Rein rechnend; gelesen und
  * geschrieben wird die Sitzung in Events\Show.
  *
- * Uebernommen wird nur in eine VA OHNE eigenen Plan — ein gespeicherter Plan
- * einer VA gewinnt immer. Die Standard-Eskalation wird nicht gemerkt: wer auf
+ * Angeboten wird er nur in einer VA OHNE eigenen Plan — ein gespeicherter Plan
+ * einer VA gewinnt immer — und uebernommen erst per Klick, nie automatisch. Die Standard-Eskalation wird nicht gemerkt: wer auf
  * Standard zuruecksetzt und sendet, loescht den Merker damit.
  */
 final class DispoEskalationsMerker
@@ -49,6 +49,26 @@ final class DispoEskalationsMerker
         }
 
         return ['day' => $day, 'date' => $date, 't1' => $zeiten[0], 't2' => $zeiten[1], 't3' => $zeiten[2]];
+    }
+
+    /**
+     * Lesbar fuer das Angebot im Sende-Fenster: „am 13.11. · 09:00 / 10:00 / 11:00“.
+     *
+     * @param array{day:string, date:string, t1:string, t2:string, t3:string} $merker
+     * @param array<int, string> $standard Team-Standardzeiten [1=>,2=>,3=>]
+     */
+    public static function label(array $merker, array $standard): string
+    {
+        $tag = match ($merker['day']) {
+            DispoEscalationConfig::DAY_EINSATZTAG => 'Einsatztag',
+            DispoEscalationConfig::DAY_DATUM => 'am ' . substr($merker['date'], 8, 2) . '.' . substr($merker['date'], 5, 2) . '.',
+            default => 'Vortag',
+        };
+        $zeiten = $merker['t1'] !== ''
+            ? $merker['t1'] . ' / ' . $merker['t2'] . ' / ' . $merker['t3']
+            : 'Standard ' . ($standard[1] ?? '') . ' / ' . ($standard[2] ?? '') . ' / ' . ($standard[3] ?? '');
+
+        return $tag . ' · ' . $zeiten;
     }
 
     /**

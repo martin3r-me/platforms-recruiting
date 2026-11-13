@@ -704,10 +704,17 @@ class Show extends Component
     public bool $escSaved = false;
 
     /**
-     * Die Eskalation im Sende-Fenster kommt aus der letzten Sendung dieser
-     * Sitzung, nicht aus der VA (Sheran 13.11.2026) — die Ansicht sagt das
-     * dazu. Gespeichert ist sie fuer diese VA erst mit dem Senden.
+     * Sheran 13.11.2026: die zuletzt von Hand gewaehlte Eskalation dieser
+     * Sitzung steht im Sende-Fenster als ANGEBOT — uebernommen wird sie erst
+     * per Klick (Review 13.11.: automatisch vorbelegt waere sie beim Nachsenden
+     * an eine eingetauschte Person still auf die ganze VA gegangen und haette
+     * dort Offene vorzeitig zur Loeschung gemeldet).
+     *
+     * @var ?array{day:string, date:string, t1:string, t2:string, t3:string, label:string}
      */
+    public ?array $escAngebot = null;
+
+    /** Das Formular traegt gerade die per Klick uebernommene Eskalation (Hinweis in der Ansicht). */
     public bool $escUebernommen = false;
 
     public function saveEscalation(): void
@@ -752,34 +759,80 @@ class Show extends Component
     private function eskalationMerken(): void
     {
         $this->escUebernommen = false;
+        $this->escAngebot = null;
         try {
             $merker = DispoEskalationsMerker::aus($this->escDay, $this->escDate, $this->escTime1, $this->escTime2, $this->escTime3);
             if ($merker === null) {
-                session()->forget(DispoEskalationsMerker::SESSION_KEY);
+                session()->forget($this->eskalationMerkerSchluessel());
             } else {
-                session([DispoEskalationsMerker::SESSION_KEY => $merker]);
+                session([$this->eskalationMerkerSchluessel() => $merker]);
             }
         } catch (\Throwable) {
             // bewusst geschluckt
         }
     }
 
-    /**
-     * Beim Oeffnen des Sende-Fensters: hat die VA keinen eigenen Plan, wird
-     * die gemerkte Eskalation ins Formular gelegt (nicht gespeichert).
-     */
-    private function eskalationUebernehmen(): void
+    /** Sitzungs-Schluessel je Team — die Standardzeiten sind Team-Einstellung. */
+    private function eskalationMerkerSchluessel(): string
     {
-        $this->escUebernommen = false;
+        $teamId = 0;
+        try {
+            $teamId = (int) (auth()->user()?->currentTeam?->id ?? 0);
+        } catch (\Throwable) {
+            // ohne Auth (Tests) ein gemeinsamer Schluessel
+        }
+
+        return DispoEskalationsMerker::SESSION_KEY . '.' . $teamId;
+    }
+
+    /** Was liegt in der Sitzung, und passt es zu dieser VA? null = kein Angebot. */
+    private function eskalationMerkerLesen(): ?array
+    {
         try {
             $e = $this->event;
             $eigenerPlan = $e->escalation_day !== null || $e->escalation_time_1 !== null;
-            $merker = DispoEskalationsMerker::anwendbar(
-                session(DispoEskalationsMerker::SESSION_KEY), $eigenerPlan, now()->toDateString()
+
+            return DispoEskalationsMerker::anwendbar(
+                session($this->eskalationMerkerSchluessel()), $eigenerPlan, now()->toDateString()
             );
         } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** Beim Oeffnen des Sende-Fensters: nur das Angebot laden, das Formular bleibt der Stand der VA. */
+    private function eskalationAngebotLaden(): void
+    {
+        $this->escUebernommen = false;
+        $merker = $this->eskalationMerkerLesen();
+        if ($merker === null) {
+            $this->escAngebot = null;
+
             return;
         }
+        try {
+            $standard = $this->dispoSettings['escalation_defaults'];
+        } catch (\Throwable) {
+            $standard = []; // nur die Beschriftung — ohne Einstellungen steht dort „Standard“ ohne Zeiten
+        }
+        $this->escAngebot = $merker + ['label' => DispoEskalationsMerker::label($merker, $standard)];
+    }
+
+    /** Klick „Für diese Veranstaltung übernehmen“. Gespeichert wird wie bei jeder Anpassung erst beim Senden/Speichern. */
+    public function eskalationUebernehmen(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->eskalationInsFormular();
+        $this->resetErrorBag('escTime1');
+    }
+
+    private function eskalationInsFormular(): void
+    {
+        // Frisch aus der Sitzung, nicht aus $escAngebot: das kaeme vom Client.
+        $merker = $this->eskalationMerkerLesen();
+        $this->escAngebot = null;
         if ($merker === null) {
             return;
         }
@@ -964,7 +1017,10 @@ class Show extends Component
         $q = mb_strtolower(trim($this->rowSearch));
         if ($q !== '') {
             $rows = $rows->filter(function ($a) use ($q) {
-                $name = mb_strtolower(trim(($a->employee->first_name ?? '') . ' ' . ($a->employee->last_name ?? '')));
+                // Beide Reihenfolgen: die Tabelle zeigt seit 13.11.2026 „Nachname, Vorname“.
+                $vor = (string) ($a->employee->first_name ?? '');
+                $nach = (string) ($a->employee->last_name ?? '');
+                $name = mb_strtolower(trim($vor . ' ' . $nach) . '|' . trim($nach . ' ' . $vor) . '|' . \Platform\Recruiting\Support\NachnameZuerst::von($vor, $nach));
                 return str_contains($name, $q)
                     || str_contains(mb_strtolower((string) $a->pnr_raw), $q)
                     || str_contains(mb_strtolower((string) ($a->employee->personnel_number ?? '')), $q);
@@ -2905,7 +2961,7 @@ class Show extends Component
         $this->escPlanT3 = $eff['times'][3];
         $this->sendResult = null;
         $this->loadEscalationForm();
-        $this->eskalationUebernehmen();
+        $this->eskalationAngebotLaden();
         $this->resetErrorBag('escTime1');
         $this->escSaved = false;
 

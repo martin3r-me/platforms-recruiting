@@ -133,8 +133,12 @@
             // Sheran 13.11.2026: zur Loeschung gemeldet, in ZAS aber noch drin —
             // zaehlt oben nicht mit, muss aber rausgenommen werden (gleiche
             // Regel wie die Marke in der VA-Liste, Index::mitHandlungsbedarf).
+            // Nur ab heute: vergangene Tage verschwinden aus keiner Lieferung mehr,
+            // die Marke bliebe sonst fuer immer stehen (Review 13.11.).
+            $dispoHeute = now()->toDateString();
             $dispoRausnehmen = $event->assignments
-                ->filter(fn ($a) => $a->deletion_marked_at !== null && $a->zas_removed_at === null && $a->missing_since === null)
+                ->filter(fn ($a) => $a->deletion_marked_at !== null && $a->zas_removed_at === null && $a->missing_since === null
+                    && $a->datum->format('Y-m-d') >= $dispoHeute)
                 ->count();
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
@@ -679,14 +683,20 @@
                         $escSummary = $escDayPart . ' · '
                             . ($escTime1 !== '' ? ($escTime1 . ' / ' . $escTime2 . ' / ' . $escTime3) : ('Standard ' . $escDefaults[1] . ' / ' . $escDefaults[2] . ' / ' . $escDefaults[3]));
                     @endphp
+                    @if ($escAngebot !== null)
+                        {{-- Sheran 13.11.2026: die zuletzt von Hand gewaehlte Eskalation als
+                             Angebot — ein Klick statt vier Felder, aber nie automatisch. --}}
+                        <div class="flex flex-wrap items-center justify-between gap-2 rounded border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+                            <span>Zuletzt von dir verwendet: <strong>{{ $escAngebot['label'] }}</strong></span>
+                            <button type="button" wire:click="eskalationUebernehmen" class="rounded border border-violet-300 bg-white px-2 py-1 font-medium text-violet-900 hover:bg-violet-100">Für diese Veranstaltung übernehmen</button>
+                        </div>
+                    @endif
                     <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1') || $escUebernommen) open @endif>
                         <summary class="cursor-pointer text-sm font-medium text-gray-700">Eskalation: {{ $escSummary }} <span class="text-xs font-normal text-blue-600">anpassen</span></summary>
                         <div class="mt-3 space-y-2">
                             @if ($escUebernommen)
-                                {{-- Sheran 13.11.2026: die zuletzt von Hand gewaehlte Eskalation ist
-                                     vorbelegt — sichtbar, damit sie nicht unbemerkt mitgeht. --}}
                                 <div class="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs text-violet-900">
-                                    Übernommen von deiner letzten Sendung. Sie gilt für diese Veranstaltung erst mit dem Senden oder „Nur Eskalation speichern“.
+                                    Übernommen von deiner letzten Sendung. Sie gilt für <strong>alle noch Offenen</strong> dieser Veranstaltung, sobald du sendest oder „Nur Eskalation speichern“ drückst.
                                     <button type="button" wire:click="resetEscalation" class="ml-1 font-medium text-blue-700 hover:underline">Standard verwenden</button>
                                 </div>
                             @endif

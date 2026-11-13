@@ -64,4 +64,13 @@ class DispoEskalationsMerkerTest extends TestCase
         $this->assertNull(DispoEskalationsMerker::anwendbar('text', false, '2026-11-13'));
         $this->assertNull(DispoEskalationsMerker::anwendbar(['day' => 'x', 'date' => '', 't1' => '', 't2' => '', 't3' => ''], false, '2026-11-13'));
     }
+
+    public function test_label_fuer_das_angebot(): void
+    {
+        $standard = [1 => '14:00', 2 => '15:00', 3 => '16:00'];
+
+        $this->assertSame('Vortag · 09:00 / 10:00 / 11:00', DispoEskalationsMerker::label(['day' => 'vortag', 'date' => '', 't1' => '09:00', 't2' => '10:00', 't3' => '11:00'], $standard));
+        $this->assertSame('am 13.11. · 09:00 / 10:00 / 11:00', DispoEskalationsMerker::label(['day' => 'datum', 'date' => '2026-11-13', 't1' => '09:00', 't2' => '10:00', 't3' => '11:00'], $standard));
+        $this->assertSame('Einsatztag · Standard 14:00 / 15:00 / 16:00', DispoEskalationsMerker::label(['day' => 'einsatztag', 'date' => '', 't1' => '', 't2' => '', 't3' => ''], $standard));
+    }
 }

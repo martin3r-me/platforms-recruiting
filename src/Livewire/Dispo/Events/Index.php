@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\ZasDispoLieferungsStand;
 use Platform\Recruiting\Support\Filialen;
@@ -130,28 +131,38 @@ class Index extends Component
     }
 
     /**
-     * Zwei Marken der Zeile (Sheran 13.11.2026), beide im Zeitraum des Filters:
+     * Zwei Marken der Zeile (Sheran 13.11.2026), beide im Zeitraum des Filters
+     * und nur ab heute — fuer vergangene Tage ist nichts mehr zu tun, und sie
+     * verschwinden aus keiner Lieferung mehr (die Marke bliebe sonst ewig).
      *  - rausnehmen_count: zur Loeschung gemeldet, in ZAS aber noch drin (kein
      *    Haken „ZAS raus“, nicht aus der Lieferung verschwunden). Diese
      *    Einbuchungen zaehlen bei „gesamt“ bewusst nicht mit — ohne die Marke
      *    stand dort „0 gesamt · 0 bestätigt“, und nur die Alarm-WhatsApp sagte,
      *    dass jemand rausgenommen werden muss.
-     *  - nicht_angeschrieben_count: offen und noch ohne Bestaetigungs-Nachricht.
-     *    Gezeigt wird das nur, wenn in der VA schon versendet wurde
-     *    (versand_begonnen) — sonst ist es der Normalzustand. Der Beleg darf
-     *    auch an einer verschwundenen Zeile haengen: nach einem Personenwechsel
-     *    liegt die alte Besetzung samt Versand-Stempel dort ab.
+     *  - nicht_angeschrieben_count: Auftrag, offen und ohne Bestaetigungs-
+     *    Nachricht — an einem TAG, fuer den in dieser VA schon versendet wurde.
+     *    Ohne diesen Bezug waere es der Normalzustand (Mehrtaeger werden oft
+     *    tageweise verschickt). Der Beleg darf an einer verschwundenen Zeile
+     *    haengen: nach einem Personenwechsel liegt die alte Besetzung samt
+     *    Versand-Stempel dort ab. Zeilen ohne Mitarbeiter-Zuordnung zaehlen mit.
      */
     private function mitHandlungsbedarf($query)
     {
-        return $query
-            ->withCount([
-                'assignments as rausnehmen_count' => fn ($q) => $this->dateScope($q)
-                    ->whereNotNull('deletion_marked_at')->whereNull('zas_removed_at')->whereNull('missing_since'),
-                'assignments as nicht_angeschrieben_count' => fn ($q) => $this->countScope($q)
-                    ->whereNull('reminder_sent_at')->whereNull('confirmed_at')->whereNull('declined_at'),
-            ])
-            ->withExists(['assignments as versand_begonnen' => fn ($q) => $this->dateScope($q)->whereNotNull('reminder_sent_at')]);
+        $heute = now()->toDateString();
+
+        return $query->withCount([
+            'assignments as rausnehmen_count' => fn ($q) => $this->dateScope($q)
+                ->whereDate('datum', '>=', $heute)
+                ->whereNotNull('deletion_marked_at')->whereNull('zas_removed_at')->whereNull('missing_since'),
+            'assignments as nicht_angeschrieben_count' => fn ($q) => $this->countScope($q)
+                ->whereDate('datum', '>=', $heute)
+                ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
+                ->whereNull('reminder_sent_at')->whereNull('confirmed_at')->whereNull('declined_at')
+                ->whereExists(fn ($s) => $s->from('rec_dispo_assignments as gesendet')
+                    ->whereColumn('gesendet.rec_dispo_event_id', 'rec_dispo_assignments.rec_dispo_event_id')
+                    ->whereColumn('gesendet.datum', 'rec_dispo_assignments.datum')
+                    ->whereNotNull('gesendet.reminder_sent_at')),
+        ]);
     }
 
     /**
