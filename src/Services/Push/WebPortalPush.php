@@ -35,7 +35,7 @@ class WebPortalPush implements PortalPush
         $this->einreihen(new SendPortalPush([$employeeId], SendPortalPush::ART_PROBE));
     }
 
-    /** Naht fuer Tests: die Bibliothek ist im Test-vendor nicht installiert. */
+    /** Naht fuer Tests: sie duerfen nicht davon abhaengen, ob die Bibliothek installiert ist. */
     protected function bibliothekVorhanden(): bool
     {
         return class_exists(\Minishlink\WebPush\WebPush::class);

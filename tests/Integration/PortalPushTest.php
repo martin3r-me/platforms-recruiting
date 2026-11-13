@@ -344,8 +344,11 @@ class PortalPushTest extends TestCase
     {
         self::config(['public' => 'pub', 'private' => 'priv', 'subject' => 'mailto:hr@example.org']);
 
-        $this->assertFalse((new WebPortalPush())->aktiv(), 'Bibliothek fehlt im Test-vendor.');
         $this->assertFalse($this->portalPush(false)->aktiv());
+        // Die echte Klasse folgt dem, was installiert ist — seit dem Bump vom
+        // 13.11.2026 liegt die Bibliothek im Test-vendor, der Test darf nicht
+        // davon abhaengen, ob sie da ist.
+        $this->assertSame(class_exists(\Minishlink\WebPush\WebPush::class), (new WebPortalPush())->aktiv());
     }
 
     public function test_aktiv_reiht_angebote_und_probe_ein_leere_liste_nicht(): void
