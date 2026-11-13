@@ -13,6 +13,10 @@ class PushAbos
     public const MAX_ENDPOINT = 2048;
     public const MAX_SCHLUESSEL = 255;
 
+    /** Nur die bekannten Push-Dienste — sonst schickte der Server seine Probe an jede Adresse aus dem Browser (Review Task 8, SSRF). */
+    public const DIENSTE_GENAU = ['fcm.googleapis.com', 'updates.push.services.mozilla.com'];
+    public const DIENSTE_ENDUNG = ['.push.apple.com', '.notify.windows.com', '.push.services.mozilla.com'];
+
     /**
      * Ein Geraet = ein Endpunkt. Meldet sich auf demselben Geraet eine andere Person
      * an, gehoert das Abo ab jetzt ihr (sonst bekaeme der Vorbesitzer ihre Hinweise).
@@ -29,7 +33,7 @@ class PushAbos
             return false;
         }
         if (!str_starts_with($endpoint, 'https://') || strlen($endpoint) > self::MAX_ENDPOINT
-            || filter_var($endpoint, FILTER_VALIDATE_URL) === false) {
+            || filter_var($endpoint, FILTER_VALIDATE_URL) === false || !self::bekannterDienst($endpoint)) {
             return false;
         }
         foreach ([$p256dh, $auth] as $schluessel) {
@@ -50,6 +54,31 @@ class PushAbos
         );
 
         return true;
+    }
+
+    /**
+     * Host aus der Liste der Push-Dienste? Ohne Benutzer/Passwort und ohne
+     * fremden Port, damit `https://x@dienst` oder `:8080` nicht durchrutschen.
+     */
+    public static function bekannterDienst(string $endpoint): bool
+    {
+        $teile = parse_url($endpoint);
+        if (!is_array($teile) || ($teile['scheme'] ?? '') !== 'https' || !isset($teile['host'])
+            || isset($teile['user']) || isset($teile['pass'])
+            || (isset($teile['port']) && (int) $teile['port'] !== 443)) {
+            return false;
+        }
+        $host = strtolower($teile['host']);
+        if (in_array($host, self::DIENSTE_GENAU, true)) {
+            return true;
+        }
+        foreach (self::DIENSTE_ENDUNG as $endung) {
+            if (str_ends_with($host, $endung)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -13,6 +13,7 @@ use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Models\RecPushAbo;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\DokumentAutoZustellung;
 use Platform\Recruiting\Services\OffenePunkte;
@@ -1135,17 +1136,23 @@ class PortalShell extends Component
 
     /**
      * Push einschalten (Spec Jobs anbieten 6.7, Markus 13.11.2026): das Abo
-     * dieses Geraets speichern, danach sofort die Probe-Benachrichtigung.
-     * Nur mit gueltiger Sitzung — der Zustand allein reicht nicht. Die
-     * Eingabe kommt vom Browser (PushSubscription.toJSON()): nur die drei
-     * Werte werden uebernommen, PushAbos prueft Form und Laenge.
+     * dieses Geraets speichern, danach die Probe-Benachrichtigung. Nur mit
+     * gueltiger Sitzung — der Zustand allein reicht nicht. Die Eingabe kommt
+     * vom Browser (PushSubscription.toJSON()): nur die drei Werte werden
+     * uebernommen, PushAbos prueft Form, Laenge und Push-Dienst.
+     *
+     * true nur, wenn gespeichert — die Karte zeigt sonst „nicht geklappt“
+     * statt „an“ (Review Task 8). Die Probe nur, wenn die Zeile neu ist oder
+     * den Besitzer wechselt: wiederholtes Speichern desselben Geraets durch
+     * dieselbe Person reiht keine weitere Sendung ein.
      */
-    public function pushAboSpeichern(array $abo): void
+    public function pushAboSpeichern(array $abo): bool
     {
         $employee = $this->berechtigterMitarbeiter();
         if ($employee === null) {
-            return;
+            return false;
         }
+        $employeeId = (int) $employee->id;
 
         $schluessel = is_array($abo['keys'] ?? null) ? $abo['keys'] : [];
         $sauber = [
@@ -1158,31 +1165,69 @@ class PortalShell extends Component
         $userAgent = app()->bound('request') ? request()->userAgent() : null;
 
         try {
-            if (app(PushAbos::class)->speichern((int) $employee->id, $sauber, $userAgent)) {
-                app(PortalPush::class)->probe((int) $employee->id);
+            $bisher = $sauber['endpoint'] === null ? null
+                : RecPushAbo::query()->where('endpoint_hash', RecPushAbo::hash($sauber['endpoint']))->value('rec_employee_id');
+
+            if (!app(PushAbos::class)->speichern($employeeId, $sauber, $userAgent)) {
+                return false;
             }
+            if ($bisher === null || (int) $bisher !== $employeeId) {
+                app(PortalPush::class)->probe($employeeId);
+            }
+
+            return true;
         } catch (\Throwable $e) {
             try {
-                Log::warning('recruiting.portal.push_abo_fehlgeschlagen', ['employee_id' => (int) $employee->id, 'exception' => $e]);
+                Log::warning('recruiting.portal.push_abo_fehlgeschlagen', ['employee_id' => $employeeId, 'exception' => $e]);
             } catch (\Throwable) {
                 // ohne Log (Test-Container) bleibt es beim fehlenden Abo
             }
+
+            return false;
         }
     }
 
     /**
-     * Push ausschalten: nur ein Abo der eigenen Identitaets-Gruppe. Die
-     * Gruppe rechnet der Server aus der Sitzung, nie aus der Anfrage.
+     * Ist dieses Geraet fuer DIESE Person angemeldet? Die Karte fragt beim
+     * Laden nach, statt dem Browser zu glauben — das Abo kann erloschen,
+     * nie gespeichert oder (geteiltes Geraet) einer anderen Person sein.
+     * Gruppe vom Server, nie aus der Anfrage.
      */
-    public function pushAboLoeschen(string $endpoint): void
+    public function pushAboStatus(string $endpoint): bool
     {
         $employee = $this->berechtigterMitarbeiter();
         if ($employee === null || $endpoint === '' || strlen($endpoint) > PushAbos::MAX_ENDPOINT) {
-            return;
+            return false;
         }
 
+        return RecPushAbo::query()
+            ->where('endpoint_hash', RecPushAbo::hash($endpoint))
+            ->whereIn('rec_employee_id', $this->pushGruppe($employee))
+            ->exists();
+    }
+
+    /**
+     * Push ausschalten: nur ein Abo der eigenen Identitaets-Gruppe. true =
+     * Sitzung gueltig und erledigt; nur dann meldet der Browser sein Abo ab.
+     */
+    public function pushAboLoeschen(string $endpoint): bool
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null || $endpoint === '' || strlen($endpoint) > PushAbos::MAX_ENDPOINT) {
+            return false;
+        }
+
+        app(PushAbos::class)->loeschen((int) $employee->id, $this->pushGruppe($employee), $endpoint);
+
+        return true;
+    }
+
+    /** @return list<int> die Identitaets-Gruppe des Sitzungs-Mitarbeiters, mindestens er selbst */
+    private function pushGruppe(RecEmployee $employee): array
+    {
         $gruppe = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
-        app(PushAbos::class)->loeschen((int) $employee->id, $gruppe, $endpoint);
+
+        return array_values(array_unique(array_map('intval', array_merge([(int) $employee->id], $gruppe))));
     }
 
     /** Push-Teil der App-Karte nur mit Push-Dienst; ein Fehler kostet nur den Knopf. */

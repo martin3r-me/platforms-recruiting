@@ -10,6 +10,11 @@
       · Laeuft schon als App ⇒ kein Installationsteil.
       · Android/Chrome (beforeinstallprompt) ⇒ Knopf, der die Nachfrage ausloest.
       · iPhone/iPad in Safari ⇒ Anleitung in zwei Schritten; Apple erlaubt keinen Knopf.
+      · Sonst auf Touch-Geraeten (Firefox/Samsung auf Android, Chrome/In-App auf
+        dem iPhone) ⇒ die Menue-Zeile des alten Tipps (Review Task 8, ersetzt den
+        Brief-Satz „sonst kein Installationsteil“).
+      · „an“ zeigt die Karte nur, wenn der SERVER das Abo dieser Person kennt
+        (pushAboStatus / Rueckgabe von pushAboSpeichern) — nie aus dem Browser allein.
       · Push nur mit Push-Dienst ($pushAktiv, sonst nicht im Markup). Erlaubnis
         erst nach dem Tipp auf den Knopf, und zwar als ERSTES im Klick — Safari
         verlangt die Nachfrage direkt aus der Beruehrung heraus.
@@ -32,6 +37,9 @@
         : 'Benachrichtigungen sind auf diesem Gerät blockiert. Sie können sie in den Einstellungen des Browsers wieder erlauben.';
     // Der oeffentliche Schluessel kommt nur ins Markup, wenn es einen Push-Dienst gibt.
     $appSchluessel = $pushAktiv ? $vapidPublic : '';
+    // Wortlaut des alten Tipps (29.10.2026) als Rueckfall-Zeile.
+    $appMenueTipp = ($duzen ? 'Tipp: Leg dir das Portal auf den Startbildschirm.' : 'Tipp: Legen Sie sich das Portal auf den Startbildschirm.')
+        . ' iPhone: Teilen › „Zum Home-Bildschirm“. Android: Menü ⋮ › „Zum Startbildschirm hinzufügen“.';
 @endphp
 
 <script>
@@ -58,6 +66,7 @@
         alsApp: false,
         ios: false,
         iosSafari: false,
+        beruehrung: false,
         nachfrage: null,
         pushServer: @js($pushAktiv),
         schluessel: @js($appSchluessel),
@@ -71,6 +80,7 @@
                 this.ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
                 this.iosSafari = this.ios && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|FBAN|FBAV|Instagram|Line/.test(ua);
             } catch (e) {}
+            try { this.beruehrung = window.matchMedia('(pointer: coarse)').matches; } catch (e) {}
             try {
                 this.nachfrage = window.rgInstallNachfrage || null;
                 window.addEventListener('rg-install-bereit', () => { this.nachfrage = window.rgInstallNachfrage || null; });
@@ -85,13 +95,15 @@
                 } else if (Notification.permission === 'granted') {
                     navigator.serviceWorker.getRegistration('/recruiting/')
                         .then((r) => r ? r.pushManager.getSubscription() : null)
-                        .then((a) => { if (a) { this.push = 'an'; } })
+                        .then((a) => a ? this.$wire.pushAboStatus(a.endpoint) : false)
+                        .then((meins) => { if (meins === true) { this.push = 'an'; } })
                         .catch(() => {});
                 }
             } catch (e) {}
         },
-        get installTeil() { return !this.alsApp && (this.nachfrage !== null || this.iosSafari); },
-        get iosHinweis() { return this.pushServer && this.ios && !this.alsApp; },
+        get installTeil() { return !this.alsApp && (this.nachfrage !== null || this.iosSafari || this.beruehrung); },
+        get menueTipp() { return this.nachfrage === null && !this.iosSafari; },
+        get iosHinweis() { return this.pushServer && this.iosSafari && !this.alsApp; },
         get pushTeil() { return this.pushServer && (this.pushDa || this.iosHinweis); },
         get sichtbar() { return !this.weg && (this.installTeil || this.pushTeil); },
         wegklicken() {
@@ -115,8 +127,8 @@
                 var reg = await navigator.serviceWorker.ready;
                 var abo = await reg.pushManager.getSubscription();
                 if (!abo) { abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: this.schluesselBytes() }); }
-                await this.$wire.pushAboSpeichern(abo.toJSON());
-                this.push = 'an';
+                var gespeichert = await this.$wire.pushAboSpeichern(abo.toJSON());
+                this.push = gespeichert === true ? 'an' : 'fehler';
             } catch (e) {
                 this.push = 'fehler';
             }
@@ -126,7 +138,8 @@
                 var reg = await navigator.serviceWorker.getRegistration('/recruiting/');
                 var abo = reg ? await reg.pushManager.getSubscription() : null;
                 if (abo) {
-                    await this.$wire.pushAboLoeschen(abo.endpoint);
+                    var geloescht = await this.$wire.pushAboLoeschen(abo.endpoint);
+                    if (geloescht !== true) { this.push = 'fehler'; return; }
                     await abo.unsubscribe();
                 }
                 this.push = 'aus';
@@ -149,7 +162,8 @@
     </div>
 
     <div x-show="installTeil" style="display:flex;flex-direction:column;gap:11px">
-        <p>{{ $appInstallText }}</p>
+        <p x-show="!menueTipp">{{ $appInstallText }}</p>
+        <p class="klein" x-show="menueTipp">{{ $appMenueTipp }}</p>
         <button type="button" class="btn primary" x-show="nachfrage !== null" @click="installieren()">Auf den Startbildschirm</button>
         <ol x-show="nachfrage === null && iosSafari" style="margin:0;padding-left:20px;color:var(--ink-2);font-size:14px;line-height:1.7">
             <li>

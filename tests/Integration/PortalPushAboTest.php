@@ -126,7 +126,7 @@ class PortalPushAboTest extends TestCase
     private static function abo(string $geraet): array
     {
         return [
-            'endpoint' => 'https://push.example.org/' . $geraet,
+            'endpoint' => 'https://fcm.googleapis.com/fcm/send/' . $geraet,
             'expirationTime' => null,
             'keys' => ['p256dh' => 'BPkey-' . $geraet, 'auth' => 'auth-' . $geraet],
         ];
@@ -169,7 +169,7 @@ class PortalPushAboTest extends TestCase
         $anna = $this->employee('S1');
         $shell = $this->shell($anna, angemeldet: false);
 
-        $shell->pushAboSpeichern(self::abo('handy'));
+        $this->assertFalse($shell->pushAboSpeichern(self::abo('handy')));
 
         $this->assertSame(0, RecPushAbo::query()->count());
         $this->assertSame([], $this->push->proben);
@@ -192,11 +192,11 @@ class PortalPushAboTest extends TestCase
     {
         $anna = $this->employee('S3');
 
-        $this->shell($anna)->pushAboSpeichern(self::abo('handy'));
+        $this->assertTrue($this->shell($anna)->pushAboSpeichern(self::abo('handy')));
 
         $abo = RecPushAbo::query()->sole();
         $this->assertSame((int) $anna->id, (int) $abo->rec_employee_id);
-        $this->assertSame('https://push.example.org/handy', $abo->endpoint);
+        $this->assertSame('https://fcm.googleapis.com/fcm/send/handy', $abo->endpoint);
         $this->assertSame([(int) $anna->id], $this->push->proben);
     }
 
@@ -208,15 +208,132 @@ class PortalPushAboTest extends TestCase
         foreach ([
             [],
             ['endpoint' => 'http://push.example.org/x', 'keys' => ['p256dh' => 'a', 'auth' => 'b']],
-            ['endpoint' => 'https://push.example.org/x', 'keys' => 'kaputt'],
-            ['endpoint' => ['https://push.example.org/x'], 'keys' => ['p256dh' => 'a', 'auth' => 'b']],
-            ['endpoint' => 'https://push.example.org/x', 'keys' => ['p256dh' => ['a'], 'auth' => 'b']],
+            ['endpoint' => 'https://fcm.googleapis.com/fcm/send/x', 'keys' => 'kaputt'],
+            ['endpoint' => ['https://fcm.googleapis.com/fcm/send/x'], 'keys' => ['p256dh' => 'a', 'auth' => 'b']],
+            ['endpoint' => 'https://fcm.googleapis.com/fcm/send/x', 'keys' => ['p256dh' => ['a'], 'auth' => 'b']],
         ] as $roh) {
-            $shell->pushAboSpeichern($roh);
+            $this->assertFalse($shell->pushAboSpeichern($roh));
         }
 
         $this->assertSame(0, RecPushAbo::query()->count());
         $this->assertSame([], $this->push->proben);
+    }
+
+    /**
+     * Nur die Sitzungspruefung haelt hier auf (Review Task 8, M4): Bert hat
+     * ein gueltiges Abo, Annas Zustand ist gefaelscht und sie schickt Berts
+     * Endpunkt mit neuen Schluesseln. Fehlte die Pruefung, lief der Rest mit
+     * einem leeren Mitarbeiter weiter — PHP-Warnungen werden hier deshalb zu
+     * Ausnahmen, damit das nicht still als „nichts gespeichert“ durchgeht.
+     */
+    public function test_nur_die_sitzungspruefung_schuetzt_das_abo_einer_anderen_person(): void
+    {
+        $anna = $this->employee('S5');
+        $bert = $this->employee('S6');
+        $this->aboAnlegen((int) $bert->id, 'bert-handy');
+        $shell = $this->shell($anna, angemeldet: false);
+        $shell->state = 'verified';
+        TestPortalSitzung::oeffne((int) $bert->id); // Sitzung gibt es — nur fuer Bert, nicht fuer Anna
+
+        set_error_handler(static function (int $nr, string $text): never {
+            throw new \ErrorException($text, 0, $nr);
+        });
+        try {
+            $ergebnis = $shell->pushAboSpeichern([
+                'endpoint' => 'https://fcm.googleapis.com/fcm/send/bert-handy',
+                'keys' => ['p256dh' => 'BPkey-anna', 'auth' => 'auth-anna'],
+            ]);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertFalse($ergebnis);
+        $zeile = RecPushAbo::query()->sole();
+        $this->assertSame((int) $bert->id, (int) $zeile->rec_employee_id);
+        $this->assertSame('BPkey-bert-handy', $zeile->p256dh);
+        $this->assertSame([], $this->push->proben);
+    }
+
+    public function test_fremde_hosts_werden_abgelehnt_bekannte_dienste_nicht(): void
+    {
+        $anna = $this->employee('S7');
+        $shell = $this->shell($anna);
+        $keys = ['p256dh' => 'BPkey', 'auth' => 'authkey'];
+
+        foreach ([
+            'https://example.com/x',
+            'https://fcm.googleapis.com.evil.tld/x',
+            'https://evil@fcm.googleapis.com/x',
+            'https://evil:pw@fcm.googleapis.com/x',
+            'https://fcm.googleapis.com:8443/x',
+            'https://10.0.0.5/x',
+            'https://push.apple.com.evil.tld/x',
+            'https://evilpush.apple.com/x',
+        ] as $endpoint) {
+            $this->assertFalse($shell->pushAboSpeichern(['endpoint' => $endpoint, 'keys' => $keys]), $endpoint);
+        }
+        $this->assertSame(0, RecPushAbo::query()->count());
+
+        foreach ([
+            'https://fcm.googleapis.com/fcm/send/a',
+            'https://FCM.googleapis.com/fcm/send/b',
+            'https://updates.push.services.mozilla.com/wpush/v2/c',
+            'https://web.push.apple.com/d',
+            'https://wns2-par02p.notify.windows.com/w/?token=e',
+            'https://fcm.googleapis.com:443/fcm/send/f',
+        ] as $endpoint) {
+            $this->assertTrue($shell->pushAboSpeichern(['endpoint' => $endpoint, 'keys' => $keys]), $endpoint);
+        }
+        $this->assertSame(6, RecPushAbo::query()->count());
+    }
+
+    public function test_zweites_speichern_desselben_geraets_probt_nicht_noch_einmal(): void
+    {
+        $anna = $this->employee('S8');
+        $shell = $this->shell($anna);
+
+        $this->assertTrue($shell->pushAboSpeichern(self::abo('handy')));
+        $this->assertTrue($shell->pushAboSpeichern(self::abo('handy')));
+
+        $this->assertSame(1, RecPushAbo::query()->count());
+        $this->assertSame([(int) $anna->id], $this->push->proben, 'genau eine Probe');
+    }
+
+    public function test_besitzerwechsel_auf_geteiltem_geraet_probt_fuer_die_neue_person(): void
+    {
+        $anna = $this->employee('S9');
+        $bert = $this->employee('S10');
+        $this->aboAnlegen((int) $anna->id, 'geteilt');
+
+        $this->assertTrue($this->shell($bert)->pushAboSpeichern(self::abo('geteilt')));
+
+        $this->assertSame((int) $bert->id, (int) RecPushAbo::query()->sole()->rec_employee_id);
+        $this->assertSame([(int) $bert->id], $this->push->proben);
+    }
+
+    // --- Status ---------------------------------------------------------
+
+    public function test_status_nur_fuer_ein_abo_der_eigenen_gruppe(): void
+    {
+        $anna = $this->employee('T1');
+        $bert = $this->employee('T2');
+        $this->aboAnlegen((int) $anna->id, 'geteilt');
+
+        $this->assertTrue($this->shell($anna)->pushAboStatus('https://fcm.googleapis.com/fcm/send/geteilt'));
+        $this->assertFalse($this->shell($bert)->pushAboStatus('https://fcm.googleapis.com/fcm/send/geteilt'), 'geteiltes Geraet: Annas Abo ist nicht Berts');
+        $this->assertFalse($this->shell($anna)->pushAboStatus('https://fcm.googleapis.com/fcm/send/erloschen'), 'keine Zeile ⇒ nicht an');
+        $this->assertFalse($this->shell($anna, angemeldet: false)->pushAboStatus('https://fcm.googleapis.com/fcm/send/geteilt'), 'ohne Sitzung nie an');
+    }
+
+    public function test_status_kennt_das_abo_am_alt_datensatz_derselben_person(): void
+    {
+        $alt = $this->employee('T3');
+        $neu = $this->employee('T4');
+        $this->link((int) $alt->id, 78);
+        $this->link((int) $neu->id, 78);
+        $this->aboAnlegen((int) $alt->id, 'handy');
+
+        $this->assertTrue($this->shell($neu)->pushAboStatus('https://fcm.googleapis.com/fcm/send/handy'));
     }
 
     // --- Abo loeschen -----------------------------------------------------
@@ -229,11 +346,11 @@ class PortalPushAboTest extends TestCase
         $this->aboAnlegen((int) $bert->id, 'bert-handy');
 
         $shell = $this->shell($anna);
-        $shell->pushAboLoeschen('https://push.example.org/bert-handy'); // fremdes Geraet
+        $shell->pushAboLoeschen('https://fcm.googleapis.com/fcm/send/bert-handy'); // fremdes Geraet
         $this->assertSame(2, RecPushAbo::query()->count(), 'fremdes Abo bleibt');
 
-        $shell->pushAboLoeschen('https://push.example.org/anna-handy');
-        $this->assertSame(['https://push.example.org/bert-handy'], RecPushAbo::query()->pluck('endpoint')->all());
+        $this->assertTrue($shell->pushAboLoeschen('https://fcm.googleapis.com/fcm/send/anna-handy'));
+        $this->assertSame(['https://fcm.googleapis.com/fcm/send/bert-handy'], RecPushAbo::query()->pluck('endpoint')->all());
     }
 
     public function test_loeschen_reicht_ueber_die_vom_server_gerechnete_gruppe(): void
@@ -246,7 +363,7 @@ class PortalPushAboTest extends TestCase
 
         $this->assertContains((int) $alt->id, app(DispoIdentityResolver::class)->groupFor((int) $neu->id));
 
-        $this->shell($neu)->pushAboLoeschen('https://push.example.org/handy');
+        $this->shell($neu)->pushAboLoeschen('https://fcm.googleapis.com/fcm/send/handy');
 
         $this->assertSame(0, RecPushAbo::query()->count(), 'Abo am Alt-Datensatz derselben Person geht mit aus');
     }
@@ -256,7 +373,7 @@ class PortalPushAboTest extends TestCase
         $anna = $this->employee('L3');
         $this->aboAnlegen((int) $anna->id, 'handy');
 
-        $this->shell($anna, angemeldet: false)->pushAboLoeschen('https://push.example.org/handy');
+        $this->assertFalse($this->shell($anna, angemeldet: false)->pushAboLoeschen('https://fcm.googleapis.com/fcm/send/handy'));
 
         $this->assertSame(1, RecPushAbo::query()->count());
     }

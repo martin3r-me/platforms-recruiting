@@ -129,6 +129,7 @@ class PortalAppWiringTest extends TestCase
         $this->assertStringContainsString('Wählen Sie „Zum Home-Bildschirm“.', $html);
         $this->assertStringContainsString('Wir sagen Ihnen Bescheid', $html);
         $this->assertStringNotContainsString('Leg dir', $html);
+        $this->assertStringNotContainsString('Tipp: Leg dir', $html);
         $this->assertStringNotContainsString('Wir sagen dir', $html);
     }
 
@@ -137,7 +138,45 @@ class PortalAppWiringTest extends TestCase
         $s = $this->quelle('src/Livewire/Public/PortalShell.php');
         $this->assertStringContainsString("'pushAktiv'", $s);
         $this->assertStringContainsString("'vapidPublic'", $s);
-        $this->assertStringContainsString('public function pushAboSpeichern(array $abo): void', $s);
-        $this->assertStringContainsString('public function pushAboLoeschen(string $endpoint): void', $s);
+        $this->assertStringContainsString('public function pushAboSpeichern(array $abo): bool', $s);
+        $this->assertStringContainsString('public function pushAboLoeschen(string $endpoint): bool', $s);
+        $this->assertStringContainsString('public function pushAboStatus(string $endpoint): bool', $s);
+    }
+
+    /**
+     * Review Task 8 (I1): „an“ nur, wenn der Server es bestaetigt — beim
+     * Einschalten aus der Rueckgabe, beim Laden ueber pushAboStatus; der
+     * Browser meldet sich nur ab, wenn der Server das Loeschen bestaetigt.
+     */
+    public function test_karte_glaubt_beim_an_nur_dem_server(): void
+    {
+        $k = $this->quelle('resources/views/livewire/public/_portal-app-karte.blade.php');
+
+        $this->assertStringContainsString("this.\$wire.pushAboStatus(a.endpoint)", $k);
+        $this->assertStringContainsString("if (meins === true) { this.push = 'an'; }", $k);
+        $this->assertStringContainsString("this.push = gespeichert === true ? 'an' : 'fehler';", $k);
+        $this->assertStringContainsString("if (geloescht !== true) { this.push = 'fehler'; return; }", $k);
+        $this->assertLessThan(strpos($k, 'await abo.unsubscribe()'), strpos($k, 'geloescht !== true'));
+        $this->assertSame(1, substr_count($k, "this.push = 'an'"), 'kein „an“ aus dem Browser allein');
+    }
+
+    /** Review Task 8 (I3/M1): Rueckfall-Zeile statt nichts; iPhone-Hinweis nur, wo die Anleitung steht. */
+    public function test_rueckfall_zeile_und_iphone_hinweis_nur_bei_safari(): void
+    {
+        $k = $this->quelle('resources/views/livewire/public/_portal-app-karte.blade.php');
+
+        $this->assertStringContainsString("get installTeil() { return !this.alsApp && (this.nachfrage !== null || this.iosSafari || this.beruehrung); }", $k);
+        $this->assertStringContainsString("get menueTipp() { return this.nachfrage === null && !this.iosSafari; }", $k);
+        $this->assertStringContainsString("get iosHinweis() { return this.pushServer && this.iosSafari && !this.alsApp; }", $k);
+        $this->assertStringContainsString("(pointer: coarse)", $k);
+
+        foreach ([true, false] as $duzen) {
+            foreach ([true, false] as $push) {
+                $html = $this->rendereKarte($push, $duzen);
+                $this->assertStringContainsString('iPhone: Teilen › „Zum Home-Bildschirm“. Android: Menü ⋮ › „Zum Startbildschirm hinzufügen“.', $html);
+                $this->assertStringContainsString($duzen ? 'Tipp: Leg dir das Portal auf den Startbildschirm.' : 'Tipp: Legen Sie sich das Portal auf den Startbildschirm.', $html);
+                $this->assertStringContainsString('x-show="menueTipp"', $html);
+            }
+        }
     }
 }
