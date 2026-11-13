@@ -325,6 +325,9 @@ final class PortalAufgabenBladeTest extends TestCase
         // Container-Aufbau nicht hat. Das Blatt rendert hier nie (dokumentBlatt === null),
         // also faellt nur die Tag-Aufloesung beim Kompilieren weg, kein Verhalten.
         $quelle = (string) preg_replace('/<x-ui-input-signature\b[^>]*\/>/s', '', $this->bladeQuelle());
+        // Die Karte „Portal als App“ (Spec 2026-11-13 §6.6) ist ein eigenes Partial; @include
+        // braucht den View-Factory, den dieser Aufbau nicht hat. Gerendert wird sie in PortalAppWiringTest.
+        $quelle = str_replace("@include('recruiting::livewire.public._portal-app-karte')", '', $quelle);
         file_put_contents($datei, $compiler->compileString($quelle));
 
         $variablen['__env'] = new class {

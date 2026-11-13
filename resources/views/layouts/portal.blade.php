@@ -8,6 +8,20 @@
     <title>{{ $title ?? 'Mein Portal' }}</title>
 
     {{--
+        Portal als App (Spec Jobs anbieten 6.6, Markus 13.11.2026). Nur wo die
+        Huelle ein Manifest mitgibt (PortalShell::render) — die Konto-Seiten
+        teilen dieses Layout und haben keinen Token.
+    --}}
+    @if (!empty($manifestUrl))
+        <link rel="manifest" href="{{ $manifestUrl }}">
+        <meta name="theme-color" content="#0e535e">
+        <link rel="apple-touch-icon" href="/recruiting/portal-app/icon-192.png">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-title" content="Rheingedeck">
+    @endif
+
+    {{--
         Eigenes Layout, bewusst OHNE platform::layouts.guest.
 
         Drei Gruende, alle aus Canvas 67 bzw. schmerzhafter Erfahrung:

@@ -41,8 +41,11 @@ class PortalStartUebersichtTest extends TestCase
         // Sebastian 29.10.: Auszahlungssatz bleibt (aus Claras Vorlage).
         $this->assertStringContainsString('zum 15. des Folgemonats', $s);
         $this->assertStringContainsString('$schreibUnsUrl', $s);
-        $this->assertStringContainsString("localStorage", $s, 'Startbildschirm-Hinweis nur einmal');
-        $this->assertStringContainsString('display-mode: standalone', $s, 'nicht zeigen, wenn schon installiert');
+        // Spec 2026-11-13 §6.6: der Tipp ist in der Karte „Portal als App“ aufgegangen.
+        $this->assertStringContainsString("@include('recruiting::livewire.public._portal-app-karte')", $s);
+        $karte = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/_portal-app-karte.blade.php');
+        $this->assertStringContainsString("localStorage", $karte, 'Startbildschirm-Hinweis nur einmal');
+        $this->assertStringContainsString('display-mode: standalone', $karte, 'nicht zeigen, wenn schon installiert');
     }
 
     /**

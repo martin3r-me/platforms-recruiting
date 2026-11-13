@@ -92,6 +92,12 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * 'job-offers': Jobangebote-Seite /jobs/{token} (Spec 2026-10-12), token-only
      * wie die Einsatz-Seite; Portalsperre in mount() und zusagen(), Zusage nur
      * auf eigene Angebote der Identitaets-Gruppe (JobOffersZusage).
+     *
+     * 'portal-app.manifest' / '.sw' / '.icon': Portal als App (Spec Jobs
+     * anbieten 6.6, Markus 13.11.2026). Das Manifest ist token-only und
+     * verraet nichts ausser der Startadresse, die den Token schon traegt
+     * (404 fuer unbekannte Token); Service Worker und Symbole sind feste
+     * Dateien ohne Daten. Gesehen und gewollt.
      */
     private const SPAETER = [
         'recruiting.public.contract-pdf-anstellung',
@@ -102,6 +108,9 @@ class TrainingCertificatePublicRouteTest extends TestCase
         'recruiting.public.konto',
         'recruiting.public.konto-anlegen',
         'recruiting.public.konto-anlegen-code',
+        'recruiting.public.portal-app.icon',
+        'recruiting.public.portal-app.manifest',
+        'recruiting.public.portal-app.sw',
         'recruiting.public.portal-mockup',
         'recruiting.public.portal-shell',
     ];

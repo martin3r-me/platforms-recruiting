@@ -144,6 +144,20 @@ Route::get('/einsaetze/{token}/anhang/{uuid}', \Platform\Recruiting\Http\Control
     ->name('recruiting.public.employee-assignments.attachment')
     ->where('uuid', '[0-9a-fA-F-]{36}');
 
+// Portal als App (Spec Jobs anbieten 6.6/6.7, Markus 13.11.2026): Manifest,
+// Service Worker und Symbole ueber Modul-Routen statt publizierter Dateien.
+// Das Manifest traegt den Portal-Token im Pfad (Startadresse = Token-Adresse,
+// dasselbe Geheimnis wie die Seite). Keine Kollision mit /portal/{token}:
+// anderes erstes Segment. no-store kommt wie ueberall hier aus NoCacheHeaders.
+Route::get('/portal-app/manifest/{token}.webmanifest', [\Platform\Recruiting\Http\Controllers\PortalAppController::class, 'manifest'])
+    ->where('token', '[A-Za-z0-9-]+')
+    ->name('recruiting.public.portal-app.manifest');
+Route::get('/portal-app/sw.js', [\Platform\Recruiting\Http\Controllers\PortalAppController::class, 'sw'])
+    ->name('recruiting.public.portal-app.sw');
+Route::get('/portal-app/icon-{size}.png', [\Platform\Recruiting\Http\Controllers\PortalAppController::class, 'icon'])
+    ->where('size', '192|512')
+    ->name('recruiting.public.portal-app.icon');
+
 // Design-Vorschau des Mitarbeiterportals — statische HTML-Datei hinter einem
 // Zahlencode. Nur zum Zeigen, enthaelt ausschliesslich Beispieldaten.
 Route::match(['GET', 'POST'], '/entwurf/portal', \Platform\Recruiting\Http\Controllers\PortalMockupController::class)

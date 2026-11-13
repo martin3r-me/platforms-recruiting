@@ -25,6 +25,8 @@ use Platform\Recruiting\Services\PersonSchwestern;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
+use Platform\Recruiting\Services\Push\PortalPush;
+use Platform\Recruiting\Services\Push\PushAbos;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ProofWriter;
 use Platform\Recruiting\Support\PortalBoolValue;
@@ -1132,6 +1134,78 @@ class PortalShell extends Component
     }
 
     /**
+     * Push einschalten (Spec Jobs anbieten 6.7, Markus 13.11.2026): das Abo
+     * dieses Geraets speichern, danach sofort die Probe-Benachrichtigung.
+     * Nur mit gueltiger Sitzung — der Zustand allein reicht nicht. Die
+     * Eingabe kommt vom Browser (PushSubscription.toJSON()): nur die drei
+     * Werte werden uebernommen, PushAbos prueft Form und Laenge.
+     */
+    public function pushAboSpeichern(array $abo): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null) {
+            return;
+        }
+
+        $schluessel = is_array($abo['keys'] ?? null) ? $abo['keys'] : [];
+        $sauber = [
+            'endpoint' => is_string($abo['endpoint'] ?? null) ? $abo['endpoint'] : null,
+            'keys' => [
+                'p256dh' => is_string($schluessel['p256dh'] ?? null) ? $schluessel['p256dh'] : null,
+                'auth' => is_string($schluessel['auth'] ?? null) ? $schluessel['auth'] : null,
+            ],
+        ];
+        $userAgent = app()->bound('request') ? request()->userAgent() : null;
+
+        try {
+            if (app(PushAbos::class)->speichern((int) $employee->id, $sauber, $userAgent)) {
+                app(PortalPush::class)->probe((int) $employee->id);
+            }
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('recruiting.portal.push_abo_fehlgeschlagen', ['employee_id' => (int) $employee->id, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt es beim fehlenden Abo
+            }
+        }
+    }
+
+    /**
+     * Push ausschalten: nur ein Abo der eigenen Identitaets-Gruppe. Die
+     * Gruppe rechnet der Server aus der Sitzung, nie aus der Anfrage.
+     */
+    public function pushAboLoeschen(string $endpoint): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null || $endpoint === '' || strlen($endpoint) > PushAbos::MAX_ENDPOINT) {
+            return;
+        }
+
+        $gruppe = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
+        app(PushAbos::class)->loeschen((int) $employee->id, $gruppe, $endpoint);
+    }
+
+    /** Push-Teil der App-Karte nur mit Push-Dienst; ein Fehler kostet nur den Knopf. */
+    private static function pushAktiv(): bool
+    {
+        try {
+            return app(PortalPush::class)->aktiv();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** Oeffentlicher VAPID-Schluessel fuer den Browser — nur, wenn es den Push-Dienst gibt. */
+    private static function vapidSchluessel(): string
+    {
+        try {
+            return self::pushAktiv() ? (string) config('recruiting.push.vapid.public', '') : '';
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /**
      * „Schreib uns“: WhatsApp an die HR-Nummer = die Nummer des Kontos der
      * Themen-Auswahl (auto_pilot_wa_account_id). Nicht ein beliebiger Kanal
      * des Kontos (Review 29.10.). Wer zur Dispo will, waehlt dort
@@ -1204,6 +1278,8 @@ class PortalShell extends Component
         return view('recruiting::livewire.public.portal-shell', $this->ansichtsDaten())
             ->layout('recruiting::layouts.portal', [
                 'title' => 'Mein Portal · RheinGedeck',
+                // Portal als App (Spec 6.6): Manifest je Token, Startadresse = diese Seite.
+                'manifestUrl' => '/recruiting/portal-app/manifest/' . rawurlencode($this->token) . '.webmanifest',
             ]);
     }
 
@@ -1267,6 +1343,9 @@ class PortalShell extends Component
             'naechsterEinsatz'  => $employee !== null ? $this->naechsterEinsatz($employee) : null,
             // Karte „N neue Einsätze“ (Spec 2026-11-13 §6.5); nur verified (berechtigterMitarbeiter).
             'neueAngebote'      => $employee !== null ? $this->neueAngebote($employee) : 0,
+            // Karte „Portal als App“ (Spec 6.6/6.7): Push-Teil nur mit Push-Dienst, Schluessel nur dann.
+            'pushAktiv'         => $employee !== null && self::pushAktiv(),
+            'vapidPublic'       => $employee !== null ? self::vapidSchluessel() : '',
             'schreibUnsUrl'     => $employee !== null ? self::schreibUnsUrl((int) $employee->team_id) : null,
             'lohnAnleitungUrl'  => $employee !== null ? self::lohnAnleitungUrl((int) $employee->team_id) : null,
             'agendaZugang'      => $employee?->agenda_zugang === null ? null : (bool) $employee->agenda_zugang,

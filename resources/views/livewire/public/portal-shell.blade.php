@@ -528,21 +528,10 @@
                 @endif
 
                 {{--
-                    Einmaliger Hinweis "auf den Startbildschirm legen" (29.10.2026).
-                    Nur im Browser gemerkt (localStorage, try/catch); nicht, wenn das
-                    Portal schon als App laeuft (display-mode: standalone).
+                    Karte „Portal als App nutzen“ (Spec 2026-11-13 §6.6/6.7): Startbildschirm
+                    und Benachrichtigungen. Ersetzt den einmaligen Tipp vom 29.10.2026.
                 --}}
-                <div class="alert ok" style="margin-top:11px" x-cloak x-data="{ zeigen: false }"
-                     x-init="try { zeigen = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(display-mode: standalone)').matches && !localStorage.getItem('rg-portal-startbildschirm') } catch (e) { zeigen = false }"
-                     x-show="zeigen">
-                    <span class="dot ok" style="margin-top:6px"></span>
-                    <div class="txt">
-                        {{ $duzen ? 'Tipp: Leg dir das Portal auf den Startbildschirm.' : 'Tipp: Legen Sie sich das Portal auf den Startbildschirm.' }}
-                        iPhone: Teilen › „Zum Home-Bildschirm“. Android: Menü ⋮ › „Zum Startbildschirm hinzufügen“.
-                        <button type="button" class="mini" style="margin-top:6px"
-                                @click="zeigen = false; try { localStorage.setItem('rg-portal-startbildschirm', '1') } catch (e) {}">Verstanden</button>
-                    </div>
-                </div>
+                @include('recruiting::livewire.public._portal-app-karte')
             </div>
 
             {{-- ---------------- EINSAETZE ---------------- --}}
