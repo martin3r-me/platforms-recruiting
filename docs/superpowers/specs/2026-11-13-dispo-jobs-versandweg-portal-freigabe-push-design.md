@@ -71,6 +71,8 @@ Ist der Schalter an und kein Freigeber hinterlegt, warnt die Einstellungsseite d
 
 **Wer die beiden Einstellungen ändern darf** (Sebastian 13.11.): Solange kein Freigeber hinterlegt ist, jeder mit Zugang zur Einstellungsseite; den ersten Eintrag macht Sebastian beim Rollout. Sobald ein Freigeber hinterlegt ist, darf nur noch dieser selbst Schalter und Freigeber ändern. Alle anderen sehen die Felder gesperrt. Geprüft wird auf dem Server beim Speichern; die übrigen Einstellungen der Seite bleiben für alle wie heute speicherbar. Sonst könnte sich ein Disponent selbst eintragen oder den Schalter ausschalten und die Freigabe umgehen.
 
+Gesichert ist das auch gegen das Einstellungsfenster der Bewerberliste (`ApplicantSettingsModal`), das das ganze settings-JSON zurückschreibt: Beim Speichern dort kommen beide Schlüssel immer aus dem gespeicherten Stand, ein gefälschter Wert ändert nichts, ein veraltetes Fenster löscht sie nicht (Gesamtprüfung 13.11.). Der Freigeber muss ein vorhandener Plattform-Nutzer sein: eine ungültige oder unbekannte Adresse wird mit Meldung am Feld abgelehnt, Schalter und Freigeber bleiben dann wie vorher, die übrigen Einstellungen werden gespeichert. Sonst sperrte ein Tippfehler alle aus, auch den echten Freigeber.
+
 Schalter aus bedeutet: keine Auswahl beim Anlegen, jede Anfrage geht per WhatsApp sofort raus, keine Freigabe. Genau der heutige Stand.
 
 ### 6.2 Anlegen (Create)
@@ -92,6 +94,8 @@ Der Weg steht fest an der Anfrage (neue Spalte, Werte `whatsapp` | `portal`, Alt
 - danach Push an die Personen dieser Welle (6.7), in eigener Fehlerbehandlung.
 
 Die Empfängerplanung wird nicht danach gefiltert, ob jemand schon aufs neue Portal kommt. (Meine Festlegung: Der Schalter wird erst mit dem Rollout eingeschaltet, dann sind alle drauf. Ein Filter wäre die doppelte Logik, die Sebastian vermeiden will.) Damit diese Annahme nicht still bricht, zeigt die Einstellungsseite neben dem Schalter, wie viele aktive Mitarbeiter mit Status GO oder MA noch nicht aufs neue Portal umgestellt sind (`portal_v2_since` leer). Ist die Zahl größer null, steht dort eine Warnung: Diese Personen bekämen Portal-Angebote, die sie nicht sehen, und belegen trotzdem einen Platz in der Welle. Das Einschalten wird dadurch nicht verhindert.
+
+Mitarbeiter ohne Telefonnummer bekommen auch im Portal-Weg kein Angebot: Die Empfängerplanung ist unverändert, und sie lässt Personen ohne Nummer weiterhin heraus.
 
 In der Anfrage-Ansicht (`Show`) steht bei Portal-Wellen „im Portal bereitgestellt“ statt „gesendet“, und der Weg ist an der Anfrage sichtbar. Die Liste „Wer ist an dem Tag frei?“ zählt Portal-Angebote wie WhatsApp-Angebote als „angeschrieben“.
 
@@ -172,7 +176,7 @@ Sichttests nach Deploy: Karte auf der Startseite, Bereich „Freie Einsätze“ 
 Reihenfolge, wie sie im Code dieses Zweigs tatsächlich gilt.
 
 1. **Bump in meingedeck:** der übliche Befehl `composer update martin3r/platform-recruiting --no-interaction --no-scripts` zieht die neue Abhängigkeit `minishlink/web-push` mit (5 Pakete; ein Probelauf gegen meingedeck löste sauber auf, auf v9.0.4).
-2. **Migrationen** (`php artisan migrate`), zwei Dateien:
+2. **Migrationen** (`php artisan migrate`) — müssen gelaufen sein, bevor Nutzer auf den neuen Code treffen: Die Jobs-Übersicht sortiert nach einer neuen Spalte; reißt der Forge-Deploy vor `migrate` ab, gibt es dort einen Fehler. Zwei Dateien:
    - `2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables`: neue Spalten an `rec_dispo_job_requests` (Versandweg, Freigabe) und `rec_dispo_job_offers` (Kanal).
    - `2026_11_13_000002_create_rec_push_abos_table`: Tabelle `rec_push_abos` für die Push-Abos.
 3. **`php artisan queue:restart`** (der Wellen-Job hat sich geändert, laufende Worker nutzen sonst den alten Code) und **`php artisan view:clear`** (neue Portal-Ansichten).
@@ -196,7 +200,7 @@ Reihenfolge, wie sie im Code dieses Zweigs tatsächlich gilt.
    - Feld „E-Mail-Adresse des Freigebers“ (`dispo_job_freigeber_email`).
 
    Wer ändern darf: solange kein Freigeber eingetragen ist, jeder mit Zugang zur Seite; den Ersteintrag macht Sebastian. Danach nur noch der Freigeber selbst (serverseitig geprüft, die Felder sind für alle anderen gesperrt). Ist der Schalter an und kein Freigeber hinterlegt, bleiben WhatsApp-Anfragen auf „wartet auf Freigabe“ stehen.
-7. **Rollout des Portal-Wegs:** erst auf dem Demo-Team komplett durchspielen, dann Freigeber eintragen und Schalter einschalten.
+7. **Rollout des Portal-Wegs:** erst auf dem Demo-Team komplett durchspielen, dann den Freigeber VOR oder zusammen mit dem Einschalten eintragen (er muss ein vorhandener Plattform-Nutzer sein) und den Schalter einschalten. Nach dem ersten echten Push die Zähler im Log `recruiting.portal_push.gesendet` ansehen (ok / erloschen / fehler); scheitert ein Versand, steht der Grund mit dem Host des Push-Dienstes in `recruiting.portal_push.transport_fehler`.
 
 ### Sichttests am Gerät
 

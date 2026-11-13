@@ -19,6 +19,25 @@
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-title" content="Rheingedeck">
+        <script>
+            // Android/Chrome meldet die Installierbarkeit meist beim ersten Laden — oft
+            // VOR der Anmeldung, die App-Karte kommt erst danach per Morph (Skripte
+            // laufen dabei nicht). Deshalb hier im Layout auffangen, die Karte holt
+            // sie sich ab (Gesamtpruefung Minor 2). Weggeklickt ⇒ der Browser behaelt
+            // seinen eigenen Hinweis.
+            (function () {
+                try {
+                    if (window.rgPortalAppFang) { return; }
+                    window.rgPortalAppFang = true;
+                    window.addEventListener('beforeinstallprompt', function (e) {
+                        try { if (localStorage.getItem('rg-portal-app-karte') === 'weg') { return; } } catch (x) {}
+                        e.preventDefault();
+                        window.rgInstallNachfrage = e;
+                        window.dispatchEvent(new Event('rg-install-bereit'));
+                    });
+                } catch (e) {}
+            })();
+        </script>
     @endif
 
     {{--

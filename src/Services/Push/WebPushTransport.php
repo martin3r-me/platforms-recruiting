@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services\Push;
 
+use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecPushAbo;
 
 /**
@@ -12,6 +13,9 @@ use Platform\Recruiting\Models\RecPushAbo;
  */
 class WebPushTransport implements PushTransport
 {
+    /** Hoechstens eine Fehlerzeile je Instanz — der Job loest den Transport je Lauf frisch auf. */
+    private bool $fehlerGemeldet = false;
+
     public function senden(RecPushAbo $abo, array $payload): string
     {
         if (!class_exists(\Minishlink\WebPush\WebPush::class) || !class_exists(\Minishlink\WebPush\Subscription::class)) {
@@ -25,6 +29,8 @@ class WebPushTransport implements PushTransport
             return 'fehler';
         }
 
+        $endpunkt = (string) $abo->endpoint;
+        $geheim = [(string) $abo->p256dh, (string) $abo->auth];
         try {
             $webPush = new \Minishlink\WebPush\WebPush(['VAPID' => [
                 'subject' => $subject,
@@ -45,9 +51,44 @@ class WebPushTransport implements PushTransport
             }
 
             // isSubscriptionExpired = HTTP 404 oder 410 vom Push-Dienst.
-            return $report->isSubscriptionExpired() ? 'erloschen' : 'fehler';
-        } catch (\Throwable) {
+            if ($report->isSubscriptionExpired()) {
+                return 'erloschen';
+            }
+            $this->fehlerMelden((string) $report->getReason(), $endpunkt, $geheim);
+
             return 'fehler';
+        } catch (\Throwable $e) {
+            $this->fehlerMelden($e->getMessage(), $endpunkt, $geheim);
+
+            return 'fehler';
+        }
+    }
+
+    /**
+     * Gesamtpruefung I4 (13.11.2026): vorher kein Wort, warum Push scheitert. Geloggt
+     * werden Grund und Host; jede URL im Text wird auf ihren Host gekuerzt (der Pfad
+     * des Endpunkts ist das Abo selbst), Schluessel werden entfernt. Wirft nie.
+     *
+     * @param list<string> $geheim Werte, die nie im Log landen duerfen (p256dh, auth)
+     */
+    protected function fehlerMelden(string $grund, string $endpunkt, array $geheim = []): void
+    {
+        if ($this->fehlerGemeldet) {
+            return;
+        }
+        $this->fehlerGemeldet = true;
+
+        try {
+            $host = parse_url($endpunkt, PHP_URL_HOST);
+            $grund = str_replace(array_values(array_filter($geheim, fn ($g) => $g !== '')), '…', $grund);
+            $grund = (string) preg_replace_callback('~https?://[^\s`\'"<>]+~i', fn ($m) => (string) (parse_url($m[0], PHP_URL_HOST) ?: '…'), $grund);
+            $grund = trim($grund);
+            Log::warning('recruiting.portal_push.transport_fehler', [
+                'host'  => is_string($host) && $host !== '' ? $host : null,
+                'grund' => $grund === '' ? '(ohne Text)' : mb_substr($grund, 0, 300),
+            ]);
+        } catch (\Throwable) {
+            // Ein kaputtes Log darf den Versand nicht aufhalten.
         }
     }
 }

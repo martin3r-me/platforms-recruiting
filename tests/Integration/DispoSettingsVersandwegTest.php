@@ -35,6 +35,15 @@ class DispoSettingsVersandwegTest extends TestCase
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
         Facade::setFacadeApplication($container);
         $container->instance('config', new ConfigRepository(['recruiting' => ['zas' => ['inbound_team_id' => self::TEAM]]]));
+        // addError() holt die geteilten Fehler ueber app('view'), der Beutel liegt
+        // in Livewires DataStore (Muster SettingsModalThemenTest).
+        $container->instance('view', new class {
+            public function getShared(): array
+            {
+                return [];
+            }
+        });
+        $container->singleton(\Livewire\Mechanisms\DataStore::class);
 
         $own = dirname(__DIR__, 2);
         foreach ([
@@ -53,6 +62,8 @@ class DispoSettingsVersandwegTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Container::getInstance()->forgetInstance('config');
+        Container::getInstance()->forgetInstance('view');
+        Container::getInstance()->forgetInstance(\Livewire\Mechanisms\DataStore::class);
         Facade::clearResolvedInstances();
     }
 
@@ -63,14 +74,21 @@ class DispoSettingsVersandwegTest extends TestCase
         }
     }
 
-    private static function komponente(?string $email, array $props = []): Settings
+    private static function komponente(?string $email, array $props = [], ?array $plattformNutzer = null): Settings
     {
         $c = new class extends Settings {
             public mixed $testNutzer = null;
+            /** null = jede Adresse gilt als vorhandener Nutzer (aeltere Tests). */
+            public ?array $plattformNutzer = null;
 
             protected function nutzer(): mixed
             {
                 return $this->testNutzer;
+            }
+
+            protected function istPlattformNutzer(string $email): bool
+            {
+                return $this->plattformNutzer === null || in_array($email, $this->plattformNutzer, true);
             }
 
             /** Die Validierung braucht die Livewire-Laufzeit und ist nicht Gegenstand dieses Tests. */
@@ -89,6 +107,7 @@ class DispoSettingsVersandwegTest extends TestCase
             }
         };
         $c->testNutzer = $email === null ? null : (object) ['email' => $email];
+        $c->plattformNutzer = $plattformNutzer;
         $c->escalationTime1 = '14:00';
         $c->escalationTime2 = '15:00';
         $c->escalationTime3 = '16:00';
@@ -163,6 +182,68 @@ class DispoSettingsVersandwegTest extends TestCase
         $s = self::frisch();
         $this->assertNull(DispoJobVersandweg::freigeberEmail($s));
         $this->assertTrue(DispoJobVersandweg::darfEinstellungenAendern(DispoJobVersandweg::freigeberEmail($s), (object) ['email' => 'jeder@rg.de']));
+    }
+
+    public function test_freigeber_muss_gueltige_adresse_sein_rest_wird_gespeichert(): void
+    {
+        foreach (['markus(at)rg.de', 'markus@', 'kein text mit leerzeichen@rg.de'] as $falsch) {
+            self::einstellungen([DispoJobVersandweg::SETTING_AKTIV => false]);
+            $c = self::komponente('anna@rg.de', ['versandwegAktiv' => '1', 'freigeberEmail' => $falsch, 'escalationTime1' => '13:30'], ['markus@rg.de']);
+            $c->save();
+
+            $s = self::frisch();
+            $this->assertFalse(DispoJobVersandweg::aktiv($s), $falsch . ': Schalter wird nicht gespeichert');
+            $this->assertNull(DispoJobVersandweg::freigeberEmail($s), $falsch);
+            $this->assertSame('13:30', $s->getSetting('dispo_escalation_time_1'), $falsch . ': der Rest wird gespeichert');
+            $this->assertStringContainsString('gültige E-Mail', (string) $c->getErrorBag()->first('freigeberEmail'), $falsch);
+            $this->assertSame($falsch, $c->freigeberEmail, $falsch . ': Eingabe bleibt zum Korrigieren stehen');
+        }
+    }
+
+    public function test_freigeber_muss_vorhandener_nutzer_sein(): void
+    {
+        self::einstellungen();
+        $c = self::komponente('anna@rg.de', ['versandwegAktiv' => '1', 'freigeberEmail' => 'markus@rg.dee'], ['markus@rg.de']);
+        $c->save();
+
+        $s = self::frisch();
+        $this->assertFalse(DispoJobVersandweg::aktiv($s));
+        $this->assertNull(DispoJobVersandweg::freigeberEmail($s));
+        $this->assertStringContainsString('Kein Nutzer', (string) $c->getErrorBag()->first('freigeberEmail'));
+    }
+
+    public function test_vorhandener_nutzer_wird_klein_und_ohne_leerzeichen_verglichen(): void
+    {
+        self::einstellungen();
+        $c = self::komponente('anna@rg.de', ['versandwegAktiv' => '1', 'freigeberEmail' => '  Markus@RG.de '], ['markus@rg.de']);
+        $c->save();
+
+        $this->assertSame('markus@rg.de', DispoJobVersandweg::freigeberEmail(self::frisch()));
+        $this->assertFalse($c->getErrorBag()->any());
+    }
+
+    public function test_gesperrter_nutzer_mit_altem_feldinhalt_speichert_den_rest_ohne_fehler(): void
+    {
+        // Gespeicherter Freigeber ist (inzwischen) kein Nutzer mehr — der Gesperrte
+        // darf trotzdem den Rest speichern, die Pruefung der zwei Felder greift nicht.
+        self::einstellungen([DispoJobVersandweg::SETTING_AKTIV => true, DispoJobVersandweg::SETTING_FREIGEBER => 'markus@rg.de']);
+        $c = self::komponente('anna@rg.de', ['versandwegAktiv' => '1', 'freigeberEmail' => 'markus@rg.de', 'escalationTime1' => '13:30'], []);
+        $c->save();
+
+        $s = self::frisch();
+        $this->assertSame('13:30', $s->getSetting('dispo_escalation_time_1'));
+        $this->assertSame('markus@rg.de', DispoJobVersandweg::freigeberEmail($s));
+        $this->assertFalse($c->getErrorBag()->any());
+    }
+
+    public function test_fehler_steht_am_feld(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/dispo/settings.blade.php');
+        $feld = strpos($blade, 'wire:model="freigeberEmail"');
+        $fehler = strpos($blade, "@error('freigeberEmail')");
+        $this->assertNotFalse($fehler);
+        $this->assertGreaterThan($feld, $fehler);
+        $this->assertLessThan(strpos($blade, '</label>', (int) $feld), $fehler, 'direkt am Feld');
     }
 
     private function mitarbeiter(array $o = [], ?string $status = null): int

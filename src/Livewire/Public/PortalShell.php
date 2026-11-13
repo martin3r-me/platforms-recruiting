@@ -1168,7 +1168,7 @@ class PortalShell extends Component
             $bisher = $sauber['endpoint'] === null ? null
                 : RecPushAbo::query()->where('endpoint_hash', RecPushAbo::hash($sauber['endpoint']))->value('rec_employee_id');
 
-            if (!app(PushAbos::class)->speichern($employeeId, $sauber, $userAgent)) {
+            if (!app(PushAbos::class)->speichern($employeeId, $sauber, $userAgent, $this->pushGruppe($employee))) {
                 return false;
             }
             if ($bisher === null || (int) $bisher !== $employeeId) {

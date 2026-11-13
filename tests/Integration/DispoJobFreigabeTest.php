@@ -3,6 +3,8 @@
 namespace Platform\Recruiting\Tests\Integration;
 
 use Carbon\Carbon;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -57,6 +59,8 @@ class DispoJobFreigabeTest extends TestCase
     {
         Carbon::setTestNow();
         Container::getInstance()->forgetInstance('config');
+        Container::getInstance()->forgetInstance(AuthFactory::class);
+        Container::getInstance()->forgetInstance(BusDispatcher::class);
         Facade::clearResolvedInstances();
     }
 
@@ -251,6 +255,143 @@ class DispoJobFreigabeTest extends TestCase
         $this->assertSame(2, DispoJobFreigabe::wartend(self::TEAM));
         $this->assertSame(2, DispoJobFreigabe::wartend(), 'ohne Team: inbound_team_id');
         $this->assertSame(1, DispoJobFreigabe::wartend(99));
+    }
+
+    // ------------------------------------------------------------------
+    // Gesamtpruefung I2/I3 (13.11.2026)
+    // ------------------------------------------------------------------
+
+    public function test_freigeben_ohne_wartende_welle_meldet_keine_welle_und_baut_keine_nach(): void
+    {
+        $r = self::anfrage();
+        RecDispoJobWave::query()->where('request_id', $r->id)->delete(); // Altfall: vor der Sperre abgebrochen
+
+        $this->assertSame('keine_welle', FreigabeZaehler::freigeben($r, self::freigeber(), self::TEAM));
+        $r->refresh();
+        $this->assertNotNull($r->freigegeben_at, 'Entscheidung bleibt gespeichert');
+        $this->assertTrue($r->darfSenden());
+        $this->assertSame(0, RecDispoJobWave::query()->where('request_id', $r->id)->count(), 'keine Welle nachgebaut');
+        $this->assertSame([], FreigabeZaehler::$gestartet);
+    }
+
+    public function test_ins_portal_ohne_wartende_welle_meldet_keine_welle(): void
+    {
+        $r = self::anfrage();
+        FreigabeZaehler::ablehnen($r, self::freigeber(), '');
+        RecDispoJobWave::query()->where('request_id', $r->id)->delete();
+
+        $this->assertSame('keine_welle', FreigabeZaehler::insPortal($r, self::TEAM, 9));
+        $this->assertTrue($r->fresh()->istPortal(), 'Entscheidung bleibt gespeichert');
+        $this->assertSame(0, RecDispoJobWave::query()->where('request_id', $r->id)->count());
+        $this->assertSame([], FreigabeZaehler::$gestartet);
+    }
+
+    public function test_show_abbrechen_verweigert_wartende_und_abgelehnte_welle(): void
+    {
+        $r = self::anfrage();
+        $welle = (int) $r->waves()->value('id');
+        $show = self::show($r);
+
+        $show->abbrechen($welle);
+        $this->assertSame('Die Anfrage wartet auf Freigabe.', $show->fehler);
+        $this->assertSame(1, RecDispoJobWave::query()->whereKey($welle)->count());
+
+        FreigabeZaehler::ablehnen($r, self::freigeber(), '');
+        $show->abbrechen($welle);
+        $this->assertSame('Die Freigabe wurde abgelehnt.', $show->fehler);
+        $this->assertSame(1, RecDispoJobWave::query()->whereKey($welle)->count());
+
+        // Nach „Stattdessen im Portal“ darf gesendet werden — dann geht Abbrechen wieder.
+        FreigabeZaehler::insPortal($r, self::TEAM, 9);
+        $show->abbrechen($welle);
+        $this->assertSame('', $show->fehler);
+        $this->assertSame(0, RecDispoJobWave::query()->whereKey($welle)->count());
+    }
+
+    public function test_show_freigeben_ohne_wartende_welle_sagt_es(): void
+    {
+        $r = self::anfrage();
+        RecDispoJobWave::query()->where('request_id', $r->id)->delete();
+        $show = self::show($r);
+        self::mitAuth(self::freigeber());
+
+        $show->freigeben();
+        $this->assertSame('', $show->fehler);
+        $this->assertSame('Freigegeben. Es gibt keine wartende Welle — bitte über ‚Neue Welle‘ starten.', $show->hinweis);
+    }
+
+    public function test_show_freigeben_nennt_kuenftigen_start(): void
+    {
+        $r = self::anfrage([], ['scheduled_for' => Carbon::parse('2026-11-14 09:00:00')]);
+        $show = self::show($r);
+        self::mitAuth(self::freigeber());
+        $this->assertSame('2026-11-14 09:00', $show->startGeplant()?->format('Y-m-d H:i'));
+
+        $show->freigeben();
+        $this->assertSame('Freigegeben. Welle 1 startet am 14.11. um 09:00 Uhr.', $show->hinweis);
+    }
+
+    public function test_show_freigeben_ohne_kuenftigen_start_wie_bisher(): void
+    {
+        $r = self::anfrage([], ['scheduled_for' => Carbon::now()->subHour()]);
+        $show = self::show($r);
+        self::mitAuth(self::freigeber());
+        $this->assertNull($show->startGeplant());
+
+        $show->freigeben();
+        $this->assertSame('Freigegeben. Welle 1 startet.', $show->hinweis);
+    }
+
+    private static function show(RecDispoJobRequest $r): Show
+    {
+        $show = new class extends Show {
+            public function __get($name)
+            {
+                return method_exists($this, $name) ? $this->{$name}() : parent::__get($name);
+            }
+
+            public function __unset($name)
+            {
+            }
+        };
+        $show->requestId = (int) $r->id;
+
+        return $show;
+    }
+
+    /** auth()->user() fuer Show; Bus nur als Zaehler, damit ein echter Start nicht ins Leere dispatcht. */
+    private static function mitAuth(object $user): void
+    {
+        $c = Container::getInstance();
+        $c->instance(AuthFactory::class, new class ($user) implements AuthFactory {
+            public function __construct(private object $user)
+            {
+            }
+
+            public function guard($name = null)
+            {
+                return $this;
+            }
+
+            public function shouldUse($name)
+            {
+            }
+
+            public function user()
+            {
+                return $this->user;
+            }
+
+            public function id()
+            {
+                return $this->user->id ?? null;
+            }
+        });
+        $c->instance(BusDispatcher::class, new class {
+            public function dispatch($job)
+            {
+            }
+        });
     }
 
     public function test_show_neue_welle_legt_bei_wartender_anfrage_keine_welle_an(): void

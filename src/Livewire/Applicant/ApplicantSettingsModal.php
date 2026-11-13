@@ -11,6 +11,7 @@ use Platform\Recruiting\Models\RecServiceHours;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\PortalVorlagen;
@@ -304,6 +305,19 @@ class ApplicantSettingsModal extends Component
         ['settings' => $this->settings, 'fehler' => $themenFehler] = self::themenEinstellungen($this->settings);
         foreach ($themenFehler as $feld => $meldung) {
             $this->addError('settings.' . $feld, $meldung);
+        }
+
+        // Jobs anbieten (Gesamtpruefung C1, 13.11.2026): Schalter und Freigeber sind in
+        // Dispo → Einstellungen gesperrt; hier kaemen sie per $wire.set oder aus einem
+        // veralteten Fenster ungeprueft zurueck. Deshalb immer der gespeicherte Stand —
+        // fehlt ein Schluessel dort, fehlt er auch danach.
+        $gespeichert = (array) ($this->settingsModel->fresh()?->settings ?? []);
+        foreach ([DispoJobVersandweg::SETTING_AKTIV, DispoJobVersandweg::SETTING_FREIGEBER] as $schluessel) {
+            if (array_key_exists($schluessel, $gespeichert)) {
+                $this->settings[$schluessel] = $gespeichert[$schluessel];
+            } else {
+                unset($this->settings[$schluessel]);
+            }
         }
 
         $this->settingsModel->settings = $this->settings;

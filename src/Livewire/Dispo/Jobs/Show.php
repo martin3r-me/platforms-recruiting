@@ -462,6 +462,13 @@ class Show extends Component
     {
         $this->fehler = '';
         $request = $this->anfrage();
+        // Gesamtpruefung I2: vor der Entscheidung bzw. nach Ablehnung nicht — sonst meldete
+        // die spaetere Freigabe „Welle 1 startet“, obwohl keine Welle mehr da ist.
+        if (!$request->darfSenden()) {
+            $this->fehler = $request->freigabeAbgelehnt() ? 'Die Freigabe wurde abgelehnt.' : 'Die Anfrage wartet auf Freigabe.';
+
+            return;
+        }
         $geloescht = RecDispoJobWave::query()->whereKey($waveId)->where('request_id', $request->id)->whereNull('started_at')->delete();
         if ($geloescht === 0) {
             $this->fehler = 'Die Welle läuft schon — abbrechen geht nicht mehr.';
@@ -565,8 +572,21 @@ class Show extends Component
     {
         $this->fehler = '';
         $this->hinweis = '';
+        $start = $this->startGeplant();
         $ergebnis = DispoJobFreigabe::freigeben($this->anfrage(), auth()->user(), $this->teamId());
-        $this->freigabeMeldung($ergebnis, 'Freigegeben. Welle 1 startet.');
+        $this->freigabeMeldung($ergebnis, 'Freigegeben. Welle 1 startet' . ($start !== null ? ' am ' . $start->format('d.m.') . ' um ' . $start->format('H:i') . ' Uhr' : '') . '.', 'Freigegeben.');
+    }
+
+    /**
+     * Kuenftiger Start der naechsten wartenden Welle, sonst null (= startet sofort).
+     * Gesamtpruefung I3: Dialog und Meldung sagten „sofort“ auch bei geplantem Start.
+     */
+    public function startGeplant(): ?\Carbon\CarbonInterface
+    {
+        $welle = $this->anfrage()->waves()
+            ->whereNull('started_at')->whereNull('finished_at')->orderBy('nr')->first();
+
+        return $welle?->scheduled_for !== null && $welle->scheduled_for->isFuture() ? $welle->scheduled_for : null;
     }
 
     public function ablehnenUmschalten(): void
@@ -594,13 +614,15 @@ class Show extends Component
         $this->fehler = '';
         $this->hinweis = '';
         $ergebnis = DispoJobFreigabe::insPortal($this->anfrage(), $this->teamId(), auth()->id() !== null ? (int) auth()->id() : null);
-        $this->freigabeMeldung($ergebnis, 'Die Anfrage geht jetzt ins Mitarbeiterportal. Welle 1 startet.');
+        $this->freigabeMeldung($ergebnis, 'Die Anfrage geht jetzt ins Mitarbeiterportal. Welle 1 startet.', 'Die Anfrage geht jetzt ins Mitarbeiterportal.');
     }
 
-    private function freigabeMeldung(string $ergebnis, string $ok): void
+    /** $entschieden: Satzanfang, wenn gespeichert, aber keine wartende Welle da war (Altfall). */
+    private function freigabeMeldung(string $ergebnis, string $ok, string $entschieden = ''): void
     {
         match ($ergebnis) {
             DispoJobFreigabe::OK => $this->hinweis = $ok,
+            DispoJobFreigabe::KEINE_WELLE => $this->hinweis = $entschieden . ' Es gibt keine wartende Welle — bitte über ‚Neue Welle‘ starten.',
             DispoJobFreigabe::NICHT_BERECHTIGT => $this->fehler = 'Nur der hinterlegte Freigeber kann freigeben oder ablehnen.',
             default => $this->fehler = 'Die Anfrage wartet nicht mehr auf diese Entscheidung — bitte lade die Seite neu.',
         };

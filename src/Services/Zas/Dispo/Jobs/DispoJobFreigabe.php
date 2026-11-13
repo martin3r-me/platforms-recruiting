@@ -20,6 +20,8 @@ class DispoJobFreigabe
     public const OK = 'ok';
     public const NICHT_BERECHTIGT = 'nicht_berechtigt';
     public const NICHT_WARTEND = 'nicht_wartend';
+    /** Entschieden und gespeichert, aber keine wartende Welle da (Altfall: vorher abgebrochen) — es startet nichts. */
+    public const KEINE_WELLE = 'keine_welle';
 
     public const GRUND_MAX = 255;
 
@@ -35,9 +37,8 @@ class DispoJobFreigabe
             return self::NICHT_WARTEND;
         }
         $r->refresh();
-        self::ersteWelleStarten($r, $teamId, $userId);
 
-        return self::OK;
+        return self::ersteWelleStarten($r, $teamId, $userId) ? self::OK : self::KEINE_WELLE;
     }
 
     /** Freigeber aus den Einstellungen des Teams der Anfrage (Show laedt sie team-gescopt). */
@@ -77,9 +78,8 @@ class DispoJobFreigabe
             return self::NICHT_WARTEND;
         }
         $r->refresh();
-        self::ersteWelleStarten($r, $teamId, $userId);
 
-        return self::OK;
+        return self::ersteWelleStarten($r, $teamId, $userId) ? self::OK : self::KEINE_WELLE;
     }
 
     /** Zaehler fuer Uebersicht und Sidebar. Wirft nie (Sidebar). */
@@ -111,19 +111,22 @@ class DispoJobFreigabe
     /**
      * Erste ungestartete Welle (beim Anlegen geschrieben, nicht eingereiht). Ein beim
      * Anlegen gewaehlter Start, der inzwischen vorbei ist, gilt als „sofort“; ein
-     * kuenftiger bleibt als Verzoegerung.
+     * kuenftiger bleibt als Verzoegerung. false = keine Welle da (Gesamtpruefung I2:
+     * die Ansicht sagt es, statt „Welle 1 startet“ zu melden).
      */
-    private static function ersteWelleStarten(RecDispoJobRequest $r, int $teamId, ?int $userId): void
+    private static function ersteWelleStarten(RecDispoJobRequest $r, int $teamId, ?int $userId): bool
     {
         $wave = RecDispoJobWave::query()->where('request_id', $r->id)
             ->whereNull('started_at')->whereNull('finished_at')->orderBy('nr')->first();
         if ($wave === null) {
-            return; // vorher abgebrochen — „Neue Welle“ geht jetzt ohne weitere Freigabe
+            return false; // Altfall: vorher abgebrochen — „Neue Welle“ geht jetzt ohne weitere Freigabe
         }
         if ($wave->scheduled_for !== null && !$wave->scheduled_for->isFuture()) {
             $wave->update(['scheduled_for' => null]);
         }
         static::welleStarten($wave, $teamId, $userId);
+
+        return true;
     }
 
     /** In die Warteschlange — getrennt, damit Tests ohne Bus zaehlen koennen. */

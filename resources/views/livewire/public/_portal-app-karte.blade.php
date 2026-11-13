@@ -21,7 +21,9 @@
 
     Das Komponenten-Objekt steht bewusst im x-data selbst und nicht in einem
     Alpine.data aus einem Skript: nach der Anmeldung kommt die Karte per
-    Livewire-Morph auf die Seite, dabei laufen <script>-Bloecke nicht.
+    Livewire-Morph auf die Seite, dabei laufen <script>-Bloecke nicht. Deshalb
+    faengt das Layout (layouts/portal) beforeinstallprompt schon beim ersten
+    Laden ab (Gesamtpruefung Minor 2); die Karte liest window.rgInstallNachfrage.
 --}}
 @php
     $appInstallText = $duzen
@@ -41,24 +43,6 @@
     $appMenueTipp = ($duzen ? 'Tipp: Leg dir das Portal auf den Startbildschirm.' : 'Tipp: Legen Sie sich das Portal auf den Startbildschirm.')
         . ' iPhone: Teilen › „Zum Home-Bildschirm“. Android: Menü ⋮ › „Zum Startbildschirm hinzufügen“.';
 @endphp
-
-<script>
-    // Android/Chrome meldet die Installierbarkeit oft, bevor Alpine wach ist —
-    // hier frueh auffangen, die Karte holt sie sich ab. Weggeklickt ⇒ der
-    // Browser behaelt seinen eigenen Hinweis.
-    (function () {
-        try {
-            if (window.rgPortalAppFang) { return; }
-            window.rgPortalAppFang = true;
-            window.addEventListener('beforeinstallprompt', function (e) {
-                try { if (localStorage.getItem('rg-portal-app-karte') === 'weg') { return; } } catch (x) {}
-                e.preventDefault();
-                window.rgInstallNachfrage = e;
-                window.dispatchEvent(new Event('rg-install-bereit'));
-            });
-        } catch (e) {}
-    })();
-</script>
 
 <div class="card kachel" style="margin-top:11px" x-cloak x-show="sichtbar"
      x-data="{

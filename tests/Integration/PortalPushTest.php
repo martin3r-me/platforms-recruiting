@@ -251,6 +251,32 @@ class PortalPushTest extends TestCase
         $this->assertSame('Safari', $zeile->user_agent);
     }
 
+    /** Gesamtpruefung Minor 4: hoechstens 10 Abos je Person (Identitaets-Gruppe); Wiederholung zaehlt nicht. */
+    public function test_speichern_hoechstens_zehn_abos_je_gruppe(): void
+    {
+        $anna = $this->employee('RG40');
+        $annaAlt = $this->employee('RG41');
+        $ben = $this->employee('RG42');
+        $abos = new PushAbos();
+        $keys = ['p256dh' => 'BPkey', 'auth' => 'authkey'];
+        $ep = fn (string $g) => ['endpoint' => 'https://fcm.googleapis.com/fcm/send/' . $g, 'keys' => $keys];
+
+        for ($i = 1; $i <= 6; $i++) {
+            $this->assertTrue($abos->speichern($anna, $ep('a' . $i), null, [$anna, $annaAlt]));
+        }
+        for ($i = 1; $i <= 4; $i++) {
+            $this->assertTrue($abos->speichern($annaAlt, $ep('alt' . $i), null, [$anna, $annaAlt]), 'Alt-Datensatz zaehlt zur Gruppe');
+        }
+
+        $this->assertFalse($abos->speichern($anna, $ep('elftes'), null, [$anna, $annaAlt]), 'elftes neues Abo abgelehnt');
+        $this->assertTrue($abos->speichern($anna, $ep('a3'), 'neu', [$anna, $annaAlt]), 'vorhandenen Endpunkt erneut speichern zaehlt nicht');
+        $this->assertTrue($abos->speichern($anna, $ep('alt2'), null, [$anna, $annaAlt]), 'Abo innerhalb der Gruppe umhaengen zaehlt nicht');
+        $this->assertSame(10, RecPushAbo::query()->count());
+
+        $this->assertTrue($abos->speichern($ben, $ep('ben1'), null, [$ben]), 'andere Person hat eigene Grenze');
+        $this->assertTrue($abos->speichern($ben, $ep('a1'), null, [$ben]), 'Besitzerwechsel eines Geraets zu einer Person unter der Grenze geht');
+    }
+
     public function test_speichern_lehnt_http_und_kaputte_abos_ab(): void
     {
         $anna = $this->employee('RG13');

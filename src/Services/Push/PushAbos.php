@@ -12,6 +12,8 @@ class PushAbos
 {
     public const MAX_ENDPOINT = 2048;
     public const MAX_SCHLUESSEL = 255;
+    /** Hoechstens so viele Abos je Person (Identitaets-Gruppe) — Gesamtpruefung Minor 4, 13.11.2026. */
+    public const MAX_JE_PERSON = 10;
 
     /** Nur die bekannten Push-Dienste — sonst schickte der Server seine Probe an jede Adresse aus dem Browser (Review Task 8, SSRF). */
     public const DIENSTE_GENAU = ['fcm.googleapis.com', 'updates.push.services.mozilla.com'];
@@ -21,9 +23,13 @@ class PushAbos
      * Ein Geraet = ein Endpunkt. Meldet sich auf demselben Geraet eine andere Person
      * an, gehoert das Abo ab jetzt ihr (sonst bekaeme der Vorbesitzer ihre Hinweise).
      *
+     * Ein neues Geraet ueber MAX_JE_PERSON hinaus wird abgelehnt; ein Endpunkt, der
+     * schon in der Gruppe liegt, zaehlt nicht (erneutes Speichern, Umhaengen).
+     *
      * @param array{endpoint?:mixed, keys?:array{p256dh?:mixed, auth?:mixed}} $abo
+     * @param list<int> $gruppe Identitaets-Gruppe vom Server (wie loeschen), mindestens die Person selbst
      */
-    public function speichern(int $employeeId, array $abo, ?string $userAgent): bool
+    public function speichern(int $employeeId, array $abo, ?string $userAgent, array $gruppe = []): bool
     {
         $endpoint = $abo['endpoint'] ?? null;
         $p256dh = $abo['keys']['p256dh'] ?? null;
@@ -40,6 +46,13 @@ class PushAbos
             if ($schluessel === '' || strlen($schluessel) > self::MAX_SCHLUESSEL) {
                 return false;
             }
+        }
+
+        $ids = array_values(array_unique(array_map('intval', array_merge([$employeeId], $gruppe))));
+        $schonInGruppe = RecPushAbo::query()->whereIn('rec_employee_id', $ids)
+            ->where('endpoint_hash', RecPushAbo::hash($endpoint))->exists();
+        if (!$schonInGruppe && RecPushAbo::query()->whereIn('rec_employee_id', $ids)->count() >= self::MAX_JE_PERSON) {
+            return false;
         }
 
         RecPushAbo::query()->updateOrCreate(

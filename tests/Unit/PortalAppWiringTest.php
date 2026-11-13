@@ -85,6 +85,33 @@ class PortalAppWiringTest extends TestCase
         $this->assertSame(substr_count($k, 'localStorage.'), count($mitTry[0]), 'localStorage nur in try/catch');
     }
 
+    /**
+     * Gesamtpruefung Minor 2 (13.11.2026): der Faenger fuer beforeinstallprompt sass in
+     * der Karte, die erst per Morph nach der Anmeldung kommt — das Ereignis war dann
+     * schon vorbei. Jetzt im Layout unter der Manifest-Bedingung, die Karte liest die
+     * Fenster-Variable und hoert zusaetzlich weiter zu.
+     */
+    public function test_install_nachfrage_wird_im_layout_gefangen(): void
+    {
+        $l = $this->quelle('resources/views/layouts/portal.blade.php');
+        $wenn = strpos($l, '@if (!empty($manifestUrl))');
+        $ende = strpos($l, '@endif', (int) $wenn);
+        $fang = strpos($l, "window.addEventListener('beforeinstallprompt'");
+        $this->assertNotFalse($fang, 'Faenger im Layout');
+        $this->assertGreaterThan($wenn, $fang);
+        $this->assertLessThan($ende, $fang, 'nur unter der Manifest-Bedingung');
+        $this->assertStringContainsString('window.rgInstallNachfrage = e;', $l);
+        $this->assertStringContainsString("window.dispatchEvent(new Event('rg-install-bereit'));", $l);
+        preg_match_all('/try \{[^}]*localStorage/', $l, $mitTry);
+        $this->assertSame(substr_count($l, 'localStorage.'), count($mitTry[0]), 'localStorage nur in try/catch');
+
+        $k = $this->quelle('resources/views/livewire/public/_portal-app-karte.blade.php');
+        $this->assertSame(0, preg_match('/^\s*<script/m', $k), 'Skripte laufen beim Morph nicht — kein Faenger in der Karte');
+        $this->assertStringContainsString('this.nachfrage = window.rgInstallNachfrage || null;', $k);
+        $this->assertStringContainsString("window.addEventListener('rg-install-bereit'", $k);
+        $this->assertStringContainsString("window.addEventListener('beforeinstallprompt', (e) =>", $k, 'hoert weiter zu');
+    }
+
     /** Die Karte mit dem echten Compiler rendern (die Huellen-Tests lassen das Partial aus). */
     private function rendereKarte(bool $pushAktiv, bool $duzen): string
     {

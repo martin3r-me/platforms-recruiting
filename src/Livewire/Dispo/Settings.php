@@ -208,7 +208,8 @@ class Settings extends Component
             'jobTemplateVierWochenId'    => 'nullable|string|max:20',
             'jobTemplateNaechsteWocheId' => 'nullable|string|max:20',
             'jobTemplateDringendId'      => 'nullable|string|max:20',
-            'freigeberEmail'             => 'nullable|string|max:190',
+            // freigeberEmail NICHT hier: erst Sperre, dann Pruefung (siehe unten),
+            // sonst kann ein Gesperrter mit altem Feldinhalt den Rest nicht speichern.
         ]);
 
         // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
@@ -254,17 +255,51 @@ class Settings extends Component
 
         // Schalter + Freigeber nur, wenn der Nutzer sie aendern darf (gegen den GESPEICHERTEN
         // Freigeber, serverseitig). Sonst bleiben beide unveraendert, der Rest wird gespeichert.
+        // Gesamtpruefung I1: ein Tippfehler im Freigeber sperrte alle aus (Rettung nur per
+        // SQL) — deshalb nur gueltige Adressen vorhandener Plattform-Nutzer.
+        $freigeberFehler = null;
         if (DispoJobVersandweg::darfEinstellungenAendern(DispoJobVersandweg::freigeberEmail($settings), $this->nutzer())) {
-            $settings->setSetting(DispoJobVersandweg::SETTING_AKTIV, $this->versandwegAktiv !== '');
-            $settings->setSetting(DispoJobVersandweg::SETTING_FREIGEBER, mb_strtolower(trim($this->freigeberEmail)) ?: null);
+            $freigeber = mb_strtolower(trim($this->freigeberEmail));
+            $freigeberFehler = $this->freigeberFehler($freigeber);
+            if ($freigeberFehler === null) {
+                $settings->setSetting(DispoJobVersandweg::SETTING_AKTIV, $this->versandwegAktiv !== '');
+                $settings->setSetting(DispoJobVersandweg::SETTING_FREIGEBER, $freigeber ?: null);
+            }
         }
-        $this->versandwegAktiv = DispoJobVersandweg::aktiv($settings) ? '1' : '';
-        $this->freigeberEmail  = (string) ($settings->getSetting(DispoJobVersandweg::SETTING_FREIGEBER) ?? '');
+        if ($freigeberFehler !== null) {
+            // Eingabe bleibt zum Korrigieren stehen; gespeichert ist fuer beide Felder nichts.
+            $this->addError('freigeberEmail', $freigeberFehler);
+        } else {
+            $this->versandwegAktiv = DispoJobVersandweg::aktiv($settings) ? '1' : '';
+            $this->freigeberEmail  = (string) ($settings->getSetting(DispoJobVersandweg::SETTING_FREIGEBER) ?? '');
+        }
 
         $settings->save();
 
         unset($this->versandwegGesperrt);
         $this->saved = true;
+    }
+
+    /** Fehlertext fuer die (normalisierte) Freigeber-Adresse oder null; leer = kein Freigeber, erlaubt. */
+    private function freigeberFehler(string $email): ?string
+    {
+        if ($email === '') {
+            return null;
+        }
+        if (mb_strlen($email) > 190 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return 'Nicht gespeichert: bitte eine gültige E-Mail-Adresse eintragen. Schalter und Freigeber bleiben wie vorher.';
+        }
+        if (!$this->istPlattformNutzer($email)) {
+            return 'Nicht gespeichert: Kein Nutzer der Plattform hat diese E-Mail-Adresse. Schalter und Freigeber bleiben wie vorher.';
+        }
+
+        return null;
+    }
+
+    /** Gibt es einen Plattform-Nutzer mit dieser (kleingeschriebenen) Adresse? Eigene Methode, damit Tests ohne users-Tabelle auskommen. */
+    protected function istPlattformNutzer(string $email): bool
+    {
+        return \Platform\Core\Models\User::query()->whereRaw('LOWER(TRIM(email)) = ?', [$email])->exists();
     }
 
     private function toNullableId(string $value): ?int

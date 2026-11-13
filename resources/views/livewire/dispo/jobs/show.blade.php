@@ -49,6 +49,14 @@
     // Bestaetigung wörtlich aus Spec 6.4; N = Obergrenze je Welle, ohne Obergrenze alle passenden.
     $freigabeN = $anfrage->welle_max !== null ? 'bis zu ' . (int) $anfrage->welle_max . ' Personen' : 'alle passenden Personen';
     $freigabeText = 'Mit der Freigabe gehen alle Wellen dieser Anfrage per WhatsApp raus, auch die automatischen Folgewellen. Welle 1 startet sofort an ' . $freigabeN . '.';
+    // Gesamtpruefung I3: geplanter Start in der Zukunft wird genannt statt „sofort“.
+    $freigabeStart = $wartetFreigabe && $this->istFreigeber ? $this->startGeplant() : null;
+    if ($freigabeStart !== null) {
+        $freigabeText = 'Mit der Freigabe gehen alle Wellen dieser Anfrage per WhatsApp raus, auch die automatischen Folgewellen. Welle 1 startet am '
+            . $freigabeStart->format('d.m.') . ' um ' . $freigabeStart->format('H:i') . ' Uhr an ' . $freigabeN . '.';
+    }
+    // Gesamtpruefung Minor 1: Weg nur bei Portal-Anfragen oder beantragter Freigabe — sonst Kopf wie vor dem Versandweg.
+    $wegZeigen = $istPortal || $anfrage->freigabe_beantragt_at !== null;
     $portalText = 'Anfrage stattdessen im Mitarbeiterportal bereitstellen? Es geht nichts per WhatsApp raus, Welle 1 startet.';
     $standVerb = $istPortal ? 'im Portal bereitgestellt' : 'angeschrieben';
 @endphp
@@ -62,7 +70,9 @@
                 <span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusLabel }}</span>
                 <span>{{ $modusLabel }}</span>
                 <span>· Anlass: {{ $anlassLabel }}</span>
-                <span>· Weg: {{ $wegLabel }}</span>
+                @if ($wegZeigen)
+                    <span>· Weg: {{ $wegLabel }}</span>
+                @endif
             </div>
             <div class="mt-0.5 text-xs text-gray-400">Vorlage {{ $this->vorlageName }}</div>
         </div>
@@ -191,7 +201,7 @@
                     </div>
                     <div class="flex items-center gap-3 text-xs text-gray-500">
                         <span @class(['font-medium text-amber-700' => $wHaengtHinweis])>{{ $wZeit }}</span>
-                        @if ($w['wartet'])
+                        @if ($w['wartet'] && $darfSenden)
                             <button type="button" wire:click="abbrechen({{ $w['id'] }})" wire:confirm="{{ $abbrechenText }}" class="text-red-600 hover:underline">Abbrechen</button>
                         @endif
                     </div>

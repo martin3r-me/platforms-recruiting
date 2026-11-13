@@ -299,6 +299,20 @@ class PortalPushAboTest extends TestCase
         $this->assertSame([(int) $anna->id], $this->push->proben, 'genau eine Probe');
     }
 
+    /** Gesamtpruefung Minor 4: die Huelle reicht die Gruppe an PushAbos — das elfte Geraet scheitert ohne Probe. */
+    public function test_elftes_geraet_wird_abgelehnt_ohne_probe(): void
+    {
+        $anna = $this->employee('S11');
+        for ($i = 1; $i <= 10; $i++) {
+            $this->aboAnlegen((int) $anna->id, 'g' . $i);
+        }
+
+        $this->assertFalse($this->shell($anna)->pushAboSpeichern(self::abo('g11')));
+        $this->assertTrue($this->shell($anna)->pushAboSpeichern(self::abo('g5')), 'vorhandenes Geraet geht weiter');
+        $this->assertSame(10, RecPushAbo::query()->count());
+        $this->assertSame([], $this->push->proben);
+    }
+
     public function test_besitzerwechsel_auf_geteiltem_geraet_probt_fuer_die_neue_person(): void
     {
         $anna = $this->employee('S9');

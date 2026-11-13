@@ -231,4 +231,22 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString("\$wannKopf = \$wegFreigabe ? 'Wann senden (nach der Freigabe)?' : 'Wann senden?';", $create);
         $this->assertStringContainsString("\$jetztLabel = \$wegFreigabe ? 'Sofort nach der Freigabe' : 'Jetzt senden';", $create);
     }
+
+    /** Gesamtpruefung 13.11.2026: I2 (Abbrechen erst nach Freigabe), I3 (kuenftiger Start im Dialog), Minor 1 (Weg nur wenn relevant). */
+    public function test_show_kopf_abbrechen_und_dialog_nach_gesamtpruefung(): void
+    {
+        $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+
+        $this->assertStringContainsString("@if (\$w['wartet'] && \$darfSenden)", $view, 'Abbrechen-Link erst, wenn gesendet werden darf');
+        $this->assertStringNotContainsString("@if (\$w['wartet'])\n", $view);
+
+        $this->assertStringContainsString('$freigabeStart = $wartetFreigabe && $this->istFreigeber ? $this->startGeplant() : null;', $view);
+        $this->assertStringContainsString("Welle 1 startet am '\n            . \$freigabeStart->format('d.m.') . ' um ' . \$freigabeStart->format('H:i') . ' Uhr an ' . \$freigabeN . '.';", $view);
+        $this->assertLessThan(strpos($view, 'wire:confirm="{{ $freigabeText }}"'), strpos($view, '$freigabeStart = '));
+
+        $this->assertStringContainsString('$wegZeigen = $istPortal || $anfrage->freigabe_beantragt_at !== null;', $view);
+        $wegIf = strpos($view, '@if ($wegZeigen)');
+        $this->assertNotFalse($wegIf);
+        $this->assertLessThan(strpos($view, '· Weg: {{ $wegLabel }}'), $wegIf, 'Weg nur im @if');
+    }
 }
