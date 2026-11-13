@@ -4,9 +4,11 @@
     $filialen = $this->filialOptionen;
     // Anlass-Pillen (Schritt 1 ueber dem Zeitraum und Schritt 3 an der Vorlage): ohne hinterlegte Vorlage gesperrt (Hinweis + Link zu den Einstellungen).
     $anlassIds = $this->anlassVorlagen;
+    // Versandweg-Schalter (Markus 13.11.2026): an = Monats-/Wochenanlass auch ohne Vorlage waehlbar (Portal-Weg), gleiche Regel wie Create::anlassFrei().
+    $wegAktiv = $this->versandwegAktiv;
     $anlaesse = [];
     foreach (\Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass::ALLE as $anlassKey => $anlassLabel) {
-        $frei = ($anlassIds[$anlassKey] ?? null) !== null;
+        $frei = ($anlassIds[$anlassKey] ?? null) !== null || \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg::waehlbar($wegAktiv, $anlassKey);
         $aktiv = $frei && $anlass === $anlassKey;
         $anlaesse[] = [
             'key'    => $anlassKey,
@@ -313,10 +315,26 @@
             $problem = $this->vorlagenProblem;
             // $anlaesse kommt aus dem Kopf der Datei (gleiche Pillen wie in Schritt 1).
             $personen = $zahlen['empfaenger'] === 1 ? 'Person' : 'Personen';
+            // Versandweg (Spec 2026-11-13 §6.2): dieselbe Entscheidung wie beim Anlegen, der Radio-Wert ist nur ein Wunsch.
+            $wegWaehlbar = $this->wegWaehlbar;
+            $wegWhatsappMoeglich = $this->wegWhatsappMoeglich;
+            $wegGilt = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg::fuerAnfrage($wegAktiv, $anlass, $versandweg);
+            $wegPortal = $wegGilt['weg'] === \Platform\Recruiting\Models\RecDispoJobRequest::WEG_PORTAL;
+            $wegFreigabe = $wegGilt['freigabe_pflicht'];
+            $wellenRest = $rest > 0 ? ', ' . $rest . ' weitere ' . ($abstandLabel !== 'keine' ? 'in späteren Wellen (nächste nach ' . $abstandLabel . ')' : 'erst mit einer Welle von Hand') : '';
             // Startzeit steht bewusst nicht im Text: Startart/Minuten sind deferred gebunden (kein Neurechnen je Tastendruck).
-            $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben'
-                . ($rest > 0 ? ', ' . $rest . ' weitere ' . ($abstandLabel !== 'keine' ? 'in späteren Wellen (nächste nach ' . $abstandLabel . ')' : 'erst mit einer Welle von Hand') : '')
-                . ' — die genaue Zahl wird beim Start neu berechnet.';
+            if ($wegFreigabe) {
+                $knopfText = 'Anlegen und Freigabe beantragen';
+                $bestaetigung = 'Anfrage anlegen und Freigabe beantragen? Per WhatsApp geht erst etwas raus, wenn die Anfrage freigegeben ist.';
+            } elseif ($wegPortal) {
+                $knopfText = 'Anlegen und im Portal bereitstellen';
+                $bestaetigung = 'Anfrage anlegen und Welle 1 im Mitarbeiterportal bereitstellen? Laut Vorschau bekommen ' . $zahlen['empfaenger'] . ' ' . $personen . ' das Angebot'
+                    . $wellenRest . ' — die genaue Zahl wird beim Start neu berechnet.';
+            } else {
+                $knopfText = 'Anfrage anlegen und Welle 1 starten';
+                $bestaetigung = 'Anfrage anlegen und Welle 1 starten? Laut Vorschau werden ' . $zahlen['empfaenger'] . ' ' . $personen . ' angeschrieben'
+                    . $wellenRest . ' — die genaue Zahl wird beim Start neu berechnet.';
+            }
             $sendenGesperrt = $problem !== null;
         @endphp
 
@@ -425,7 +443,7 @@
                 {{-- Anlass als Pillen, darunter die Vorlage des Anlasses als Sprechblase (Kampagnen-Muster). --}}
                 <div wire:key="vorlagen-karte" class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
                     <div class="font-medium text-gray-700">Anlass</div>
-                    @if ($vorlagen === [])
+                    @if ($vorlagen === [] && !$wegAktiv)
                         <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                             {{ $problem }}
                             <a href="{{ route('recruiting.dispo.settings') }}" class="ml-1 font-medium underline">Zu den Einstellungen</a>
@@ -443,8 +461,32 @@
                                 </div>
                             @endforeach
                         </div>
+                        @if ($wegWaehlbar)
+                            <div class="pt-1 font-medium text-gray-700">Versandweg</div>
+                            <label class="flex cursor-pointer items-start gap-2">
+                                <input type="radio" value="portal" wire:model.live="versandweg" class="mt-0.5 border-gray-300">
+                                <span><span class="font-medium">Mitarbeiterportal</span>
+                                    <span class="block text-xs text-gray-500">Die Angebote stehen sofort im Portal, ohne WhatsApp-Nachricht.</span></span>
+                            </label>
+                            @if ($wegWhatsappMoeglich)
+                                <label class="flex cursor-pointer items-start gap-2">
+                                    <input type="radio" value="whatsapp" wire:model.live="versandweg" class="mt-0.5 border-gray-300">
+                                    <span><span class="font-medium">WhatsApp (braucht Freigabe)</span>
+                                        <span class="block text-xs text-gray-500">Geht erst raus, wenn die Anfrage freigegeben ist.</span></span>
+                                </label>
+                            @else
+                                <label class="flex cursor-not-allowed items-start gap-2 text-gray-400">
+                                    <input type="radio" value="whatsapp" disabled class="mt-0.5 border-gray-200">
+                                    <span><span class="font-medium">WhatsApp (braucht Freigabe)</span>
+                                        <span class="block text-xs">Für diesen Anlass ist keine Vorlage hinterlegt.</span>
+                                        <a href="{{ route('recruiting.dispo.settings') }}" class="text-[11px] text-gray-500 underline">in den Einstellungen hinterlegen</a></span>
+                                </label>
+                            @endif
+                        @endif
                         <div class="pt-1 font-medium text-gray-700">Nachricht</div>
-                        @if ($problem === null && $vorschau !== null)
+                        @if ($wegPortal)
+                            <div class="rounded-lg bg-gray-50 px-3 py-2 text-gray-700">Keine WhatsApp-Nachricht — die Angebote erscheinen im Mitarbeiterportal.</div>
+                        @elseif ($problem === null && $vorschau !== null)
                             <div class="rounded-lg bg-gray-50 px-3 py-2 whitespace-pre-line text-gray-800">{{ $vorschau['text'] }}</div>
                             @foreach ($vorschau['buttons'] as $buttonText)
                                 <div class="mt-1 rounded-lg border border-gray-200 px-3 py-1 text-center font-medium text-blue-700">{{ $buttonText }}</div>
@@ -510,11 +552,11 @@
                 <button type="button" wire:click="weiter" wire:loading.attr="disabled" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Weiter</button>
             @else
                 @if ($sendenGesperrt)
-                    <button type="button" disabled class="cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-white">Anfrage anlegen und Welle 1 starten</button>
+                    <button type="button" disabled class="cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-white">{{ $knopfText }}</button>
                 @else
                     <button type="button" wire:click="anlegenUndSenden" wire:confirm="{{ $bestaetigung }}"
                             wire:loading.attr="disabled" wire:target="anlegenUndSenden"
-                            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Anfrage anlegen und Welle 1 starten</button>
+                            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{{ $knopfText }}</button>
                 @endif
             @endif
         </div>

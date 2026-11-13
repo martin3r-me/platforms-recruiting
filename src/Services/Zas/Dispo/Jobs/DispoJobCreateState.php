@@ -10,7 +10,7 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
  *
  * Erwartete Schluessel in $state: heute, filial_nr, von, bis, event_ids,
  * gesucht (Schluessel => Zahl), andere (list<{gesucht}>), anlass, template_id
- * (die zum Anlass hinterlegte Vorlage),
+ * (die zum Anlass hinterlegte Vorlage), versandweg (der geltende Weg; optional),
  * vorlagen_problem, gruppen, bloecke, modus.
  */
 final class DispoJobCreateState
@@ -120,7 +120,9 @@ final class DispoJobCreateState
         if (!DispoJobAnlass::istGueltig((string) ($state['anlass'] ?? ''))) {
             return 'Bitte wähle einen Anlass.';
         }
-        if (!self::istZahl($state['template_id'] ?? null)) {
+        // Portal-Weg braucht keine WhatsApp-Vorlage (Markus 13.11.2026, Spec 6.2).
+        $portal = ($state['versandweg'] ?? null) === RecDispoJobRequest::WEG_PORTAL;
+        if (!$portal && !self::istZahl($state['template_id'] ?? null)) {
             return 'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.';
         }
         if (($state['vorlagen_problem'] ?? null) !== null) {

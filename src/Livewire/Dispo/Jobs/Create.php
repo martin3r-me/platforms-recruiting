@@ -21,6 +21,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobCreateState;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchichten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobTage;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
@@ -75,6 +76,11 @@ class Create extends Component
     public string $modus = RecDispoJobRequest::MODUS_SAMMELN;
     /** DispoJobAnlass-Schluessel; die Vorlage ergibt sich aus den Einstellungen. */
     public string $anlass = '';
+    /**
+     * Wunsch-Versandweg (Markus 13.11.2026): 'portal' | 'whatsapp'. Nur ein Wunsch —
+     * was gilt, entscheidet wegEntscheidung() mit dem echten Schalter und Anlass.
+     */
+    public string $versandweg = RecDispoJobRequest::WEG_WHATSAPP;
     /** @var list<string> Blocknummer oder 'ohne' */
     public array $maBloecke = [];
     /** @var list<string> */
@@ -117,6 +123,7 @@ class Create extends Component
 
         // Von der VA-Seite (?event=) ist es meist eilig, ueber das Menue der Normalfall.
         $this->anlass = $this->anlassVorbelegen($this->event !== null ? 'dringend' : 'vier_wochen');
+        $this->wegVorbelegen();
         $this->wellenVorbelegen();
         // Zeitraum laut Anlass (Spec 2026-10-30 §1); kommt unten eine VA, gelten deren Tage.
         $this->zeitraumVorbelegen();
@@ -140,20 +147,49 @@ class Create extends Component
         }
     }
 
-    /** Wunsch-Anlass, sonst der erste mit hinterlegter Vorlage, sonst keiner. */
+    /** Wunsch-Anlass, sonst der erste waehlbare (anlassFrei), sonst keiner. */
     private function anlassVorbelegen(string $wunsch): string
     {
-        $ids = $this->anlassVorlagen;
-        if (($ids[$wunsch] ?? null) !== null) {
+        if ($this->anlassFrei($wunsch)) {
             return $wunsch;
         }
-        foreach ($ids as $anlass => $id) {
-            if ($id !== null) {
+        foreach (array_keys($this->anlassVorlagen) as $anlass) {
+            if ($this->anlassFrei($anlass)) {
                 return $anlass;
             }
         }
 
         return '';
+    }
+
+    /**
+     * Waehlbar ist ein Anlass mit hinterlegter Vorlage — bei Schalter an auch ein
+     * Monats-/Wochenanlass ohne Vorlage, denn der Portal-Weg braucht keine
+     * (Markus 13.11.2026, Spec 6.2). Schalter aus = wie bisher.
+     */
+    private function anlassFrei(string $anlass): bool
+    {
+        return DispoJobAnlass::istGueltig($anlass)
+            && (($this->anlassVorlagen[$anlass] ?? null) !== null || DispoJobVersandweg::waehlbar($this->versandwegAktiv, $anlass));
+    }
+
+    /** Jeder Anlasswechsel belegt den Weg neu: Portal, wo es eine Wahl gibt, sonst WhatsApp. */
+    private function wegVorbelegen(): void
+    {
+        // Direkt statt $this->wegWaehlbar: der Computed-Wert koennte noch vom alten Anlass stammen.
+        $this->versandweg = DispoJobVersandweg::waehlbar($this->versandwegAktiv, $this->anlass)
+            ? RecDispoJobRequest::WEG_PORTAL : RecDispoJobRequest::WEG_WHATSAPP;
+    }
+
+    /**
+     * Was fuer diese Anfrage gilt — der Browser-Wunsch $versandweg zaehlt nur,
+     * wenn Schalter UND Anlass eine Wahl zulassen.
+     *
+     * @return array{weg:string, freigabe_pflicht:bool}
+     */
+    private function wegEntscheidung(): array
+    {
+        return DispoJobVersandweg::fuerAnfrage($this->versandwegAktiv, $this->anlass, $this->versandweg);
     }
 
     private function wellenVorbelegen(): void
@@ -178,8 +214,9 @@ class Create extends Component
 
     public function anlassWaehlen(string $anlass): void
     {
-        if (DispoJobAnlass::istGueltig($anlass) && ($this->anlassVorlagen[$anlass] ?? null) !== null) {
+        if ($this->anlassFrei($anlass)) {
             $this->anlass = $anlass;
+            $this->wegVorbelegen();
             // Pille in Schritt 1 = ausdrueckliche Wahl: Zeitraum neu vorbelegen (auch nach einer Handaenderung, Review 30.10. F1);
             // nicht ueber eine VA (deren Tage gelten) und nicht in Schritt 2/3 (Schichten stehen fest).
             if ($this->schritt === 1 && !$this->ausVa && $this->zeitraumVorbelegen()) {
@@ -537,6 +574,27 @@ class Create extends Component
         return DispoJobAnlass::templateIds(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
     }
 
+    /** Schalter „Versandweg-Auswahl und WhatsApp-Freigabe“ aus den Dispo-Einstellungen (Spec 6.1). */
+    #[Computed]
+    public function versandwegAktiv(): bool
+    {
+        return DispoJobVersandweg::aktiv(RecApplicantSettings::getOrCreateForTeam($this->teamId()));
+    }
+
+    /** Gibt es fuer den gewaehlten Anlass die Wahl Portal/WhatsApp? */
+    #[Computed]
+    public function wegWaehlbar(): bool
+    {
+        return DispoJobVersandweg::waehlbar($this->versandwegAktiv, $this->anlass);
+    }
+
+    /** WhatsApp geht nur mit hinterlegter Vorlage fuer den Anlass. */
+    #[Computed]
+    public function wegWhatsappMoeglich(): bool
+    {
+        return $this->vorlagenId !== null;
+    }
+
     /** @return array<int, object> id => Vorlage (nur die in den Einstellungen hinterlegten) */
     #[Computed]
     public function vorlagen(): array
@@ -584,6 +642,10 @@ class Create extends Component
     #[Computed]
     public function vorlagenProblem(): ?string
     {
+        // Portal-Weg: keine WhatsApp-Nachricht, also keine Vorlage noetig (Spec 6.2).
+        if ($this->wegEntscheidung()['weg'] === RecDispoJobRequest::WEG_PORTAL) {
+            return null;
+        }
         if ($this->vorlagen === []) {
             return 'In den Dispo-Einstellungen ist noch keine Vorlage für Jobangebote hinterlegt.';
         }
@@ -686,6 +748,7 @@ class Create extends Component
             $auswahl = $this->auswahl();
             $state += [
                 'anlass'           => $this->anlass,
+                'versandweg'       => $this->wegEntscheidung()['weg'],
                 'template_id'      => (string) ($this->vorlagenId ?? ''),
                 'vorlagen_problem' => $this->vorlagenProblem,
                 'gruppen'          => $auswahl['gruppen'],
@@ -727,6 +790,7 @@ class Create extends Component
         $auswahl = $this->auswahl();
         $teamId = $this->teamId();
         $userId = auth()->id() !== null ? (int) auth()->id() : null;
+        $weg = $this->wegEntscheidung();
         $request = DispoJobAnfrageAnlegen::anlegen([
             'filial_nr'   => (int) $this->filialNr,
             'von'         => $this->von,
@@ -738,11 +802,16 @@ class Create extends Component
             'minuten'     => $minuten,
             'welle_max'             => $auswahl['max'] ?? 0,
             'welle_abstand_minuten' => $this->welleAbstandMinuten(),
+            'versandweg'            => $weg['weg'],
+            'freigabe_pflicht'      => $weg['freigabe_pflicht'],
         ] + $auswahl, $teamId, $userId);
 
         // Erst nach dem Commit (anlegen() hat seine Transaktion abgeschlossen).
-        $wave = $request->waves()->orderBy('nr')->first();
-        DispoJobAnfrageAnlegen::starten($wave, $teamId, $userId);
+        // Mit Freigabe-Pflicht startet erst die Freigabe Welle 1 (Spec 6.2/6.4).
+        if (!$weg['freigabe_pflicht']) {
+            $wave = $request->waves()->orderBy('nr')->first();
+            DispoJobAnfrageAnlegen::starten($wave, $teamId, $userId);
+        }
 
         session([self::SESSION_FILIALE => $this->filialNr]);
         $this->redirectRoute('recruiting.dispo.jobs.show', ['requestId' => $request->id]);

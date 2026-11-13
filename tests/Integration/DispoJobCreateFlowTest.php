@@ -4,6 +4,8 @@ namespace Platform\Recruiting\Tests\Integration;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +13,8 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Dispo\Jobs\Create;
+use Platform\Recruiting\Jobs\SendDispoJobWave;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoBedarf;
 use Platform\Recruiting\Models\RecDispoEvent;
@@ -41,7 +45,9 @@ class DispoJobCreateFlowTest extends TestCase
         $own = dirname(__DIR__, 2);
         foreach ([
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
+            'database/migrations/2026_08_21_000001_add_filial_nr_to_rec_dispo_events.php', // Create::events() filtert nach Filiale
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
+            'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php', // Schalter + Vorlagen je Anlass
             'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
             'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php',
             'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php',
@@ -299,5 +305,214 @@ class DispoJobCreateFlowTest extends TestCase
         $request = DispoJobAnfrageAnlegen::anlegen(self::daten(['versandweg' => 'brieftaube']), 3, null)->fresh();
 
         $this->assertSame(RecDispoJobRequest::WEG_WHATSAPP, $request->versandweg);
+    }
+
+    // ------------------------------------------------------------------
+    // Anlegen ueber die Komponente mit Versandweg (Markus 13.11.2026, Spec 6.2)
+    // ------------------------------------------------------------------
+
+    /** @var object{jobs: list<object>} */
+    private object $bus;
+
+    /**
+     * Komponente in Schritt 3 mit einer gueltigen Auswahl: eine VA der Filiale 200
+     * am 14.10., eine „andere“ Schicht. Login, Sitzung und Bus sind Attrappen;
+     * Schalter und Vorlagen kommen ECHT aus rec_applicant_settings.
+     *
+     * @param  array<string,mixed>  $settings
+     */
+    private function anlegenMit(array $settings, string $anlass, string $versandweg): Create
+    {
+        foreach (['rec_dispo_bedarfe', 'rec_dispo_events', 'rec_applicant_settings'] as $t) {
+            Capsule::table($t)->delete();
+        }
+        $container = Container::getInstance();
+        $container->make('config')->set('recruiting.zas.inbound_team_id', 3);
+        RecApplicantSettings::create(['team_id' => 3, 'settings' => $settings + RecApplicantSettings::DEFAULT_SETTINGS]);
+        $container->instance(AuthFactory::class, new class implements AuthFactory {
+            public function guard($name = null)
+            {
+                return $this;
+            }
+
+            public function shouldUse($name)
+            {
+            }
+
+            public function id()
+            {
+                return 42;
+            }
+        });
+        $container->instance('session', new class {
+            public function put($key, $value = null)
+            {
+            }
+
+            public function get($key, $default = null)
+            {
+                return $default;
+            }
+        });
+        $this->bus = new class {
+            public array $jobs = [];
+
+            public function dispatch($job)
+            {
+                $this->jobs[] = $job;
+            }
+        };
+        $container->instance(BusDispatcher::class, $this->bus);
+
+        $va = RecDispoEvent::create(['einsatz_ref' => 'WEG1', 'name' => 'Messe', 'filial_nr' => 200, 'starts_on' => '2026-10-14']);
+        RecDispoBedarf::create(['rec_dispo_event_id' => $va->id, 'dispoposten_id' => '1', 'datum' => '2026-10-14', 'von' => '17:00', 'bis' => '23:00',
+            'zeiten' => [['von' => '17:00', 'bis' => '23:00']], 'taetigkeit' => 'Service', 'anzahl' => 2, 'status_id' => 1]);
+
+        $c = new class extends Create {
+            public ?string $weiterleitung = null;
+
+            public function __get($name)
+            {
+                return method_exists($this, $name) ? $this->{$name}() : parent::__get($name);
+            }
+
+            public function __unset($name)
+            {
+            }
+
+            public function blockOptionen(): array
+            {
+                return [['block' => 200, 'label' => 'DUS', 'nummern' => [], 'count' => 1]];
+            }
+
+            public function taetigkeitKatalog(): array
+            {
+                return ['Service'];
+            }
+
+            /** Keine Integrations-Tabelle im Test: jede hinterlegte ID ist eine freigegebene, gueltige Vorlage. */
+            public function vorlagen(): array
+            {
+                $out = [];
+                foreach (array_filter($this->anlassVorlagen()) as $id) {
+                    $out[$id] = (object) ['id' => $id, 'name' => 'v' . $id, 'status' => 'APPROVED', 'components' => [
+                        ['type' => 'BODY', 'text' => 'Hey {{name}}'],
+                        ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ansehen', 'url' => 'https://x/jobs/{{1}}']]],
+                    ]];
+                }
+
+                return $out;
+            }
+
+            public function redirectRoute($name, $parameters = [], $absolute = true, $navigate = false)
+            {
+                $this->weiterleitung = $name;
+            }
+        };
+        $c->schritt = 3;
+        $c->filialNr = '200';
+        $c->von = '2026-10-13';
+        $c->bis = '2026-10-20';
+        $c->eventIds = [(string) $va->id];
+        $c->andere = [['event' => $va->id, 'datum' => '2026-10-14', 'von' => '17:00', 'bis' => '23:00', 'taetigkeit' => 'Service', 'gesucht' => '2']];
+        $c->maBloecke = ['200'];
+        $c->anlass = $anlass;
+        $c->versandweg = $versandweg;
+
+        return $c;
+    }
+
+    protected function tearDown(): void
+    {
+        $container = Container::getInstance();
+        foreach ([AuthFactory::class, BusDispatcher::class, 'session'] as $n) {
+            $container->forgetInstance($n);
+        }
+        parent::tearDown();
+    }
+
+    /** @return list<int> Wellen-IDs der eingereihten Jobs */
+    private function eingereiht(): array
+    {
+        return array_map(fn ($j) => $j->waveId, array_values(array_filter($this->bus->jobs, fn ($j) => $j instanceof SendDispoJobWave)));
+    }
+
+    private function angelegt(Create $c): RecDispoJobRequest
+    {
+        $this->assertSame('', $c->fehler, 'Anlegen darf nicht scheitern');
+        $this->assertSame('recruiting.dispo.jobs.show', $c->weiterleitung);
+        $this->assertSame(1, RecDispoJobRequest::count());
+
+        return RecDispoJobRequest::query()->firstOrFail();
+    }
+
+    private static function welleId(RecDispoJobRequest $r): int
+    {
+        return (int) RecDispoJobWave::query()->where('request_id', $r->id)->where('nr', 1)->value('id');
+    }
+
+    public function test_schalter_aus_legt_whatsapp_ohne_pflicht_an_und_reiht_welle_ein(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_template_dringend_id' => 7], 'dringend', 'whatsapp');
+        $c->anlegenUndSenden();
+
+        $r = $this->angelegt($c);
+        $this->assertSame(['whatsapp', false, 7], [$r->versandweg, (bool) $r->freigabe_pflicht, $r->whatsapp_template_id]);
+        $this->assertNull($r->freigabe_beantragt_at);
+        $this->assertSame([self::welleId($r)], $this->eingereiht());
+    }
+
+    public function test_schalter_aus_und_manipuliertes_portal_bleibt_whatsapp(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_template_vier_wochen_id' => 7], 'vier_wochen', 'portal');
+        $c->anlegenUndSenden();
+
+        $r = $this->angelegt($c);
+        $this->assertSame(['whatsapp', false, 7], [$r->versandweg, (bool) $r->freigabe_pflicht, $r->whatsapp_template_id]);
+        $this->assertSame([self::welleId($r)], $this->eingereiht());
+    }
+
+    public function test_schalter_an_portal_ohne_vorlage_legt_an_und_reiht_welle_ein(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_versandweg_aktiv' => true], 'naechste_woche', 'portal');
+        $c->anlegenUndSenden();
+
+        $r = $this->angelegt($c);
+        $this->assertSame(['portal', false], [$r->versandweg, (bool) $r->freigabe_pflicht]);
+        $this->assertNull($r->whatsapp_template_id, 'Portal braucht keine Vorlage');
+        $this->assertSame([self::welleId($r)], $this->eingereiht());
+    }
+
+    public function test_schalter_an_whatsapp_beantragt_freigabe_und_reiht_nichts_ein(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_versandweg_aktiv' => true, 'dispo_job_template_vier_wochen_id' => 7], 'vier_wochen', 'whatsapp');
+        $c->anlegenUndSenden();
+
+        $r = $this->angelegt($c);
+        $this->assertSame(['whatsapp', true, 7], [$r->versandweg, (bool) $r->freigabe_pflicht, $r->whatsapp_template_id]);
+        $this->assertSame('2026-10-12 10:00:00', $r->freigabe_beantragt_at->format('Y-m-d H:i:s'));
+        $this->assertSame(42, (int) $r->freigabe_beantragt_by_user_id);
+        $this->assertGreaterThan(0, self::welleId($r), 'Welle 1 ist angelegt');
+        $this->assertSame([], $this->eingereiht(), 'erst die Freigabe startet Welle 1');
+    }
+
+    public function test_schalter_an_whatsapp_ohne_vorlage_wird_abgewiesen(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_versandweg_aktiv' => true], 'naechste_woche', 'whatsapp');
+        $c->anlegenUndSenden();
+
+        $this->assertNotSame('', $c->fehler);
+        $this->assertSame(0, RecDispoJobRequest::count());
+        $this->assertSame([], $this->eingereiht());
+    }
+
+    public function test_schalter_an_dringend_und_manipuliertes_portal_bleibt_whatsapp_ohne_pflicht(): void
+    {
+        $c = $this->anlegenMit(['dispo_job_versandweg_aktiv' => true, 'dispo_job_template_dringend_id' => 7], 'dringend', 'portal');
+        $c->anlegenUndSenden();
+
+        $r = $this->angelegt($c);
+        $this->assertSame(['whatsapp', false, 7], [$r->versandweg, (bool) $r->freigabe_pflicht, $r->whatsapp_template_id]);
+        $this->assertSame([self::welleId($r)], $this->eingereiht());
     }
 }

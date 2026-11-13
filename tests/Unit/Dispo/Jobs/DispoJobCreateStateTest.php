@@ -86,6 +86,18 @@ final class DispoJobCreateStateTest extends TestCase
         $this->assertNotNull(DispoJobCreateState::kannWeiter(3, self::state(['template_id' => null])));
     }
 
+    /** Markus 13.11.2026: der Portal-Weg braucht keine WhatsApp-Vorlage; ohne/mit Weg WhatsApp bleibt die Pflicht. */
+    public function testSchritt3PortalBrauchtKeineVorlage(): void
+    {
+        $this->assertNull(DispoJobCreateState::kannWeiter(3, self::state(['versandweg' => 'portal', 'template_id' => ''])));
+        $this->assertSame(
+            'Für diesen Anlass ist noch keine Vorlage hinterlegt — bitte in den Einstellungen hinterlegen.',
+            DispoJobCreateState::kannWeiter(3, self::state(['versandweg' => 'whatsapp', 'template_id' => '']))
+        );
+        $this->assertSame('Bitte wähle einen Anlass.', DispoJobCreateState::kannWeiter(3, self::state(['versandweg' => 'portal', 'anlass' => ''])));
+        $this->assertSame('Bitte wähle mindestens eine Gruppe.', DispoJobCreateState::kannWeiter(3, self::state(['versandweg' => 'portal', 'template_id' => '', 'gruppen' => []])));
+    }
+
     public function testSchritt3BrauchtVorlageOhneProblemUndEmpfaengerAuswahl(): void
     {
         $this->assertNotNull(DispoJobCreateState::kannWeiter(3, self::state(['template_id' => ''])));

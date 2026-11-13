@@ -89,6 +89,12 @@ class DispoJobCreateKomponenteTest extends TestCase
             {
                 return ['vier_wochen' => 3, 'naechste_woche' => 2, 'dringend' => 1];
             }
+
+            /** Versandweg-Schalter (Markus 13.11.2026) aus = der bisherige Stand, den diese Tests pruefen. */
+            public function versandwegAktiv(): bool
+            {
+                return false;
+            }
         };
         $c->filialNr = '100';
         $c->von = '2026-11-02';
@@ -211,5 +217,142 @@ class DispoJobCreateKomponenteTest extends TestCase
             [['07:30', 1, 0, '126158'], ['14:00', 0, 6, '126159'], ['18:00', 0, 6, '126205']],
             array_map(fn ($s) => [$s['von'], $s['zeilen'], $s['offen'], $s['dispoposten']], $c->schichtOptionen()[$va->id]['2026-11-03']),
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Versandweg (Markus 13.11.2026, Spec 2026-11-13 §6.2)
+    // ------------------------------------------------------------------
+
+    /**
+     * Attrappe mit einstellbaren Vorlagen und Schalter (keine Settings-Tabelle
+     * im Test). vorlagen() liefert zu jeder hinterlegten ID eine freigegebene,
+     * gueltige Vorlage.
+     *
+     * @param  array<string, ?int>  $ids
+     */
+    private static function wegKomponente(array $ids, bool $aktiv): Create
+    {
+        $c = new class extends Create {
+            public array $testIds = [];
+            public bool $testAktiv = false;
+
+            public function __get($name)
+            {
+                return method_exists($this, $name) ? $this->{$name}() : parent::__get($name);
+            }
+
+            public function __unset($name)
+            {
+            }
+
+            public function anlassVorlagen(): array
+            {
+                return $this->testIds + ['vier_wochen' => null, 'naechste_woche' => null, 'dringend' => null];
+            }
+
+            public function versandwegAktiv(): bool
+            {
+                return $this->testAktiv;
+            }
+
+            public function vorlagen(): array
+            {
+                $out = [];
+                foreach (array_filter($this->testIds) as $id) {
+                    $out[$id] = (object) ['id' => $id, 'name' => 'v' . $id, 'status' => 'APPROVED', 'components' => [
+                        ['type' => 'BODY', 'text' => 'Hey {{name}}'],
+                        ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ansehen', 'url' => 'https://x/jobs/{{1}}']]],
+                    ]];
+                }
+
+                return $out;
+            }
+        };
+        $c->testIds = $ids;
+        $c->testAktiv = $aktiv;
+        $c->filialNr = '100';
+        $c->von = '2026-11-02';
+        $c->bis = '2026-11-04';
+
+        return $c;
+    }
+
+    public function test_schalter_aus_anlass_ohne_vorlage_bleibt_gesperrt_und_es_gibt_keine_wahl(): void
+    {
+        $c = self::wegKomponente(['dringend' => 1], false);
+        $c->anlassWaehlen('dringend');
+        $c->anlassWaehlen('naechste_woche');
+
+        $this->assertSame('dringend', $c->anlass, 'wie heute: ohne Vorlage nicht waehlbar');
+        $this->assertSame('whatsapp', $c->versandweg);
+        $this->assertFalse($c->wegWaehlbar());
+
+        $c = self::wegKomponente([], false);
+        $c->anlass = 'vier_wochen';
+        $this->assertSame('In den Dispo-Einstellungen ist noch keine Vorlage für Jobangebote hinterlegt.', $c->vorlagenProblem(), 'Fehlertext wie heute');
+    }
+
+    public function test_schalter_an_wochenanlass_ohne_vorlage_ist_waehlbar_und_portal_vorgewaehlt(): void
+    {
+        $c = self::wegKomponente(['dringend' => 1], true);
+        $c->anlassWaehlen('naechste_woche');
+
+        $this->assertSame('naechste_woche', $c->anlass);
+        $this->assertSame('portal', $c->versandweg);
+        $this->assertTrue($c->wegWaehlbar());
+        $this->assertFalse($c->wegWhatsappMoeglich(), 'ohne Vorlage ist WhatsApp gesperrt');
+        $this->assertNull($c->vorlagenProblem(), 'Portal braucht keine Vorlage');
+
+        // Manipuliert auf WhatsApp: dann gilt wieder die Vorlagenpruefung.
+        $c->versandweg = 'whatsapp';
+        $this->assertNotNull($c->vorlagenProblem());
+    }
+
+    public function test_schalter_an_dringend_bleibt_whatsapp_und_braucht_seine_vorlage(): void
+    {
+        $c = self::wegKomponente(['vier_wochen' => 3], true);
+        $c->anlassWaehlen('vier_wochen');
+        $c->anlassWaehlen('dringend');
+        $this->assertSame('vier_wochen', $c->anlass, 'dringend ohne Vorlage bleibt gesperrt');
+
+        $c = self::wegKomponente(['vier_wochen' => 3, 'dringend' => 1], true);
+        $c->anlassWaehlen('vier_wochen');
+        $this->assertSame('portal', $c->versandweg);
+        $this->assertTrue($c->wegWhatsappMoeglich());
+        $c->versandweg = 'whatsapp';
+        $c->anlassWaehlen('dringend');
+        $this->assertSame(['dringend', 'whatsapp'], [$c->anlass, $c->versandweg]);
+        $this->assertFalse($c->wegWaehlbar());
+
+        $c->versandweg = 'portal'; // manipuliert
+        $this->assertNull($c->vorlagenProblem(), 'dringend prueft die Vorlage wie heute — und die ist gueltig');
+        $c->anlassWaehlen('naechste_woche');
+        $this->assertSame('portal', $c->versandweg, 'jeder Anlasswechsel belegt den Weg neu');
+    }
+
+    public function test_mount_belegt_anlass_und_weg_vor(): void
+    {
+        $container = Container::getInstance();
+        $container->instance('session', new class {
+            public function get($key, $default = null)
+            {
+                return $default;
+            }
+        });
+        try {
+            $c = self::wegKomponente([], true);
+            $c->mount();
+            $this->assertSame(['vier_wochen', 'portal'], [$c->anlass, $c->versandweg], 'Schalter an: Wochenanlass ohne Vorlage');
+
+            $c = self::wegKomponente([], false);
+            $c->mount();
+            $this->assertSame(['', 'whatsapp'], [$c->anlass, $c->versandweg], 'Schalter aus: wie heute kein Anlass');
+
+            $c = self::wegKomponente(['dringend' => 1], false);
+            $c->mount();
+            $this->assertSame(['dringend', 'whatsapp'], [$c->anlass, $c->versandweg]);
+        } finally {
+            $container->forgetInstance('session');
+        }
     }
 }
