@@ -190,4 +190,44 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString("\$info['ohne_vertrag']", $show);
         $this->assertStringContainsString('Status MA – braucht neuen Vertrag', $show);
     }
+
+    /** Freigabe (Spec 2026-11-13 §6.4): Knoepfe nur fuer den Freigeber, Entscheidung im Dienst, Zaehler in Uebersicht und Sidebar. */
+    public function test_freigabe_ist_in_show_index_und_sidebar_verdrahtet(): void
+    {
+        $src = self::datei('src/Livewire/Dispo/Jobs/Show.php');
+        $this->assertStringContainsString('DispoJobFreigabe::freigeben($this->anfrage(), auth()->user(), $this->teamId())', $src);
+        $this->assertStringContainsString('DispoJobFreigabe::ablehnen($this->anfrage(), auth()->user(), $this->ablehnGrund)', $src);
+        $this->assertStringContainsString('DispoJobFreigabe::insPortal($this->anfrage(), $this->teamId(),', $src);
+        $this->assertStringContainsString('DispoJobVersandweg::istFreigeber(RecApplicantSettings::getOrCreateForTeam($this->teamId()), auth()->user())', $src);
+        $this->assertStringContainsString('$vorlagenProblem = $request->istPortal() ? null', $src, 'Vorlage nur im WhatsApp-Weg pruefen');
+
+        $view = self::datei('resources/views/livewire/dispo/jobs/show.blade.php');
+        $this->assertStringContainsString("'Mit der Freigabe gehen alle Wellen dieser Anfrage per WhatsApp raus, auch die automatischen Folgewellen. Welle 1 startet sofort an ' . \$freigabeN . '.'", $view);
+        $this->assertStringContainsString('wire:click="freigeben" wire:confirm="{{ $freigabeText }}"', $view);
+        $freigeberIf = strpos($view, '@if ($this->istFreigeber)');
+        $this->assertNotFalse($freigeberIf);
+        $this->assertLessThan(strpos($view, 'wire:click="freigeben"'), $freigeberIf, 'Knopf nur im Freigeber-Zweig');
+        $this->assertLessThan(strpos($view, 'wire:click="ablehnen"'), $freigeberIf);
+        $this->assertStringContainsString('>Stattdessen im Portal bereitstellen</button>', $view);
+        $this->assertStringContainsString('@if ($offen && $darfSenden)', $view, '„Neue Welle“ erst nach der Freigabe');
+        $this->assertStringContainsString("\$standVerb = \$istPortal ? 'im Portal bereitgestellt' : 'angeschrieben';", $view);
+        $this->assertStringContainsString('· Weg: {{ $wegLabel }}', $view);
+
+        $index = self::datei('src/Livewire/Dispo/Jobs/Index.php');
+        $this->assertStringContainsString("'wartendFreigabe' => DispoJobFreigabe::wartend(\$this->teamId())", $index);
+        $this->assertLessThan(strpos($index, "->orderByDesc('id')"), strpos($index, '->orderByRaw(\'CASE WHEN freigabe_pflicht'), 'wartende zuerst');
+        $indexView = self::datei('resources/views/livewire/dispo/jobs/index.blade.php');
+        $this->assertStringContainsString("{{ \$wartendFreigabe === 1 ? 'Anfrage wartet' : 'Anfragen warten' }} auf Freigabe", $indexView);
+        $this->assertStringContainsString("\$statusText = 'wartet auf Freigabe';", $indexView);
+        $this->assertStringContainsString("\$statusText = 'Freigabe abgelehnt';", $indexView);
+
+        $sidebar = self::datei('resources/views/livewire/sidebar.blade.php');
+        $this->assertStringContainsString('$dispoJobsFreigabe = \\Platform\\Recruiting\\Services\\Zas\\Dispo\\Jobs\\DispoJobFreigabe::wartend();', $sidebar);
+        $this->assertStringContainsString('@if ($dispoJobsFreigabe > 0)', $sidebar);
+
+        $create = self::datei('resources/views/livewire/dispo/jobs/create.blade.php');
+        $this->assertStringContainsString("\$zahlenKopf = \$wegFreigabe ? 'Nach der Freigabe an' : 'Sendet jetzt an';", $create);
+        $this->assertStringContainsString("\$wannKopf = \$wegFreigabe ? 'Wann senden (nach der Freigabe)?' : 'Wann senden?';", $create);
+        $this->assertStringContainsString("\$jetztLabel = \$wegFreigabe ? 'Sofort nach der Freigabe' : 'Jetzt senden';", $create);
+    }
 }

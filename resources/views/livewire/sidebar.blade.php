@@ -158,12 +158,17 @@
         </x-ui-sidebar-item>
         @php
             $dispoJobsOffen = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOffeneZusagen::count();
+            // Wartende Freigaben (Spec 6.4); wirft nie, wie DispoJobOffeneZusagen.
+            $dispoJobsFreigabe = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreigabe::wartend();
         @endphp
         <x-ui-sidebar-item :href="route('recruiting.dispo.jobs.index')">
             @svg('heroicon-o-megaphone', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Jobs anbieten</span>
+            @if ($dispoJobsFreigabe > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700" title="Anfragen warten auf Freigabe">{{ $dispoJobsFreigabe }}</span>
+            @endif
             @if ($dispoJobsOffen > 0)
-                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $dispoJobsOffen }}</span>
+                <span class="{{ $dispoJobsFreigabe > 0 ? 'ml-1' : 'ml-auto' }} flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $dispoJobsOffen }}</span>
             @endif
         </x-ui-sidebar-item>
         @php

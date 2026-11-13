@@ -7,6 +7,9 @@
             @if ($offeneZusagen > 0)
                 <span class="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs text-orange-700">{{ $offeneZusagen }} {{ $offeneZusagen === 1 ? 'Zusage wartet' : 'Zusagen warten' }} auf ZAS</span>
             @endif
+            @if ($wartendFreigabe > 0)
+                <span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">{{ $wartendFreigabe }} {{ $wartendFreigabe === 1 ? 'Anfrage wartet' : 'Anfragen warten' }} auf Freigabe</span>
+            @endif
         </div>
         <a href="{{ route('recruiting.dispo.jobs.create') }}" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Neue Anfrage</a>
     </div>
@@ -48,6 +51,14 @@
                             $offen = $a->closed_at === null && $a->status !== \Platform\Recruiting\Models\RecDispoJobRequest::STATUS_ABGESCHLOSSEN;
                             $statusText = !$offen ? 'abgeschlossen' : ($a->status === \Platform\Recruiting\Models\RecDispoJobRequest::STATUS_LAEUFT ? 'läuft' : 'wartet auf den Start');
                             $statusKlasse = !$offen ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-green-200 bg-green-50 text-green-700';
+                            // Freigabe (Spec 6.4): Kennzeichen statt „wartet auf den Start“.
+                            if ($offen && $a->wartetAufFreigabe()) {
+                                $statusText = 'wartet auf Freigabe';
+                                $statusKlasse = 'border-amber-200 bg-amber-50 text-amber-700';
+                            } elseif ($offen && $a->freigabeAbgelehnt()) {
+                                $statusText = 'Freigabe abgelehnt';
+                                $statusKlasse = 'border-red-200 bg-red-50 text-red-700';
+                            }
                             $letzte = $a->waves->first();
                             $letzteText = '–';
                             if ($letzte !== null) {

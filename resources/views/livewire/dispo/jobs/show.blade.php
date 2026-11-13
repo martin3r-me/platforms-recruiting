@@ -20,6 +20,37 @@
     // Laufende/startende Welle: alle 3 s. Sonst (auch bei geplanten Wellen) leise alle 30 s, damit neue Zusagen erscheinen.
     $poll = !$offen ? '' : ($irgendwasLaeuft ? 'wire:poll.3s' : 'wire:poll.visible.30s');
     $schliessenText = 'Anfrage abschließen? Danach kann niemand mehr zusagen und geplante Wellen starten nicht mehr.';
+    // Versandweg + Freigabe (Spec 2026-11-13 §6.4, Markus 13.11.2026).
+    $istPortal = $anfrage->istPortal();
+    $wegLabel = $istPortal ? 'Mitarbeiterportal' : 'WhatsApp';
+    $darfSenden = $anfrage->darfSenden();
+    $wartetFreigabe = $offen && $anfrage->wartetAufFreigabe();
+    $freigabeAbgelehnt = $offen && $anfrage->freigabeAbgelehnt();
+    if ($wartetFreigabe) {
+        $statusLabel = 'wartet auf Freigabe';
+        $statusKlasse = 'border-amber-200 bg-amber-50 text-amber-700';
+    } elseif ($freigabeAbgelehnt) {
+        $statusLabel = 'Freigabe abgelehnt';
+        $statusKlasse = 'border-red-200 bg-red-50 text-red-700';
+    }
+    $freigabeNamen = $anfrage->freigabe_beantragt_at !== null ? $this->freigabeNamen : [];
+    $freigabeWer = fn ($id) => $id !== null ? ($freigabeNamen[(int) $id] ?? ('Nutzer #' . (int) $id)) : 'unbekannt';
+    $freigabeZeilen = [];
+    if ($anfrage->freigabe_beantragt_at !== null) {
+        $freigabeZeilen[] = 'Freigabe beantragt von ' . $freigabeWer($anfrage->freigabe_beantragt_by_user_id) . ' am ' . $anfrage->freigabe_beantragt_at->format('d.m.Y H:i') . ' Uhr';
+    }
+    if ($anfrage->freigegeben_at !== null) {
+        $freigabeZeilen[] = 'Freigegeben von ' . $freigabeWer($anfrage->freigegeben_by_user_id) . ' am ' . $anfrage->freigegeben_at->format('d.m.Y H:i') . ' Uhr';
+    }
+    if ($anfrage->freigabe_abgelehnt_at !== null) {
+        $freigabeZeilen[] = 'Abgelehnt von ' . $freigabeWer($anfrage->freigabe_abgelehnt_by_user_id) . ' am ' . $anfrage->freigabe_abgelehnt_at->format('d.m.Y H:i') . ' Uhr'
+            . (($anfrage->freigabe_ablehnungsgrund ?? '') !== '' ? ' — Grund: ' . $anfrage->freigabe_ablehnungsgrund : '');
+    }
+    // Bestaetigung wörtlich aus Spec 6.4; N = Obergrenze je Welle, ohne Obergrenze alle passenden.
+    $freigabeN = $anfrage->welle_max !== null ? 'bis zu ' . (int) $anfrage->welle_max . ' Personen' : 'alle passenden Personen';
+    $freigabeText = 'Mit der Freigabe gehen alle Wellen dieser Anfrage per WhatsApp raus, auch die automatischen Folgewellen. Welle 1 startet sofort an ' . $freigabeN . '.';
+    $portalText = 'Anfrage stattdessen im Mitarbeiterportal bereitstellen? Es geht nichts per WhatsApp raus, Welle 1 startet.';
+    $standVerb = $istPortal ? 'im Portal bereitgestellt' : 'angeschrieben';
 @endphp
 <div class="p-6 space-y-6" {!! $poll !!}>
     {{-- ============================ Kopf ============================ --}}
@@ -31,6 +62,7 @@
                 <span class="rounded-full border px-2 py-0.5 text-xs {{ $statusKlasse }}">{{ $statusLabel }}</span>
                 <span>{{ $modusLabel }}</span>
                 <span>· Anlass: {{ $anlassLabel }}</span>
+                <span>· Weg: {{ $wegLabel }}</span>
             </div>
             <div class="mt-0.5 text-xs text-gray-400">Vorlage {{ $this->vorlageName }}</div>
         </div>
@@ -55,11 +87,49 @@
         <div class="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">{{ $hinweis }}</div>
     @endif
 
+    {{-- ============================ Freigabe (Spec 6.4) ============================ --}}
+    @if ($freigabeZeilen !== [])
+        <div class="rounded-lg border p-4 space-y-2 text-sm {{ $wartetFreigabe ? 'border-amber-200 bg-amber-50/50' : ($freigabeAbgelehnt ? 'border-red-200 bg-red-50/50' : 'border-gray-200 bg-white') }}">
+            <div class="font-medium text-gray-700">Freigabe</div>
+            @foreach ($freigabeZeilen as $freigabeZeile)
+                <div class="text-gray-600">{{ $freigabeZeile }}</div>
+            @endforeach
+            @if ($wartetFreigabe)
+                @if ($this->istFreigeber)
+                    <div class="flex flex-wrap items-center gap-2 pt-1">
+                        <button type="button" wire:click="freigeben" wire:confirm="{{ $freigabeText }}" wire:loading.attr="disabled" wire:target="freigeben"
+                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Freigeben</button>
+                        <button type="button" wire:click="ablehnenUmschalten"
+                                class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">{{ $ablehnenOffen ? 'Doch nicht ablehnen' : 'Ablehnen' }}</button>
+                    </div>
+                    @if ($ablehnenOffen)
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input type="text" maxlength="255" wire:model="ablehnGrund" placeholder="Kurzer Grund (optional)"
+                                   class="w-full max-w-md rounded border border-gray-300 px-2 py-1 text-sm">
+                            <button type="button" wire:click="ablehnen" wire:loading.attr="disabled" wire:target="ablehnen"
+                                    class="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Ablehnen</button>
+                        </div>
+                    @endif
+                @else
+                    <div class="text-amber-800">Es geht noch nichts raus. Die Anfrage wartet auf die Freigabe durch den hinterlegten Freigeber.</div>
+                @endif
+            @elseif ($freigabeAbgelehnt)
+                <div class="text-red-800">Es geht nichts raus. Du kannst die Angebote stattdessen im Mitarbeiterportal bereitstellen oder die Anfrage schließen.</div>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <button type="button" wire:click="insPortal" wire:confirm="{{ $portalText }}" wire:loading.attr="disabled" wire:target="insPortal"
+                            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Stattdessen im Portal bereitstellen</button>
+                    <button type="button" wire:click="abschliessen" wire:confirm="{{ $schliessenText }}"
+                            class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Anfrage schließen</button>
+                </div>
+            @endif
+        </div>
+    @endif
+
     {{-- ============================ Wellen ============================ --}}
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
         <div class="flex items-center justify-between">
             <div class="font-medium text-gray-700">Wellen</div>
-            @if ($offen)
+            @if ($offen && $darfSenden)
                 <button type="button" wire:click="neueWelleUmschalten" class="text-sm text-blue-700 hover:underline">{{ $neueWelleOffen ? 'Schließen' : 'Neue Welle' }}</button>
             @endif
         </div>
@@ -86,6 +156,9 @@
                 } elseif (!$offen && $w['wartet']) {
                     // Der Job beansprucht Wellen geschlossener Anfragen nicht mehr — kein Fall fuer den Hintergrunddienst.
                     $wZeit = 'Startet nicht mehr — die Anfrage ist abgeschlossen.';
+                } elseif ($w['wartet'] && $w['vor_freigabe']) {
+                    // Der Job laesst die Welle vor der Freigabe liegen (Spec 6.4).
+                    $wZeit = $freigabeAbgelehnt ? 'Startet nicht — die Freigabe wurde abgelehnt.' : 'Startet nach der Freigabe.';
                 } elseif ($w['geplant'] !== null && $w['geplant']->isFuture()) {
                     $wZeit = 'geplant für ' . $w['geplant']->format('d.m. H:i') . ' Uhr';
                 } elseif ($w['haengt']) {
@@ -127,7 +200,7 @@
                     <div class="mt-1 text-xs text-gray-600">
                         @if ($welleGestoppt)
                             <div class="text-red-700">
-                                <div class="font-medium">Diese Welle konnte nicht gesendet werden:</div>
+                                <div class="font-medium">{{ $istPortal ? 'Diese Welle konnte nicht im Portal bereitgestellt werden:' : 'Diese Welle konnte nicht gesendet werden:' }}</div>
                                 @foreach ($standFehler as $fehlerZeile)
                                     <div>{{ $fehlerZeile }}</div>
                                 @endforeach
@@ -135,7 +208,7 @@
                         @elseif ($standLeer)
                             Niemand übrig — alle aus der Auswahl sind schon angeschrieben oder fallen heraus.
                         @else
-                            <strong>{{ (int) ($stand['sent'] ?? 0) }}</strong> von {{ (int) ($stand['total'] ?? 0) }} angeschrieben
+                            <strong>{{ (int) ($stand['sent'] ?? 0) }}</strong> von {{ (int) ($stand['total'] ?? 0) }} {{ $standVerb }}
                             @if ((int) ($stand['failed'] ?? 0) > 0)
                                 · <span class="text-red-700">{{ (int) $stand['failed'] }} nicht zugestellt</span>
                             @endif

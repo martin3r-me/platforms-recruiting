@@ -336,6 +336,10 @@
                     . $wellenRest . ' — die genaue Zahl wird beim Start neu berechnet.';
             }
             $sendenGesperrt = $problem !== null;
+            // Mit Freigabe geht beim Anlegen nichts raus — die Karten duerfen keinen sofortigen Versand versprechen (Spec 6.4).
+            $zahlenKopf = $wegFreigabe ? 'Nach der Freigabe an' : 'Sendet jetzt an';
+            $wannKopf = $wegFreigabe ? 'Wann senden (nach der Freigabe)?' : 'Wann senden?';
+            $jetztLabel = $wegFreigabe ? 'Sofort nach der Freigabe' : 'Jetzt senden';
         @endphp
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -500,7 +504,7 @@
 
                 {{-- Zahlen vor dem Senden: jeder Ausschluss mit Namen aufklappbar. --}}
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
-                    <div class="text-base">Sendet jetzt an <strong>{{ $zahlen['empfaenger'] }}</strong> {{ $personen }}
+                    <div class="text-base">{{ $zahlenKopf }} <strong>{{ $zahlen['empfaenger'] }}</strong> {{ $personen }}
                         @if ($rest > 0)
                             <span class="text-sm text-gray-500">· {{ $rest }} weitere {{ $abstandLabel !== 'keine' ? 'in späteren Wellen' : '— nächste Welle von Hand starten' }}</span>
                         @endif
@@ -524,10 +528,10 @@
                 </div>
 
                 <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2 text-sm">
-                    <div class="font-medium text-gray-700">Wann senden?</div>
+                    <div class="font-medium text-gray-700">{{ $wannKopf }}</div>
                     <label class="flex cursor-pointer items-center gap-2">
                         <input type="radio" value="jetzt" wire:model="startModus" class="border-gray-300">
-                        <span>Jetzt senden</span>
+                        <span>{{ $jetztLabel }}</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2">
                         <input type="radio" value="spaeter" wire:model="startModus" class="border-gray-300">
@@ -535,6 +539,9 @@
                         <input type="number" min="1" max="1440" inputmode="numeric" wire:model="minuten" class="w-20 rounded border border-gray-300 px-2 py-1 text-sm">
                         <span>Minuten senden</span>
                     </label>
+                    @if ($wegFreigabe)
+                        <p class="text-xs text-gray-500">Die Minuten zählen ab dem Anlegen. Ist der Zeitpunkt bei der Freigabe schon vorbei, startet Welle 1 sofort.</p>
+                    @endif
                 </div>
             </div>
         </div>

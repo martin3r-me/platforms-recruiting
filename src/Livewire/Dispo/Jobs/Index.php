@@ -6,6 +6,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreigabe;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobOffeneZusagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobUebersichtZahlen;
 
@@ -39,6 +40,9 @@ class Index extends Component
             ->when($filter === 'zu', fn ($q) => $q->where(fn ($w) => $w->whereNotNull('closed_at')->orWhere('status', RecDispoJobRequest::STATUS_ABGESCHLOSSEN)))
             ->withCount('shifts')
             ->with(['waves' => fn ($q) => $q->orderByDesc('nr')])
+            // Wartende Freigaben zuerst (Spec 6.4) — gleiche Menge wie DispoJobFreigabe::wartend().
+            ->orderByRaw('CASE WHEN freigabe_pflicht = ? AND freigegeben_at IS NULL AND freigabe_abgelehnt_at IS NULL AND closed_at IS NULL AND status <> ? THEN 0 ELSE 1 END',
+                [true, RecDispoJobRequest::STATUS_ABGESCHLOSSEN])
             ->orderByDesc('id')
             ->limit(self::LIMIT)
             ->get();
@@ -48,6 +52,7 @@ class Index extends Component
             'zahlen'        => DispoJobUebersichtZahlen::laden($anfragen->pluck('id')->all()),
             'filter'        => $filter,
             'offeneZusagen' => DispoJobOffeneZusagen::count($this->teamId()),
+            'wartendFreigabe' => DispoJobFreigabe::wartend($this->teamId()),
         ])->layout('platform::layouts.app');
     }
 }

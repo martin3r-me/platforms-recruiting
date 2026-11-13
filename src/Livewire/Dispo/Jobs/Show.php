@@ -8,6 +8,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Jobs\SendDispoJobWave;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoJobOffer;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Models\RecDispoJobRequest;
@@ -17,12 +18,14 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfrageAnlegen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnfragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFortschritt;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreigabe;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFreieListe;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoGesellschaft;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobFolgewelle;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobKandidaten;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasHaken;
@@ -70,6 +73,10 @@ class Show extends Component
 
     /** Schicht, deren Liste „Wer ist an dem Tag frei?“ offen ist (Markus 12.11.2026). */
     public ?int $freiOffen = null;
+
+    /** Ablehnen mit optionalem Grund (Spec 6.4) — Feld klappt erst nach dem Klick auf. */
+    public bool $ablehnenOffen = false;
+    public string $ablehnGrund = '';
 
     public string $fehler = '';
     public string $hinweis = '';
@@ -142,6 +149,38 @@ class Show extends Component
     public function vorgang(): RecDispoJobRequest
     {
         return $this->anfrage();
+    }
+
+    /** Knoepfe „Freigeben“/„Ablehnen“ nur fuer den Freigeber; der Dienst prueft noch einmal. */
+    #[Computed]
+    public function istFreigeber(): bool
+    {
+        try {
+            return DispoJobVersandweg::istFreigeber(RecApplicantSettings::getOrCreateForTeam($this->teamId()), auth()->user());
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Namen fuer die Zeile „beantragt/freigegeben/abgelehnt von …“. Nebeninformation: wirft nie.
+     *
+     * @return array<int, string> user_id => Name
+     */
+    #[Computed]
+    public function freigabeNamen(): array
+    {
+        $r = $this->vorgang;
+        $ids = array_values(array_filter([$r->freigabe_beantragt_by_user_id, $r->freigegeben_by_user_id, $r->freigabe_abgelehnt_by_user_id]));
+        if ($ids === []) {
+            return [];
+        }
+        try {
+            return \Platform\Core\Models\User::query()->whereIn('id', $ids)->pluck('name', 'id')
+                ->mapWithKeys(fn ($n, $id) => [(int) $id => (string) $n])->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     #[Computed]
@@ -267,9 +306,11 @@ class Show extends Component
     public function wellen(): array
     {
         $out = [];
+        // Vor der Freigabe ist keine Welle faellig (und haengt nicht) — der Job laesst sie bewusst liegen.
+        $vorFreigabe = !$this->vorgang->darfSenden();
         foreach ($this->vorgang->waves()->orderBy('nr')->get() as $w) {
             $laeuft = $w->started_at !== null && $w->finished_at === null;
-            $faellig = $w->started_at === null && $w->finished_at === null && ($w->scheduled_for === null || !$w->scheduled_for->isFuture());
+            $faellig = !$vorFreigabe && $w->started_at === null && $w->finished_at === null && ($w->scheduled_for === null || !$w->scheduled_for->isFuture());
             $fortschritt = $laeuft && $w->job_uuid ? Cache::get(SendDispoJobWave::cacheKey($w->job_uuid)) : null;
             $out[] = [
                 'id'          => (int) $w->id,
@@ -285,6 +326,7 @@ class Show extends Component
                 'gestartet'   => $w->started_at,
                 'fertig'      => $w->finished_at,
                 'wartet'      => $w->started_at === null && $w->finished_at === null,
+                'vor_freigabe' => $vorFreigabe,
                 'faellig'     => $faellig,
                 // Faellig, aber seit ueber HAENGT_MINUTEN nicht gestartet: der Hintergrunddienst laeuft vermutlich nicht.
                 'haengt'      => $faellig && ($w->scheduled_for ?? $w->created_at)?->lt(now()->subMinutes(self::HAENGT_MINUTEN)) === true,
@@ -338,7 +380,8 @@ class Show extends Component
     public function neueWelleUmschalten(): void
     {
         $this->fehler = '';
-        $this->neueWelleOffen = !$this->neueWelleOffen && self::istOffen($this->anfrage());
+        $request = $this->anfrage();
+        $this->neueWelleOffen = !$this->neueWelleOffen && self::istOffen($request) && $request->darfSenden();
         $this->wZahlen = null;
         if ($this->neueWelleOffen) {
             $this->zahlenRechnen();
@@ -359,6 +402,12 @@ class Show extends Component
         $request = $this->anfrage();
         if (!self::istOffen($request)) {
             $this->fehler = 'Die Anfrage ist abgeschlossen.';
+
+            return;
+        }
+        // Freigabe (Spec 6.4): vor der Freigabe legt auch „Neue Welle“ nichts an — der Job wuerde sie nur liegen lassen.
+        if (!$request->darfSenden()) {
+            $this->fehler = $request->freigabeAbgelehnt() ? 'Die Freigabe wurde abgelehnt.' : 'Die Anfrage wartet auf Freigabe.';
 
             return;
         }
@@ -383,7 +432,9 @@ class Show extends Component
         }
 
         // Vorlage je Welle neu pruefen — sie kann seit dem Anlegen bei Meta geaendert oder abgelehnt worden sein.
-        $vorlagenProblem = DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
+        // Im Portal-Weg gibt es keine Vorlage (Spec 6.3).
+        $vorlagenProblem = $request->istPortal() ? null
+            : DispoJobVorlagenWaechter::fuerVorlage($request->whatsapp_template_id !== null ? (int) $request->whatsapp_template_id : null);
         if ($vorlagenProblem !== null) {
             $this->fehler = 'Mit dieser Vorlage kannst du keine Welle starten: ' . $vorlagenProblem
                 . ' Lege bitte eine neue Anfrage mit einer passenden Vorlage an.';
@@ -507,6 +558,53 @@ class Show extends Component
         RecDispoJobWave::query()->where('request_id', $request->id)->where('auto', true)->whereNull('started_at')->delete();
         $this->hinweis = 'Keine weiteren automatischen Wellen. Du kannst jederzeit von Hand eine neue Welle starten.';
         unset($this->vorgang, $this->wellen);
+    }
+
+    /** Spec 6.4 „Ja“: nur der Freigeber (geprueft im Dienst), danach startet Welle 1. */
+    public function freigeben(): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        $ergebnis = DispoJobFreigabe::freigeben($this->anfrage(), auth()->user(), $this->teamId());
+        $this->freigabeMeldung($ergebnis, 'Freigegeben. Welle 1 startet.');
+    }
+
+    public function ablehnenUmschalten(): void
+    {
+        $this->ablehnenOffen = !$this->ablehnenOffen;
+        $this->ablehnGrund = '';
+    }
+
+    /** Spec 6.4 „Nein“: mit optionalem kurzem Grund, es geht nichts raus. */
+    public function ablehnen(): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        $ergebnis = DispoJobFreigabe::ablehnen($this->anfrage(), auth()->user(), $this->ablehnGrund);
+        $this->freigabeMeldung($ergebnis, 'Freigabe abgelehnt. Es geht nichts raus.');
+        if ($ergebnis === DispoJobFreigabe::OK) {
+            $this->ablehnenOffen = false;
+            $this->ablehnGrund = '';
+        }
+    }
+
+    /** Nach einer Ablehnung: „Stattdessen im Portal bereitstellen“ — darf jeder Disponent. */
+    public function insPortal(): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        $ergebnis = DispoJobFreigabe::insPortal($this->anfrage(), $this->teamId(), auth()->id() !== null ? (int) auth()->id() : null);
+        $this->freigabeMeldung($ergebnis, 'Die Anfrage geht jetzt ins Mitarbeiterportal. Welle 1 startet.');
+    }
+
+    private function freigabeMeldung(string $ergebnis, string $ok): void
+    {
+        match ($ergebnis) {
+            DispoJobFreigabe::OK => $this->hinweis = $ok,
+            DispoJobFreigabe::NICHT_BERECHTIGT => $this->fehler = 'Nur der hinterlegte Freigeber kann freigeben oder ablehnen.',
+            default => $this->fehler = 'Die Anfrage wartet nicht mehr auf diese Entscheidung — bitte lade die Seite neu.',
+        };
+        unset($this->vorgang, $this->wellen, $this->freigabeNamen);
     }
 
     public function abschliessen(): void
