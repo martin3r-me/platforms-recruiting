@@ -1,4 +1,8 @@
-<div class="rg-crew">
+@php
+    // Eingebettet im Portal-Reiter „Einsätze“ (Spec 2026-11-13 §6.5): ohne Vollbild-Hoehe und eigenen Hintergrund (Hausregel: Klasse vorberechnen).
+    $crewKlasse = $eingebettet ? 'rg-crew eingebettet' : 'rg-crew';
+@endphp
+<div class="{{ $crewKlasse }}">
 @include('recruiting::livewire.public._crew-stil')
 <style>
 /* Dringend: zwei gleich grosse Knoepfe unter der Schicht, gruen und rot (Markus 12.11.2026 —
@@ -42,12 +46,15 @@
     };
 @endphp
 
+{{-- Eingebettet im Portal: Kopf und Gruss hat das Portal schon. --}}
+@unless ($eingebettet)
 <div class="appbar">
     <div class="wordmark">Rhein<span>Gedeck</span></div>
     @unless ($tokenInvalid)
         <div class="avatar">{{ $avatarInitial }}</div>
     @endunless
 </div>
+@endunless
 
 <div class="wrap">
     @if ($tokenInvalid)
@@ -69,10 +76,12 @@
     @else
         @php $groups = $this->angebote; @endphp
 
-        <div class="greet">
-            <h1>Hallo {{ $firstName }}</h1>
-            <p>Hier stehen Einsätze, für die wir noch Leute suchen — nur an Tagen, an denen du frei bist.</p>
-        </div>
+        @unless ($eingebettet)
+            <div class="greet">
+                <h1>Hallo {{ $firstName }}</h1>
+                <p>Hier stehen Einsätze, für die wir noch Leute suchen — nur an Tagen, an denen du frei bist.</p>
+            </div>
+        @endunless
 
         @if ($hinweis !== '')
             <div class="{{ $hinweisOk ? 'notice-ok' : 'notice' }}">{{ $hinweis }}</div>
@@ -162,7 +171,9 @@
                 @endif
             </article>
         @empty
-            @if ($anfrageId !== null)
+            @if ($eingebettet)
+                <div class="empty">{{ $duzen ? 'Gerade gibt es keine freien Einsätze für dich.' : 'Gerade gibt es keine freien Einsätze für Sie.' }}</div>
+            @elseif ($anfrageId !== null)
                 <div class="empty">Für diese Anfrage gibt es gerade nichts mehr zu besetzen.</div>
             @else
                 <div class="empty">Gerade gibt es keine offenen Einsätze für dich.</div>

@@ -1490,6 +1490,7 @@ final class PortalGleichstandTest extends TestCase
             'profilFokus'  => 'nur vom Server gesetzt (oeffneAngabe), haengt am offenen Blatt',
             'infoKastenIds' => 'nur vom Server beim Seitenaufbau gesetzt; an ihr haengt, welche Infos als gesehen gelten',
             'infoOffen'    => 'nur vom Server gesetzt (infoAufklappen), nach der Scope-Pruefung',
+            'startReiter'  => 'nur in mount() aus ?tab= gesetzt, gegen PortalShell::REITER geprueft; landet in Alpine-x-data',
         ];
 
         $klasse = new \ReflectionClass(PortalShell::class);

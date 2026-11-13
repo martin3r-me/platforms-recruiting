@@ -87,7 +87,8 @@ final class DispoJobsRunde2WiringTest extends TestCase
         $this->assertStringContainsString('DispoJobZeit::problem($von, $bis)', self::datei('src/Livewire/Dispo/Jobs/Create.php'));
         $this->assertStringContainsString('wire:model="neuBis"', self::datei('resources/views/livewire/dispo/jobs/create.blade.php'));
         $this->assertStringContainsString('DispoJobZeit::spanne($s->von, $s->bis)', self::datei('resources/views/livewire/dispo/jobs/show.blade.php'));
-        $this->assertStringContainsString('DispoJobZeit::spanne($shift->von, $shift->bis)', self::datei('src/Livewire/Public/JobOffers.php'));
+        // Seit Spec 2026-11-13 §6.5 rechnet JobOffersLaden die Angebote (aus JobOffers::angebote() verschoben).
+        $this->assertStringContainsString('DispoJobZeit::spanne($shift->von, $shift->bis)', self::datei('src/Services/Zas/Dispo/Jobs/JobOffersLaden.php'));
         $this->assertStringContainsString("\$shift['zeit']", self::datei('resources/views/livewire/public/job-offers.blade.php'));
     }
 

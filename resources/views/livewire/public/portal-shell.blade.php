@@ -15,7 +15,8 @@
     $schirm = $state === 'verified' ? 'screen' : 'screen anmeldung';
 @endphp
 
-<div class="{{ $schirm }}" x-data="{ tab: 'start' }">
+{{-- ?tab= (Spec 2026-11-13 §6.5, Push-Tipp): nur ein Name aus PortalShell::REITER, serverseitig geprueft. --}}
+<div class="{{ $schirm }}" x-data="{ tab: @js($startReiter) }">
 
     @if ($state !== 'verified')
 
@@ -245,6 +246,31 @@
                     Details und Bestaetigen im Reiter "Einsaetze" (dieselbe Abfrage,
                     EmployeeAssignments::sichtbareEinsaetze).
                 --}}
+                {{--
+                    Freie Einsaetze (Spec 2026-11-13 §6.5): nur mit zusagbaren
+                    Angeboten. Dieselbe Zahl wie die Zeilen mit Zusage-Knopf im
+                    Reiter (JobOffersLaden). Tipp fuehrt dorthin, der Bereich
+                    steht dort oben.
+                --}}
+                @if ($neueAngebote > 0)
+                    @php
+                        $angeboteText = $neueAngebote === 1
+                            ? ($duzen ? '1 neuer Einsatz für dich' : '1 neuer Einsatz für Sie')
+                            : ($duzen ? $neueAngebote . ' neue Einsätze für dich' : $neueAngebote . ' neue Einsätze für Sie');
+                    @endphp
+                    <div class="sec-label">Freie Einsätze</div>
+                    <div class="card" style="margin-top:11px">
+                        <button type="button" class="task tap" @click="tab = 'jobs'">
+                            <span class="dot ok"></span>
+                            <div>
+                                <div class="t">{{ $angeboteText }}</div>
+                                <div class="s">Jetzt ansehen und zusagen</div>
+                            </div>
+                            <span class="chev">›</span>
+                        </button>
+                    </div>
+                @endif
+
                 <div class="sec-label">{{ $duzen ? 'Dein nächster Einsatz' : 'Ihr nächster Einsatz' }}</div>
                 <div class="card" style="margin-top:11px">
                     @if ($naechsterEinsatz !== null)
@@ -531,6 +557,15 @@
                     Kopf. Bestaetigen, Anhaenge, Vergangenes — alles von dort.
                     lazy: laedt erst nach dem ersten Bild, Start bleibt schnell.
                 --}}
+                {{--
+                    Freie Einsaetze (Spec 2026-11-13 §6.5): dieselbe Angebotsseite
+                    wie hinter dem WhatsApp-Link (/jobs/{token}), ohne Anfrage-
+                    Filter, eingebettet ohne eigenen Kopf. Oben im Reiter statt
+                    eigenem Navigationspunkt (Entscheidung Plan). lazy wie unten.
+                --}}
+                <div class="sec-label">Freie Einsätze</div>
+                <livewire:recruiting.public.job-offers :token="$token" :eingebettet="true" lazy wire:key="angebote-im-portal" />
+
                 <livewire:recruiting.public.employee-assignments :token="$token" :eingebettet="true" lazy wire:key="einsaetze-im-portal" />
             </div>
 

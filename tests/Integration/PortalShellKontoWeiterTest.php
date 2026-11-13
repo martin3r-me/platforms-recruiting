@@ -323,6 +323,28 @@ final class PortalShellKontoWeiterTest extends TestCase
         $this->assertSame('Gregor', $huelle->displayName);
     }
 
+    /**
+     * Push-Tipp (Spec 2026-11-13 §6.5): `?tab=jobs` faehrt durch die
+     * Konto-Anmeldung mit und oeffnet danach den Reiter „Einsätze“. Nur die
+     * vier bekannten Reiter — alles andere startet auf der Startseite.
+     */
+    public function test_tab_aus_der_adresse_oeffnet_den_reiter_auch_nach_der_anmeldung(): void
+    {
+        $start = '/mitarbeiter/neu/' . self::TOKEN . '?tab=jobs';
+        $zurKonto = (string) $this->weiterleitung($this->huelle($start));
+        $seite = $this->kontoAnmeldung((string) parse_url($zurKonto, PHP_URL_PATH) . '?' . parse_url($zurKonto, PHP_URL_QUERY));
+        $seite->anmelden($this->auth());
+        $zurueck = (string) $this->weiterleitung($seite);
+        $this->assertSame($start, $zurueck);
+
+        $huelle = $this->huelle($zurueck);
+        $this->assertSame('verified', $huelle->state);
+        $this->assertSame('jobs', $huelle->startReiter);
+
+        $this->assertSame('start', $this->huelle('/mitarbeiter/neu/' . self::TOKEN . '?tab=%27%7D%3Balert(1)')->startReiter);
+        $this->assertSame('start', $this->huelle('/mitarbeiter/neu/' . self::TOKEN)->startReiter);
+    }
+
     public function test_ohne_konto_bleibt_die_alte_abfrage(): void
     {
         DB::table('rec_persons')->where('id', self::PERSON)->update(['password_hash' => null, 'registered_at' => null]);

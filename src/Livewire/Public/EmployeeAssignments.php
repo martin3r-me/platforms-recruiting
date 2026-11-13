@@ -15,6 +15,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersLaden;
 use Platform\Recruiting\Support\DressPanels;
 
 /**
@@ -100,6 +101,33 @@ class EmployeeAssignments extends Component
         \Illuminate\Support\Facades\DB::table('rec_employees')
             ->whereIn('id', $this->employeeIds)
             ->update(['portal_last_seen_at' => now()]);
+    }
+
+    /**
+     * Karte „N neue Einsätze für dich“ (Spec 2026-11-13 §6.5) — nur auf der
+     * eigenstaendigen Seite hinter dem Bestaetigungslink; im Portal steht sie
+     * schon auf der Startseite. Dieselbe Zahl wie die Zusage-Knoepfe auf
+     * /jobs/{token} (JobOffersLaden). Nebeninformation: ein Fehler kostet nur
+     * die Karte, nie die Seite.
+     */
+    #[Computed]
+    public function neueAngebote(): int
+    {
+        if ($this->eingebettet || $this->employeeId === null || $this->portalLocked) {
+            return 0;
+        }
+
+        try {
+            return JobOffersLaden::anzahl($this->employeeIds, (int) $this->employeeId);
+        } catch (\Throwable $e) {
+            try {
+                \Illuminate\Support\Facades\Log::warning('recruiting.einsaetze.neue_angebote_fehlgeschlagen', ['employee_id' => $this->employeeId, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die fehlende Karte
+            }
+
+            return 0;
+        }
     }
 
     /**

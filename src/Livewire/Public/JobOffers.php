@@ -5,22 +5,13 @@ namespace Platform\Recruiting\Livewire\Public;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
-use Platform\Recruiting\Models\RecDispoAssignment;
-use Platform\Recruiting\Models\RecDispoJobOfferShift;
-use Platform\Recruiting\Models\RecDispoJobRequest;
-use Platform\Recruiting\Models\RecDispoJobWave;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoTagesPruefung;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZeit;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersBuendelung;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersSichtbarkeit;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZugang;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersAbsage;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersLaden;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersLink;
-use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersTexte;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
 
 /**
@@ -59,11 +50,23 @@ class JobOffers extends Component
     public string $absageGrund = '';
     public string $absageNotiz = '';
 
-    public function mount(string $token): void
+    /**
+     * Im Portal-Reiter „Einsätze“ als Bereich „Freie Einsätze“ eingebettet
+     * (Spec 2026-11-13 §6.5): ohne eigenen Kopf und Gruss. Nur vom Server
+     * beim Einbetten gesetzt.
+     */
+    #[Locked]
+    public bool $eingebettet = false;
+    /** Anrede der Person — nur eingebettet gelesen (das Portal spricht nach Team-Einstellung an). */
+    #[Locked]
+    public bool $duzen = true;
+
+    public function mount(string $token, bool $eingebettet = false): void
     {
         ['token' => $token, 'anfrage' => $anfrage] = JobOffersLink::lesen($token);
-        $this->token     = $token;
-        $this->anfrageId = $anfrage;
+        $this->token       = $token;
+        $this->anfrageId   = $anfrage;
+        $this->eingebettet = $eingebettet;
 
         $employee = RecEmployee::query()->where('portal_token', $token)->first();
         if (!$employee) {
@@ -74,6 +77,9 @@ class JobOffers extends Component
         $this->employeeId  = (int) $employee->id;
         $this->employeeIds = app(DispoIdentityResolver::class)->groupFor((int) $employee->id);
         $this->firstName   = (string) $employee->first_name;
+        if ($eingebettet) {
+            $this->duzen = $employee->usesInformalAddress();
+        }
 
         if ($this->gesperrt()) {
             $this->portalLocked = true;
@@ -87,7 +93,7 @@ class JobOffers extends Component
     }
 
     /**
-     * Offene Angebote, gruppiert VA -> Tag -> Schichten.
+     * Offene Angebote, gruppiert VA -> Tag -> Schichten (JobOffersLaden).
      *
      * @return list<array<string, mixed>>
      */
@@ -98,134 +104,8 @@ class JobOffers extends Component
             return [];
         }
 
-        $alle = RecDispoJobOfferShift::query()
-            ->with(['offer', 'shift.event', 'shift.request'])
-            ->whereHas('offer', fn ($q) => $q->whereIn('rec_employee_id', $this->employeeIds))
-            ->whereHas('shift', fn ($q) => $q->whereDate('datum', '>=', now()->toDateString()))
-            ->whereHas('shift.request', fn ($q) => $q->where('status', RecDispoJobRequest::STATUS_LAEUFT)->whereNull('closed_at'))
-            ->get();
-
-        // Einmal pro Tag (§6) gilt ueber ALLE Anfragen — auch wenn die Seite nur
-        // eine zeigt (29.10.): Zusage auf der Wochen-Seite sperrt den Tag auf der
-        // Dringend-Seite. Schwestern (gleicher Schluessel) ausgenommen.
-        $zugesagtTage = [];
-        $zugesagtSchluessel = [];
-        foreach ($alle as $os) {
-            if ($os->accepted_at !== null && $os->declined_at === null) {
-                $zugesagtTage[$os->shift->datum->toDateString()] = true;
-                $zugesagtSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->bis, $os->shift->taetigkeit)] = true;
-            }
-        }
-
-        $offerShifts = $this->anfrageId === null
-            ? $alle
-            : $alle->filter(fn ($os) => (int) $os->shift->request_id === $this->anfrageId)->values();
-        if ($offerShifts->isEmpty()) {
-            return [];
-        }
-
-        $tage = $offerShifts->map(fn ($os) => $os->shift->datum->toDateString())->unique()->values()->all();
-        $assignments = RecDispoAssignment::query()
-            ->whereIn('rec_employee_id', $this->employeeIds)
-            ->whereIn('datum', $tage)
-            ->get(['rec_employee_id', 'datum', 'status_id', 'missing_since', 'deletion_marked_at', 'declined_at'])
-            ->map(fn ($a) => [
-                'employee_id'        => (int) $a->rec_employee_id,
-                'datum'              => $a->datum->format('Y-m-d'),
-                'status_id'          => (int) $a->status_id,
-                'missing_since'      => $a->missing_since,
-                'deletion_marked_at' => $a->deletion_marked_at,
-                'declined_at'        => $a->declined_at,
-            ])->all();
-        // Eine Person: alle Datensaetze der Gruppe auf einen Anker legen.
-        $anchor = (int) $this->employeeId;
-        $gebucht = DispoTagesPruefung::gebuchteTage($assignments, array_fill_keys($this->employeeIds, $anchor))[$anchor] ?? [];
-
-        $zusagenJeSchicht = RecDispoJobOfferShift::query()
-            ->whereIn('shift_id', $offerShifts->pluck('shift_id')->unique()->all())
-            ->whereNotNull('accepted_at')
-            ->selectRaw('shift_id, count(*) as n')->groupBy('shift_id')
-            ->pluck('n', 'shift_id');
-
-        // „Bitte antworte bis“ (§2.5): naechste wartende automatische Welle je Anfrage.
-        $naechsteWelle = RecDispoJobWave::query()
-            ->whereIn('request_id', $offerShifts->map(fn ($os) => (int) $os->shift->request_id)->unique()->all())
-            ->where('auto', true)->whereNull('started_at')->where('scheduled_for', '>', now())
-            ->selectRaw('request_id, min(scheduled_for) as bis')->groupBy('request_id')
-            ->pluck('bis', 'request_id');
-
-        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht, $zugesagtTage, $zugesagtSchluessel, $naechsteWelle) {
-            $shift = $os->shift;
-            $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
-            $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->toDateString(), $shift->von, $shift->bis, $shift->taetigkeit);
-            $bis = $naechsteWelle[$shift->request_id] ?? null;
-
-            return [
-                'offer_shift_id' => (int) $os->id,
-                'event'          => (int) $shift->rec_dispo_event_id,
-                'datum'          => $shift->datum->toDateString(),
-                'von'            => $shift->von,
-                'bis'            => $shift->bis,
-                'zeit'           => DispoJobZeit::spanne($shift->von, $shift->bis),
-                'taetigkeit'     => $shift->taetigkeit,
-                'laeuft'         => $shift->request->laeuft(),
-                'closed'         => $shift->closed_at !== null,
-                'accepted'       => $os->accepted_at !== null,
-                'zuerst'         => $zuerst,
-                'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
-                'anlass'         => $shift->request->anlass,
-                'dringend'       => $shift->request->anlass === 'dringend',
-                'declined'       => $os->declined_at !== null,
-                'tag_belegt'     => $os->accepted_at === null && isset($zugesagtTage[$shift->datum->toDateString()]) && !isset($zugesagtSchluessel[$schluessel]),
-                'antworten_bis'  => $bis !== null ? JobOffersTexte::antwortenBis(\Carbon\Carbon::parse($bis), now()) : null,
-                'os'             => $os,
-            ];
-        })->all();
-
-        // Spec §9: dieselbe Schicht aus mehreren Anfragen nur einmal (Knopf auf der Repraesentantin).
-        $sichtbar = JobOffersBuendelung::buendeln(JobOffersSichtbarkeit::filtern($rows, $gebucht, now()->toDateString()));
-
-        $groups = [];
-        foreach ($sichtbar as $row) {
-            $event = $row['os']->shift->event;
-
-            $groups[$row['event']] ??= [
-                'name'          => $event?->name ?? $event?->einsatz_ref ?? 'Einsatz',
-                'ort'           => $event?->venue_text ?: $event?->ort,
-                'anlaesse'      => [],
-                'antworten_bis' => null,
-                'days'          => [],
-            ];
-            $groups[$row['event']]['anlaesse'][] = $row['anlass'] ?? null;
-            $groups[$row['event']]['antworten_bis'] ??= $row['antworten_bis'] ?? null;
-            $groups[$row['event']]['days'][$row['datum']][] = [
-                'offer_shift_id' => $row['offer_shift_id'],
-                'von'            => $row['von'],
-                'zeit'           => $row['zeit'],
-                'taetigkeit'     => $row['taetigkeit'],
-                'accepted'       => $row['accepted'],
-                'zuerst'         => $row['zuerst'],
-                'frei'           => $row['zuerst'] ? $row['frei'] : null,
-                'voll'           => $row['voll'],
-                'dringend'       => (bool) ($row['dringend'] ?? false),
-                'declined'       => (bool) ($row['declined'] ?? false),
-                'tag_belegt'     => (bool) ($row['tag_belegt'] ?? false),
-            ];
-        }
-
-        foreach ($groups as &$g) {
-            // Wortlaut 1:1 nach Markus' Folien 1–3; Frist = naechste automatische Welle (§2.5).
-            $g['texte'] = JobOffersTexte::fuer(JobOffersTexte::anlassVorrang($g['anlaesse']), $this->firstName, $g['antworten_bis']);
-            unset($g['anlaesse']);
-            ksort($g['days']);
-            foreach ($g['days'] as &$shifts) {
-                usort($shifts, fn ($a, $b) => strcmp((string) $a['von'], (string) $b['von']));
-            }
-            unset($shifts);
-        }
-        unset($g);
-
-        return array_values($groups);
+        // Eine Berechnung fuer Seite, Portal-Bereich und Portal-Karte (Spec 2026-11-13 §6.5).
+        return JobOffersLaden::gruppen($this->employeeIds, (int) $this->employeeId, $this->firstName, $this->anfrageId);
     }
 
     public function zusagen(int $offerShiftId): void
@@ -251,6 +131,8 @@ class JobOffers extends Component
         $this->absageOffen = null;
 
         unset($this->angebote);
+        // Portal-Karte „N neue Einsätze“ zaehlt neu (Spec 2026-11-13 §6.5).
+        $this->dispatch('angebote-geaendert');
     }
 
     /** Absagen der Person in den letzten 60 Tagen — fuer den Satz „Das waere deine N. Absage“. */
@@ -300,6 +182,7 @@ class JobOffers extends Component
         };
         $this->absageOffen = null;
         unset($this->angebote, $this->absagen60);
+        $this->dispatch('angebote-geaendert');
     }
 
     public function render()

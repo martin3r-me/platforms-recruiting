@@ -79,6 +79,22 @@
             </p>
         </div>
 
+        {{--
+            Freie Einsaetze (Spec 2026-11-13 §6.5): Hinweis auf /jobs/{token} —
+            so erfahren auch Leute ohne Push und ohne neues Portal davon. Nur
+            eigenstaendig (neueAngebote() ist eingebettet 0), nur bei N > 0.
+        --}}
+        @if ($this->neueAngebote > 0)
+            @php
+                $angeboteText = $this->neueAngebote === 1 ? '1 neuer Einsatz für dich' : $this->neueAngebote . ' neue Einsätze für dich';
+                $angeboteUrl = route('recruiting.public.job-offers', ['token' => $token]);
+            @endphp
+            <a class="panel attach" href="{{ $angeboteUrl }}">
+                <div class="h">Freie Einsätze</div>
+                <div class="b">{{ $angeboteText }} ›</div>
+            </a>
+        @endif
+
         @forelse ($groups as $group)
             @php
                 $days = $group['days'];

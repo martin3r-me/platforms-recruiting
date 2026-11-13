@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
@@ -166,12 +167,23 @@ class PortalShell extends Component
     #[Locked] public array $infoKastenIds = [];
     #[Locked] public ?int $infoOffen = null;
 
+    /**
+     * Reiter beim Oeffnen (Spec 2026-11-13 §6.5, Push-Tipp): `?tab=jobs`
+     * oeffnet „Einsätze“. Nur die vier bekannten Namen, sonst die
+     * Startseite — nie der Rohwert der Adresse ins Alpine-x-data.
+     * #[Locked], einmal in mount() gesetzt.
+     */
+    #[Locked] public string $startReiter = 'start';
+
+    public const REITER = ['start', 'jobs', 'docs', 'me'];
+
     /** Request-Cache fuer lookupOptionen() -- ein Lookup wird pro Aufruf hoechstens einmal gelesen. */
     private array $lookupCache = [];
 
     public function mount(string $token, PortalAuth $auth): void
     {
         $this->token = $token;
+        $this->startReiter = self::startReiter(app()->bound('request') ? request()->query('tab') : null);
 
         $employee = $auth->employeeForToken($token);
 
@@ -1080,6 +1092,45 @@ class PortalShell extends Component
         }
     }
 
+    /** Whitelist fuer `?tab=` — unbekannt oder kein String: Startseite. */
+    public static function startReiter(mixed $roh): string
+    {
+        return is_string($roh) && in_array($roh, self::REITER, true) ? $roh : 'start';
+    }
+
+    /**
+     * Karte „N neue Einsätze für dich“ (Spec 2026-11-13 §6.5): dieselbe
+     * Zahl wie die Zeilen mit Zusage-Knopf im Bereich „Freie Einsätze“
+     * (JobOffersLaden), ueber die ganze Person. Nebeninformation wie die
+     * Einsatz-Kachel: ein Fehler kostet nur die Karte.
+     */
+    private function neueAngebote(RecEmployee $employee): int
+    {
+        try {
+            $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
+
+            return \Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersLaden::anzahl($ids, (int) $employee->id);
+        } catch (\Throwable $e) {
+            try {
+                \Illuminate\Support\Facades\Log::warning('recruiting.portal.neue_angebote_fehlgeschlagen', ['employee_id' => $employee->id, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die fehlende Karte
+            }
+
+            return 0;
+        }
+    }
+
+    /**
+     * Zusage/Absage im eingebetteten Bereich „Freie Einsätze“: neu rendern,
+     * damit die Karte auf der Startseite neu zaehlt. Bewusst ohne Inhalt —
+     * ansichtsDaten() rechnet bei jedem Render ohnehin neu.
+     */
+    #[On('angebote-geaendert')]
+    public function angeboteGeaendert(): void
+    {
+    }
+
     /**
      * „Schreib uns“: WhatsApp an die HR-Nummer = die Nummer des Kontos der
      * Themen-Auswahl (auto_pilot_wa_account_id). Nicht ein beliebiger Kanal
@@ -1214,6 +1265,8 @@ class PortalShell extends Component
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             // Startseite (29.10.2026): kurze Kacheln mit Sprung in den Bereich.
             'naechsterEinsatz'  => $employee !== null ? $this->naechsterEinsatz($employee) : null,
+            // Karte „N neue Einsätze“ (Spec 2026-11-13 §6.5); nur verified (berechtigterMitarbeiter).
+            'neueAngebote'      => $employee !== null ? $this->neueAngebote($employee) : 0,
             'schreibUnsUrl'     => $employee !== null ? self::schreibUnsUrl((int) $employee->team_id) : null,
             'lohnAnleitungUrl'  => $employee !== null ? self::lohnAnleitungUrl((int) $employee->team_id) : null,
             'agendaZugang'      => $employee?->agenda_zugang === null ? null : (bool) $employee->agenda_zugang,
