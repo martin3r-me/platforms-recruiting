@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecDispoJobOffer extends Model
 {
     protected $table = 'rec_dispo_job_offers';
-    protected $fillable = ['wave_id', 'request_id', 'rec_employee_id', 'anchor_employee_id', 'message_id', 'sent_at', 'send_error'];
+    protected $fillable = ['wave_id', 'request_id', 'rec_employee_id', 'anchor_employee_id', 'message_id', 'kanal', 'sent_at', 'send_error'];
     protected $casts = ['message_id' => 'integer', 'sent_at' => 'datetime'];
 
     public function request(): BelongsTo { return $this->belongsTo(RecDispoJobRequest::class, 'request_id'); }

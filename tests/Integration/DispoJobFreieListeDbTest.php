@@ -65,6 +65,7 @@ class DispoJobFreieListeDbTest extends TestCase
             [$own, 'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php'],
             [$own, 'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php'],
             [$own, 'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
+            [$own, 'database/migrations/2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
         ] as [$root, $relative]) {

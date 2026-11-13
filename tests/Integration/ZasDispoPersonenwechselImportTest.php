@@ -487,6 +487,7 @@ class ZasDispoPersonenwechselImportTest extends TestCase
             [$own,  'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php'],
             [$own,  'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php'],
             [$own,  'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
+            [$own,  'database/migrations/2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
         ];
 
