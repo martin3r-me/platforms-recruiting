@@ -304,4 +304,20 @@ return [
         'per_run_cap'  => (int) env('RECRUITING_FLYNK_PER_RUN_CAP', 50),
         'max_attempts' => (int) env('RECRUITING_FLYNK_MAX_ATTEMPTS', 5),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Web Push ans Mitarbeiter-Portal (Spec Jobs anbieten 6.7, Markus 13.11.2026)
+    |--------------------------------------------------------------------------
+    |
+    | VAPID-Schluessel aus der Umgebung der Host-App. Fehlen sie, wird nichts
+    | gesendet und der Einschalt-Knopf im Portal erscheint nicht.
+    */
+    'push' => [
+        'vapid' => [
+            'public'  => env('RECRUITING_VAPID_PUBLIC_KEY'),
+            'private' => env('RECRUITING_VAPID_PRIVATE_KEY'),
+            'subject' => env('RECRUITING_VAPID_SUBJECT'),
+        ],
+    ],
 ];

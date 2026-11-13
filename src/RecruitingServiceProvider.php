@@ -130,10 +130,15 @@ class RecruitingServiceProvider extends ServiceProvider
             \Platform\Recruiting\Services\QueueReservedSendTrigger::class,
         );
 
-        // Push ans Mitarbeiter-Portal (Spec Jobs anbieten 6.7): ohne Dienst nichts senden.
+        // Push ans Mitarbeiter-Portal (Spec Jobs anbieten 6.7): ohne VAPID-Schluessel oder
+        // Bibliothek ist WebPortalPush inaktiv und reiht nichts ein.
         $this->app->bind(
             \Platform\Recruiting\Services\Push\PortalPush::class,
-            \Platform\Recruiting\Services\Push\KeinPush::class,
+            \Platform\Recruiting\Services\Push\WebPortalPush::class,
+        );
+        $this->app->bind(
+            \Platform\Recruiting\Services\Push\PushTransport::class,
+            \Platform\Recruiting\Services\Push\WebPushTransport::class,
         );
     }
 
