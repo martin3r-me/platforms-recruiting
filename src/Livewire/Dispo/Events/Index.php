@@ -112,6 +112,13 @@ class Index extends Component
     private function countScope($q)
     {
         $q->whereNull('missing_since')->whereNull('deletion_marked_at');
+
+        return $this->dateScope($q);
+    }
+
+    /** Nur der Zeitraum des Datumsfilters — fuer Zahlen, die gerade die Geloeschten/Verschwundenen brauchen. */
+    private function dateScope($q)
+    {
         if ($this->dateFrom !== '' && $this->isValidDate($this->dateFrom)) {
             $q->whereDate('datum', '>=', $this->dateFrom);
         }
@@ -120,6 +127,31 @@ class Index extends Component
         }
 
         return $q;
+    }
+
+    /**
+     * Zwei Marken der Zeile (Sheran 13.11.2026), beide im Zeitraum des Filters:
+     *  - rausnehmen_count: zur Loeschung gemeldet, in ZAS aber noch drin (kein
+     *    Haken „ZAS raus“, nicht aus der Lieferung verschwunden). Diese
+     *    Einbuchungen zaehlen bei „gesamt“ bewusst nicht mit — ohne die Marke
+     *    stand dort „0 gesamt · 0 bestätigt“, und nur die Alarm-WhatsApp sagte,
+     *    dass jemand rausgenommen werden muss.
+     *  - nicht_angeschrieben_count: offen und noch ohne Bestaetigungs-Nachricht.
+     *    Gezeigt wird das nur, wenn in der VA schon versendet wurde
+     *    (versand_begonnen) — sonst ist es der Normalzustand. Der Beleg darf
+     *    auch an einer verschwundenen Zeile haengen: nach einem Personenwechsel
+     *    liegt die alte Besetzung samt Versand-Stempel dort ab.
+     */
+    private function mitHandlungsbedarf($query)
+    {
+        return $query
+            ->withCount([
+                'assignments as rausnehmen_count' => fn ($q) => $this->dateScope($q)
+                    ->whereNotNull('deletion_marked_at')->whereNull('zas_removed_at')->whereNull('missing_since'),
+                'assignments as nicht_angeschrieben_count' => fn ($q) => $this->countScope($q)
+                    ->whereNull('reminder_sent_at')->whereNull('confirmed_at')->whereNull('declined_at'),
+            ])
+            ->withExists(['assignments as versand_begonnen' => fn ($q) => $this->dateScope($q)->whereNotNull('reminder_sent_at')]);
     }
 
     /**
@@ -177,6 +209,7 @@ class Index extends Component
                 'alarmMessage as alarm_failed' => fn ($q) => $q->where('status', 'failed'),
             ]);
         $this->mitVersandStand($query);
+        $this->mitHandlungsbedarf($query);
 
         if (!$this->showPast) {
             $query->where(fn ($q) => $q->whereNull('ends_on')->orWhereDate('ends_on', '>=', now()->toDateString()));

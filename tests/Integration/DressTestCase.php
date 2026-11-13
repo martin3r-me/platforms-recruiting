@@ -61,6 +61,9 @@ abstract class DressTestCase extends TestCase
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
             'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php',
+            // Eskalations-Plan der VA (Test DispoEskalationUebernehmenTest, 13.11.2026)
+            'database/migrations/2026_08_27_000002_add_escalation_override_to_rec_dispo_events.php',
+            'database/migrations/2026_08_28_000001_add_escalation_date_to_rec_dispo_events.php',
             'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php',
             'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php',

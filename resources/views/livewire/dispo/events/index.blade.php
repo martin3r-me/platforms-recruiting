@@ -94,6 +94,7 @@
                     @if ($open > 0)
                         <span class="rounded bg-orange-50 px-1.5 py-0.5 font-semibold text-orange-600">{{ $open }} offen</span>
                     @endif
+                    @include('recruiting::livewire.dispo.events._handlungsbedarf', ['event' => $event])
                 </div>
                 @if ($versandAm !== null)
                     <div class="mt-1 text-xs text-gray-500 tabular-nums">Bestätigung versendet: {{ $versandAm }} · {{ $event->reminder_sent_count }} von {{ $event->assignments_count }}</div>
@@ -167,6 +168,7 @@
                             @if ($open > 0)
                                 <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">{{ $open }} offen</span>
                             @endif
+                            @include('recruiting::livewire.dispo.events._handlungsbedarf', ['event' => $event])
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap tabular-nums">
                             @if ($versandAm !== null)

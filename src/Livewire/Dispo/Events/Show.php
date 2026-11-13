@@ -28,6 +28,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineReview;
 use Platform\Recruiting\Services\Zas\Dispo\DispoNoteCleanup;
 use Platform\Recruiting\Services\Zas\Dispo\DispoManualConfirm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEskalationsMerker;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
 use Platform\Recruiting\Services\Zas\Dispo\DispoInfoSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
@@ -702,21 +703,92 @@ class Show extends Component
      */
     public bool $escSaved = false;
 
+    /**
+     * Die Eskalation im Sende-Fenster kommt aus der letzten Sendung dieser
+     * Sitzung, nicht aus der VA (Sheran 13.11.2026) — die Ansicht sagt das
+     * dazu. Gespeichert ist sie fuer diese VA erst mit dem Senden.
+     */
+    public bool $escUebernommen = false;
+
     public function saveEscalation(): void
     {
         if ($this->blockedForEventOnly()) {
             return;
         }
         $this->escSaved = $this->persistEscalation();
+        if ($this->escSaved) {
+            $this->eskalationMerken();
+        }
     }
 
     /** Zurueck auf Team-Standard (Vortag, Default-Zeiten). */
     public function resetEscalation(): void
     {
+        $this->eskalationAufStandard();
+        $this->resetErrorBag('escTime1');
+    }
+
+    /** Wer die vorbelegte Eskalation anfasst, hat sie zu seiner gemacht — der Hinweis „übernommen“ stimmt dann nicht mehr. */
+    public function updatedEscDay(): void { $this->escUebernommen = false; }
+    public function updatedEscDate(): void { $this->escUebernommen = false; }
+    public function updatedEscTime1(): void { $this->escUebernommen = false; }
+    public function updatedEscTime2(): void { $this->escUebernommen = false; }
+    public function updatedEscTime3(): void { $this->escUebernommen = false; }
+
+    /** Formular auf Standard — auch der Hinweis „übernommen“ faellt damit weg. */
+    private function eskalationAufStandard(): void
+    {
         $this->escDay = DispoEscalationConfig::DAY_VORTAG;
         $this->escTime1 = $this->escTime2 = $this->escTime3 = '';
         $this->escDate = '';
-        $this->resetErrorBag('escTime1');
+        $this->escUebernommen = false;
+    }
+
+    /**
+     * Nach erfolgreichem Speichern: die von Hand gewaehlte Eskalation fuer die
+     * naechsten Veranstaltungen dieser Sitzung merken. Standard loescht den
+     * Merker. Nebeninformation — ohne Sitzung (Tests) passiert nichts.
+     */
+    private function eskalationMerken(): void
+    {
+        $this->escUebernommen = false;
+        try {
+            $merker = DispoEskalationsMerker::aus($this->escDay, $this->escDate, $this->escTime1, $this->escTime2, $this->escTime3);
+            if ($merker === null) {
+                session()->forget(DispoEskalationsMerker::SESSION_KEY);
+            } else {
+                session([DispoEskalationsMerker::SESSION_KEY => $merker]);
+            }
+        } catch (\Throwable) {
+            // bewusst geschluckt
+        }
+    }
+
+    /**
+     * Beim Oeffnen des Sende-Fensters: hat die VA keinen eigenen Plan, wird
+     * die gemerkte Eskalation ins Formular gelegt (nicht gespeichert).
+     */
+    private function eskalationUebernehmen(): void
+    {
+        $this->escUebernommen = false;
+        try {
+            $e = $this->event;
+            $eigenerPlan = $e->escalation_day !== null || $e->escalation_time_1 !== null;
+            $merker = DispoEskalationsMerker::anwendbar(
+                session(DispoEskalationsMerker::SESSION_KEY), $eigenerPlan, now()->toDateString()
+            );
+        } catch (\Throwable) {
+            return;
+        }
+        if ($merker === null) {
+            return;
+        }
+        $this->escDay = $merker['day'];
+        $this->escDate = $merker['date'];
+        $this->escTime1 = $merker['t1'];
+        $this->escTime2 = $merker['t2'];
+        $this->escTime3 = $merker['t3'];
+        $this->escUebernommen = true;
     }
 
     #[Computed]
@@ -2833,6 +2905,7 @@ class Show extends Component
         $this->escPlanT3 = $eff['times'][3];
         $this->sendResult = null;
         $this->loadEscalationForm();
+        $this->eskalationUebernehmen();
         $this->resetErrorBag('escTime1');
         $this->escSaved = false;
 
@@ -2889,6 +2962,7 @@ class Show extends Component
         if (!$this->persistEscalation()) {
             return;
         }
+        $this->eskalationMerken();
 
         $templateId = $this->dispoSettings['template_id'];
         if ($templateId === null) {

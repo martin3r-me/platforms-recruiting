@@ -130,6 +130,12 @@
             $dispoOpen = max(0, $dispoTotal - $dispoConfirmed - $dispoDeclined);
             $dispoFailed = $dispoRows->filter(fn ($a) => $a->hasActiveDeliveryFailure())
                 ->pluck('rec_employee_id')->filter()->unique()->count();
+            // Sheran 13.11.2026: zur Loeschung gemeldet, in ZAS aber noch drin —
+            // zaehlt oben nicht mit, muss aber rausgenommen werden (gleiche
+            // Regel wie die Marke in der VA-Liste, Index::mitHandlungsbedarf).
+            $dispoRausnehmen = $event->assignments
+                ->filter(fn ($a) => $a->deletion_marked_at !== null && $a->zas_removed_at === null && $a->missing_since === null)
+                ->count();
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
             <div class="text-sm font-medium text-gray-500">Disposition</div>
@@ -182,6 +188,12 @@
             @endif
             @if ($dispoFailed > 0)
                 <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × Zustellproblem — Nummern prüfen / neu senden</div>
+            @endif
+            @if ($dispoRausnehmen > 0)
+                <div class="mt-1 text-xs font-semibold text-red-700">
+                    <span class="rounded bg-red-100 px-1.5 py-0.5 text-red-800">{{ $dispoRausnehmen }} rausnehmen</span>
+                    zur Löschung gemeldet und in ZAS noch eingebucht — bitte dort herausnehmen
+                </div>
             @endif
             <div class="mt-1.5 text-xs text-gray-400">
                 @php $dispoOwnPlan = $dispoRows->whereNotNull('escalation_due_1_at')->whereNull('confirmed_at')->whereNull('declined_at')->count(); @endphp
@@ -348,7 +360,7 @@
                         <div class="text-sm font-semibold text-gray-900">
                             @if ($assignment->employee)
                                 <button type="button" wire:click="openCrew({{ $assignment->rec_employee_id }})" class="text-left">
-                                    {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
+                                    {{ \Platform\Recruiting\Support\NachnameZuerst::von($assignment->employee->first_name, $assignment->employee->last_name) }}
                                 </button>
                             @else
                                 <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs font-normal text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
@@ -427,7 +439,7 @@
                             @if ($assignment->employee)
                                 {{-- Kunde 02.09.: kein Link in die volle MA-Akte — abgespecktes Kaertchen als Modal. --}}
                                 <button type="button" wire:click="openCrew({{ $assignment->rec_employee_id }})" class="text-left text-blue-600 hover:underline">
-                                    {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
+                                    {{ \Platform\Recruiting\Support\NachnameZuerst::von($assignment->employee->first_name, $assignment->employee->last_name) }}
                                 </button>
                             @else
                                 <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
@@ -667,9 +679,17 @@
                         $escSummary = $escDayPart . ' · '
                             . ($escTime1 !== '' ? ($escTime1 . ' / ' . $escTime2 . ' / ' . $escTime3) : ('Standard ' . $escDefaults[1] . ' / ' . $escDefaults[2] . ' / ' . $escDefaults[3]));
                     @endphp
-                    <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1')) open @endif>
+                    <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1') || $escUebernommen) open @endif>
                         <summary class="cursor-pointer text-sm font-medium text-gray-700">Eskalation: {{ $escSummary }} <span class="text-xs font-normal text-blue-600">anpassen</span></summary>
                         <div class="mt-3 space-y-2">
+                            @if ($escUebernommen)
+                                {{-- Sheran 13.11.2026: die zuletzt von Hand gewaehlte Eskalation ist
+                                     vorbelegt — sichtbar, damit sie nicht unbemerkt mitgeht. --}}
+                                <div class="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs text-violet-900">
+                                    Übernommen von deiner letzten Sendung. Sie gilt für diese Veranstaltung erst mit dem Senden oder „Nur Eskalation speichern“.
+                                    <button type="button" wire:click="resetEscalation" class="ml-1 font-medium text-blue-700 hover:underline">Standard verwenden</button>
+                                </div>
+                            @endif
                             @include('recruiting::livewire.dispo.events._escalation-fields', ['defaults' => $escDefaults])
                             <div class="flex items-center justify-end gap-2">
                                 @if ($escSaved)
