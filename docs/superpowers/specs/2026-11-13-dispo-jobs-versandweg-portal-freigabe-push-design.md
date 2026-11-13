@@ -125,13 +125,16 @@ Dieser Abschnitt hängt nicht am Schalter. Er ist sofort live und zeigt bis zum 
 - Auf der Startseite steht eine wegklickbare Karte „Portal als App nutzen“:
   - **Android/Chrome:** eigener Knopf, der die Installationsnachfrage des Handys auslöst (ein Tipp plus Bestätigung).
   - **iPhone/Safari:** Apple erlaubt keinen Knopf. Stattdessen eine kurze Anleitung in zwei Schritten mit Symbolen: „Teilen“ → „Zum Home-Bildschirm“.
-  - Läuft das Portal schon als App, erscheint die Karte nicht.
+  - Läuft das Portal schon als App, erscheint die Karte weiterhin, aber nur mit dem Push-Teil (auf dem iPhone lässt sich Push nur in der App einschalten). Der Installationsteil entfällt dann.
+  - Browser, die weder den Installationsknopf noch die iPhone-Anleitung bekommen (z. B. Firefox auf Android, Chrome auf dem iPhone), sehen eine kurze Zeile mit dem Hinweis auf das Browsermenü.
 - Randbedingung: Nach dem Öffnen vom Startbildschirm muss der Mitarbeiter in seinem Portal landen, höchstens mit einer Anmeldung dazwischen. Auf dem iPhone hat die App einen eigenen Speicher, getrennt von Safari. Wie Startadresse und Anmeldung zusammenspielen (Token-Adresse oder Konto-Anmeldung), klärt der Builder am vorhandenen Konto-Code (`KontoAnmelden`, `PortalShell`).
 
 ### 6.7 Push
 
 - **Einschalten:** Knopf „Benachrichtigungen einschalten“ in derselben Karte bzw. darunter. Die Nachfrage des Handys kommt nur nach diesem Tipp. Auf dem iPhone ist der Knopf erst nutzbar, wenn das Portal als App läuft; vorher steht dort der Hinweis auf die Anleitung. Nach dem Einschalten kommt sofort eine Probe-Benachrichtigung („Benachrichtigungen sind eingeschaltet“), damit der Mitarbeiter und wir sehen, dass es geht.
 - **Speichern:** Je Gerät ein Abo, gebunden an die Person (Identitäts-Gruppe, damit ein Ankerwechsel es nicht verliert). Meldet der Push-Dienst ein Abo als erloschen, wird es gelöscht. Ausschalten im Portal ist möglich.
+- **Nur bekannte Push-Dienste:** Der Server nimmt nur Endpunkte an, die https ohne Benutzer/Passwort auf Port 443 sind und deren Host genau `fcm.googleapis.com` oder `updates.push.services.mozilla.com` ist oder auf `.push.apple.com`, `.notify.windows.com` oder `.push.services.mozilla.com` endet. Sonst schickte der Server seine Probe an jede Adresse, die ein Browser ihm nennt.
+- **Probe nur bei Neuem:** Die Probe-Benachrichtigung geht nur raus, wenn das Gerät neu angemeldet wird oder die Person wechselt (anderer Besitzer des Endpunkts). Erneutes Speichern desselben Abos löst keine Probe aus.
 - **Auslöser:** Nur Portal-Wellen. Nach dem Anlegen der Angebote einer Welle bekommt jede Person dieser Welle mit Abo eine Benachrichtigung. WhatsApp-Wellen lösen keinen Push aus.
 - **Text:** „Neue Einsätze für dich“ / „Schau ins Portal und sag zu.“ Keine Kunden, Orte oder Zeiten. Tipp öffnet das Portal im Bereich „Freie Einsätze“.
 - **Technik:** Web Push nach Standard mit VAPID-Schlüsseln aus der Umgebung der Host-App. Bibliothek `minishlink/web-push` als Abhängigkeit des Moduls. Versand über die Warteschlange. Fehlen die Schlüssel, wird nichts gesendet und der Einschalt-Knopf im Portal erscheint nicht; Wellen laufen unberührt.
@@ -166,11 +169,57 @@ Sichttests nach Deploy: Karte auf der Startseite, Bereich „Freie Einsätze“ 
 
 ## 9. Deploy und Rollout
 
-- Migrationen, `queue:restart` (der Wellen-Job ändert sich), `view:clear`.
-- Neue Abhängigkeit `minishlink/web-push` kommt über den Bump in meingedeck mit.
-- VAPID-Schlüsselpaar erzeugen und in der Umgebung von meingedeck hinterlegen (macht Sebastian auf Forge).
-- Nach dem Deploy bleibt der Schalter aus. Sofort nutzbar sind 6.5, 6.6 und das Einschalten von Push samt Probe.
-- Zum Rollout des Portals: Freigeber hinterlegen, Schalter einschalten. Vorher auf dem Demo-Team einmal komplett durchspielen.
+Reihenfolge, wie sie im Code dieses Zweigs tatsächlich gilt.
+
+1. **Bump in meingedeck:** der übliche Befehl `composer update martin3r/platform-recruiting --no-interaction --no-scripts` zieht die neue Abhängigkeit `minishlink/web-push` mit (5 Pakete; ein Probelauf gegen meingedeck löste sauber auf, auf v9.0.4).
+2. **Migrationen** (`php artisan migrate`), zwei Dateien:
+   - `2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables`: neue Spalten an `rec_dispo_job_requests` (Versandweg, Freigabe) und `rec_dispo_job_offers` (Kanal).
+   - `2026_11_13_000002_create_rec_push_abos_table`: Tabelle `rec_push_abos` für die Push-Abos.
+3. **`php artisan queue:restart`** (der Wellen-Job hat sich geändert, laufende Worker nutzen sonst den alten Code) und **`php artisan view:clear`** (neue Portal-Ansichten).
+4. **VAPID-Schlüssel** in der Umgebung von meingedeck eintragen (macht Sebastian auf Forge, danach Config neu laden bzw. Deploy). Namen:
+   - `RECRUITING_VAPID_PUBLIC_KEY`
+   - `RECRUITING_VAPID_PRIVATE_KEY`
+   - `RECRUITING_VAPID_SUBJECT`: muss eine `mailto:`-Adresse oder eine https-Adresse sein. Ist er leer, nimmt der Versand `app.url`.
+
+   Schlüsselpaar erzeugen (Bibliothek muss nach Schritt 1 installiert sein; Sebastian führt es selbst auf dem Server aus):
+
+   ```
+   php artisan tinker --execute='print_r(\Minishlink\WebPush\VAPID::createVapidKeys());'
+   ```
+
+   Ausgabe: `publicKey` kommt in `RECRUITING_VAPID_PUBLIC_KEY`, `privateKey` in `RECRUITING_VAPID_PRIVATE_KEY`. Den privaten Schlüssel nirgends ablegen außer in der Umgebung. Wechselt das Paar später, sind alle bestehenden Abos wertlos; die Mitarbeiter müssen Benachrichtigungen dann neu einschalten.
+   
+   Fehlen öffentlicher oder privater Schlüssel (oder die Bibliothek), ist Push aus: kein Einschalt-Knopf im Portal, nichts in der Warteschlange, Wellen laufen unberührt.
+5. **Nach dem Deploy bleibt der Schalter aus.** Sofort nutzbar sind 6.5 (Angebote im Portal), 6.6 (Portal als App) und das Einschalten von Push samt Probe.
+6. **Einstellungen** unter Disposition → Einstellungen, Abschnitt „Jobs anbieten: Versandweg“:
+   - Kästchen „Versandweg-Auswahl und WhatsApp-Freigabe für Monats- und Wochenübersichten“ (`dispo_job_versandweg_aktiv`, Vorgabe aus),
+   - Feld „E-Mail-Adresse des Freigebers“ (`dispo_job_freigeber_email`).
+
+   Wer ändern darf: solange kein Freigeber eingetragen ist, jeder mit Zugang zur Seite; den Ersteintrag macht Sebastian. Danach nur noch der Freigeber selbst (serverseitig geprüft, die Felder sind für alle anderen gesperrt). Ist der Schalter an und kein Freigeber hinterlegt, bleiben WhatsApp-Anfragen auf „wartet auf Freigabe“ stehen.
+7. **Rollout des Portal-Wegs:** erst auf dem Demo-Team komplett durchspielen, dann Freigeber eintragen und Schalter einschalten.
+
+### Sichttests am Gerät
+
+Vorher: VAPID-Schlüssel in der Umgebung, Deploy mit `view:clear`, Testperson mit `portal_v2_since`.
+
+Android (Chrome):
+- Portal anmelden: Karte „Portal als App nutzen“ mit Knopf „Auf den Startbildschirm“; Knopf löst den Installationsdialog aus, danach Symbol „Rheingedeck“ (petrol, „RG“) auf dem Startbildschirm.
+- Vom Symbol öffnen: ohne Browserleiste, im eigenen Portal; die Karte zeigt keinen Installationsteil mehr.
+- „Benachrichtigungen einschalten“: erst jetzt die Systemnachfrage, danach sofort die Probe „Benachrichtigungen sind eingeschaltet“; Karte zeigt „Benachrichtigungen sind an“ und „Ausschalten“. Probe antippen öffnet den Reiter Einsätze, ohne zweites Fenster.
+- Portal-Welle auslösen (Demo-Team): „Neue Einsätze für dich“ kommt, Tipp führt zu „Freie Einsätze“.
+- „Ausschalten“: neue Welle bringt nichts mehr, Zeile in `rec_push_abos` ist weg. Erlaubnis ablehnen: ruhiger Satz, keine erneute Nachfrage beim Neuladen. × auf der Karte: bleibt weg. Hell und dunkel ansehen.
+- Samsung Internet mitprüfen (strenge Liste der Push-Dienste).
+
+iPhone (iOS ab 16.4, Safari):
+- In Safari: Karte mit Zwei-Schritte-Anleitung (Teilen, „Zum Home-Bildschirm“) und dem Satz, dass erst auf den Startbildschirm gelegt werden muss; kein Einschalt-Knopf.
+- Vom Home-Bildschirm öffnen: Vollbild, einmal anmelden (eigener Speicher), Anleitung weg. Dort „Benachrichtigungen einschalten“: Systemnachfrage, danach Probe, auch bei gesperrtem Bildschirm; Antippen öffnet den Reiter Einsätze.
+- Portal-Welle bringt eine Benachrichtigung, Ausschalten stoppt sie.
+- Chrome oder In-App-Browser auf dem iPhone: keine Anleitung, nur die Menü-Zeile; Seite funktioniert unverändert.
+- Geteiltes Gerät: A schaltet ein, B meldet sich an und sieht „Benachrichtigungen einschalten“; nach dem Tippen geht die Probe an B, A bekommt auf diesem Gerät nichts mehr.
+
+Beide Geräte:
+- Startkarte „N neue Einsätze“ zählt nach dem Zusagen eines Angebots neu.
+- Freigabe-Ablauf mit zwei Konten auf dem Demo-Team: Disponent legt WhatsApp-Anfrage an, wartet auf Freigabe; Freigeber gibt frei bzw. lehnt ab (danach Portal); Zähler in Übersicht und Sidebar stimmen.
 
 ## 10. Dem Builder überlassen
 
