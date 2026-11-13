@@ -206,6 +206,39 @@
         </div>
     </div>
 
+    @php
+        $versandwegGesperrt = $this->versandwegGesperrt;
+        $versandwegOhneFreigeber = $versandwegAktiv !== '' && trim($freigeberEmail) === '';
+        $ohneNeuesPortal = $this->ohneNeuesPortal;
+    @endphp
+    <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+        <h2 class="text-base font-semibold">Jobs anbieten: Versandweg</h2>
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" wire:model="versandwegAktiv" class="rounded border-gray-300" {{ $versandwegGesperrt ? 'disabled' : '' }}>
+            <span class="text-gray-700">Versandweg-Auswahl und WhatsApp-Freigabe für Monats- und Wochenübersichten</span>
+        </label>
+        <label class="block text-sm">
+            <span class="mb-1 block font-medium text-gray-700">E-Mail-Adresse des Freigebers</span>
+            <input type="text" wire:model="freigeberEmail" placeholder="markus@rheingedeck.de" {{ $versandwegGesperrt ? 'disabled' : '' }}
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+        </label>
+        @if ($versandwegGesperrt)
+            <p class="text-xs text-gray-500">Nur der Freigeber kann das ändern.</p>
+        @else
+            <p class="text-xs text-gray-500">Wird mit dem Speichern-Button oben übernommen. Schalter aus: jede Anfrage geht sofort per WhatsApp raus, ohne Freigabe.</p>
+        @endif
+        @if ($versandwegOhneFreigeber)
+            <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Kein Freigeber hinterlegt: WhatsApp-Anfragen für Monats- und Wochenübersichten bleiben auf „wartet auf Freigabe“ stehen.
+            </p>
+        @endif
+        @if ($ohneNeuesPortal > 0)
+            <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {{ $ohneNeuesPortal }} aktive Mitarbeiter (GO oder MA) sind noch nicht aufs neue Portal umgestellt. Sie bekämen Portal-Angebote, die sie nicht sehen, und belegen trotzdem einen Platz in der Welle.
+            </p>
+        @endif
+    </div>
+
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
         <h2 class="text-base font-semibold">Zugriff „Nur Veranstaltungen"</h2>
         <p class="text-sm text-gray-600">

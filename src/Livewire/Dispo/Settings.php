@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecDispoDeclineCheck;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
 use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
 use Platform\Recruiting\Support\Filialen;
 
@@ -43,6 +44,9 @@ class Settings extends Component
     public string $jobTemplateVierWochenId = '';
     public string $jobTemplateNaechsteWocheId = '';
     public string $jobTemplateDringendId = '';
+    /** Jobs anbieten: Versandweg-Schalter ('1' = an) und Freigeber-E-Mail (Spec 2026-11-13, 6.1). */
+    public string $versandwegAktiv = '';
+    public string $freigeberEmail = '';
     /** Alarm ans Diensthandy bei moeglicher Absage (Spec 2026-10-08). */
     public string $declineAlarmTemplateId = '';
 
@@ -88,6 +92,8 @@ class Settings extends Component
         $this->jobTemplateVierWochenId    = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('vier_wochen')) ?? '');
         $this->jobTemplateNaechsteWocheId = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('naechste_woche')) ?? '');
         $this->jobTemplateDringendId      = (string) ($settings->getSetting(DispoJobAnlass::settingsKey('dringend')) ?? '');
+        $this->versandwegAktiv       = DispoJobVersandweg::aktiv($settings) ? '1' : '';
+        $this->freigeberEmail        = (string) ($settings->getSetting(DispoJobVersandweg::SETTING_FREIGEBER) ?? '');
         $this->infoTemplateId        = (string) ($settings->getSetting('dispo_info_template_id') ?? '');
         $this->declineAlarmTemplateId = (string) ($settings->getSetting(DispoDeclineAlarm::SETTINGS_KEY) ?? '');
 
@@ -106,6 +112,32 @@ class Settings extends Component
     private function teamId(): int
     {
         return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+    }
+
+    /** Der angemeldete Nutzer; eigene Methode, damit Tests ohne Auth-System einen Nutzer setzen koennen. */
+    protected function nutzer(): mixed
+    {
+        return auth()->user();
+    }
+
+    /**
+     * Schalter und Freigeber sind gesperrt, sobald ein Freigeber hinterlegt ist und der
+     * Nutzer nicht er selbst ist (Sebastian 13.11.2026). Geprueft wird gegen den
+     * GESPEICHERTEN Freigeber, nie gegen das Eingabefeld.
+     */
+    #[Computed]
+    public function versandwegGesperrt(): bool
+    {
+        $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
+
+        return !DispoJobVersandweg::darfEinstellungenAendern(DispoJobVersandweg::freigeberEmail($settings), $this->nutzer());
+    }
+
+    /** Aktive GO/MA-Mitarbeiter ohne neues Portal (Spec 6.3) — Warnung neben dem Schalter. */
+    #[Computed]
+    public function ohneNeuesPortal(): int
+    {
+        return DispoJobVersandweg::ohneNeuesPortal($this->teamId());
     }
 
     #[Computed]
@@ -176,6 +208,7 @@ class Settings extends Component
             'jobTemplateVierWochenId'    => 'nullable|string|max:20',
             'jobTemplateNaechsteWocheId' => 'nullable|string|max:20',
             'jobTemplateDringendId'      => 'nullable|string|max:20',
+            'freigeberEmail'             => 'nullable|string|max:190',
         ]);
 
         // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
@@ -219,8 +252,18 @@ class Settings extends Component
         $settings->setSetting(DispoDeclineAlarm::SETTINGS_KEY, $this->toNullableId($this->declineAlarmTemplateId));
         $settings->setSetting('dispo_contact_backfill_enabled', $this->contactBackfillEnabled !== '');
 
+        // Schalter + Freigeber nur, wenn der Nutzer sie aendern darf (gegen den GESPEICHERTEN
+        // Freigeber, serverseitig). Sonst bleiben beide unveraendert, der Rest wird gespeichert.
+        if (DispoJobVersandweg::darfEinstellungenAendern(DispoJobVersandweg::freigeberEmail($settings), $this->nutzer())) {
+            $settings->setSetting(DispoJobVersandweg::SETTING_AKTIV, $this->versandwegAktiv !== '');
+            $settings->setSetting(DispoJobVersandweg::SETTING_FREIGEBER, mb_strtolower(trim($this->freigeberEmail)) ?: null);
+        }
+        $this->versandwegAktiv = DispoJobVersandweg::aktiv($settings) ? '1' : '';
+        $this->freigeberEmail  = (string) ($settings->getSetting(DispoJobVersandweg::SETTING_FREIGEBER) ?? '');
+
         $settings->save();
 
+        unset($this->versandwegGesperrt);
         $this->saved = true;
     }
 
