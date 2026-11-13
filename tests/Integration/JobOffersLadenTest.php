@@ -211,20 +211,6 @@ class JobOffersLadenTest extends TestCase
         $this->assertSame(0, $this->ohneAngebotsTabelle(fn () => $methode->invoke($shell, $emp)), 'Fehler kostet nur die Karte');
     }
 
-    public function test_einsatz_seite_karte_nur_eigenstaendig_und_fehlerfest(): void
-    {
-        $this->zweiOffene('tok-laden-6');
-
-        $seite = new \Platform\Recruiting\Livewire\Public\EmployeeAssignments();
-        $seite->mount('tok-laden-6');
-        $this->assertSame(2, $seite->neueAngebote());
-        $this->assertSame(0, $this->ohneAngebotsTabelle(fn () => $seite->neueAngebote()), 'Fehler kostet nur die Karte');
-
-        $eingebettet = new \Platform\Recruiting\Livewire\Public\EmployeeAssignments();
-        $eingebettet->mount('tok-laden-6', eingebettet: true);
-        $this->assertSame(0, $eingebettet->neueAngebote(), 'im Portal steht die Karte schon auf der Startseite');
-    }
-
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);

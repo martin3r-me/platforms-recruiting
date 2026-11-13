@@ -143,14 +143,14 @@ class AngeboteImPortalWiringTest extends TestCase
         }
     }
 
-    public function test_einsatz_seite_karte_nur_eigenstaendig_mit_link_auf_jobs(): void
+    /** Sebastian 13.11.2026: auf der Einsatz-Seite hinter dem Bestätigungslink haben freie Einsätze nichts zu suchen. */
+    public function test_einsatz_seite_zeigt_keine_freien_einsaetze(): void
     {
         $blade = $this->quelle('resources/views/livewire/public/employee-assignments.blade.php');
-        $karte = strpos($blade, '@if ($this->neueAngebote > 0)');
-        $this->assertNotFalse($karte);
-        $this->assertStringContainsString("route('recruiting.public.job-offers', ['token' => \$token])", substr($blade, $karte, 800));
+        $this->assertStringNotContainsString('neueAngebote', $blade);
+        $this->assertStringNotContainsString('recruiting.public.job-offers', $blade);
 
         $komponente = $this->quelle('src/Livewire/Public/EmployeeAssignments.php');
-        $this->assertStringContainsString('JobOffersLaden::anzahl(', $komponente);
+        $this->assertStringNotContainsString('JobOffersLaden', $komponente);
     }
 }
