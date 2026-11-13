@@ -15,6 +15,13 @@
     fehlt aus dem umgekehrten Grund: dort IST die Aussage getroffen, nur eben
     von einem Menschen. Stuende es im Nenner, bliebe das Abhaken folgenlos rot.
 
+    Die ROTE Zahl daneben (Markus 13.11.2026: „wir bekommen sie nach den
+    Schulungen nicht alle ans Arbeiten“): wie viele Teilnehmer heute in ALLEN
+    Anstellungen inaktiv sind — auch wenn sie vorher Einsaetze hatten. Sie
+    steht nur da, wenn es welche gibt (Nullen bekommen auf dieser Seite keine
+    Pille). Die mittlere Zahl zaehlt seitdem nur noch die von Hand Geklaerten,
+    sonst stuenden die Inaktiven doppelt da; Farbe und Toepfe rechnen wie zuvor.
+
     Erwartet:
       $rows         list<array>  Assigner-Zeilen des Termins
       $interviewId  ?int         oeffnet die Detailansicht (null = kein Klick)
@@ -25,8 +32,9 @@
     $teilgenommen = $this->countIn($rows, 'teilgenommen');
     $imEinsatz = $this->countIn($rows, 'im_einsatz');
     $geklaert = $this->countIn($rows, 'geklaert');
-    // Davon automatisch geklaert, weil alle Anstellungen inaktiv sind (14.10.2026).
-    $inaktiv = $geklaert > 0 ? $this->inaktivUnterGeklaert($rows) : 0;
+    // Von Hand geklaert = Topf ohne die Inaktiven; die stehen rot daneben.
+    $geklaertHand = $geklaert > 0 ? $this->geklaertVonHand($rows) : 0;
+    $inaktiv = $teilgenommen > 0 ? $this->inaktivUnterTeilgenommen($rows) : 0;
     $ohneEinsatz = $this->countIn($rows, 'ohne_einsatz');
     $unpruefbar = $this->countIn($rows, 'einsatz_unpruefbar');
 
@@ -42,14 +50,20 @@
         $farbe = 'text-teal-700';
     }
 
-    $quoteText = $imEinsatz . '&nbsp;/&nbsp;' . $geklaert . '&nbsp;/&nbsp;' . $teilgenommen;
+    $quoteText = $imEinsatz . '&nbsp;/&nbsp;' . $geklaertHand . '&nbsp;/&nbsp;' . $teilgenommen;
+    $inaktivTitle = $inaktiv . ' von ' . $teilgenommen . ' Teilgenommenen ' . ($inaktiv === 1 ? 'ist' : 'sind')
+        . ' heute inaktiv (alle Anstellungen), auch wenn vorher Einsätze stattfanden.'
+        . ($interviewId !== null ? ' Klick: die Namen.' : '');
+    $inaktivKlasse = 'ml-1 inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-xs '
+        . (($isTotal ?? false) ? 'font-bold' : 'font-semibold')
+        . ' text-red-700 bg-red-50 ring-1 ring-red-200';
 
     $quoteTitle = $teilgenommen === 0
         ? 'Noch niemand hat teilgenommen — der Dispo-Abgleich beginnt mit der Schulung.'
         : 'Im Einsatz / geklärt / teilgenommen: ' . $imEinsatz . ' von ' . $teilgenommen
-            . ' Teilgenommenen im Einsatz, ' . $geklaert . ' geklärt (von Hand abgehakt oder Mitarbeiter inaktiv'
-            . ($inaktiv > 0 ? ', davon ' . $inaktiv . ' inaktiv' : '') . ')'
-            . ' — offen bleiben ' . $ohneEinsatz . ', nicht prüfbar sind ' . $unpruefbar
+            . ' Teilgenommenen im Einsatz, ' . $geklaertHand . ' von Hand geklärt'
+            . ' — heute inaktiv: ' . $inaktiv . ' (rote Zahl; zählt auch, wer vorher Einsätze hatte)'
+            . ', offen bleiben ' . $ohneEinsatz . ', nicht prüfbar sind ' . $unpruefbar
             . ' (ohne Mitarbeiter oder ZAS-Personalnummer keine Aussage).'
             . ($interviewId !== null ? ' Klick: Detailansicht mit Schulungsleiter und Personenliste.' : '');
 @endphp
@@ -68,5 +82,14 @@
         </button>
     @else
         <span class="text-xs font-medium {{ $farbe }}">{!! $quoteText !!}</span>
+    @endif
+    @if ($teilgenommen > 0 && $inaktiv > 0)
+        @if ($interviewId !== null)
+            <button type="button" wire:click="openTerminDetail({{ $interviewId }}, 'inaktiv')" wire:loading.attr="disabled"
+                    title="{{ $inaktivTitle }}"
+                    class="{{ $inaktivKlasse }} hover:ring-2 hover:ring-red-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] transition-all cursor-pointer">{{ $inaktiv }}</button>
+        @else
+            <span title="{{ $inaktivTitle }}" class="{{ $inaktivKlasse }}">{{ $inaktiv }}</span>
+        @endif
     @endif
 </td>

@@ -1685,11 +1685,42 @@ class Index extends Component
      */
     public function inaktivUnterGeklaert(array $rows): int
     {
+        return $this->inaktivIn($rows, 'geklaert');
+    }
+
+    /**
+     * Die rote Zahl an der Quote (Markus 13.11.2026): wie viele Teilnehmer sind
+     * HEUTE in allen Anstellungen inaktiv — egal ob sie vorher Einsaetze hatten.
+     * „Im Einsatz“ sagt, wer gearbeitet hat; diese Zahl, wer wieder weg ist.
+     *
+     * @param  list<array>  $rows
+     */
+    public function inaktivUnterTeilgenommen(array $rows): int
+    {
+        return $this->inaktivIn($rows, 'teilgenommen');
+    }
+
+    /**
+     * Die mittlere Zahl der Quote: geklaert OHNE die Inaktiven — die haben seit
+     * 13.11.2026 ihre eigene Zahl und stuenden sonst doppelt da. Ein Haken an
+     * einer inzwischen inaktiven Person zaehlt damit rot, nicht hier. Der Topf
+     * selbst (Arbeitsliste, Farbe der Quote) bleibt unveraendert.
+     *
+     * @param  list<array>  $rows
+     */
+    public function geklaertVonHand(array $rows): int
+    {
+        return max(0, $this->countIn($rows, 'geklaert') - $this->inaktivIn($rows, 'geklaert'));
+    }
+
+    /** @param  list<array>  $rows */
+    private function inaktivIn(array $rows, string $spalte): int
+    {
         $info = $this->cohortResult()['einsatz_info'] ?? [];
         $vm = $this->viewModel();
         $ids = [];
         foreach ($rows as $row) {
-            foreach ($vm->idsOf($row, 'geklaert') as $id) {
+            foreach ($vm->idsOf($row, $spalte) as $id) {
                 if ($info[$id]['inaktiv'] ?? false) {
                     $ids[$id] = true;
                 }
@@ -1840,10 +1871,13 @@ class Index extends Component
      */
     public string $terminDetailFilter = 'teilgenommen';
 
-    public function openTerminDetail(int $interviewId): void
+    /** Erlaubte Filter der Personenliste; 'inaktiv' seit 13.11.2026 (rote Zahl an der Quote). */
+    public const TERMIN_DETAIL_FILTER = ['teilgenommen', 'im_einsatz', 'geklaert', 'inaktiv', 'ohne_einsatz', 'einsatz_unpruefbar', 'alle'];
+
+    public function openTerminDetail(int $interviewId, string $filter = 'teilgenommen'): void
     {
         $this->terminDetailId = $interviewId;
-        $this->terminDetailFilter = 'teilgenommen';
+        $this->terminDetailFilter = in_array($filter, self::TERMIN_DETAIL_FILTER, true) ? $filter : 'teilgenommen';
         $this->showTerminDetail = true;
         $this->noAssignmentUuid = null;
         $this->primeNoAssignment();
@@ -2004,6 +2038,12 @@ class Index extends Component
         $rang = ['ohne_einsatz' => 0, 'einsatz_unpruefbar' => 1, 'geklaert' => 2, 'im_einsatz' => 3];
         usort($personen, fn ($a, $b) => [($rang[$a['topf']] ?? 4), mb_strtolower($a['name'])]
             <=> [($rang[$b['topf']] ?? 4), mb_strtolower($b['name'])]);
+
+        // Markus 13.11.2026: die Chips „geklärt“ und „inaktiv“ zaehlen wie die
+        // Quote in der Tabelle — inaktiv = Teilgenommene, die heute in allen
+        // Anstellungen inaktiv sind (auch mit Einsatz); geklaert ohne sie.
+        $kennzahlen['inaktiv'] = count(array_filter($personen, fn ($p) => $p['status'] === 'Teilgenommen' && $p['inaktiv']));
+        $kennzahlen['geklaert_hand'] = count(array_filter($personen, fn ($p) => $p['topf'] === 'geklaert' && !$p['inaktiv']));
 
         return [
             'interview' => $interview,

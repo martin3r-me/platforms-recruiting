@@ -793,6 +793,61 @@ class StatisticsInterviewsTableTest extends TestCase
     }
 
     /**
+     * Markus 13.11.2026: neben „im Einsatz / geklärt / teilgenommen“ steht rot,
+     * wie viele Teilnehmer heute in ALLEN Anstellungen inaktiv sind — egal ob
+     * sie vorher Einsaetze hatten. Die mittlere Zahl zaehlt dann nur noch die
+     * von Hand Geklaerten; die Toepfe selbst (Arbeitsliste, Farbe) bleiben.
+     */
+    public function test_inaktiv_zahl_zaehlt_alle_heute_inaktiven_teilnehmer_auch_mit_einsatz(): void
+    {
+        $vm = new CohortViewModel();
+        try {
+            $component = $this->component('Essen');
+            $august = $this->rowOf($this->tableOf($component), self::INTERVIEW_AUGUST);
+            $this->assertSame(0, $component->inaktivUnterTeilgenommen($august['rows']), 'niemand inaktiv');
+
+            // 208 (zwei Anstellungen, nie eingebucht) wird inaktiv; bei 204 (im Einsatz)
+            // erst nur die verlinkte Anstellung — die zweite Firma (505, gleiche
+            // Personen-Klammer) ist noch aktiv, also zaehlt 204 noch nicht.
+            Capsule::table('rec_employees')->whereIn('id', [501, 502, 504])->update(['is_active' => false]);
+            $component = $this->component('Essen');
+            $august = $this->rowOf($this->tableOf($component), self::INTERVIEW_AUGUST);
+            $this->assertSame(1, $component->inaktivUnterTeilgenommen($august['rows']), 'RG inaktiv, MA aktiv: Person bleibt aktiv');
+
+            Capsule::table('rec_employees')->where('id', 505)->update(['is_active' => false]);
+            $component = $this->component('Essen');
+            $august = $this->rowOf($this->tableOf($component), self::INTERVIEW_AUGUST);
+            $this->assertSame([204], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'im_einsatz'), 'Einsatz bleibt Einsatz');
+            $this->assertSame(2, $component->inaktivUnterTeilgenommen($august['rows']), '204 mit Einsatz + 208 ohne');
+            $this->assertSame(0, $component->geklaertVonHand($august['rows']), '208 ist nur automatisch geklaert');
+
+            $cohort = $component->cohort();
+            $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+            $this->assertSame(2, $detail['kennzahlen']['inaktiv']);
+            $this->assertSame(0, $detail['kennzahlen']['geklaert_hand']);
+
+            // Nur EINE der zwei Anstellungen von 208 wieder aktiv → 208 zaehlt nicht mehr.
+            Capsule::table('rec_employees')->where('id', 502)->update(['is_active' => true]);
+            $component = $this->component('Essen');
+            $august = $this->rowOf($this->tableOf($component), self::INTERVIEW_AUGUST);
+            $this->assertSame(1, $component->inaktivUnterTeilgenommen($august['rows']));
+        } finally {
+            Capsule::table('rec_employees')->whereIn('id', [501, 502, 504, 505])->update(['is_active' => true]);
+        }
+    }
+
+    public function test_detailansicht_oeffnet_mit_erlaubtem_filter_sonst_standard(): void
+    {
+        $component = $this->component('Essen');
+        $component->openTerminDetail(self::INTERVIEW_AUGUST, 'inaktiv');
+        $this->assertSame('inaktiv', $component->terminDetailFilter);
+        $component->openTerminDetail(self::INTERVIEW_AUGUST, 'irgendwas');
+        $this->assertSame('teilgenommen', $component->terminDetailFilter);
+        $component->openTerminDetail(self::INTERVIEW_AUGUST);
+        $this->assertSame('teilgenommen', $component->terminDetailFilter);
+    }
+
+    /**
      * Kunde 14.10.2026: wer nach der Schulung in ALLEN Anstellungen auf inaktiv
      * gesetzt wird, steht nicht mehr auf der Arbeitsliste „ohne Einsatz“,
      * sondern zaehlt automatisch als geklaert — und kehrt von selbst zurueck,

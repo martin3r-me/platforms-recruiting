@@ -369,6 +369,51 @@ class StatisticsTablesRenderTest extends TestCase
     // -----------------------------------------------------------------
 
     /**
+     * Markus 13.11.2026: die rote Zahl neben der Quote zeigt, wer heute inaktiv
+     * ist; die mittlere Zahl zaehlt die Inaktiven nicht mehr mit. Klick auf die
+     * rote Zahl oeffnet die Detailansicht mit dem Filter „inaktiv“.
+     */
+    public function test_quote_zelle_zeigt_inaktive_rot_und_nicht_mehr_unter_geklaert(): void
+    {
+        try {
+            Capsule::table('rec_employees')->insert([
+                'id' => 9601, 'uuid' => 'remp-9601', 'team_id' => self::TEAM,
+                'rec_applicant_id' => 601, 'personnel_number' => 'RG9601',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+
+            $aktiv = $this->render('interviews-table', 'Essen');
+            $this->assertStringContainsString('0&nbsp;/&nbsp;0&nbsp;/&nbsp;1', $aktiv);
+            $this->assertStringNotContainsString("'inaktiv')", $aktiv, 'niemand inaktiv: keine rote Zahl');
+            $this->assertStringNotContainsString('text-red-700 bg-red-50', $aktiv);
+
+            Capsule::table('rec_employees')->where('id', 9601)->update(['is_active' => false]);
+
+            $inaktiv = $this->render('interviews-table', 'Essen');
+            $this->assertStringContainsString('0&nbsp;/&nbsp;0&nbsp;/&nbsp;1', $inaktiv,
+                'die mittlere Zahl bleibt 0 — der Inaktive steht rot daneben, nicht unter „geklärt“');
+            $this->assertStringContainsString('openTerminDetail(' . self::INTERVIEW_AUGUST . ", 'inaktiv')", $inaktiv);
+            $this->assertStringContainsString('text-red-700 bg-red-50', $inaktiv);
+            $this->assertStringContainsString('heute inaktiv', $inaktiv, 'der Hinweis erklärt die rote Zahl');
+            // Nichts offen, der Fall ist beantwortet: weiterhin kein „noch nichts passiert“-Grau.
+            $this->assertStringContainsString('text-teal-700', $inaktiv);
+
+            $counts = $this->columnCounts($inaktiv);
+            $this->assertSame(1, $counts['groups_by_label']['Einsatz'], 'vier Zahlen, weiterhin eine Spalte');
+            $this->assertRowsMatchGroups($counts, 'Termin-Tabelle mit roter Zahl');
+
+            $detail = $this->renderTerminDetail('inaktiv');
+            $this->assertStringContainsString('1 inaktiv', $detail);
+            $this->assertStringContainsString('0 geklärt', $detail);
+            $this->assertStringNotContainsString('Niemand in dieser Auswahl.', $detail, 'der Inaktive steht in der Liste');
+            $this->assertStringContainsString('Niemand in dieser Auswahl.', $this->renderTerminDetail('geklaert'),
+                'unter „geklärt“ steht er nicht mehr');
+        } finally {
+            Capsule::table('rec_employees')->where('id', 9601)->delete();
+        }
+    }
+
+    /**
      * Die Quote-Zelle zeigt drei Zahlen: im Einsatz / geklärt / teilgenommen.
      * Ohne diesen Test waere die dritte Zahl genau die Sorte Aenderung, die im
      * Blade still danebengeht (die Zelle rendert trotzdem etwas).

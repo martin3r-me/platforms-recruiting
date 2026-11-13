@@ -40,15 +40,17 @@
             // Default nur Teilgenommene — Nicht-Erschienene & Co. sieht man
             // erst ueber „“. Unbekannter Filterwert (gecraftetes
             // $set) faellt auf den Default zurueck.
-            $aktiverFilter = in_array($this->terminDetailFilter, ['teilgenommen', 'im_einsatz', 'geklaert', 'ohne_einsatz', 'einsatz_unpruefbar', 'alle'], true)
+            $aktiverFilter = in_array($this->terminDetailFilter, \Platform\Recruiting\Livewire\Statistics\Index::TERMIN_DETAIL_FILTER, true)
                 ? $this->terminDetailFilter : 'teilgenommen';
             $filterChips = [
                 ['key' => 'teilgenommen', 'label' => $tk['teilgenommen'] . ' teilgenommen', 'chip' => 'bg-sky-100 text-sky-900',
                  'title' => 'Alle, die die Schulung bestanden haben — die Bezugsgröße des Dispo-Abgleichs.'],
                 ['key' => 'im_einsatz', 'label' => $tk['im_einsatz'] . ' im Einsatz', 'chip' => 'bg-indigo-100 text-indigo-900',
                  'title' => 'Teilgenommene mit mindestens einer Dispo-Zuweisung.'],
-                ['key' => 'geklaert', 'label' => $tk['geklaert'] . ' geklärt', 'chip' => 'bg-teal-100 text-teal-900',
+                ['key' => 'geklaert', 'label' => $tk['geklaert_hand'] . ' geklärt', 'chip' => 'bg-teal-100 text-teal-900',
                  'title' => 'Von Hand abgehakt: kein Einsatz, aber ein bekannter Grund („fängt später an“, „mit der Dispo besprochen“). Sie stehen nicht mehr auf der Arbeitsliste und bekommen keine Nachfass-Nachricht.'],
+                ['key' => 'inaktiv', 'label' => $tk['inaktiv'] . ' inaktiv', 'chip' => 'bg-red-100 text-red-900',
+                 'title' => 'Teilgenommene, die heute in allen Anstellungen inaktiv sind — auch wenn sie vorher Einsätze hatten. Die rote Zahl in der Tabelle.'],
                 ['key' => 'ohne_einsatz', 'label' => $tk['ohne_einsatz'] . ' ohne Einsatz', 'chip' => 'bg-orange-100 text-orange-900',
                  'title' => 'Mitarbeiter mit ZAS-Personalnummer, aber ohne Zuweisung und ohne Klärung — die Nachverfolgungs-Liste.'],
                 ['key' => 'einsatz_unpruefbar', 'label' => $tk['einsatz_unpruefbar'] . ' nicht prüfbar', 'chip' => 'bg-gray-200 text-gray-700',
@@ -103,7 +105,10 @@
                     @php
                         $gefiltertePersonen = array_values(array_filter($terminDetail['personen'], fn ($p) => match ($aktiverFilter) {
                             'teilgenommen' => $p['status'] === 'Teilgenommen',
-                            'im_einsatz', 'geklaert', 'ohne_einsatz', 'einsatz_unpruefbar' => $p['topf'] === $aktiverFilter,
+                            'im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar' => $p['topf'] === $aktiverFilter,
+                            // Markus 13.11.2026: Inaktive haben ihren eigenen Chip, auch mit Einsatz.
+                            'geklaert' => $p['topf'] === 'geklaert' && !$p['inaktiv'],
+                            'inaktiv' => $p['status'] === 'Teilgenommen' && $p['inaktiv'],
                             default => true,
                         }));
                     @endphp
