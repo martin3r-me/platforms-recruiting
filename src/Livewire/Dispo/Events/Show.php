@@ -1889,12 +1889,17 @@ class Show extends Component
     /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
     public ?array $infoResult = null;
 
-    /** „Info an Crew“ wurde aus dem Bestaetigungs-Fenster geoeffnet — Schliessen fuehrt dorthin zurueck. */
-    public bool $infoFromSend = false;
+    /**
+     * „Infos mitschicken“ ist im Bestaetigungs-Fenster aufgeklappt (Sheran 15.11.:
+     * die Mitarbeiter-Auswahl direkt im ersten Fenster, kein Umweg ueber ein
+     * zweites). Auswahl, Dateien und Hinweis teilen sich die info*-Felder mit
+     * „Info an Crew“ — es ist immer nur eines der beiden Fenster offen.
+     */
+    public bool $infoImSenden = false;
 
     /**
-     * Was in dieser Sitzung ueber „Infos mitschicken“ hinterlegt wurde — fuers
-     * Bestaetigungs-Fenster („2 Dateien und Hinweis hinterlegt“). Null = nichts.
+     * Was mit der Bestaetigung hinterlegt wurde — bleibt im Fenster stehen, falls
+     * der Versand danach scheitert (kein zweites Hinterlegen beim naechsten Klick).
      *
      * @var array{attached:int, noted:int}|null
      */
@@ -1906,59 +1911,31 @@ class Show extends Component
             return;
         }
         $this->infoFormLeeren();
-        $this->infoFromSend = false;
+        $this->infoImSenden = false;
         $this->showInfoModal = true;
     }
 
-    /**
-     * „Infos mitschicken“ im Bestaetigungs-Fenster (Markus 12.11.: Ticket, Ablauf,
-     * Video zur Messe sollen MIT der Bestaetigung raus, keine zweite Nachricht).
-     * Oeffnet „Info an Crew“ mit abgewaehlter WhatsApp: Dateien und Hinweis
-     * werden nur hinterlegt, die Bestaetigung bringt den Link auf die Einsatz-
-     * Seite, dort stehen sie dann. Muster wie openDressModalFromSend(): das
-     * Sende-Fenster wird nur verdeckt, sein Formular bleibt im Speicher.
-     */
-    public function openInfoModalFromSend(): void
-    {
-        if ($this->blockedForEventOnly()) {
-            return;
-        }
-        $this->infoFormLeeren();
-        $this->infoSendWhatsApp = false;
-        $this->infoFromSend = true;
-        $this->showSendModal = false;
-        $this->showInfoModal = true;
-    }
-
-    /**
-     * Schliessen von „Info an Crew“: kam es aus dem Sende-Fenster, geht es
-     * dorthin zurueck (ohne openSendModal() — das wuerde das Formular neu
-     * laden und Eingaben verwerfen, siehe openDressModalFromSend()).
-     */
     public function closeInfoModal(): void
     {
         $this->showInfoModal = false;
-        if ($this->infoFromSend) {
-            $this->infoFromSend = false;
-            $this->showSendModal = true;
-        }
     }
 
     /**
-     * Nach dem Hinterlegen ohne WhatsApp: kam „Info an Crew“ aus dem Bestaetigungs-
-     * Fenster, direkt dorthin zurueck und dort zusammenfassen, was hinterlegt wurde
-     * (mehrfaches Hinterlegen summiert). Sonst bleibt die Ergebnis-Anzeige stehen.
+     * „Infos mitschicken“ im Bestaetigungs-Fenster auf-/zuklappen (Markus 12.11.:
+     * Ticket, Ablauf, Video sollen MIT der Bestaetigung raus, keine zweite
+     * Nachricht). Zuklappen verwirft die Eingaben — sonst ginge beim Senden
+     * etwas mit, das niemand mehr sieht.
      */
-    private function nachHinterlegenZurueck(int $attached, int $noted): void
+    public function infoImSendenUmschalten(): void
     {
-        if (!$this->infoFromSend) {
-            return;
-        }
-        $this->infoBeiBestaetigung = [
-            'attached' => (int) ($this->infoBeiBestaetigung['attached'] ?? 0) + $attached,
-            'noted'    => (int) ($this->infoBeiBestaetigung['noted'] ?? 0) + $noted,
-        ];
-        $this->closeInfoModal();
+        $this->infoFormLeeren();
+        $this->infoImSenden = !$this->infoImSenden;
+    }
+
+    /** Im Bestaetigungs-Fenster stehen Infos an, die „Jetzt senden“ mit hinterlegt. */
+    private function infoStehtAn(): bool
+    {
+        return $this->infoImSenden && ($this->infoUploads !== [] || trim($this->infoNote) !== '');
     }
 
     private function infoFormLeeren(): void
@@ -1969,6 +1946,7 @@ class Show extends Component
         $this->infoSendWhatsApp = true;
         $this->infoUploads = [];
         $this->infoResult = null;
+        unset($this->infoPreview);
         $this->resetErrorBag('infoNote');
     }
 
@@ -1987,6 +1965,20 @@ class Show extends Component
         } else {
             $this->infoExcluded[] = $canonical;
         }
+        unset($this->infoPreview);
+    }
+
+    /** Alle der Vorschau anhaken. */
+    public function infoAlle(): void
+    {
+        $this->infoExcluded = [];
+        unset($this->infoPreview);
+    }
+
+    /** Alle der Vorschau abwaehlen — fuer „nur diese eine Person“ (Sheran 15.11.). */
+    public function infoKeine(): void
+    {
+        $this->infoExcluded = array_values(array_map(fn ($p) => (int) $p['canonical'], $this->infoPreview['persons']));
         unset($this->infoPreview);
     }
 
@@ -2155,17 +2147,8 @@ class Show extends Component
             $this->addError('infoNote', 'Bitte mindestens eine Datei anhängen oder einen Hinweis eingeben.');
             return;
         }
-        if ($this->infoUploads !== []) {
-            $this->validate(
-                [
-                    'infoUploads'   => 'array|max:10',
-                    'infoUploads.*' => 'file|max:10240|mimes:' . implode(',', DispoAttachmentStore::ALLOWED_EXTENSIONS),
-                ],
-                [], ['infoUploads' => 'Dateien', 'infoUploads.*' => 'Datei']
-            );
-        }
-        // Aus dem Bestaetigungs-Fenster NIE WhatsApp (Review 12.11.): sonst doch die zweite Nachricht.
-        $sendWhatsApp = !$this->infoFromSend && (bool) $this->infoSendWhatsApp;
+        $this->infoDateienPruefen();
+        $sendWhatsApp = (bool) $this->infoSendWhatsApp;
         $templateId = (int) (RecApplicantSettings::getOrCreateForTeam($this->settingsTeamId())->getSetting('dispo_info_template_id') ?: 0);
         if ($sendWhatsApp && $templateId === 0) {
             $this->addError('infoNote', 'Kein Info-Template konfiguriert (Disposition → Einstellungen) — oder „WhatsApp senden" abwählen.');
@@ -2191,56 +2174,7 @@ class Show extends Component
                 return;
             }
 
-            $attached = 0;
-            $noted = 0;
-            $now = now();
-
-            // 1) Anhang: identische Datei je Person (am gebuchten Datensatz — die
-            //    Einsatz-Seite liest ueber die ganze Identitaetsgruppe).
-            if ($this->infoUploads !== []) {
-                // Kunde 07.09.: MEHRERE Dateien in EINER Sendung (Funktion, Einteilung,
-                // Tischplan, ...) statt je Datei eine eigene Nachricht. Inhalte einmal
-                // lesen, dann pro Person alle ablegen.
-                $files = array_map(fn ($f) => [
-                    'contents' => (string) file_get_contents($f->getRealPath()),
-                    'name'     => $f->getClientOriginalName(),
-                    'mime'     => $f->getClientMimeType(),
-                ], $this->infoUploads);
-                $store = DispoAttachmentStore::default();
-                foreach ($persons as $person) {
-                    foreach ($files as $file) {
-                        $store->putContents(
-                            $this->eventId,
-                            $person['booked'],
-                            $file['contents'],
-                            $file['name'],
-                            $file['mime'],
-                            auth()->id()
-                        );
-                        $attached++;
-                    }
-                }
-            }
-
-            // 2) Hinweis: identischer Text auf allen KOMMENDEN Einbuchungen der
-            //    Getroffenen — ERGAENZT einen bestehenden Hinweis als neue Zeile
-            //    (User 03.09.: ein Bulk-Treffpunkt darf das individuelle
-            //    "15 Min frueher" nicht wegwerfen). Doppeltes Anfuegen desselben
-            //    Textes wird uebersprungen (Doppelklick/zweiter Lauf).
-            if ($note !== '') {
-                $ids = array_merge(...array_map(fn ($p) => $p['assignment_ids'], $persons));
-                foreach (RecDispoAssignment::query()->whereIn('id', $ids)->get(['id', 'individual_note']) as $assignment) {
-                    $existing = trim((string) $assignment->individual_note);
-                    if ($existing === $note || str_contains($existing, $note)) {
-                        continue;
-                    }
-                    RecDispoAssignment::query()->whereKey($assignment->id)->update([
-                        'individual_note'            => $existing !== '' ? $existing . "\n" . $note : $note,
-                        'individual_note_updated_at' => $now,
-                    ]);
-                    $noted++;
-                }
-            }
+            ['attached' => $attached, 'noted' => $noted] = $this->infoHinterlegen($persons, $note);
 
             // 3) Info-WhatsApp an alle mit Nummer — nur wenn der Schalter an ist
             //    (aus = reine Zuweisung, z. B. Erstbefuellung vor dem Bestaetigungs-
@@ -2255,7 +2189,6 @@ class Show extends Component
                 ];
                 $this->infoUploads = [];
                 unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
-                $this->nachHinterlegenZurueck($attached, (int) $noted);
                 return;
             }
 
@@ -2289,6 +2222,85 @@ class Show extends Component
         } finally {
             $lock?->release();
         }
+    }
+
+    /** Datei-Regeln von „Info an Crew“ — wirft bei Verstoss (Livewire zeigt den Fehler am Feld). */
+    private function infoDateienPruefen(): void
+    {
+        if ($this->infoUploads === []) {
+            return;
+        }
+        $this->validate(
+            [
+                'infoUploads'   => 'array|max:10',
+                'infoUploads.*' => 'file|max:10240|mimes:' . implode(',', DispoAttachmentStore::ALLOWED_EXTENSIONS),
+            ],
+            [], ['infoUploads' => 'Dateien', 'infoUploads.*' => 'Datei']
+        );
+    }
+
+    /**
+     * Dateien ($this->infoUploads) und Hinweis bei den Personen ablegen — ohne
+     * Nachricht. Gemeinsamer Kern von „Info an Crew“ und „Infos mitschicken“ im
+     * Bestaetigungs-Fenster.
+     *
+     * @param list<array{booked:int, assignment_ids:list<int>}> $persons
+     * @return array{attached:int, noted:int}
+     */
+    private function infoHinterlegen(array $persons, string $note): array
+    {
+        $attached = 0;
+        $noted = 0;
+        $now = now();
+
+        // 1) Anhang: identische Datei je Person (am gebuchten Datensatz — die
+        //    Einsatz-Seite liest ueber die ganze Identitaetsgruppe).
+        if ($this->infoUploads !== []) {
+            // Kunde 07.09.: MEHRERE Dateien in EINER Sendung (Funktion, Einteilung,
+            // Tischplan, ...) statt je Datei eine eigene Nachricht. Inhalte einmal
+            // lesen, dann pro Person alle ablegen.
+            $files = array_map(fn ($f) => [
+                'contents' => (string) file_get_contents($f->getRealPath()),
+                'name'     => $f->getClientOriginalName(),
+                'mime'     => $f->getClientMimeType(),
+            ], $this->infoUploads);
+            $store = DispoAttachmentStore::default();
+            foreach ($persons as $person) {
+                foreach ($files as $file) {
+                    $store->putContents(
+                        $this->eventId,
+                        $person['booked'],
+                        $file['contents'],
+                        $file['name'],
+                        $file['mime'],
+                        auth()->id()
+                    );
+                    $attached++;
+                }
+            }
+        }
+
+        // 2) Hinweis: identischer Text auf allen KOMMENDEN Einbuchungen der
+        //    Getroffenen — ERGAENZT einen bestehenden Hinweis als neue Zeile
+        //    (User 03.09.: ein Bulk-Treffpunkt darf das individuelle
+        //    "15 Min frueher" nicht wegwerfen). Doppeltes Anfuegen desselben
+        //    Textes wird uebersprungen (Doppelklick/zweiter Lauf).
+        if ($note !== '') {
+            $ids = array_merge(...array_map(fn ($p) => $p['assignment_ids'], $persons));
+            foreach (RecDispoAssignment::query()->whereIn('id', $ids)->get(['id', 'individual_note']) as $assignment) {
+                $existing = trim((string) $assignment->individual_note);
+                if ($existing === $note || str_contains($existing, $note)) {
+                    continue;
+                }
+                RecDispoAssignment::query()->whereKey($assignment->id)->update([
+                    'individual_note'            => $existing !== '' ? $existing . "\n" . $note : $note,
+                    'individual_note_updated_at' => $now,
+                ]);
+                $noted++;
+            }
+        }
+
+        return ['attached' => $attached, 'noted' => $noted];
     }
 
     /** Anker-Team der dispo_*-Settings (gleiche Regel wie dispoSettings()). */
@@ -2972,8 +2984,9 @@ class Show extends Component
         $this->dressSaved = false;
         $this->resetErrorBag('dressAck');
 
+        $this->infoFormLeeren();
+        $this->infoImSenden = false;
         $this->infoBeiBestaetigung = null;
-        $this->infoFromSend = false;
 
         $this->showSendModal = true;
     }
@@ -3014,6 +3027,18 @@ class Show extends Component
             'vorlaufMinuten'  => 'required|integer|min:0|max:480',
             'ansprechpartner' => 'nullable|string|max:255',
         ], [], ['vorlaufMinuten' => 'Vorlaufzeit']);
+
+        // Infos mitschicken (Sheran 15.11.): VOR allem Speichern pruefen — ein
+        // Fehler hier darf weder Eskalation noch Kleidung halb sichern.
+        $infoPersonen = null;
+        if ($this->infoStehtAn()) {
+            $this->infoDateienPruefen();
+            $infoPersonen = array_values(array_filter($this->infoPreview['persons'], fn ($p) => $p['selected']));
+            if ($infoPersonen === []) {
+                $this->addError('infoNote', 'Für die Infos ist niemand angehakt.');
+                return;
+            }
+        }
 
         if (!$this->persistEscalation()) {
             return;
@@ -3067,6 +3092,21 @@ class Show extends Component
                 2 => \Illuminate\Support\Carbon::parse($this->escPlanDate . ' ' . $this->escPlanT2),
                 3 => \Illuminate\Support\Carbon::parse($this->escPlanDate . ' ' . $this->escPlanT3),
             ];
+        }
+
+        // Erst hinterlegen, dann senden: die Infos stehen auf der Einsatz-Seite,
+        // bevor der Link rausgeht. Die Auswahl gilt NUR fuer die Infos — wer die
+        // Bestaetigung bekommt, bestimmt allein sendPreview. Danach ist das
+        // Formular leer, ein zweiter Klick (Versand gescheitert) legt nichts doppelt ab.
+        if ($infoPersonen !== null) {
+            $abgelegt = $this->infoHinterlegen($infoPersonen, trim($this->infoNote));
+            $this->infoBeiBestaetigung = [
+                'attached' => (int) ($this->infoBeiBestaetigung['attached'] ?? 0) + $abgelegt['attached'],
+                'noted'    => (int) ($this->infoBeiBestaetigung['noted'] ?? 0) + $abgelegt['noted'],
+            ];
+            $this->infoFormLeeren();
+            $this->infoImSenden = false;
+            unset($this->event, $this->attachmentsByEmployee);
         }
 
         $preview = $this->sendPreview;

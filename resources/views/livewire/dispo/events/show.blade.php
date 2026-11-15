@@ -614,11 +614,13 @@
                     </label>
 
                     {{-- Infos mitschicken (Markus 12.11.): Ticket, Ablauf, Video-Link landen
-                         auf der Einsatz-Seite, BEVOR die Bestaetigung rausgeht — eine Nachricht. --}}
-                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-1">
+                         auf der Einsatz-Seite, BEVOR die Bestaetigung rausgeht — eine Nachricht.
+                         Sheran 15.11.: Auswahl, Datei und Hinweis stehen direkt hier, kein
+                         zweites Fenster mehr; „Jetzt senden“ hinterlegt sie mit. --}}
+                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-3">
                         <div class="flex items-center justify-between">
                             <div class="font-medium text-gray-700">Infos für die Crew <span class="text-gray-400">(optional)</span></div>
-                            <button type="button" wire:click="openInfoModalFromSend" class="text-xs text-blue-600 hover:underline">Infos mitschicken</button>
+                            <button type="button" wire:click="infoImSendenUmschalten" class="text-xs text-blue-600 hover:underline">{{ $infoImSenden ? 'doch keine Infos' : 'Infos mitschicken' }}</button>
                         </div>
                         @if ($infoBeiBestaetigung !== null)
                             @php
@@ -627,8 +629,22 @@
                                 if ($infoBeiBestaetigung['noted'] > 0) { $infoTeile[] = 'Hinweis an ' . $infoBeiBestaetigung['noted'] . ' Einbuchung(en)'; }
                             @endphp
                             <p class="text-xs text-green-700">✓ Hinterlegt: {{ $infoTeile !== [] ? implode(', ', $infoTeile) : 'nichts Neues (schon vorhanden)' }}. Die Crew sieht es über den Link in der Bestätigung.</p>
-                        @else
-                            <p class="text-xs text-gray-500">Dateien und Hinweise (z. B. Ticket, Ablauf, Link zum Video) stehen dann auf der Einsatz-Seite, die die Bestätigung verlinkt. Keine zweite Nachricht.</p>
+                        @endif
+                        @if ($infoImSenden)
+                            <p class="rounded bg-blue-50 px-2 py-1.5 text-xs text-blue-900">Die Auswahl gilt <strong>nur für Datei und Hinweis</strong>. Die Bestätigung geht wie unten angezeigt an alle noch Offenen. „Jetzt senden“ hinterlegt die Infos mit.</p>
+                            @include('recruiting::livewire.dispo.events._info-felder')
+                            @php
+                                // Angehakte, die mit dieser Sendung keine Bestaetigung bekommen (schon
+                                // angeschrieben/bestaetigt): Infos liegen bereit, aber es geht kein Link raus.
+                                $infoEmpfaenger = array_map('intval', array_column($preview['recipients'], 'employee_id'));
+                                $infoOhneNachricht = collect($this->infoPreview['persons'])->where('selected', true)
+                                    ->filter(fn ($p) => !in_array((int) $p['canonical'], $infoEmpfaenger, true))->count();
+                            @endphp
+                            @if ($infoOhneNachricht > 0)
+                                <p class="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-800">{{ $infoOhneNachricht }} der Angehakten {{ $infoOhneNachricht === 1 ? 'bekommt' : 'bekommen' }} mit dieser Sendung keine Nachricht (z. B. schon angeschrieben oder bestätigt). Die Infos stehen trotzdem auf der Einsatz-Seite. Soll dazu eine WhatsApp rausgehen: Knopf „Info an Crew“ auf der Veranstaltungs-Seite.</p>
+                            @endif
+                        @elseif ($infoBeiBestaetigung === null)
+                            <p class="text-xs text-gray-500">Dateien und Hinweise (z. B. Ticket, Ablauf, Link zum Video) für alle oder einzelne Mitarbeiter. Sie stehen dann auf der Einsatz-Seite, die die Bestätigung verlinkt. Keine zweite Nachricht.</p>
                         @endif
                     </div>
 
@@ -786,7 +802,7 @@
                     <div class="flex justify-end gap-3">
                         <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendConfirmations"
-                                wire:loading.attr="disabled" wire:target="sendConfirmations"
+                                wire:loading.attr="disabled" wire:target="sendConfirmations, infoUploads"
                                 @if (count($preview['recipients']) === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ count($preview['recipients']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
                             <span wire:loading.remove wire:target="sendConfirmations">Jetzt senden</span>
@@ -1158,101 +1174,19 @@
                 <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
 
                 @if ($infoResult === null)
-                    @php
-                        $infoPrev = $this->infoPreview;
-                        $withNote = collect($infoPrev['persons'])->where('selected', true)->where('has_note', true)->count();
-                    @endphp
+                    @php $infoPrev = $this->infoPreview; @endphp
 
-                    <label class="block text-sm">
-                        <span class="mb-1 block font-medium text-gray-700">Wer?</span>
-                        <select wire:model.live="infoFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
-                            <option value="">Alle disponierten Mitarbeiter</option>
-                            {{-- Kunde 30.09.: "Hinweis an die bestaetigten Mitarbeiter" war
-                                 bisher nicht waehlbar. Bestaetigt = ALLE kommenden Tage zugesagt. --}}
-                            <option value="confirmed">Nur bestätigte</option>
-                            <option value="open">Nur noch offene</option>
-                            @if ($this->infoTaetigkeitOptions !== [])
-                                <optgroup label="Tätigkeit (aus dieser VA)">
-                                    @foreach ($this->infoTaetigkeitOptions as $taetigkeit)
-                                        <option value="t:{{ $taetigkeit }}">{{ $taetigkeit }}</option>
-                                    @endforeach
-                                </optgroup>
-                            @endif
-                            @if ($this->infoQualOptions !== [])
-                                <optgroup label="Qualifikation (aus der MA-Akte)">
-                                    @foreach ($this->infoQualOptions as $qualValue => $qualLabel)
-                                        <option value="q:{{ $qualValue }}">{{ $qualLabel }}</option>
-                                    @endforeach
-                                </optgroup>
-                            @endif
-                        </select>
-                        <span class="mt-1 block text-xs text-gray-500">Nur kommende Einsatztage; mehrere Personalnummern derselben Person zählen einmal. Einzelne unten abwählbar.</span>
+                    @include('recruiting::livewire.dispo.events._info-felder')
+
+                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
+                        WhatsApp „Neue Infos" mitschicken
                     </label>
-
-                    @if ($infoPrev['persons'] !== [])
-                        <div class="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">
-                            @foreach ($infoPrev['persons'] as $person)
-                                <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50 {{ $person['selected'] ? '' : 'opacity-50' }}">
-                                    <input type="checkbox" wire:click="toggleInfoPerson({{ $person['canonical'] }})"
-                                           @if ($person['selected']) checked @endif class="rounded border-gray-300">
-                                    <span class="truncate">{{ $person['name'] }}</span>
-                                    @if ($person['phone'] === null)
-                                        <span class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] text-amber-700">kein Telefon</span>
-                                    @endif
-                                    @if ($person['has_note'])
-                                        <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] text-gray-500" title="Hat bereits einen Hinweis — neuer Text wird ergänzt">✎ Hinweis vorhanden</span>
-                                    @endif
-                                </label>
-                            @endforeach
-                        </div>
-                    @endif
-
-                    <label class="block text-sm">
-                        <span class="mb-1 block font-medium text-gray-700">Datei anhängen <span class="text-gray-400">(optional, für alle identisch)</span></span>
-                        <div x-data="{ drag: false }"
-                             x-on:dragover.prevent="drag = true" x-on:dragleave.prevent="drag = false"
-                             x-on:drop.prevent="drag = false; $refs.infoIn.files = $event.dataTransfer.files; $refs.infoIn.dispatchEvent(new Event('change'))"
-                             :class="drag ? 'border-blue-400 bg-blue-50/60' : 'border-gray-300'"
-                             class="rounded-lg border-2 border-dashed p-3">
-                            <input type="file" multiple x-ref="infoIn" wire:model="infoUploads" accept=".pdf,.jpg,.jpeg,.png"
-                                   class="w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
-                            <div class="mt-1 text-xs text-gray-400">… oder Dateien hierher ziehen — mehrere auf einmal möglich (Funktion, Einteilung, Tischplan in EINER Nachricht).</div>
-                        </div>
-                        <span class="mt-1 block text-xs text-gray-500">PDF/JPG/PNG, je max. 10 MB. Wird zusätzlich zu bestehenden Anhängen abgelegt.</span>
-                        @if ($infoUploads !== [])
-                            <span class="mt-1 block text-xs text-gray-500">{{ count($infoUploads) }} Datei(en) ausgewählt</span>
-                        @endif
-                        <div wire:loading wire:target="infoUploads" class="mt-1 text-xs text-blue-600">Wird hochgeladen …</div>
-                    </label>
-
-                    <label class="block text-sm">
-                        <span class="mb-1 block font-medium text-gray-700">Hinweis <span class="text-gray-400">(optional, für alle identisch)</span></span>
-                        <textarea wire:model="infoNote" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="z. B. Treffpunkt geändert: Eingang Nord, Tor 3"></textarea>
-                        <span class="mt-1 block text-xs text-gray-500">Links, z. B. zu einem Video, sind auf der Einsatz-Seite anklickbar.</span>
-                        @if ($withNote > 0)
-                            <span class="mt-1 block text-xs text-gray-500">{{ $withNote }} der ausgewählten Personen {{ $withNote === 1 ? 'hat' : 'haben' }} bereits einen Hinweis — der neue Text wird darunter ergänzt.</span>
-                        @endif
-                    </label>
-                    @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-                    @error('infoUploads') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-                    @error('infoUploads.*') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-
-                    @if (!$infoFromSend)
-
-                    {{-- Aus dem Bestaetigungs-Fenster gibt es keine WhatsApp „Neue Infos“ — die Bestaetigung bringt den Link (Review 12.11.). --}}
-                    @if (!$infoFromSend)
-                        <label class="flex items-center gap-2 text-sm text-gray-700">
-                            <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
-                            WhatsApp „Neue Infos" mitschicken
-                        </label>
-                    @endif
-
-                    @endif
 
                     @php
                         $infoSelected = collect($infoPrev['persons'])->where('selected', true);
                         $infoSelNoPhone = $infoSelected->whereNull('phone')->count();
-                        $infoWaOn = !$infoFromSend && (bool) $infoSendWhatsApp;
+                        $infoWaOn = (bool) $infoSendWhatsApp;
                     @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         @if ($infoWaOn)
@@ -1295,18 +1229,18 @@
                 <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 @if ($infoResult === null)
                     <div class="flex justify-end gap-3">
-                        <button wire:click="closeInfoModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">{{ $infoFromSend ? 'Zurück zur Bestätigung' : 'Abbrechen' }}</button>
+                        <button wire:click="closeInfoModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendCrewInfo"
                                 wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUploads"
                                 @if ($infoSelected->count() === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
-                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : ($infoFromSend ? 'Hinterlegen und zurück' : 'Zuweisen') }}</span>
-                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : ($infoFromSend ? 'Wird hinterlegt …' : 'Wird zugewiesen …') }}</span>
+                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
+                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
                         </button>
                     </div>
                 @else
                     <div class="flex justify-end">
-                        <button wire:click="closeInfoModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{{ $infoFromSend ? 'Zurück zur Bestätigung' : 'Schließen' }}</button>
+                        <button wire:click="closeInfoModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
                     </div>
                 @endif
                 </div>
