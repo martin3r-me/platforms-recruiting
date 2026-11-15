@@ -1881,6 +1881,15 @@ class Show extends Component
     public string $infoFilter = '';
     /** Abgewaehlte Personen (kanonische ids) — Checkboxen in der Vorschau. @var list<int> */
     public array $infoExcluded = [];
+    /**
+     * Nach „Keine“: NUR diese Personen (kanonische ids) sind angehakt. Positivliste
+     * statt Abwahl — sonst waere jemand, der bis zum Senden neu eingebucht wird,
+     * automatisch dabei und bekaeme ein persoenliches Ticket mit (Review 15.11.).
+     * Null = Abwahl-Modus ueber $infoExcluded.
+     *
+     * @var list<int>|null
+     */
+    public ?array $infoNur = null;
     public string $infoNote = '';
     /** truthy = Info-WhatsApp mitschicken (Standard); leer/false = nur zuweisen ohne Versand (Kunde 03.09.: Erstbefuellung vor dem Bestaetigungs-Versand). Untypisiert — die Checkbox liefert bool (Muster escalationEnabled). */
     public $infoSendWhatsApp = true;
@@ -1942,6 +1951,7 @@ class Show extends Component
     {
         $this->infoFilter = '';
         $this->infoExcluded = [];
+        $this->infoNur = null;
         $this->infoNote = '';
         $this->infoSendWhatsApp = true;
         $this->infoUploads = [];
@@ -1954,13 +1964,18 @@ class Show extends Component
     public function updatedInfoFilter(): void
     {
         $this->infoExcluded = [];
+        $this->infoNur = null;
         unset($this->infoPreview);
     }
 
     /** Einzelne Person der Vorschau an-/abwaehlen (Checkbox). */
     public function toggleInfoPerson(int $canonical): void
     {
-        if (in_array($canonical, $this->infoExcluded, true)) {
+        if ($this->infoNur !== null) {
+            $this->infoNur = in_array($canonical, $this->infoNur, true)
+                ? array_values(array_diff($this->infoNur, [$canonical]))
+                : array_values(array_merge($this->infoNur, [$canonical]));
+        } elseif (in_array($canonical, $this->infoExcluded, true)) {
             $this->infoExcluded = array_values(array_diff($this->infoExcluded, [$canonical]));
         } else {
             $this->infoExcluded[] = $canonical;
@@ -1972,13 +1987,15 @@ class Show extends Component
     public function infoAlle(): void
     {
         $this->infoExcluded = [];
+        $this->infoNur = null;
         unset($this->infoPreview);
     }
 
     /** Alle der Vorschau abwaehlen — fuer „nur diese eine Person“ (Sheran 15.11.). */
     public function infoKeine(): void
     {
-        $this->infoExcluded = array_values(array_map(fn ($p) => (int) $p['canonical'], $this->infoPreview['persons']));
+        $this->infoExcluded = [];
+        $this->infoNur = [];
         unset($this->infoPreview);
     }
 
@@ -2128,7 +2145,9 @@ class Show extends Component
                 'first_name'     => $firstName,
                 'assignment_ids' => $data['assignment_ids'],
                 'has_note'       => (bool) $data['has_note'],
-                'selected'       => !in_array((int) $c, $this->infoExcluded, true),
+                'selected'       => $this->infoNur !== null
+                    ? in_array((int) $c, $this->infoNur, true)
+                    : !in_array((int) $c, $this->infoExcluded, true),
             ];
         }
 
@@ -2139,6 +2158,11 @@ class Show extends Component
     public function sendCrewInfo(): void
     {
         if ($this->blockedForEventOnly()) {
+            return;
+        }
+        // Aus dem Bestaetigungs-Fenster NIE die WhatsApp „Neue Infos“ (Review 12.11.):
+        // dort hinterlegt allein „Jetzt senden“ — auch nicht per direktem Aufruf.
+        if ($this->infoImSenden) {
             return;
         }
 

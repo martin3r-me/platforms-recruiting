@@ -52,6 +52,11 @@ class SharedPartialContractTest extends TestCase
         'dispo/events/_dress-fields' => [
             \Platform\Recruiting\Livewire\Dispo\Events\Show::class,
         ],
+        // Felder von „Info an Crew“, auch im Sende-Fenster (15.11.2026): greift
+        // auf $this->infoPreview, infoTaetigkeitOptions und infoQualOptions zu.
+        'dispo/events/_info-felder' => [
+            \Platform\Recruiting\Livewire\Dispo\Events\Show::class,
+        ],
     ];
 
     /**

@@ -119,6 +119,50 @@ class DispoInfoImSendefensterTest extends DressTestCase
         $this->assertCount(3, $this->angehakt($c));
     }
 
+    /**
+     * Review 15.11.: nach „Keine“ gilt eine Positivliste. Wer bis zum Senden neu
+     * eingebucht wird, darf ein persoenliches Ticket nicht automatisch mitbekommen.
+     */
+    public function test_nach_keine_ist_ein_neu_eingebuchter_nicht_automatisch_dabei(): void
+    {
+        $event = $this->event();
+        $a = $this->assignment($event);
+        $this->assignment($event);
+
+        $c = $this->dispoComponent($event->id);
+        $c->infoKeine();
+        $c->toggleInfoPerson((int) $a->rec_employee_id);
+
+        $this->assignment($event); // kommt waehrend das Fenster offen ist dazu
+        $frisch = $this->dispoComponent($event->id);
+        $frisch->infoNur = $c->infoNur;
+        $frisch->infoExcluded = $c->infoExcluded;
+
+        $this->assertCount(3, $frisch->infoPreview['persons']);
+        $this->assertSame([(int) $a->rec_employee_id], $this->angehakt($frisch));
+
+        // Abwahl-Modus (ohne „Keine“) bleibt wie bisher: Neue sind dabei.
+        $frisch->infoAlle();
+        $this->assertCount(3, $this->angehakt($frisch));
+    }
+
+    /** Aus dem Bestaetigungs-Fenster nie die Info-WhatsApp — auch nicht per direktem Aufruf. */
+    public function test_send_crew_info_ist_im_sende_fenster_gesperrt(): void
+    {
+        $event = $this->event();
+        $a = $this->assignment($event);
+
+        $c = $this->dispoComponent($event->id);
+        $c->infoImSendenUmschalten();
+        $c->infoNote = 'Ticket';
+        $c->infoSendWhatsApp = true;
+
+        $c->sendCrewInfo();
+
+        $this->assertNull($c->infoResult);
+        $this->assertNull(RecDispoAssignment::find($a->id)->individual_note, 'nichts hinterlegt, nichts gesendet');
+    }
+
     public function test_aufklappen_und_zuklappen_verwirft_die_eingaben(): void
     {
         $event = $this->event();
@@ -140,6 +184,7 @@ class DispoInfoImSendefensterTest extends DressTestCase
         $this->assertFalse($c->infoImSenden);
         $this->assertSame('', $c->infoNote, 'Zuklappen verwirft — sonst ginge Unsichtbares mit');
         $this->assertSame([], $c->infoExcluded);
+        $this->assertNull($c->infoNur);
         $this->assertFalse($this->callPrivate($c, 'infoStehtAn'));
     }
 

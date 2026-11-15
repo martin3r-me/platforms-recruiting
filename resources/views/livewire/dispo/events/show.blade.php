@@ -631,7 +631,7 @@
                             <p class="text-xs text-green-700">✓ Hinterlegt: {{ $infoTeile !== [] ? implode(', ', $infoTeile) : 'nichts Neues (schon vorhanden)' }}. Die Crew sieht es über den Link in der Bestätigung.</p>
                         @endif
                         @if ($infoImSenden)
-                            <p class="rounded bg-blue-50 px-2 py-1.5 text-xs text-blue-900">Die Auswahl gilt <strong>nur für Datei und Hinweis</strong>. Die Bestätigung geht wie unten angezeigt an alle noch Offenen. „Jetzt senden“ hinterlegt die Infos mit.</p>
+                            <p class="rounded bg-blue-50 px-2 py-1.5 text-xs text-blue-900">Die Auswahl gilt <strong>nur für Datei und Hinweis</strong>. Die Bestätigung geht wie unten angezeigt an alle noch Offenen. „Jetzt senden“ hinterlegt die Infos mit.{{ $sendDay !== '' ? ' Ein Hinweis gilt für alle kommenden Tage der Person, nicht nur für den gewählten Tag.' : '' }}</p>
                             @include('recruiting::livewire.dispo.events._info-felder')
                             @php
                                 // Angehakte, die mit dieser Sendung keine Bestaetigung bekommen (schon
@@ -787,6 +787,9 @@
                     </div>
                 @else
                     <div class="rounded bg-green-50 p-3 text-sm text-green-800">{{ $sendResult['sent'] }} Nachricht(en) gesendet.</div>
+                    @if ($infoBeiBestaetigung !== null)
+                        <div class="rounded bg-green-50 p-3 text-sm text-green-800">Infos hinterlegt: {{ $infoBeiBestaetigung['attached'] }} × Datei, Hinweis an {{ $infoBeiBestaetigung['noted'] }} Einbuchung(en).</div>
+                    @endif
                     @if ($sendResult['failed'] !== [])
                         <div class="rounded bg-red-50 p-3 text-sm text-red-800">
                             <div class="font-medium">{{ count($sendResult['failed']) }} fehlgeschlagen:</div>

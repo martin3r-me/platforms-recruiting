@@ -43,7 +43,9 @@
     </div>
     <div class="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">
         @foreach ($infoPrev['persons'] as $person)
-            <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50 {{ $person['selected'] ? '' : 'opacity-50' }}">
+            {{-- Schluessel MIT Zustand: Livewire gleicht nur das Attribut ab, nicht .checked —
+                 sonst bliebe ein angeklicktes Kaestchen nach „Alle“/„Keine“ falsch stehen. --}}
+            <label wire:key="info-{{ $person['canonical'] }}-{{ $person['selected'] ? 1 : 0 }}" class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50 {{ $person['selected'] ? '' : 'opacity-50' }}">
                 <input type="checkbox" wire:click="toggleInfoPerson({{ $person['canonical'] }})"
                        @if ($person['selected']) checked @endif class="rounded border-gray-300">
                 <span class="truncate">{{ $person['name'] }}</span>
