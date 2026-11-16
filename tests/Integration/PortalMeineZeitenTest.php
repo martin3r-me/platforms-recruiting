@@ -355,4 +355,24 @@ class PortalMeineZeitenTest extends ZeitTestCase
         $this->assertStringNotContainsString('30.09.2026 ·', $html);
         $this->assertStringContainsString('eingecheckt', $html);
     }
+
+    public function test_fremder_person_typ_mit_gleicher_id_fehlt(): void
+    {
+        $ma = $this->ma(901);
+        $a = $this->einsatz();
+        $this->stempeln($a, '13:50', '22:00');
+        ZeitEintrag::query()->update(['person_typ' => 'x']);
+
+        $this->assertSame([], $this->dienst()->meineZeiten($ma, Carbon::now()));
+    }
+
+    public function test_anderer_bezug_typ_wird_ausgeblendet(): void
+    {
+        $ma = $this->ma(901);
+        $a = $this->einsatz();
+        $this->stempeln($a, '13:50', '22:00');
+        ZeitEintrag::query()->update(['bezug_typ' => 'x']);
+
+        $this->assertSame([], $this->dienst()->meineZeiten($ma, Carbon::now()));
+    }
 }
