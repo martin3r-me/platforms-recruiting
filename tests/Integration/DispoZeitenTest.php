@@ -18,6 +18,20 @@ class DispoZeitenTest extends ZeitTestCase
 {
     private object $schalter;
 
+    public static function setUpBeforeClass(): void
+    {
+        parent::setUpBeforeClass();
+        if (!\Illuminate\Database\Capsule\Manager::schema()->hasTable('rec_employees')) {
+            \Illuminate\Database\Capsule\Manager::schema()->create('rec_employees', function ($t) {
+                $t->id();
+                $t->string('first_name')->nullable();
+                $t->string('last_name')->nullable();
+                $t->softDeletes();
+                $t->timestamps();
+            });
+        }
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -305,5 +319,16 @@ class DispoZeitenTest extends ZeitTestCase
 
         $this->assertSame(['zwei', 'zwei', 'eins'], array_column($verlauf, 'grund'));
         $this->assertEqualsCanonicalizing(['Pause', 'Bemerkung'], array_column(array_slice($verlauf, 0, 2), 'feld'));
+    }
+
+    public function test_fenster_ohne_verlauf_fuer_sammelkonten(): void
+    {
+        $a = $this->einbuchung();
+        $this->dienst()->korrigieren($a, $this->akteur(), ['bemerkung' => 'intern'], 'Grund');
+
+        $this->assertNotSame([], $this->dienst()->fenster($a)['verlauf']);
+        $f = $this->dienst()->fenster($a, false);
+        $this->assertSame([], $f['verlauf']);
+        $this->assertSame('intern', $f['bemerkung']);
     }
 }

@@ -5,13 +5,15 @@
     $zfAssignmentId = $this->zeitAssignmentId;
     $zfNurLesen = $eventOnly || ($zf !== null && $zf['gesperrt']);
     $zfRegel = $zf === null ? '' : 'nach Regel: ' . $zf['regelpause'];
+    $zfKopfTeile = array_values(array_filter([$zf['name'] ?? '', $zf['tag'] ?? ''], fn ($t) => $t !== ''));
+    $zfKopf = $zfKopfTeile === [] ? '' : ' – ' . implode(' · ', $zfKopfTeile);
     $zfZustandTexte = ['offen' => 'nicht eingecheckt', 'eingecheckt' => 'eingecheckt', 'ausgecheckt' => 'ausgecheckt', 'erledigt' => 'erledigt'];
 @endphp
 @if ($zf !== null)
     <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeZeit">
         <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
             <div class="shrink-0 px-6 pt-6 pb-3">
-                <h2 class="text-lg font-semibold">Zeit</h2>
+                <h2 class="text-lg font-semibold">Zeit{{ $zfKopf }}</h2>
                 <p class="mt-0.5 text-sm text-gray-500">
                     Soll-Schicht {{ $zf['soll'] !== '' ? $zf['soll'] : '—' }} · {{ $zfZustandTexte[$zf['zustand']] ?? $zf['zustand'] }}
                     @if ($zf['gesperrt'])

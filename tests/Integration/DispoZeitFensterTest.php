@@ -23,6 +23,15 @@ class DispoZeitFensterTest extends ZeitTestCase
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
+        if (!\Illuminate\Database\Capsule\Manager::schema()->hasTable('rec_employees')) {
+            \Illuminate\Database\Capsule\Manager::schema()->create('rec_employees', function ($t) {
+                $t->id();
+                $t->string('first_name')->nullable();
+                $t->string('last_name')->nullable();
+                $t->softDeletes();
+                $t->timestamps();
+            });
+        }
         // addError() braucht View-Schicht und gemeinsamen DataStore (Muster DispoDressSendFormTest).
         Container::getInstance()->instance('view', new class {
             public function getShared(): array
@@ -43,6 +52,7 @@ class DispoZeitFensterTest extends ZeitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        \Illuminate\Database\Capsule\Manager::table('rec_employees')->delete();
         Carbon::setTestNow('2026-10-01 11:00:00');
         $this->schalter = new class extends ZeitSchalter {
             public bool $an = true;
@@ -224,7 +234,7 @@ class DispoZeitFensterTest extends ZeitTestCase
         $c->zeitSpeichern();
 
         $this->assertSame(0, ZeitEintrag::query()->count());
-        $this->assertStringContainsString('Gehen nicht vor Kommen', (string) $c->zeitMeldung);
+        $this->assertSame('Gehen liegt vor Kommen.', $c->zeitMeldung);
     }
 
     public function test_unveraenderte_zeiten_werden_nicht_neu_geschrieben(): void
@@ -414,5 +424,192 @@ class DispoZeitFensterTest extends ZeitTestCase
         $jetzt = $methode(file_get_contents($wurzel . '/src/Livewire/Dispo/Events/Show.php'));
         $this->assertNotNull($jetzt);
         $this->assertSame($methode($basis), $jetzt);
+    }
+
+    // ---- Fix-Runde 1 ----
+
+    public function test_portal_stempelt_gehen_waehrend_das_fenster_offen_ist(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']);
+        $c = $this->offen($a);
+        // Der Mitarbeiter stempelt im Portal „Gehen“.
+        ZeitEintrag::query()->update(['gehen_at' => '2026-10-01 20:00:00']);
+        $c->zeitBemerkung = 'Stau';
+        $c->zeitGrund = 'Notiz';
+
+        $c->zeitSpeichern();
+
+        $e = $this->gespeichert($a);
+        $this->assertSame('2026-10-01 20:00:00', $e->gehen_at->format('Y-m-d H:i:s'), 'Gehen bleibt');
+        $this->assertNull($e->bemerkung, 'nichts geschrieben');
+        $this->assertSame('Der Eintrag wurde inzwischen geändert – bitte prüfen und erneut speichern.', $c->zeitMeldung);
+        $this->assertSame('Notiz', $c->zeitGrund, 'Grund bleibt stehen');
+        $this->assertSame('2026-10-01T22:00', $c->zeitGehen, 'Formular neu gefuellt');
+    }
+
+    public function test_zwei_disponenten_der_zweite_ueberschreibt_nicht_still(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00']);
+        $ersterA = $this->offen($a);
+        $zweiterB = $this->offen($a);
+
+        $ersterA->zeitGehen = '2026-10-01T22:30';
+        $ersterA->zeitGrund = 'A';
+        $ersterA->zeitSpeichern();
+        $this->assertSame('2026-10-01 20:30:00', $this->gespeichert($a)->gehen_at->format('Y-m-d H:i:s'));
+
+        $zweiterB->zeitBemerkung = 'Stau';
+        $zweiterB->zeitGrund = 'B';
+        $zweiterB->zeitSpeichern();
+
+        $this->assertSame('2026-10-01 20:30:00', $this->gespeichert($a)->gehen_at->format('Y-m-d H:i:s'), 'A bleibt');
+        $this->assertNull($this->gespeichert($a)->bemerkung);
+        $this->assertStringContainsString('inzwischen geändert', (string) $zweiterB->zeitMeldung);
+
+        // Nach dem Neu-Fuellen geht auch ein bewusster Schritt zurueck auf den alten Wert.
+        $zweiterB->zeitGehen = '2026-10-01T22:00';
+        $zweiterB->zeitSpeichern();
+        $this->assertSame('2026-10-01 20:00:00', $this->gespeichert($a)->gehen_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_nur_bemerkung_geaendert_schreibt_nur_bemerkung(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:37', 'gehen_at' => '2026-10-01 20:00:00', 'pause_minuten' => 15]);
+        $c = $this->offen($a);
+        $c->zeitBemerkung = 'Stau';
+        $c->zeitGrund = 'Notiz';
+
+        $c->zeitSpeichern();
+
+        $this->assertSame(['bemerkung'], ZeitVerlauf::query()->pluck('feld')->all());
+        $this->assertSame(15, (int) $this->gespeichert($a)->pause_minuten);
+    }
+
+    public function test_personenwechsel_bei_offenem_fenster_schreibt_nichts_auf_die_neue_person(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']);
+        $c = $this->offen($a);
+        RecDispoAssignment::query()->whereKey($a->id)->update(['rec_employee_id' => 955]);
+        $c->zeitGehen = '2026-10-01T22:30';
+        $c->zeitGrund = 'x';
+
+        $c->zeitSpeichern();
+
+        $this->assertNull(ZeitEintrag::finde('rec_employee', 955, 'rec_dispo_assignment', (int) $a->id));
+        $this->assertSame(1, ZeitEintrag::query()->count());
+        $this->assertFalse($c->showZeitModal);
+        $this->assertSame('Die Einbuchung hat sich geändert – bitte neu öffnen.', $c->zeitHinweis);
+        $c->zeitAssignmentId = (int) $a->id;
+        $c->zeitJetztKommen();
+        $this->assertNull(ZeitEintrag::finde('rec_employee', 955, 'rec_dispo_assignment', (int) $a->id));
+    }
+
+    public function test_weggefallene_einbuchung_schliesst_das_fenster_beim_rendern(): void
+    {
+        foreach ([
+            fn (RecDispoAssignment $a) => RecDispoAssignment::query()->whereKey($a->id)->delete(),
+            fn (RecDispoAssignment $a) => RecDispoAssignment::query()->whereKey($a->id)->update(['rec_employee_id' => null]),
+        ] as $weg) {
+            $a = $this->einbuchung();
+            $c = $this->offen($a);
+            $this->callPrivate($c, 'zeitPruefeFenster');
+            $this->assertTrue($c->showZeitModal, 'unveraendert: bleibt offen');
+
+            $weg($a);
+            $this->callPrivate($c, 'zeitPruefeFenster');
+
+            $this->assertFalse($c->showZeitModal, 'sonst bleibt der Poll dauerhaft aus');
+            $this->assertSame('Die Einbuchung hat sich geändert – bitte neu öffnen.', $c->zeitHinweis);
+        }
+    }
+
+    public function test_render_ruft_die_pruefung_auf(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Dispo/Events/Show.php');
+        $this->assertMatchesRegularExpression('/public function render\(\)\s*\{\s*\$this->zeitPruefeFenster\(\);/', $quelle);
+    }
+
+    public function test_fenster_kopf_traegt_name_und_tag(): void
+    {
+        \Illuminate\Database\Capsule\Manager::table('rec_employees')->insert(['id' => 901, 'first_name' => 'Anna', 'last_name' => 'Beispiel']);
+        $a = $this->einbuchung();
+        $c = $this->offen($a);
+
+        $this->assertSame('Beispiel, Anna', $c->zeitFenster['name']);
+        $this->assertSame('01.10.2026', $c->zeitFenster['tag']);
+    }
+
+    public function test_k2_meldungen_sind_getrennt(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00']);
+        $c = $this->offen($a);
+        $c->zeitGrund = 'x';
+
+        foreach (['abc', '601', '-5'] as $pause) {
+            $c->resetErrorBag();
+            $c->zeitPause = $pause;
+            $c->zeitSpeichern();
+            $this->assertSame('Bitte eine ganze Zahl zwischen 0 und 600 eingeben.', $c->zeitMeldung, "Pause {$pause}");
+            $this->assertTrue($c->getErrorBag()->has('zeitPause'));
+        }
+        $c->zeitPause = '';
+
+        $c->resetErrorBag();
+        $c->zeitGrund = str_repeat('a', 256);
+        $c->zeitBemerkung = 'neu';
+        $c->zeitSpeichern();
+        $this->assertSame('Bitte höchstens 255 Zeichen.', $c->zeitMeldung);
+        $this->assertTrue($c->getErrorBag()->has('zeitGrund'));
+        $c->zeitGrund = 'x';
+        $c->zeitBemerkung = '';
+
+        $c->zeitKommen = '';
+        $c->zeitSpeichern();
+        $this->assertSame('Kommen kann nur zusammen mit Gehen geleert werden.', $c->zeitMeldung);
+
+        $c->zeitKommen = '2026-10-01T23:00';
+        $c->zeitSpeichern();
+        $this->assertSame('Gehen liegt vor Kommen.', $c->zeitMeldung);
+        $this->assertSame(0, ZeitVerlauf::query()->count());
+    }
+
+    public function test_jetzt_gehen_vor_dem_kommen_hat_eigene_meldung(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']); // jetzt = 11:00 UTC
+        $c = $this->offen($a);
+
+        $c->zeitJetztGehen();
+
+        $this->assertSame('Gehen liegt vor dem eingetragenen Kommen – bitte die Zeiten prüfen.', $c->zeitMeldung);
+    }
+
+    public function test_nur_veranstaltungen_konto_sieht_keinen_verlauf(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']);
+        $normal = $this->offen($a);
+        $normal->zeitBemerkung = 'geheim';
+        $normal->zeitGrund = 'intern';
+        $normal->zeitSpeichern();
+        $this->assertNotSame([], $normal->zeitFenster['verlauf']);
+
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->offen($a);
+
+        $this->assertSame([], $c->zeitFenster['verlauf']);
+        $this->assertSame('geheim', $c->zeitFenster['bemerkung'], 'aktuelle Werte bleiben sichtbar');
+    }
+
+    public function test_beide_ansichten_nutzen_dieselbe_stempel_zelle(): void
+    {
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/dispo/events/show.blade.php');
+        $this->assertSame(2, substr_count($blade, "livewire.dispo.events._stempel-zelle"), 'Tabelle und Karte');
+        $this->assertStringContainsString('openZeit(', file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/dispo/events/_stempel-zelle.blade.php'));
     }
 }

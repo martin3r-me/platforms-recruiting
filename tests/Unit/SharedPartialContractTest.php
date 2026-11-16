@@ -104,7 +104,7 @@ class SharedPartialContractTest extends TestCase
      */
     public function test_vertragsfreie_partials_bleiben_vertragsfrei(): void
     {
-        foreach (['shared/activity-log', 'public/_stempel-kachel', 'public/_meine-zeiten'] as $partial) {
+        foreach (['shared/activity-log', 'public/_stempel-kachel', 'public/_meine-zeiten', 'dispo/events/_stempel-zelle'] as $partial) {
             $this->assertSame([], $this->erwarteteAufrufe($partial),
                 "{$partial} bekommt seine Daten als Variable — ein \$this->-Aufruf waere ein "
                 . 'unsichtbarer Vertrag mit jeder einbindenden Komponente.');

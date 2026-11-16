@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zeit;
 
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Support\NachnameZuerst;
 use Platform\Recruiting\Zeit\Stempeluhr;
 use Platform\Recruiting\Zeit\ZeitAkteur;
 use Platform\Recruiting\Zeit\ZeitEintrag;
@@ -103,11 +104,12 @@ class DispoZeiten
 
     /**
      * Daten fuers Fenster „Zeit“. Formularwerte im Format Y-m-d\TH:i (Ortszeit),
-     * Verlauf neueste zuerst. Ohne Person: leeres Geruest (die Komponente oeffnet so eine Zeile nicht).
+     * Verlauf neueste zuerst — leer bei $mitVerlauf = false (Sammelkonten „Nur Veranstaltungen“: dort stehen
+     * Namen, Gruendezeilen und Bemerkungs-Aenderungen der Disponenten). Ohne Person: leeres Geruest (die Komponente oeffnet so eine Zeile nicht).
      *
-     * @return array{soll:string,kommen:?string,gehen:?string,pause:?int,regelpause:int,bemerkung:string,zustand:string,gesperrt:bool,verlauf:list<array{wann:string,wer:string,feld:string,alt:?string,neu:?string,grund:?string,art:string}>}
+     * @return array{name:string,tag:string,soll:string,kommen:?string,gehen:?string,pause:?int,regelpause:int,bemerkung:string,zustand:string,gesperrt:bool,verlauf:list<array{wann:string,wer:string,feld:string,alt:?string,neu:?string,grund:?string,art:string}>}
      */
-    public function fenster(RecDispoAssignment $a): array
+    public function fenster(RecDispoAssignment $a, bool $mitVerlauf = true): array
     {
         $bezug = DispoZeitBezug::fuer($a, $this->teamId());
         $e = $bezug === null ? null : ZeitEintrag::finde($bezug->personTyp, $bezug->personId, $bezug->bezugTyp, $bezug->bezugId);
@@ -122,7 +124,7 @@ class DispoZeiten
         }
 
         $verlauf = [];
-        if ($e !== null) {
+        if ($e !== null && $mitVerlauf) {
             foreach ($e->verlauf()->get() as $v) {
                 $verlauf[] = [
                     'wann' => ZeitAnzeige::ortszeit($v->created_at)?->format('d.m. H:i') ?? '',
@@ -136,7 +138,12 @@ class DispoZeiten
             }
         }
 
+        $name = $a->employee === null ? '' : NachnameZuerst::von((string) $a->employee->first_name, (string) $a->employee->last_name);
+        $tag = $a->datum instanceof \DateTimeInterface ? $a->datum->format('d.m.Y') : '';
+
         return [
+            'name' => $name,
+            'tag' => $tag,
             'soll' => $von === '' ? '' : $von . '–' . $bis,
             'kommen' => $this->formular($e?->kommen_at),
             'gehen' => $this->formular($e?->gehen_at),
@@ -183,6 +190,23 @@ class DispoZeiten
         $bezug = DispoZeitBezug::fuer($a, $this->teamId());
 
         return $bezug === null ? 'ohne_person' : $this->uhr->gehen($bezug, $akteur, Stempeluhr::ART_STELLVERTRETEND);
+    }
+
+    /**
+     * Schnappschuss der Formularwerte (Strings, Ortszeit minutengenau) — damit die Komponente beim Speichern
+     * erkennt, ob sich der Datensatz seit dem Oeffnen geaendert hat.
+     *
+     * @return array{kommen:string,gehen:string,pause:string,bemerkung:string,gesperrt:bool}
+     */
+    public function stand(array $fenster): array
+    {
+        return [
+            'kommen' => (string) $fenster['kommen'],
+            'gehen' => (string) $fenster['gehen'],
+            'pause' => $fenster['pause'] === null ? '' : (string) $fenster['pause'],
+            'bemerkung' => trim((string) $fenster['bemerkung']),
+            'gesperrt' => (bool) $fenster['gesperrt'],
+        ];
     }
 
     private function formular(?\DateTimeInterface $t): ?string

@@ -187,7 +187,16 @@ class Show extends Component
     // Fenster „Zeit“ (Zeiterfassung, Spec 2026-11-16 §4). Formularfelder sind Strings im
     // Format Y-m-d\TH:i (Ortszeit) — nie an ein datetime-Modell binden.
     public bool $showZeitModal = false;
+    #[Locked]
     public ?int $zeitAssignmentId = null;
+    /** Person, fuer die das Fenster geoeffnet wurde: wechselt sie an der Zeile, wird nichts geschrieben. */
+    #[Locked]
+    public ?int $zeitEmployeeId = null;
+    /** Schnappschuss des Formulars beim Oeffnen / nach dem letzten Schreiben (Konflikt-Erkennung). @var array{kommen:string,gehen:string,pause:string,bemerkung:string,gesperrt:bool} */
+    #[Locked]
+    public array $zeitStand = [];
+    /** Kurzer Hinweis ausserhalb des Fensters (Einbuchung hat sich geaendert). */
+    public ?string $zeitHinweis = null;
     public string $zeitKommen = '';
     public string $zeitGehen = '';
     public string $zeitPause = '';
@@ -1782,7 +1791,7 @@ class Show extends Component
         return $this->zeitAktiv ? app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fuerEvent($this->eventId) : [];
     }
 
-    /** Daten des offenen Fensters; null ohne offenes Fenster, bei Schalter aus oder fremder Zeile. */
+    /** Daten des offenen Fensters; null ohne offenes Fenster, bei Schalter aus oder geaenderter Zeile. Sammelkonten ohne Verlauf. */
     #[Computed]
     public function zeitFenster(): ?array
     {
@@ -1791,21 +1800,36 @@ class Show extends Component
         }
         $a = $this->zeitEinbuchung();
 
-        return $a === null ? null : app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fenster($a);
+        return $a === null ? null : app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fenster($a, !$this->blockedForEventOnly());
     }
 
-    /** Die Einbuchung dieser Veranstaltung (nie eine fremde), frisch geladen — null ohne Person. */
+    /** Die Einbuchung dieser Veranstaltung mit DERSELBEN Person wie beim Oeffnen, frisch geladen — sonst null. */
     private function zeitEinbuchung(): ?RecDispoAssignment
     {
-        if ($this->zeitAssignmentId === null) {
+        if ($this->zeitAssignmentId === null || $this->zeitEmployeeId === null) {
             return null;
         }
 
         return RecDispoAssignment::query()
             ->where('rec_dispo_event_id', $this->eventId)
-            ->whereNotNull('rec_employee_id')
+            ->where('rec_employee_id', $this->zeitEmployeeId)
             ->whereKey($this->zeitAssignmentId)
             ->first();
+    }
+
+    /** Einbuchung weg oder Person gewechselt: Fenster zu (sonst bliebe der Poll aus), Hinweis ausserhalb. */
+    private function zeitWeg(): void
+    {
+        $this->closeZeit();
+        $this->zeitHinweis = 'Die Einbuchung hat sich geändert – bitte neu öffnen.';
+    }
+
+    /** Vor jedem Rendern: ein offenes Fenster, dessen Einbuchung nicht mehr passt, wird geschlossen. */
+    private function zeitPruefeFenster(): void
+    {
+        if ($this->showZeitModal && (!$this->zeitAktiv || $this->zeitEinbuchung() === null)) {
+            $this->zeitWeg();
+        }
     }
 
     private function zeitAkteur(): \Platform\Recruiting\Zeit\ZeitAkteur
@@ -1819,14 +1843,18 @@ class Show extends Component
         if (!$this->zeitAktiv) {
             return;
         }
-        $this->zeitAssignmentId = $assignmentId;
-        $a = $this->zeitEinbuchung();
+        $a = RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->whereNotNull('rec_employee_id')
+            ->whereKey($assignmentId)
+            ->first();
         if ($a === null) {
-            $this->zeitAssignmentId = null;
-
             return;
         }
+        $this->zeitAssignmentId = (int) $a->id;
+        $this->zeitEmployeeId = (int) $a->rec_employee_id;
         $this->zeitMeldung = null;
+        $this->zeitHinweis = null;
         $this->resetErrorBag();
         $this->zeitFormFuellen($a);
         $this->showZeitModal = true;
@@ -1837,21 +1865,33 @@ class Show extends Component
     {
         $this->showZeitModal = false;
         $this->zeitAssignmentId = null;
+        $this->zeitEmployeeId = null;
+        $this->zeitStand = [];
         $this->zeitMeldung = null;
         $this->zeitGrund = '';
         $this->resetErrorBag();
         unset($this->zeitFenster);
     }
 
-    /** Fuellt das Formular aus dem Datensatz neu und leert den Grund. */
-    private function zeitFormFuellen(RecDispoAssignment $a): void
+    /** Fuellt Formular und Schnappschuss aus dem Datensatz neu; der Grund wird geleert, ausser $grundBehalten. */
+    private function zeitFormFuellen(RecDispoAssignment $a, bool $grundBehalten = false): void
     {
-        $f = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fenster($a);
-        $this->zeitKommen = (string) $f['kommen'];
-        $this->zeitGehen = (string) $f['gehen'];
-        $this->zeitPause = $f['pause'] === null ? '' : (string) $f['pause'];
-        $this->zeitBemerkung = $f['bemerkung'];
-        $this->zeitGrund = '';
+        $dienst = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class);
+        $f = $dienst->fenster($a, false);
+        $this->zeitStand = $dienst->stand($f);
+        $this->zeitKommen = $this->zeitStand['kommen'];
+        $this->zeitGehen = $this->zeitStand['gehen'];
+        $this->zeitPause = $this->zeitStand['pause'];
+        $this->zeitBemerkung = (string) $f['bemerkung'];
+        if (!$grundBehalten) {
+            $this->zeitGrund = '';
+        }
+    }
+
+    private function zeitFehler(string $feld, string $text): void
+    {
+        $this->addError($feld, $text);
+        $this->zeitMeldung = $text;
     }
 
     /** Korrektur (art = korrektur). Zeiten sind Ortszeit; gespeichert wird UTC. */
@@ -1862,48 +1902,82 @@ class Show extends Component
         }
         $a = $this->zeitEinbuchung();
         if ($a === null) {
+            $this->zeitWeg();
+
             return;
         }
         $dienst = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class);
         $this->resetErrorBag();
         $this->zeitMeldung = null;
 
-        // Nur Zeiten, die sich gegenueber dem Formular-Stand geaendert haben: das Feld hat
-        // Minutengenauigkeit, der Stempel Sekunden — sonst wuerde jedes Speichern sie ueberschreiben.
-        $stand = $dienst->fenster($a);
-        $werte = [];
-        foreach (['kommen_at' => ['zeitKommen', 'kommen'], 'gehen_at' => ['zeitGehen', 'gehen']] as $feld => [$prop, $key]) {
-            $eingabe = trim($this->{$prop});
-            if ($eingabe === (string) $stand[$key]) {
-                continue;
-            }
-            if ($eingabe === '') {
-                $werte[$feld] = null;
-                continue;
-            }
-            $zeit = \Platform\Recruiting\Services\Zeit\ZeitAnzeige::ausEingabe($eingabe);
-            if ($zeit === null) {
-                $this->addError($prop, 'Bitte Datum und Uhrzeit prüfen.');
-                $this->zeitMeldung = 'Bitte Datum und Uhrzeit prüfen.';
-
-                return;
-            }
-            $werte[$feld] = $zeit;
-        }
-
-        $pause = trim($this->zeitPause);
-        if ($pause !== '' && !ctype_digit($pause)) {
-            $this->addError('zeitPause', 'Bitte eine ganze Zahl in Minuten angeben.');
-            $this->zeitMeldung = 'Bitte eine ganze Zahl in Minuten angeben.';
+        // 1. Hat sich der Datensatz seit dem Oeffnen geaendert? Dann nichts schreiben (kein stilles Zurueckschreiben).
+        $frisch = $dienst->stand($dienst->fenster($a, false));
+        if ($frisch !== $this->zeitStand) {
+            $this->zeitFormFuellen($a, true);
+            unset($this->zeitEintraege, $this->zeitFenster);
+            $this->zeitMeldung = 'Der Eintrag wurde inzwischen geändert – bitte prüfen und erneut speichern.';
 
             return;
         }
-        $werte['pause_minuten'] = $pause === '' ? null : (int) $pause;
-        $bemerkung = trim($this->zeitBemerkung);
-        $werte['bemerkung'] = $bemerkung === '' ? null : $bemerkung;
 
-        $status = $dienst->korrigieren($a, $this->zeitAkteur(), $werte, trim($this->zeitGrund));
-        if (trim($this->zeitGrund) === '') {
+        // 2. Eingaben pruefen, bevor der Dienst gefragt wird (damit jede Meldung zum Fehler passt).
+        $kommenText = trim($this->zeitKommen);
+        $gehenText = trim($this->zeitGehen);
+        $kommen = $kommenText === '' ? null : \Platform\Recruiting\Services\Zeit\ZeitAnzeige::ausEingabe($kommenText);
+        $gehen = $gehenText === '' ? null : \Platform\Recruiting\Services\Zeit\ZeitAnzeige::ausEingabe($gehenText);
+        if ($kommenText !== '' && $kommen === null) {
+            $this->zeitFehler('zeitKommen', 'Bitte Datum und Uhrzeit prüfen.');
+
+            return;
+        }
+        if ($gehenText !== '' && $gehen === null) {
+            $this->zeitFehler('zeitGehen', 'Bitte Datum und Uhrzeit prüfen.');
+
+            return;
+        }
+        $pause = trim($this->zeitPause);
+        if ($pause !== '' && (!ctype_digit($pause) || (int) $pause > 600)) {
+            $this->zeitFehler('zeitPause', 'Bitte eine ganze Zahl zwischen 0 und 600 eingeben.');
+
+            return;
+        }
+        $grund = trim($this->zeitGrund);
+        if (mb_strlen($grund) > 255) {
+            $this->zeitFehler('zeitGrund', 'Bitte höchstens 255 Zeichen.');
+
+            return;
+        }
+        if ($kommen === null && $gehen !== null) {
+            $this->zeitFehler('zeitKommen', 'Kommen kann nur zusammen mit Gehen geleert werden.');
+
+            return;
+        }
+        if ($kommen !== null && $gehen !== null && $gehen->lt($kommen)) {
+            $this->zeitFehler('zeitGehen', 'Gehen liegt vor Kommen.');
+
+            return;
+        }
+
+        // 3. Nur senden, was vom Schnappschuss abweicht. Das Feld ist minutengenau, der Stempel sekundengenau —
+        //    ein unveraendertes Feld darf die Sekunden nicht ueberschreiben.
+        $stand = $this->zeitStand;
+        $werte = [];
+        if ($kommenText !== $stand['kommen']) {
+            $werte['kommen_at'] = $kommen;
+        }
+        if ($gehenText !== $stand['gehen']) {
+            $werte['gehen_at'] = $gehen;
+        }
+        if ($pause !== $stand['pause']) {
+            $werte['pause_minuten'] = $pause === '' ? null : (int) $pause;
+        }
+        $bemerkung = trim($this->zeitBemerkung);
+        if ($bemerkung !== $stand['bemerkung']) {
+            $werte['bemerkung'] = $bemerkung === '' ? null : $bemerkung;
+        }
+
+        $status = $dienst->korrigieren($a, $this->zeitAkteur(), $werte, $grund);
+        if ($grund === '') {
             $this->addError('zeitGrund', 'Bitte einen Grund angeben.');
         }
         $this->zeitNachSchreiben($a, $status);
@@ -1916,10 +1990,12 @@ class Show extends Component
         }
         $a = $this->zeitEinbuchung();
         if ($a === null) {
+            $this->zeitWeg();
+
             return;
         }
         $this->resetErrorBag();
-        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztKommen($a, $this->zeitAkteur()));
+        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztKommen($a, $this->zeitAkteur()), 'kommen');
     }
 
     public function zeitJetztGehen(): void
@@ -1929,30 +2005,29 @@ class Show extends Component
         }
         $a = $this->zeitEinbuchung();
         if ($a === null) {
+            $this->zeitWeg();
+
             return;
         }
         $this->resetErrorBag();
-        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $this->zeitAkteur()));
+        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $this->zeitAkteur()), 'gehen');
     }
 
-    /** Meldung zum Ergebnis; bei ok Formular neu fuellen. Cache der Spalte und des Fensters verwerfen. */
-    private function zeitNachSchreiben(RecDispoAssignment $a, string $status): void
+    /** Meldung zum Ergebnis; bei ok Formular und Schnappschuss neu fuellen. Cache der Spalte und des Fensters verwerfen. */
+    private function zeitNachSchreiben(RecDispoAssignment $a, string $status, string $aktion = 'speichern'): void
     {
         unset($this->zeitEintraege, $this->zeitFenster);
-        $this->zeitMeldung = match ($status) {
-            'ok' => null,
-            'ungueltig' => 'Bitte Grund angeben und Zeiten prüfen (Gehen nicht vor Kommen).',
-            'gesperrt' => 'Der Eintrag ist erledigt und gesperrt.',
-            'unveraendert' => 'Nichts geändert.',
-            'schon' => 'Das ist schon gestempelt.',
-            'kein_kommen' => 'Es gibt noch kein Kommen.',
+        $this->zeitMeldung = match (true) {
+            $status === 'ok' => null,
+            $status === 'ungueltig' && $aktion === 'gehen' => 'Gehen liegt vor dem eingetragenen Kommen – bitte die Zeiten prüfen.',
+            $status === 'ungueltig' => 'Bitte Grund angeben und Zeiten prüfen (Gehen nicht vor Kommen).',
+            $status === 'gesperrt' => 'Der Eintrag ist erledigt und gesperrt.',
+            $status === 'unveraendert' => 'Nichts geändert.',
+            $status === 'schon' && $aktion === 'gehen' => 'Schon ausgecheckt.',
+            $status === 'schon' => 'Schon eingecheckt.',
+            $status === 'kein_kommen' => 'Es gibt noch kein Kommen.',
             default => 'Das geht gerade nicht.',
         };
-        if ($status === 'schon' && $this->zeitFenster !== null && $this->zeitFenster['gehen'] !== null) {
-            $this->zeitMeldung = 'Schon ausgecheckt.';
-        } elseif ($status === 'schon') {
-            $this->zeitMeldung = 'Schon eingecheckt.';
-        }
         if ($status === 'ok') {
             $this->zeitFormFuellen($a);
         }
@@ -3356,6 +3431,8 @@ class Show extends Component
 
     public function render()
     {
+        $this->zeitPruefeFenster();
+
         return view('recruiting::livewire.dispo.events.show')
             ->layout('platform::layouts.app');
     }
