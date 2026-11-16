@@ -279,7 +279,7 @@ class Stempeluhr
         if ($wert instanceof \DateTimeInterface) {
             return $this->inStandardZone($wert);
         }
-        if (!is_string($wert) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:\d{2})?$/', $wert, $m)) {
+        if (!is_string($wert) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:\d{2})?\z/', $wert, $m)) {
             return false;
         }
         if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1]) || (int) $m[4] > 23 || (int) $m[5] > 59 || (int) ($m[6] ?? 0) > 59) {
