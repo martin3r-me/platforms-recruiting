@@ -622,6 +622,26 @@ class ZasDispoPersonenwechselImportTest extends TestCase
         $this->assertSame([(int) $ablage->id], array_keys($this->webapp()->fuerEvent((int) $live->rec_dispo_event_id)), 'in der Webapp an der Ablage-Zeile auffindbar');
     }
 
+    public function test_personenwechsel_ohne_zeit_tabelle_laeuft_der_import(): void
+    {
+        $this->employee('RG1001');
+        $ben = $this->employee('RG2002');
+        $this->importiere($this->zeile('RG1001'));
+        RecDispoAssignment::where('ds_ref', '830363')->update(['confirmed_at' => now()]);
+
+        Capsule::schema()->rename('rec_zeit_eintraege', 'rec_zeit_eintraege_weg');
+        try {
+            $summary = $this->importiere($this->zeile('RG2002'));
+        } finally {
+            Capsule::schema()->rename('rec_zeit_eintraege_weg', 'rec_zeit_eintraege');
+        }
+
+        $this->assertSame(1, $summary['personenwechsel']);
+        $this->assertSame($ben->id, (int) $this->live()->rec_employee_id);
+        $this->assertSame(1, RecDispoAssignment::where('ds_ref', '830363~alt1')->count());
+        $this->assertSame([], PersonenwechselLog::$warnungen);
+    }
+
     public function test_zeitdatensatz_einer_fremden_person_an_der_zeile_ist_keine_spur(): void
     {
         $this->employee('RG1001');
