@@ -94,12 +94,16 @@
                                         <span class="font-medium text-gray-700">{{ $zeile['wer'] }}</span>
                                         <span class="text-xs text-gray-400">{{ $zeile['art'] }}</span>
                                     </div>
-                                    <div class="text-gray-700">
-                                        {{ $zeile['feld'] }}:
-                                        <span class="text-gray-500">{{ $zeile['alt'] ?? '—' }}</span>
-                                        →
-                                        <span>{{ $zeile['neu'] ?? '—' }}</span>
-                                    </div>
+                                    @if (($zeile['text'] ?? null) !== null)
+                                        <div class="text-gray-700">{{ $zeile['text'] }}</div>
+                                    @else
+                                        <div class="text-gray-700">
+                                            {{ $zeile['feld'] }}:
+                                            <span class="text-gray-500">{{ $zeile['alt'] ?? '—' }}</span>
+                                            →
+                                            <span>{{ $zeile['neu'] ?? '—' }}</span>
+                                        </div>
+                                    @endif
                                     @if ($zeile['grund'] !== null && $zeile['grund'] !== '')
                                         <div class="text-xs text-gray-500">Grund: {{ $zeile['grund'] }}</div>
                                     @endif

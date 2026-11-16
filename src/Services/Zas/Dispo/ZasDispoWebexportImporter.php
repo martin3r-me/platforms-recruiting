@@ -238,7 +238,10 @@ class ZasDispoWebexportImporter
                 // geplante Umfang: Zeilen, die an Datum/Einsatz-ID scheitern,
                 // werden nie geschrieben und sind damit auch nicht markiert.
                 $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
-                $wechsel = $this->personenwechsel->plan(self::incomingPnrs($plan['assignments']), $matcher);
+                $personenPlan = $this->personenwechsel->planMitAnstellung(self::incomingPnrs($plan['assignments']), $matcher);
+                $wechsel = $personenPlan['wechsel'];
+                // Dieselbe Person, andere Anstellung (RG -> MA): kein Wechsel, aber die Zeiterfassung zieht mit.
+                $anstellung = $personenPlan['anstellung'];
 
                 // ET-18 — DER TOTE STEMPEL. Verschwindet eine Einbuchung aus
                 // der Lieferung und taucht spaeter wieder auf, setzt die
@@ -313,6 +316,18 @@ class ZasDispoWebexportImporter
                             'missing_since'      => null,
                         ], $override)
                     )->wasRecentlyCreated ? $summary['assignments_created']++ : $summary['assignments_updated']++;
+
+                    // Zeiterfassung: Die Zeile laeuft fuer DIESELBE Person an einer anderen Anstellung
+                    // weiter (kein Personenwechsel, keine Ablage) — ihr Zeitdatensatz zieht auf die neue
+                    // Anstellung um. Nur, wenn genau diese Anstellung eben geschrieben wurde.
+                    if (isset($anstellung[$dsRef]) && !isset($wechsel[$dsRef]) && $m['employee_id'] !== null
+                        && (int) $m['employee_id'] === $anstellung[$dsRef]['nach']) {
+                        $this->personenwechsel->zeitPersonUmschreiben(
+                            $anstellung[$dsRef]['assignment_id'],
+                            $anstellung[$dsRef]['von'],
+                            $anstellung[$dsRef]['nach'],
+                        );
+                    }
                 }
 
                 if ($plan['missing_ds_refs'] !== []) {

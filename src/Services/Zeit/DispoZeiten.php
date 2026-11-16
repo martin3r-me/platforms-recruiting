@@ -24,6 +24,7 @@ class DispoZeiten
         'pause_minuten' => 'Pause',
         'bemerkung' => 'Bemerkung',
         'gesperrt_at' => 'Sperre',
+        'person_id' => 'Anstellung',
     ];
 
     private const ARTEN = [
@@ -31,7 +32,11 @@ class DispoZeiten
         Stempeluhr::ART_STELLVERTRETEND => 'stellvertretend',
         Stempeluhr::ART_KORREKTUR => 'Korrektur',
         Stempeluhr::ART_SPERRE => 'Sperre',
+        Stempeluhr::ART_UMZUG => 'Import',
     ];
+
+    /** Verlaufszeile des Imports, wenn die Einbuchung auf eine andere Anstellung derselben Person wechselt. */
+    public const TEXT_UMZUG = 'Anstellung gewechselt (ZAS)';
 
     public const GRUND_ERLEDIGT = 'erledigt';
 
@@ -109,7 +114,7 @@ class DispoZeiten
      * Verlauf neueste zuerst — leer bei $mitVerlauf = false (Sammelkonten „Nur Veranstaltungen“: dort stehen
      * Namen, Gruendezeilen und Bemerkungs-Aenderungen der Disponenten). Ohne Person: leeres Geruest (die Komponente oeffnet so eine Zeile nicht).
      *
-     * @return array{name:string,tag:string,soll:string,kommen:?string,gehen:?string,pause:?int,regelpause:int,bemerkung:string,zustand:string,gesperrt:bool,verlauf:list<array{wann:string,wer:string,feld:string,alt:?string,neu:?string,grund:?string,art:string}>}
+     * @return array{name:string,tag:string,soll:string,kommen:?string,gehen:?string,pause:?int,regelpause:int,bemerkung:string,zustand:string,gesperrt:bool,verlauf:list<array{wann:string,wer:string,feld:string,alt:?string,neu:?string,grund:?string,art:string,text:?string}>}
      */
     public function fenster(RecDispoAssignment $a, bool $mitVerlauf = true): array
     {
@@ -128,14 +133,17 @@ class DispoZeiten
         $verlauf = [];
         if ($e !== null && $mitVerlauf) {
             foreach ($e->verlauf()->get() as $v) {
+                // Umzug auf eine andere Anstellung: fertiger Satz statt roher Datensatz-IDs.
+                $umzug = $v->art === Stempeluhr::ART_UMZUG;
                 $verlauf[] = [
                     'wann' => ZeitAnzeige::ortszeit($v->created_at)?->format('d.m. H:i') ?? '',
                     'wer' => (string) $v->akteur_name,
                     'feld' => self::FELDER[$v->feld] ?? (string) $v->feld,
-                    'alt' => $this->wert((string) $v->feld, $v->alt),
-                    'neu' => $this->wert((string) $v->feld, $v->neu),
+                    'alt' => $umzug ? null : $this->wert((string) $v->feld, $v->alt),
+                    'neu' => $umzug ? null : $this->wert((string) $v->feld, $v->neu),
                     'grund' => $v->grund,
                     'art' => self::ARTEN[$v->art] ?? (string) $v->art,
+                    'text' => $umzug ? self::TEXT_UMZUG : null,
                 ];
             }
         }
@@ -196,7 +204,8 @@ class DispoZeiten
 
     /**
      * „Erledigt“: sperrt den Datensatz fuer ALLE (auch die Disposition). Nur bei ausgechecktem
-     * Datensatz (Kommen UND Gehen gesetzt) — diese Regel sitzt hier, nicht im Kern.
+     * Datensatz (Kommen UND Gehen gesetzt) — verbindlich geprueft in der Sperr-Transaktion des
+     * Kerns (am gesperrt gelesenen Stand); die Pruefung hier spart nur den Schreibweg.
      * Grund ist fest „erledigt“.
      *
      * ok | schon | nicht_ausgecheckt | aus | ohne_person
@@ -221,21 +230,39 @@ class DispoZeiten
             return 'nicht_ausgecheckt';
         }
 
-        return $this->uhr->sperren($e, $akteur, self::GRUND_ERLEDIGT);
+        return $this->uhr->sperren($e, $akteur, self::GRUND_ERLEDIGT, true);
     }
 
     /**
      * Sammel-Variante: Anzahl NEU gesperrter Datensaetze (nur ausgecheckte, noch nicht gesperrte
      * der aktuell eingebuchten Person). Die Anzahl entsteht hier, nie aus dem Browser.
+     * Vorgefiltert ueber die gebuendelt geladenen Datensaetze (fuerEvent): Zeilen ohne ausgecheckten
+     * Datensatz kosten keine Abfrage. Ob wirklich gesperrt wird, entscheidet weiter die
+     * Sperr-Transaktion des Kerns.
      *
      * @param iterable<RecDispoAssignment> $assignments
      */
     public function alleErledigt(iterable $assignments, ZeitAkteur $akteur): int
     {
-        $n = 0;
+        if (!$this->schalter->aktiv()) {
+            return 0;
+        }
+        $gewaehlt = [];
+        $events = [];
         foreach ($assignments as $a) {
-            if ($this->erledigt($a, $akteur) === 'ok') {
-                $n++;
+            $gewaehlt[(int) $a->id] = true;
+            $events[(int) $a->rec_dispo_event_id] = true;
+        }
+
+        $n = 0;
+        foreach (array_keys($events) as $eventId) {
+            foreach ($this->fuerEvent($eventId) as $id => $e) {
+                if (!isset($gewaehlt[$id]) || $e->zustand() !== 'ausgecheckt') {
+                    continue;
+                }
+                if ($this->uhr->sperren($e, $akteur, self::GRUND_ERLEDIGT, true) === 'ok') {
+                    $n++;
+                }
             }
         }
 

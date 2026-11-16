@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
+use Illuminate\Database\ConcurrencyErrorDetector;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -10,6 +12,7 @@ use Platform\Recruiting\Models\RecDispoDeclineCheck;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
 use Platform\Recruiting\Services\Zeit\DispoZeitBezug;
 use Platform\Recruiting\Zeit\Stempeluhr;
+use Platform\Recruiting\Zeit\ZeitAkteur;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -38,7 +41,13 @@ use Symfony\Component\Uid\UuidV7;
  *  - Zurueck-Tausch (A -> B -> A) startet ebenfalls frisch; A wird neu
  *    angeschrieben. Bewusst: eine alte Absage von A waere hier falsch.
  *
- * plan() liest nur; archivieren() schreibt und laeuft in der Import-Transaktion.
+ * Kein Wechsel, aber eine andere Anstellung DERSELBEN Person (RG -> MA): die
+ * Zeile laeuft weiter, es gibt keine Ablage. Damit der Zeitdatensatz nicht an
+ * der alten Anstellung haengen bleibt, meldet planMitAnstellung() diese Zeilen
+ * und zeitPersonUmschreiben() zieht den Datensatz auf die neue Anstellung.
+ *
+ * plan() liest nur; archivieren() und zeitPersonUmschreiben() schreiben und
+ * laufen in der Import-Transaktion.
  */
 class DispoPersonenwechsel
 {
@@ -97,24 +106,51 @@ class DispoPersonenwechsel
      */
     public function plan(array $incomingPnrByDsRef, ZasDispoMatcher $matcher): array
     {
+        return $this->planMitAnstellung($incomingPnrByDsRef, $matcher)['wechsel'];
+    }
+
+    /**
+     * Wie plan(), dazu die Zeilen, an denen DIESELBE Person mit einer anderen
+     * Anstellung weiterlaeuft (kein Wechsel, keine Ablage): bisher ein Treffer,
+     * jetzt ein anderer Treffer, beide nach dem Kriterium oben derselbe Mensch.
+     * Liest nur.
+     *
+     * @param array<string, string> $incomingPnrByDsRef ds_ref => pnr_raw der Lieferung
+     * @return array{
+     *   wechsel: array<string, array{alt_pnr:string, alt_employee_id:?int, neu_pnr:string, archivieren:bool}>,
+     *   anstellung: array<string, array{assignment_id:int, von:int, nach:int}>
+     * }
+     */
+    public function planMitAnstellung(array $incomingPnrByDsRef, ZasDispoMatcher $matcher): array
+    {
+        $leer = ['wechsel' => [], 'anstellung' => []];
         if ($incomingPnrByDsRef === []) {
-            return [];
+            return $leer;
         }
 
         $kandidaten = [];
+        // Gleiche Nummer, aber der Stamm loest sie heute auf einen anderen Datensatz auf:
+        // fuer den Wechsel unerheblich (wie bisher), fuer die Zeiterfassung nicht.
+        $gleicheNummer = [];
         foreach (array_chunk(array_keys($incomingPnrByDsRef), 1000) as $chunk) {
             RecDispoAssignment::query()
                 ->whereIn('ds_ref', array_map('strval', $chunk))
                 ->get()
-                ->each(function (RecDispoAssignment $a) use ($incomingPnrByDsRef, &$kandidaten) {
+                ->each(function (RecDispoAssignment $a) use ($incomingPnrByDsRef, $matcher, &$kandidaten, &$gleicheNummer) {
                     $neu = trim((string) $incomingPnrByDsRef[(string) $a->ds_ref]);
                     if (self::norm((string) $a->pnr_raw) !== self::norm($neu)) {
                         $kandidaten[(string) $a->ds_ref] = $a;
+                    } elseif ($a->rec_employee_id !== null) {
+                        $treffer = $matcher->match($neu)['employee_id'];
+                        if ($treffer !== null && (int) $treffer !== (int) $a->rec_employee_id) {
+                            $gleicheNummer[(string) $a->ds_ref] = ['assignment_id' => (int) $a->id, 'von' => (int) $a->rec_employee_id, 'nach' => (int) $treffer];
+                        }
                     }
                 });
         }
+        $anstellung = $this->nurDieselbePerson($gleicheNummer);
         if ($kandidaten === []) {
-            return [];
+            return ['wechsel' => [], 'anstellung' => $anstellung];
         }
 
         // Wer war vorher drin, wer kommt jetzt? Alte Zeilen ohne Treffer werden
@@ -142,7 +178,12 @@ class DispoPersonenwechsel
         foreach ($kandidaten as $dsRef => $a) {
             [$alt, $neu] = $paare[$dsRef];
             if (self::dieselbePerson($alt, $neu, $kontakte, $personKeys)) {
-                continue; // dieselbe Person, nur eine andere Nummer
+                // Dieselbe Person, nur eine andere Nummer. Haengt die Zeile dabei
+                // an einer anderen Anstellung, muss die Zeiterfassung mitziehen.
+                if ($a->rec_employee_id !== null && $neu !== null && (int) $a->rec_employee_id !== (int) $neu) {
+                    $anstellung[$dsRef] = ['assignment_id' => (int) $a->id, 'von' => (int) $a->rec_employee_id, 'nach' => (int) $neu];
+                }
+                continue;
             }
             $wechsel[$dsRef] = [
                 'alt_pnr'         => (string) $a->pnr_raw,
@@ -155,13 +196,83 @@ class DispoPersonenwechsel
         // Ablegen, sobald etwas an der Zeile haengt: eigene Spalten ODER
         // fremde Datensaetze, die per Zeilen-ID auf sie zeigen.
         $verwiesen = $this->verwieseneIds(array_map(fn ($dsRef) => (int) $kandidaten[$dsRef]->id, array_keys($wechsel)));
+        $personen = [];
+        foreach (array_keys($wechsel) as $dsRef) {
+            if ($kandidaten[$dsRef]->rec_employee_id !== null) {
+                $personen[(int) $kandidaten[$dsRef]->id] = (int) $kandidaten[$dsRef]->rec_employee_id;
+            }
+        }
+        $verwiesen += $this->zeitIds($personen);
         foreach ($wechsel as $dsRef => &$w) {
             $a = $kandidaten[$dsRef];
             $w['archivieren'] = self::hatSpuren($a) || isset($verwiesen[(int) $a->id]);
         }
         unset($w);
 
-        return $wechsel;
+        return ['wechsel' => $wechsel, 'anstellung' => $anstellung];
+    }
+
+    /**
+     * Behaelt nur die Zeilen, deren alte und neue Anstellung derselbe Mensch sind.
+     *
+     * @param array<string, array{assignment_id:int, von:int, nach:int}> $zeilen
+     * @return array<string, array{assignment_id:int, von:int, nach:int}>
+     */
+    private function nurDieselbePerson(array $zeilen): array
+    {
+        if ($zeilen === []) {
+            return [];
+        }
+        $ids = [];
+        foreach ($zeilen as $z) {
+            $ids[] = $z['von'];
+            $ids[] = $z['nach'];
+        }
+        $ids = array_values(array_unique($ids));
+        $kontakte = $this->identity->contactIdsByEmployee($ids);
+        $personKeys = DB::table('rec_employees')->whereIn('id', $ids)
+            ->whereNotNull('person_key')->where('person_key', '!=', '')
+            ->pluck('person_key', 'id')->map(fn ($v) => (string) $v)->all();
+
+        return array_filter($zeilen, fn (array $z) => self::dieselbePerson($z['von'], $z['nach'], $kontakte, $personKeys));
+    }
+
+    /**
+     * Zeiterfassung (Review 16.11., W1/W3): Die Zeile laeuft fuer dieselbe
+     * Person mit einer anderen Anstellung weiter — der Zeitdatensatz zieht auf
+     * die neue Anstellung mit, sonst zeigte die Disposition „nicht eingecheckt“
+     * und ein zweiter Datensatz verdraengte den echten Stempel. Hat die neue
+     * Anstellung dort schon einen Datensatz, bleibt alles stehen (Protokoll).
+     * Fehler brechen den Import nicht ab — ausser Nebenlaeufigkeitsfehlern
+     * (siehe zeitFehler()).
+     *
+     * @return string ok | kein_datensatz | ziel_existiert | ohne_tabelle | fehler
+     */
+    public function zeitPersonUmschreiben(int $assignmentId, int $vonEmployeeId, int $nachEmployeeId): string
+    {
+        if ($vonEmployeeId === $nachEmployeeId || !Schema::hasTable('rec_zeit_eintraege')) {
+            return 'ohne_tabelle';
+        }
+        $kontext = ['assignment_id' => $assignmentId, 'von_person_id' => $vonEmployeeId, 'nach_person_id' => $nachEmployeeId];
+        try {
+            $status = app(Stempeluhr::class)->personUmschreiben(
+                DispoZeitBezug::BEZUG_TYP,
+                $assignmentId,
+                DispoZeitBezug::PERSON_TYP,
+                $vonEmployeeId,
+                $nachEmployeeId,
+                new ZeitAkteur('system', null, 'ZAS-Import'),
+            );
+        } catch (\Throwable $e) {
+            $this->zeitFehler($e, 'zeit_person_umschreiben_fehlgeschlagen', $kontext);
+
+            return 'fehler';
+        }
+        if ($status === 'ziel_existiert') {
+            Log::info('zeit_person_umschreiben_ziel_existiert', $kontext);
+        }
+
+        return $status;
     }
 
     /** Legt die alte Besetzung als verschwundene Zeile ab. */
@@ -246,6 +357,37 @@ class DispoPersonenwechsel
         return $out;
     }
 
+    /**
+     * Live-Zeilen, an denen ein Zeitdatensatz der bisherigen Person haengt
+     * (Review 16.11., W2): Auch eine Zeile, an der NUR gestempelt wurde, hat
+     * eine Spur — ohne Ablage bliebe der Datensatz der alten Person an der
+     * Live-Zeile haengen und waere nirgends mehr zu finden (Spec §7.5).
+     *
+     * @param array<int, int> $personByAssignment Zeilen-ID => bisherige rec_employee_id
+     * @return array<int, true>
+     */
+    private function zeitIds(array $personByAssignment): array
+    {
+        if ($personByAssignment === [] || !Schema::hasTable('rec_zeit_eintraege')) {
+            return [];
+        }
+        $out = [];
+        foreach (array_chunk(array_keys($personByAssignment), 1000) as $chunk) {
+            $zeilen = DB::table('rec_zeit_eintraege')
+                ->where('bezug_typ', DispoZeitBezug::BEZUG_TYP)
+                ->where('person_typ', DispoZeitBezug::PERSON_TYP)
+                ->whereIn('bezug_id', $chunk)
+                ->get(['bezug_id', 'person_id']);
+            foreach ($zeilen as $z) {
+                if (($personByAssignment[(int) $z->bezug_id] ?? null) === (int) $z->person_id) {
+                    $out[(int) $z->bezug_id] = true;
+                }
+            }
+        }
+
+        return $out;
+    }
+
     /** Verweise auf die Live-Zeile zeigen danach auf die Ablage der alten Person. */
     private function verweiseUmziehen(RecDispoAssignment $alt, int $ablageId): void
     {
@@ -273,7 +415,7 @@ class DispoPersonenwechsel
      * sich ja kein Zeitwert. umhaengen() ist ein einzelnes UPDATE (ohne
      * Wiederholung) und darf deshalb in der Import-Transaktion laufen. Ein
      * Fehler hier bricht den Import NICHT ab: die Zeit-Zuordnung ist weniger
-     * wichtig als die Lieferung.
+     * wichtig als die Lieferung. Ausnahme: Nebenlaeufigkeitsfehler (zeitFehler()).
      */
     private function zeitUmziehen(RecDispoAssignment $alt, int $liveId, int $ablageId): void
     {
@@ -289,13 +431,29 @@ class DispoPersonenwechsel
                 (int) $alt->rec_employee_id,
             );
         } catch (\Throwable $e) {
-            Log::warning('zeit_umhaengen_fehlgeschlagen', [
+            $this->zeitFehler($e, 'zeit_umhaengen_fehlgeschlagen', [
                 'live_id'  => $liveId,
                 'ablage_id' => $ablageId,
                 'person_id' => (int) $alt->rec_employee_id,
-                'fehler'   => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Fehler der Zeiterfassung im Import: protokollieren und weiter. NICHT bei
+     * Nebenlaeufigkeitsfehlern (Deadlock, Lock-Timeout): die Datenbank hat dann
+     * die GANZE Import-Transaktion schon zurueckgerollt — verschluckt, liefe der
+     * Rest der Lieferung ohne Transaktion weiter (halb angewendet). Also
+     * weiterwerfen; der Import scheitert sauber und wird wiederholt.
+     *
+     * @param array<string, mixed> $kontext
+     */
+    private function zeitFehler(\Throwable $e, string $meldung, array $kontext): void
+    {
+        if ($e instanceof DeadlockException || (new ConcurrencyErrorDetector())->causedByConcurrencyError($e)) {
+            throw $e;
+        }
+        Log::warning($meldung, $kontext + ['fehler' => $e->getMessage()]);
     }
 
     /** Hing an der Zeile schon etwas, das der Person gehoert? */

@@ -8,7 +8,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 
 /**
- * Stempeln, Korrigieren, Leeren, Umhaengen, Sperren — jeder schreibende Weg
+ * Stempeln, Korrigieren, Leeren, Umhaengen, Umschreiben, Sperren — jeder schreibende Weg
  * laeuft in einer Transaktion mit Zeilensperre und schreibt den Verlauf im
  * selben Schritt (Spec 2026-11-16 §2.1).
  *
@@ -24,6 +24,7 @@ class Stempeluhr
     public const ART_STELLVERTRETEND = 'stellvertretend';
     public const ART_KORREKTUR = 'korrektur';
     public const ART_SPERRE = 'sperre';
+    public const ART_UMZUG = 'umzug';
 
     private const FORMAT = 'Y-m-d H:i:s';
 
@@ -214,17 +215,62 @@ class Stempeluhr
         });
     }
 
-    /** ok | schon */
-    public function sperren(ZeitEintrag $e, ZeitAkteur $a, string $grund): string
+    /**
+     * Schreibt den Datensatz am selben Bezug auf eine andere Personen-ID um (dieselbe Person, andere
+     * Anstellung). Auch bei gesperrtem Datensatz — es aendert sich kein Zeitwert. Eine Verlaufszeile
+     * (Feld person_id, Art umzug). Hat die Ziel-Person dort schon einen Datensatz, bleibt alles, wie es ist.
+     * Einzelnes UPDATE ohne Wiederholung — darf in einer aeusseren Transaktion laufen (wie umhaengen()).
+     *
+     * ok | kein_datensatz | ziel_existiert
+     */
+    public function personUmschreiben(string $bezugTyp, int $bezugId, string $personTyp, int $vonPersonId, int $nachPersonId, ZeitAkteur $akteur): string
+    {
+        return $this->verbindung()->transaction(function () use ($bezugTyp, $bezugId, $personTyp, $vonPersonId, $nachPersonId, $akteur) {
+            $e = ZeitEintrag::query()
+                ->where('person_typ', $personTyp)->where('person_id', $vonPersonId)
+                ->where('bezug_typ', $bezugTyp)->where('bezug_id', $bezugId)
+                ->lockForUpdate()->first();
+            if ($e === null) {
+                return 'kein_datensatz';
+            }
+            if ($vonPersonId === $nachPersonId || ZeitEintrag::finde($personTyp, $nachPersonId, $bezugTyp, $bezugId) !== null) {
+                return 'ziel_existiert';
+            }
+
+            try {
+                // Eigener Sicherungspunkt: Datensatz und Verlaufszeile gehen nur gemeinsam.
+                $this->verbindung()->transaction(function () use ($e, $vonPersonId, $nachPersonId, $akteur) {
+                    $e->update(['person_id' => $nachPersonId]);
+                    $this->verlaufszeile($e, 'person_id', (string) $vonPersonId, (string) $nachPersonId, self::ART_UMZUG, $akteur, null);
+                });
+            } catch (UniqueConstraintViolationException) {
+                // Das Ziel entstand gerade eben: dann gilt dort der vorhandene Datensatz.
+                return 'ziel_existiert';
+            }
+
+            return 'ok';
+        });
+    }
+
+    /**
+     * $nurAusgecheckt: sperrt nur, wenn Kommen UND Gehen gesetzt sind — geprueft am frisch gelesenen,
+     * gesperrten Stand (nicht am uebergebenen Modell).
+     *
+     * ok | schon | nicht_ausgecheckt
+     */
+    public function sperren(ZeitEintrag $e, ZeitAkteur $a, string $grund, bool $nurAusgecheckt = false): string
     {
         if (trim($grund) === '' || mb_strlen($grund) > 255) {
             throw new \InvalidArgumentException('Grund fehlt oder ist laenger als 255 Zeichen.');
         }
 
-        return $this->verbindung()->transaction(function () use ($e, $a, $grund) {
+        return $this->verbindung()->transaction(function () use ($e, $a, $grund, $nurAusgecheckt) {
             $e = ZeitEintrag::query()->whereKey($e->getKey())->lockForUpdate()->firstOrFail();
             if ($e->istGesperrt()) {
                 return 'schon';
+            }
+            if ($nurAusgecheckt && ($e->kommen_at === null || $e->gehen_at === null)) {
+                return 'nicht_ausgecheckt';
             }
 
             $jetzt = $this->zeitpunkt(null);

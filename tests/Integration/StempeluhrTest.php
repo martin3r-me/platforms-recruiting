@@ -418,4 +418,102 @@ class StempeluhrTest extends ZeitTestCase
         $uhr->entsperren($e, $this->akteur('user', 7, str_repeat('ä', 300)), 'g');
         $this->assertSame(255, mb_strlen(ZeitVerlauf::orderByDesc('id')->first()->akteur_name));
     }
+
+    public function test_pause_bis_600_minuten_ist_erlaubt_darueber_ungueltig(): void
+    {
+        $uhr = $this->uhr();
+        $this->assertSame('ungueltig', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => 601], 'x'));
+        $this->assertSame('ungueltig', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => '601'], 'x'));
+        $this->assertSame(0, ZeitEintrag::count());
+
+        $this->assertSame('ok', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => 600], 'x'));
+        $this->assertSame(600, (int) $this->roh('pause_minuten'));
+    }
+
+    public function test_person_umschreiben_zieht_den_datensatz_auf_die_andere_anstellung(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(901, 1), $this->akteur(), Stempeluhr::ART_SELBST);
+        $uhr->kommen($this->bezug(901, 2), $this->akteur(), Stempeluhr::ART_SELBST);
+        $kommen = \Illuminate\Database\Capsule\Manager::table('rec_zeit_eintraege')->where('bezug_id', 1)->value('kommen_at');
+        $verlauf = ZeitVerlauf::count();
+
+        $status = $uhr->personUmschreiben('rec_dispo_assignment', 1, 'rec_employee', 901, 950, $this->akteur('system', 0, 'ZAS-Import'));
+
+        $this->assertSame('ok', $status);
+        $this->assertSame(950, (int) ZeitEintrag::where('bezug_id', 1)->value('person_id'));
+        $this->assertNotNull($kommen);
+        $this->assertSame($kommen, \Illuminate\Database\Capsule\Manager::table('rec_zeit_eintraege')->where('bezug_id', 1)->value('kommen_at'), 'kein Zeitwert aendert sich');
+        $this->assertSame(901, (int) ZeitEintrag::where('bezug_id', 2)->value('person_id'), 'anderer Bezug bleibt');
+        $this->assertSame($verlauf + 1, ZeitVerlauf::count());
+        $z = ZeitVerlauf::orderByDesc('id')->first();
+        $this->assertSame(['person_id', '901', '950', 'umzug', 'system', 'ZAS-Import', null], [$z->feld, $z->alt, $z->neu, $z->art, $z->akteur_typ, $z->akteur_name, $z->grund]);
+        $this->assertSame((int) ZeitEintrag::where('bezug_id', 1)->value('id'), (int) $z->rec_zeit_eintrag_id);
+    }
+
+    public function test_person_umschreiben_ohne_datensatz_und_mit_vorhandenem_ziel(): void
+    {
+        $uhr = $this->uhr();
+        $system = $this->akteur('system', 0, 'ZAS-Import');
+        $this->assertSame('kein_datensatz', $uhr->personUmschreiben('rec_dispo_assignment', 1, 'rec_employee', 901, 950, $system));
+
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(901, 1), $this->akteur(), Stempeluhr::ART_SELBST);
+        $this->jetzt('14:20');
+        $uhr->kommen($this->bezug(950, 1), $this->akteur(), Stempeluhr::ART_SELBST);
+        $vorher = ZeitEintrag::orderBy('id')->get()->map->getAttributes()->all();
+        $verlauf = ZeitVerlauf::count();
+
+        $this->assertSame('ziel_existiert', $uhr->personUmschreiben('rec_dispo_assignment', 1, 'rec_employee', 901, 950, $system));
+        $this->assertSame('kein_datensatz', $uhr->personUmschreiben('rec_dispo_assignment', 1, 'employee', 901, 950, $system), 'anderer Personen-Typ');
+
+        $this->assertSame($vorher, ZeitEintrag::orderBy('id')->get()->map->getAttributes()->all());
+        $this->assertSame($verlauf, ZeitVerlauf::count());
+    }
+
+    public function test_person_umschreiben_nimmt_auch_einen_gesperrten_datensatz(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $uhr->sperren(ZeitEintrag::first(), $this->akteur(), 'erledigt');
+
+        $this->assertSame('ok', $uhr->personUmschreiben('rec_dispo_assignment', 1, 'rec_employee', 901, 950, $this->akteur('system', 0, 'ZAS-Import')));
+        $e = ZeitEintrag::first();
+        $this->assertSame(950, (int) $e->person_id);
+        $this->assertTrue($e->istGesperrt());
+    }
+
+    public function test_sperren_nur_ausgecheckt_prueft_den_frischen_stand_nicht_das_uebergebene_modell(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $this->jetzt('22:00');
+        $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $gesehen = ZeitEintrag::first(); // ausgecheckt — so hat es der Aufrufer gelesen
+        // Inzwischen leert eine Korrektur das Gehen.
+        $this->assertSame('ok', $uhr->korrigieren($this->bezug(), $this->akteur(), ['gehen_at' => null], 'doch noch da'));
+
+        $this->assertSame('nicht_ausgecheckt', $uhr->sperren($gesehen, $this->akteur(), 'erledigt', true));
+        $this->assertFalse(ZeitEintrag::first()->istGesperrt());
+        $this->assertSame(0, ZeitVerlauf::where('feld', 'gesperrt_at')->count());
+
+        // Ohne den Schalter bleibt sperren() bedingungslos (wie bisher).
+        $this->assertSame('ok', $uhr->sperren($gesehen, $this->akteur(), 'erledigt'));
+        $this->assertSame('schon', $uhr->sperren($gesehen, $this->akteur(), 'erledigt', true));
+    }
+
+    public function test_sperren_nur_ausgecheckt_sperrt_den_ausgecheckten(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $this->assertSame('nicht_ausgecheckt', $uhr->sperren(ZeitEintrag::first(), $this->akteur(), 'erledigt', true));
+        $this->jetzt('22:00');
+        $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $this->assertSame('ok', $uhr->sperren(ZeitEintrag::first(), $this->akteur(), 'erledigt', true));
+        $this->assertTrue(ZeitEintrag::first()->istGesperrt());
+    }
 }

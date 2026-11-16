@@ -20,6 +20,14 @@ use Platform\Recruiting\Services\Zas\Dispo\ZasDispoBlockSplitter;
 use Platform\Recruiting\Services\Zas\Dispo\ZasDispoConfirmationExport;
 use Platform\Recruiting\Services\Zas\Dispo\ZasDispoImportPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter;
+use Platform\Recruiting\Services\Zeit\DispoZeiten;
+use Platform\Recruiting\Services\Zeit\ZeitSchalter;
+use Platform\Recruiting\Zeit\Stempeluhr;
+use Platform\Recruiting\Zeit\ZeitAkteur;
+use Platform\Recruiting\Zeit\ZeitBezug;
+use Platform\Recruiting\Zeit\ZeitEintrag;
+use Platform\Recruiting\Zeit\ZeitRegeln;
+use Platform\Recruiting\Zeit\ZeitVerlauf;
 
 /** Disk-Ersatz fuer Storage::disk(...)->get(...). */
 class PersonenwechselDisk
@@ -40,9 +48,22 @@ class PersonenwechselDisk
 
 class PersonenwechselLog
 {
+    /** @var list<array{string, array}> */
+    public static array $warnungen = [];
+    /** @var list<array{string, array}> */
+    public static array $infos = [];
+
     public function error(string $m, array $c = []): void {}
-    public function warning(string $m, array $c = []): void {}
-    public function info(string $m, array $c = []): void {}
+
+    public function warning(string $m, array $c = []): void
+    {
+        self::$warnungen[] = [$m, $c];
+    }
+
+    public function info(string $m, array $c = []): void
+    {
+        self::$infos[] = [$m, $c];
+    }
 }
 
 /**
@@ -116,9 +137,20 @@ class ZasDispoPersonenwechselImportTest extends TestCase
         PersonenwechselDisk::$dateien = [];
         $this->identitaet = null;
         foreach (['rec_employees', 'rec_zas_dispo_inbound_files', 'rec_dispo_events', 'rec_dispo_assignments',
-            'rec_dispo_decline_checks', 'rec_dispo_job_offer_shifts'] as $t) {
+            'rec_dispo_decline_checks', 'rec_dispo_job_offer_shifts', 'rec_zeit_eintraege', 'rec_zeit_verlauf'] as $t) {
             Capsule::table($t)->delete();
         }
+        PersonenwechselLog::$warnungen = [];
+        PersonenwechselLog::$infos = [];
+        // Damit app(Stempeluhr::class) ohne Service-Provider aufloest.
+        Container::getInstance()->instance(ZeitRegeln::class, $this->zeitRegeln());
+    }
+
+    protected function tearDown(): void
+    {
+        $container = Container::getInstance();
+        $container->forgetInstance(ZeitRegeln::class);
+        $container->forgetInstance(Stempeluhr::class);
     }
 
     public function test_swapped_person_starts_fresh_and_the_old_decline_stays_with_the_old_person(): void
@@ -390,7 +422,321 @@ class ZasDispoPersonenwechselImportTest extends TestCase
         $this->assertNotNull(RecDispoAssignment::where('ds_ref', '830363')->value('declined_at'));
     }
 
+    // ---- Zeiterfassung (Spec 2026-11-16 §2.2/§7.5, Schluss-Review W1–W3, K2) ----
+
+    public function test_anstellungswechsel_derselben_person_zieht_den_zeitdatensatz_mit(): void
+    {
+        [$rg, $ma] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $this->assertSame('ok', $this->webapp()->jetztKommen($this->live(), $this->dispo()));
+
+        $summary = $this->importiere($this->zeile('MA5005'));
+
+        $this->assertSame(0, $summary['personenwechsel']);
+        $live = $this->live();
+        $this->assertSame($ma->id, (int) $live->rec_employee_id);
+        $this->assertSame(1, ZeitEintrag::count(), 'ein Datensatz je Mensch und Einsatz');
+        $e = ZeitEintrag::first();
+        $this->assertSame($ma->id, (int) $e->person_id);
+        $this->assertSame((int) $live->id, (int) $e->bezug_id);
+        $this->assertNotNull($e->kommen_at);
+
+        $umzug = ZeitVerlauf::where('feld', 'person_id')->get();
+        $this->assertCount(1, $umzug);
+        $this->assertSame([(string) $rg->id, (string) $ma->id, 'umzug', 'system', null, 'ZAS-Import'],
+            [$umzug[0]->alt, $umzug[0]->neu, $umzug[0]->art, $umzug[0]->akteur_typ, $umzug[0]->akteur_id, $umzug[0]->akteur_name]);
+
+        // Die Disposition sieht den Stempel und kann keinen zweiten Datensatz anlegen.
+        $karte = $this->webapp()->fuerEvent((int) $live->rec_dispo_event_id);
+        $this->assertSame('eingecheckt', $this->webapp()->zelle($karte[(int) $live->id] ?? null)['zustand']);
+        $this->assertSame('schon', $this->webapp()->jetztKommen($live, $this->dispo()));
+        $this->assertSame(1, ZeitEintrag::count());
+        $this->assertSame([], PersonenwechselLog::$warnungen);
+    }
+
+    public function test_anstellungswechsel_nur_ueber_person_key_zieht_ebenfalls_mit(): void
+    {
+        $rg = $this->employee('RG1001');
+        $ma = $this->employee('MA5005');
+        Capsule::table('rec_employees')->whereIn('id', [$rg->id, $ma->id])->update(['person_key' => 'p-1']);
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+
+        $this->importiere($this->zeile('MA5005'));
+
+        $this->assertSame([$ma->id], ZeitEintrag::pluck('person_id')->map(fn ($v) => (int) $v)->all());
+    }
+
+    public function test_anstellungswechsel_hin_und_zurueck_bleibt_ein_datensatz(): void
+    {
+        [$rg] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+
+        $this->importiere($this->zeile('MA5005'));
+        $this->importiere($this->zeile('RG1001'));
+
+        $this->assertSame([$rg->id], ZeitEintrag::pluck('person_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame(2, ZeitVerlauf::where('art', 'umzug')->count());
+    }
+
+    public function test_anstellungswechsel_mit_vorhandenem_ziel_aendert_nichts_und_protokolliert(): void
+    {
+        [$rg, $ma] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $live = $this->live();
+        $alt = $this->zeitEintrag((int) $live->id, $rg->id, ['kommen_at' => '2027-05-19 08:00:00']);
+        $ziel = $this->zeitEintrag((int) $live->id, $ma->id, ['kommen_at' => '2027-05-19 09:00:00']);
+
+        $this->importiere($this->zeile('MA5005'));
+
+        $this->assertSame($rg->id, (int) $alt->fresh()->person_id);
+        $this->assertSame($ma->id, (int) $ziel->fresh()->person_id);
+        $this->assertSame('2027-05-19 09:00:00', $ziel->fresh()->kommen_at->format('Y-m-d H:i:s'));
+        $this->assertSame(0, ZeitVerlauf::count());
+        $this->assertCount(1, PersonenwechselLog::$infos);
+        $this->assertSame('zeit_person_umschreiben_ziel_existiert', PersonenwechselLog::$infos[0][0]);
+        $this->assertSame(['assignment_id' => (int) $live->id, 'von_person_id' => $rg->id, 'nach_person_id' => $ma->id], PersonenwechselLog::$infos[0][1]);
+    }
+
+    public function test_anstellungswechsel_nimmt_auch_einen_gesperrten_datensatz_mit(): void
+    {
+        [$rg, $ma] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $e = $this->zeitEintrag((int) $this->live()->id, $rg->id, [
+            'kommen_at' => '2027-05-19 08:00:00', 'gehen_at' => '2027-05-19 19:00:00',
+            'gesperrt_at' => '2027-05-19 20:00:00', 'gesperrt_grund' => 'erledigt',
+        ]);
+
+        $this->importiere($this->zeile('MA5005'));
+
+        $e = $e->fresh();
+        $this->assertSame($ma->id, (int) $e->person_id);
+        $this->assertTrue($e->istGesperrt());
+        $this->assertSame('2027-05-19 19:00:00', $e->gehen_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_gleiche_nummer_aber_anderer_datensatz_derselben_person_zieht_mit(): void
+    {
+        $alt = $this->employee('RG1001');
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+        // Der Stamm loest dieselbe Nummer inzwischen auf einen anderen Datensatz desselben Menschen auf.
+        $alt->update(['personnel_number' => 'RG9001', 'portal_token' => 'tok-alt', 'is_active' => false]);
+        $neu = $this->employee('RG1001');
+        Capsule::table('rec_employees')->whereIn('id', [$alt->id, $neu->id])->update(['person_key' => 'p-7']);
+
+        $this->importiere($this->zeile('RG1001'));
+
+        $this->assertSame($neu->id, (int) $this->live()->rec_employee_id);
+        $this->assertSame([$neu->id], ZeitEintrag::pluck('person_id')->map(fn ($v) => (int) $v)->all());
+    }
+
+    public function test_gleiche_nummer_fremder_datensatz_schreibt_die_zeit_nicht_um(): void
+    {
+        $alt = $this->employee('RG1001');
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+        $alt->update(['personnel_number' => 'RG9001', 'portal_token' => 'tok-alt', 'is_active' => false]);
+        $this->employee('RG1001'); // kein gemeinsamer Schluessel, kein gemeinsamer Kontakt
+
+        $this->importiere($this->zeile('RG1001'));
+
+        $this->assertSame([$alt->id], ZeitEintrag::pluck('person_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame(0, ZeitVerlauf::where('art', 'umzug')->count());
+    }
+
+    public function test_anstellungswechsel_ohne_zeit_tabelle_laeuft_der_import(): void
+    {
+        [, $ma] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        Container::getInstance()->instance(Stempeluhr::class, new class($this->zeitRegeln()) extends Stempeluhr {
+            public function personUmschreiben(string $bezugTyp, int $bezugId, string $personTyp, int $vonPersonId, int $nachPersonId, ZeitAkteur $akteur): string
+            {
+                throw new \LogicException('ohne Tabelle darf die Stempeluhr nicht gerufen werden');
+            }
+        });
+
+        Capsule::schema()->rename('rec_zeit_eintraege', 'rec_zeit_eintraege_weg');
+        try {
+            $this->importiere($this->zeile('MA5005'));
+        } finally {
+            Capsule::schema()->rename('rec_zeit_eintraege_weg', 'rec_zeit_eintraege');
+        }
+
+        $this->assertSame($ma->id, (int) $this->live()->rec_employee_id);
+        $this->assertSame([], PersonenwechselLog::$warnungen);
+    }
+
+    public function test_fehler_beim_umschreiben_bricht_den_import_nicht_ab(): void
+    {
+        [$rg, $ma] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+        $this->stempeluhrWirft(new \RuntimeException('Spalte fehlt'));
+
+        $this->importiere($this->zeile('MA5005'));
+
+        $this->assertSame($ma->id, (int) $this->live()->rec_employee_id, 'Lieferung ist angewendet');
+        $this->assertSame($rg->id, (int) ZeitEintrag::first()->person_id);
+        $this->assertCount(1, PersonenwechselLog::$warnungen);
+        $this->assertSame('zeit_person_umschreiben_fehlgeschlagen', PersonenwechselLog::$warnungen[0][0]);
+        $this->assertSame('Spalte fehlt', PersonenwechselLog::$warnungen[0][1]['fehler']);
+    }
+
+    public function test_deadlock_beim_umschreiben_laesst_den_import_scheitern_statt_halb_weiterzulaufen(): void
+    {
+        [$rg] = $this->rgUndMa();
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+        $this->stempeluhrWirft(new \RuntimeException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction'));
+
+        $summary = $this->importer()->import($this->importiereDatei($this->zeile('MA5005'), nurAnlegen: true));
+
+        $this->assertTrue($summary['rolled_back'] ?? false);
+        $this->assertNotSame([], $summary['errors']);
+        $this->assertSame($rg->id, (int) $this->live()->rec_employee_id, 'nichts halb angewendet');
+        $this->assertSame([], PersonenwechselLog::$warnungen, 'nicht als harmlose Warnung verschluckt');
+    }
+
+    public function test_personenwechsel_an_einer_nur_gestempelten_zeile_legt_die_alte_besetzung_ab(): void
+    {
+        $anna = $this->employee('RG1001');
+        $ben  = $this->employee('RG2002');
+        $this->importiere($this->zeile('RG1001'));
+        // Nur stellvertretend gestempelt: kein Versand, keine Bestaetigung, keine Notiz.
+        $this->assertSame('ok', $this->webapp()->jetztKommen($this->live(), $this->dispo()));
+        $this->assertFalse(DispoPersonenwechsel::hatSpuren($this->live()));
+
+        $summary = $this->importiere($this->zeile('RG2002'));
+
+        $this->assertSame(1, $summary['personenwechsel']);
+        $ablage = RecDispoAssignment::where('ds_ref', '830363~alt1')->first();
+        $this->assertNotNull($ablage, 'ein Stempel ist eine Spur: die alte Besetzung wird abgelegt');
+        $live = $this->live();
+        $this->assertSame($ben->id, (int) $live->rec_employee_id);
+        $e = ZeitEintrag::first();
+        $this->assertSame(1, ZeitEintrag::count());
+        $this->assertSame([(int) $ablage->id, $anna->id], [(int) $e->bezug_id, (int) $e->person_id]);
+        $this->assertSame(0, ZeitEintrag::where('bezug_id', $live->id)->count(), 'Live-Zeile ist leer');
+        $this->assertSame([(int) $ablage->id], array_keys($this->webapp()->fuerEvent((int) $live->rec_dispo_event_id)), 'in der Webapp an der Ablage-Zeile auffindbar');
+    }
+
+    public function test_zeitdatensatz_einer_fremden_person_an_der_zeile_ist_keine_spur(): void
+    {
+        $this->employee('RG1001');
+        $this->employee('RG2002');
+        $this->importiere($this->zeile('RG1001'));
+        $this->zeitEintrag((int) $this->live()->id, 424242, ['kommen_at' => '2027-05-19 08:00:00']);
+
+        $this->importiere($this->zeile('RG2002'));
+
+        $this->assertSame(1, RecDispoAssignment::count(), 'der Rest einer anderen Person loest keine Ablage aus');
+    }
+
+    public function test_deadlock_beim_umhaengen_in_die_ablage_laesst_den_import_scheitern(): void
+    {
+        $anna = $this->employee('RG1001');
+        $this->employee('RG2002');
+        $this->importiere($this->zeile('RG1001'));
+        $this->webapp()->jetztKommen($this->live(), $this->dispo());
+        $this->stempeluhrWirft(new \RuntimeException('Lock wait timeout exceeded; try restarting transaction'));
+
+        $summary = $this->importer()->import($this->importiereDatei($this->zeile('RG2002'), nurAnlegen: true));
+
+        $this->assertTrue($summary['rolled_back'] ?? false);
+        $this->assertSame($anna->id, (int) $this->live()->rec_employee_id);
+        $this->assertSame(1, RecDispoAssignment::count(), 'auch die Ablage ist zurueckgerollt');
+        $this->assertSame([], PersonenwechselLog::$warnungen);
+    }
+
     // ---------------------------------------------------------------
+
+    /** @return array{0: RecEmployee, 1: RecEmployee} RG- und MA-Datensatz eines Menschen (gemeinsamer Kontakt). */
+    private function rgUndMa(): array
+    {
+        $rg = $this->employee('RG1001');
+        $ma = $this->employee('MA5005');
+        $this->identitaet = new PersonenwechselIdentitaet([$rg->id => [77], $ma->id => [77]]);
+
+        return [$rg, $ma];
+    }
+
+    private function live(): RecDispoAssignment
+    {
+        return RecDispoAssignment::where('ds_ref', '830363')->firstOrFail();
+    }
+
+    private function dispo(): ZeitAkteur
+    {
+        return new ZeitAkteur('user', 7, 'Dispo Test');
+    }
+
+    private function webapp(): DispoZeiten
+    {
+        $schalter = new class extends ZeitSchalter {
+            public function aktiv(): bool
+            {
+                return true;
+            }
+
+            public function teamId(): int
+            {
+                return 1102;
+            }
+        };
+
+        return new DispoZeiten(new Stempeluhr($this->zeitRegeln()), $schalter, $this->zeitRegeln());
+    }
+
+    private function zeitEintrag(int $assignmentId, int $person, array $felder = []): ZeitEintrag
+    {
+        return ZeitEintrag::create(array_merge([
+            'team_id' => self::TEAM, 'person_typ' => 'rec_employee', 'person_id' => $person,
+            'bezug_typ' => 'rec_dispo_assignment', 'bezug_id' => $assignmentId, 'tag' => '2027-05-19',
+        ], $felder));
+    }
+
+    /** Jeder Schreibweg der Stempeluhr, den der Import nutzt, wirft diesen Fehler. */
+    private function stempeluhrWirft(\Throwable $fehler): void
+    {
+        Container::getInstance()->instance(Stempeluhr::class, new class($this->zeitRegeln(), $fehler) extends Stempeluhr {
+            public function __construct(ZeitRegeln $regeln, private \Throwable $fehler)
+            {
+                parent::__construct($regeln);
+            }
+
+            public function personUmschreiben(string $bezugTyp, int $bezugId, string $personTyp, int $vonPersonId, int $nachPersonId, ZeitAkteur $akteur): string
+            {
+                throw $this->fehler;
+            }
+
+            public function umhaengen(string $bezugTyp, int $vonBezugId, int $nachBezugId, string $personTyp, int $personId): void
+            {
+                throw $this->fehler;
+            }
+        });
+    }
+
+    private function zeitRegeln(): ZeitRegeln
+    {
+        return new class implements ZeitRegeln {
+            public function fruehestesKommen(ZeitBezug $b): ?\Carbon\CarbonImmutable
+            {
+                return $b->sollVon?->subMinutes(60);
+            }
+
+            public function spaetestesStempeln(ZeitBezug $b): ?\Carbon\CarbonImmutable
+            {
+                return $b->sollBis?->addMinutes(60);
+            }
+
+            public function pauseMinuten(int $anwesendMinuten): int
+            {
+                return 0;
+            }
+        };
+    }
 
     private function employee(string $pnr): RecEmployee
     {
@@ -488,6 +834,8 @@ class ZasDispoPersonenwechselImportTest extends TestCase
             [$own,  'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php'],
             [$own,  'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php'],
             [$own,  'database/migrations/2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables.php'],
+            [$own,  'database/migrations/2026_11_16_000001_create_rec_zeit_eintraege_table.php'],
+            [$own,  'database/migrations/2026_11_16_000002_create_rec_zeit_verlauf_table.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
         ];
 
