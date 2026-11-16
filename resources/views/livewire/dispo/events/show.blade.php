@@ -13,6 +13,7 @@
         $zeitAktiv = $this->zeitAktiv;
         $zeitKarte = $this->zeitEintraege;
         $zeitDienst = $zeitAktiv ? app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class) : null;
+        $zeitErledigbar = $this->zeitErledigbar;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
         $statusClasses = [
             0 => 'bg-gray-100 text-gray-700',
@@ -346,6 +347,14 @@
                 </div>
             @endif
         </div>
+        @if ($zeitAktiv && !$eventOnly && $zeitErledigbar > 0)
+            <div class="border-b border-gray-100 px-4 py-2">
+                <button type="button" wire:click="zeitAlleErledigt"
+                        wire:confirm="{{ $zeitErledigbar }} Einträge als erledigt markieren? Danach sind sie gesperrt."
+                        class="rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                        title="Wirkt auf die aktuell gefilterten Zeilen">Alle ausgecheckten als erledigt markieren ({{ $zeitErledigbar }})</button>
+            </div>
+        @endif
         {{-- Mobil: Crew-Liste statt 9-Spalten-Tabelle — Name, Zeit, Chips, grosser Chat-Knopf.
              Desktop (lg:) rendert unveraendert die Tabelle darunter. --}}
         <div class="divide-y divide-gray-100 lg:hidden">

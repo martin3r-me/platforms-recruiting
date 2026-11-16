@@ -4,6 +4,8 @@
     $zf = $this->zeitFenster;
     $zfAssignmentId = $this->zeitAssignmentId;
     $zfNurLesen = $eventOnly || ($zf !== null && $zf['gesperrt']);
+    $zfDarfOeffnen = $zf !== null && $zf['gesperrt'] && $this->zeitDarfOeffnen;
+    $zfKannErledigen = $zf !== null && !$zfNurLesen && $zf['zustand'] === 'ausgecheckt';
     $zfRegel = $zf === null ? '' : 'nach Regel: ' . $zf['regelpause'];
     $zfKopfTeile = array_values(array_filter([$zf['name'] ?? '', $zf['tag'] ?? ''], fn ($t) => $t !== ''));
     $zfKopf = $zfKopfTeile === [] ? '' : ' – ' . implode(' · ', $zfKopfTeile);
@@ -23,7 +25,7 @@
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 @if ($zf['gesperrt'])
-                    <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Der Eintrag ist erledigt und gesperrt — die Werte sind nur noch lesbar.</p>
+                    <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Erledigt und gesperrt. Die Werte sind nur noch lesbar.</p>
                 @elseif ($eventOnly)
                     <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Dieses Konto kann Zeiten nur ansehen.</p>
                 @endif
@@ -61,6 +63,18 @@
                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
                         @error('zeitGrund') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                     </label>
+                @endif
+
+                @if ($zfDarfOeffnen)
+                    <div class="rounded-lg border border-gray-200 p-3">
+                        <label class="block text-sm">
+                            <span class="text-gray-600">Grund für das Wiederöffnen <span class="text-red-600">*</span></span>
+                            <input type="text" wire:model="zeitOeffnenGrund" maxlength="255" placeholder="Pflicht, steht im Verlauf"
+                                   class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+                            @error('zeitOeffnenGrund') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                        </label>
+                        <button type="button" wire:click="zeitOeffnen" class="mt-2 rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">Wieder öffnen</button>
+                    </div>
                 @endif
 
                 @if ($zeitMeldung !== null)
@@ -101,6 +115,9 @@
                         <div class="flex gap-2">
                             <button type="button" wire:click="zeitJetztKommen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Server-Uhrzeit jetzt, ohne Zeitfenster-Prüfung">Jetzt kommen</button>
                             <button type="button" wire:click="zeitJetztGehen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Server-Uhrzeit jetzt, ohne Zeitfenster-Prüfung">Jetzt gehen</button>
+                            @if ($zfKannErledigen)
+                                <button type="button" wire:click="zeitErledigt" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Sperrt den Eintrag für alle, auch für die Disposition">Erledigt</button>
+                            @endif
                         </div>
                     @else
                         <span></span>

@@ -202,6 +202,7 @@ class Show extends Component
     public string $zeitPause = '';
     public string $zeitBemerkung = '';
     public string $zeitGrund = '';
+    public string $zeitOeffnenGrund = '';
     public ?string $zeitMeldung = null;
 
     // Anhang-Modal (Runde 3, #8): eine Datei pro MA fuer diese VA.
@@ -1869,6 +1870,7 @@ class Show extends Component
         $this->zeitStand = [];
         $this->zeitMeldung = null;
         $this->zeitGrund = '';
+        $this->zeitOeffnenGrund = '';
         $this->resetErrorBag();
         unset($this->zeitFenster);
     }
@@ -1885,6 +1887,7 @@ class Show extends Component
         $this->zeitBemerkung = (string) $f['bemerkung'];
         if (!$grundBehalten) {
             $this->zeitGrund = '';
+            $this->zeitOeffnenGrund = '';
         }
     }
 
@@ -2013,15 +2016,121 @@ class Show extends Component
         $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $this->zeitAkteur()), 'gehen');
     }
 
+    /** Ausgecheckte, noch nicht gesperrte Datensaetze unter den aktuell GEFILTERTEN Zeilen (nur voller Zugriff). */
+    #[Computed]
+    public function zeitErledigbar(): int
+    {
+        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+            return 0;
+        }
+        $karte = $this->zeitEintraege;
+        $n = 0;
+        foreach ($this->filteredAssignments as $a) {
+            if (($karte[(int) $a->id] ?? null)?->zustand() === 'ausgecheckt') {
+                $n++;
+            }
+        }
+
+        return $n;
+    }
+
+    /** Steht die E-Mail des Nutzers in der Entsperr-Liste? Konten „Nur Veranstaltungen“ nie. */
+    #[Computed]
+    public function zeitDarfOeffnen(): bool
+    {
+        return $this->zeitAktiv && !$this->blockedForEventOnly()
+            && app(\Platform\Recruiting\Services\Zeit\ZeitSchalter::class)->darfEntsperren(auth()->user());
+    }
+
+    /** „Erledigt“ im Fenster: sperrt fuer alle. Nur den gesehenen, gespeicherten Stand — nie ungespeicherte Eingaben. */
+    public function zeitErledigt(): void
+    {
+        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+            return;
+        }
+        $a = $this->zeitEinbuchung();
+        if ($a === null) {
+            $this->zeitWeg();
+
+            return;
+        }
+        $dienst = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class);
+        $this->resetErrorBag();
+        $this->zeitMeldung = null;
+
+        // 1. Hat sich der Datensatz seit dem Oeffnen geaendert? Dann nichts besiegeln, was der Disponent nie gesehen hat.
+        $frisch = $dienst->stand($dienst->fenster($a, false));
+        if ($frisch !== $this->zeitStand) {
+            $this->zeitFormFuellen($a, true);
+            unset($this->zeitEintraege, $this->zeitFenster, $this->zeitErledigbar);
+            $this->zeitMeldung = 'Der Eintrag wurde inzwischen geändert – bitte prüfen und erneut speichern.';
+
+            return;
+        }
+
+        // 2. Ungespeicherte Formular-Eingaben werden nicht mitgespeichert — also auch nicht stillschweigend verworfen.
+        $s = $this->zeitStand;
+        if (trim($this->zeitKommen) !== $s['kommen'] || trim($this->zeitGehen) !== $s['gehen']
+            || trim($this->zeitPause) !== $s['pause'] || trim($this->zeitBemerkung) !== $s['bemerkung']) {
+            $this->zeitMeldung = 'Bitte erst speichern, dann als erledigt markieren.';
+
+            return;
+        }
+
+        $this->zeitNachSchreiben($a, $dienst->erledigt($a, $this->zeitAkteur()), 'erledigt');
+    }
+
+    /** Sammel-Aktion ueber die aktuell gefilterten Zeilen; die Anzahl wird HIER neu ermittelt. */
+    public function zeitAlleErledigt(): void
+    {
+        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+            return;
+        }
+        unset($this->filteredAssignments);
+        $n = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->alleErledigt($this->filteredAssignments, $this->zeitAkteur());
+        unset($this->zeitEintraege, $this->zeitFenster, $this->zeitErledigbar);
+        $this->zeitHinweis = $n === 0
+            ? 'Keine ausgecheckten Einträge zu markieren.'
+            : ($n === 1 ? '1 Eintrag als erledigt markiert.' : $n . ' Einträge als erledigt markiert.');
+        if ($this->showZeitModal && ($a = $this->zeitEinbuchung()) !== null) {
+            $this->zeitFormFuellen($a, true);
+        }
+    }
+
+    /** „Wieder oeffnen“: nur mit Listen-Eintrag (serverseitig geprueft) und Pflicht-Grund. */
+    public function zeitOeffnen(): void
+    {
+        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+            return;
+        }
+        $a = $this->zeitEinbuchung();
+        if ($a === null) {
+            $this->zeitWeg();
+
+            return;
+        }
+        $this->resetErrorBag();
+        $status = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->oeffnen($a, $this->zeitAkteur(), $this->zeitOeffnenGrund, auth()->user());
+        if ($status === 'ungueltig') {
+            $this->addError('zeitOeffnenGrund', 'Bitte einen Grund angeben.');
+        }
+        $this->zeitNachSchreiben($a, $status, 'oeffnen');
+    }
+
     /** Meldung zum Ergebnis; bei ok Formular und Schnappschuss neu fuellen. Cache der Spalte und des Fensters verwerfen. */
     private function zeitNachSchreiben(RecDispoAssignment $a, string $status, string $aktion = 'speichern'): void
     {
         unset($this->zeitEintraege, $this->zeitFenster);
         $this->zeitMeldung = match (true) {
             $status === 'ok' => null,
+            $status === 'ungueltig' && $aktion === 'oeffnen' => 'Bitte einen Grund angeben (höchstens 255 Zeichen).',
             $status === 'ungueltig' && $aktion === 'gehen' => 'Gehen liegt vor dem eingetragenen Kommen – bitte die Zeiten prüfen.',
             $status === 'ungueltig' => 'Bitte Grund angeben und Zeiten prüfen (Gehen nicht vor Kommen).',
             $status === 'gesperrt' => 'Der Eintrag ist erledigt und gesperrt.',
+            $status === 'schon' && $aktion === 'erledigt' => 'Schon erledigt.',
+            $status === 'nicht_ausgecheckt' => 'Erledigt geht nur bei ausgecheckten Einträgen.',
+            $status === 'nicht_berechtigt' => 'Dazu fehlt die Berechtigung.',
+            $status === 'nicht_gesperrt' => 'Der Eintrag ist nicht gesperrt.',
             $status === 'unveraendert' => 'Nichts geändert.',
             $status === 'schon' && $aktion === 'gehen' => 'Schon ausgecheckt.',
             $status === 'schon' => 'Schon eingecheckt.',

@@ -33,6 +33,8 @@ class DispoZeiten
         Stempeluhr::ART_SPERRE => 'Sperre',
     ];
 
+    public const GRUND_ERLEDIGT = 'erledigt';
+
     public function __construct(
         private Stempeluhr $uhr,
         private ZeitSchalter $schalter,
@@ -190,6 +192,83 @@ class DispoZeiten
         $bezug = DispoZeitBezug::fuer($a, $this->teamId());
 
         return $bezug === null ? 'ohne_person' : $this->uhr->gehen($bezug, $akteur, Stempeluhr::ART_STELLVERTRETEND);
+    }
+
+    /**
+     * „Erledigt“: sperrt den Datensatz fuer ALLE (auch die Disposition). Nur bei ausgechecktem
+     * Datensatz (Kommen UND Gehen gesetzt) — diese Regel sitzt hier, nicht im Kern.
+     * Grund ist fest „erledigt“.
+     *
+     * ok | schon | nicht_ausgecheckt | aus | ohne_person
+     */
+    public function erledigt(RecDispoAssignment $a, ZeitAkteur $akteur): string
+    {
+        if (!$this->schalter->aktiv()) {
+            return 'aus';
+        }
+        $bezug = DispoZeitBezug::fuer($a, $this->teamId());
+        if ($bezug === null) {
+            return 'ohne_person';
+        }
+        $e = ZeitEintrag::finde($bezug->personTyp, $bezug->personId, $bezug->bezugTyp, $bezug->bezugId);
+        if ($e === null) {
+            return 'nicht_ausgecheckt';
+        }
+        if ($e->istGesperrt()) {
+            return 'schon';
+        }
+        if ($e->kommen_at === null || $e->gehen_at === null) {
+            return 'nicht_ausgecheckt';
+        }
+
+        return $this->uhr->sperren($e, $akteur, self::GRUND_ERLEDIGT);
+    }
+
+    /**
+     * Sammel-Variante: Anzahl NEU gesperrter Datensaetze (nur ausgecheckte, noch nicht gesperrte
+     * der aktuell eingebuchten Person). Die Anzahl entsteht hier, nie aus dem Browser.
+     *
+     * @param iterable<RecDispoAssignment> $assignments
+     */
+    public function alleErledigt(iterable $assignments, ZeitAkteur $akteur): int
+    {
+        $n = 0;
+        foreach ($assignments as $a) {
+            if ($this->erledigt($a, $akteur) === 'ok') {
+                $n++;
+            }
+        }
+
+        return $n;
+    }
+
+    /**
+     * „Wieder oeffnen“ nur fuer Personen auf der Entsperr-Liste (E-Mail), mit Pflicht-Grund.
+     *
+     * ok | nicht_berechtigt | nicht_gesperrt | ungueltig | aus | ohne_person
+     */
+    public function oeffnen(RecDispoAssignment $a, ZeitAkteur $akteur, string $grund, mixed $user): string
+    {
+        if (!$this->schalter->aktiv()) {
+            return 'aus';
+        }
+        if (!$this->schalter->darfEntsperren($user)) {
+            return 'nicht_berechtigt';
+        }
+        $bezug = DispoZeitBezug::fuer($a, $this->teamId());
+        if ($bezug === null) {
+            return 'ohne_person';
+        }
+        $grund = trim($grund);
+        if ($grund === '' || mb_strlen($grund) > 255) {
+            return 'ungueltig';
+        }
+        $e = ZeitEintrag::finde($bezug->personTyp, $bezug->personId, $bezug->bezugTyp, $bezug->bezugId);
+        if ($e === null) {
+            return 'nicht_gesperrt';
+        }
+
+        return $this->uhr->entsperren($e, $akteur, $grund);
     }
 
     /**
