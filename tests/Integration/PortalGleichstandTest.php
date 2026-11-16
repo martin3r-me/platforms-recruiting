@@ -1491,6 +1491,7 @@ final class PortalGleichstandTest extends TestCase
             'infoKastenIds' => 'nur vom Server beim Seitenaufbau gesetzt; an ihr haengt, welche Infos als gesehen gelten',
             'infoOffen'    => 'nur vom Server gesetzt (infoAufklappen), nach der Scope-Pruefung',
             'startReiter'  => 'nur in mount() aus ?tab= gesetzt, gegen PortalShell::REITER geprueft; landet in Alpine-x-data',
+            'stempelMeldung' => 'nur vom Server gesetzt (Stempel-Aktionen); eine Anzeige, aber nicht vom Menschen beschreibbar',
         ];
 
         $klasse = new \ReflectionClass(PortalShell::class);

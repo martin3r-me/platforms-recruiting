@@ -98,6 +98,9 @@ final class PortalInfosTest extends TestCase
         // Die Karte „Portal als App“ (Spec 2026-11-13 §6.6) ist ein eigenes Partial; @include
         // braucht den View-Factory, den dieser Aufbau nicht hat. Gerendert wird sie in PortalAppWiringTest.
         $quelle = str_replace("@include('recruiting::livewire.public._portal-app-karte')", '', $quelle);
+        // Stempel-Kachel und „Meine Zeiten“ (Spec 2026-11-16 §3) sind eigene Partials; @include braucht
+        // den View-Factory, den dieser Aufbau nicht hat. Gerendert werden sie in den Zeit-Tests.
+        $quelle = (string) preg_replace("/@include\\('recruiting::livewire\\.public\\._(?:stempel-kachel|meine-zeiten)'[^\\n]*\\)\\s*$/m", '', $quelle);
         file_put_contents($datei, $compiler->compileString($quelle));
 
         $variablen['__env'] = new class {
