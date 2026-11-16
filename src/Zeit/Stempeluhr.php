@@ -102,6 +102,8 @@ class Stempeluhr
 
     /**
      * $werte: kommen_at, gehen_at, pause_minuten, bemerkung — nur vorhandene Schluessel werden angefasst.
+     * Zeit-Instanzen werden in die PHP-Standard-Zeitzone umgerechnet; Strings ohne Zone gelten als schon dort
+     * (der Aufrufer rechnet um).
      * ok | gesperrt | ungueltig | unveraendert
      */
     public function korrigieren(ZeitBezug $b, ZeitAkteur $a, array $werte, string $grund): string
@@ -183,7 +185,7 @@ class Stempeluhr
                 return 'schon';
             }
 
-            $jetzt = Carbon::now();
+            $jetzt = $this->zeitpunkt(null);
             $e->gesperrt_at = $jetzt;
             $e->gesperrt_grund = $grund;
             $e->save();
@@ -223,7 +225,12 @@ class Stempeluhr
 
     private function zeitpunkt(?\DateTimeInterface $zeit): Carbon
     {
-        return $zeit === null ? Carbon::now() : Carbon::instance($zeit);
+        return Carbon::instance($zeit ?? Carbon::now())->setTimezone(date_default_timezone_get());
+    }
+
+    private function inStandardZone(?\DateTimeInterface $z): ?Carbon
+    {
+        return $z === null ? null : Carbon::instance($z)->setTimezone(date_default_timezone_get());
     }
 
     private function alsZeit(mixed $wert): ?Carbon
@@ -232,7 +239,10 @@ class Stempeluhr
             return null;
         }
 
-        return $wert instanceof \DateTimeInterface ? Carbon::instance($wert) : Carbon::parse($wert);
+        // Zonenlose Strings gelten als Standard-Zeitzone; Instanzen werden dorthin umgerechnet.
+        $zeit = $wert instanceof \DateTimeInterface ? Carbon::instance($wert) : Carbon::parse($wert, date_default_timezone_get());
+
+        return $zeit->setTimezone(date_default_timezone_get());
     }
 
     /** Gesperrt lesen: Zeile des Datensatzes mit Zeilensperre. */
@@ -255,8 +265,8 @@ class Stempeluhr
                 'bezug_typ'   => $b->bezugTyp,
                 'bezug_id'    => $b->bezugId,
                 'tag'         => $b->tag,
-                'soll_von_at' => $b->sollVon,
-                'soll_bis_at' => $b->sollBis,
+                'soll_von_at' => $this->inStandardZone($b->sollVon),
+                'soll_bis_at' => $this->inStandardZone($b->sollBis),
             ]));
         } catch (QueryException $ex) {
             $e = $this->lade($b);
@@ -308,8 +318,8 @@ class Stempeluhr
 
         $e->team_id = $b->teamId;
         $e->tag = $b->tag;
-        $e->soll_von_at = $b->sollVon;
-        $e->soll_bis_at = $b->sollBis;
+        $e->soll_von_at = $this->inStandardZone($b->sollVon);
+        $e->soll_bis_at = $this->inStandardZone($b->sollBis);
         foreach ($diff as $feld => [$alt, $neuText]) {
             if ($feld === 'kommen_at' || $feld === 'gehen_at') {
                 $e->{$feld} = $this->alsZeit($neu[$feld]);

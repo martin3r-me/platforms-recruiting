@@ -9,6 +9,21 @@ use Platform\Recruiting\Zeit\ZeitVerlauf;
 
 class StempeluhrTest extends ZeitTestCase
 {
+    private string $alteZone;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->alteZone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+    }
+
+    protected function tearDown(): void
+    {
+        date_default_timezone_set($this->alteZone);
+        parent::tearDown();
+    }
+
     private function uhr(): Stempeluhr
     {
         return new Stempeluhr($this->regeln());
@@ -94,7 +109,8 @@ class StempeluhrTest extends ZeitTestCase
         $lang = $this->bezug(901, 1, '2026-10-01 14:00', '2026-10-02 00:00');
         $this->assertSame('ok', $uhr->gehen($lang, $this->akteur(), Stempeluhr::ART_SELBST));
         $e = ZeitEintrag::first();
-        $this->assertSame('2026-10-02 00:00:00', $e->soll_bis_at->format('Y-m-d H:i:s'));
+        // Bezug-Ende 00:00 Berlin (MESZ) = 22:00 UTC; gespeichert wird in der Standardzone.
+        $this->assertSame('2026-10-01 22:00:00', $e->soll_bis_at->format('Y-m-d H:i:s'));
     }
 
     public function test_gehen_ohne_kommen(): void
@@ -222,5 +238,43 @@ class StempeluhrTest extends ZeitTestCase
         $uhr->kommen($this->bezug(902, 2), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND);
         $uhr->umhaengen('rec_dispo_assignment', 1, 2, 'rec_employee', 902);
         $this->assertSame(1, (int) ZeitEintrag::where('person_id', 902)->where('bezug_id', 1)->count());
+    }
+
+    private function berlinBezug(): \Platform\Recruiting\Zeit\ZeitBezug
+    {
+        return new \Platform\Recruiting\Zeit\ZeitBezug(
+            'rec_employee', 901, 'rec_dispo_assignment', 1, '2026-10-01',
+            \Carbon\CarbonImmutable::parse('2026-10-01 14:00', 'Europe/Berlin'),
+            \Carbon\CarbonImmutable::parse('2026-10-01 22:00', 'Europe/Berlin'),
+            self::TEAM,
+        );
+    }
+
+    public function test_zeitzone_speichert_in_standardzone_und_fenster_gilt_als_zeitpunkt(): void
+    {
+        $uhr = $this->uhr();
+        Carbon::setTestNow(Carbon::parse('2026-10-01 10:30:00', 'UTC'));
+        $this->assertSame('zu_frueh', $uhr->kommen($this->berlinBezug(), $this->akteur(), Stempeluhr::ART_SELBST));
+
+        Carbon::setTestNow(Carbon::parse('2026-10-01 12:05:00', 'UTC'));
+        $this->assertSame('ok', $uhr->kommen($this->berlinBezug(), $this->akteur(), Stempeluhr::ART_SELBST));
+        $roh = \Illuminate\Database\Capsule\Manager::table('rec_zeit_eintraege')->first();
+        $this->assertSame('2026-10-01 12:05:00', $roh->kommen_at);
+        $this->assertSame('2026-10-01 12:00:00', $roh->soll_von_at);
+        $this->assertSame('2026-10-01 20:00:00', $roh->soll_bis_at);
+    }
+
+    public function test_zeitzone_korrektur_rechnet_um_und_erkennt_gleichen_zeitpunkt(): void
+    {
+        $uhr = $this->uhr();
+        $berlin = \Carbon\CarbonImmutable::parse('2026-10-01 22:30', 'Europe/Berlin');
+        $this->assertSame('ok', $uhr->korrigieren($this->berlinBezug(), $this->akteur(), ['kommen_at' => Carbon::parse('2026-10-01 12:00:00', 'UTC'), 'gehen_at' => $berlin], 'x'));
+        $this->assertSame('2026-10-01 20:30:00', \Illuminate\Database\Capsule\Manager::table('rec_zeit_eintraege')->value('gehen_at'));
+        $this->assertSame('2026-10-01 20:30:00', ZeitVerlauf::where('feld', 'gehen_at')->value('neu'));
+
+        $anzahl = ZeitVerlauf::count();
+        $andereZone = \Carbon\CarbonImmutable::parse('2026-10-01 20:30:00', 'UTC')->setTimezone('Asia/Tokyo');
+        $this->assertSame('unveraendert', $uhr->korrigieren($this->berlinBezug(), $this->akteur(), ['gehen_at' => $andereZone], 'x'));
+        $this->assertSame($anzahl, ZeitVerlauf::count());
     }
 }
