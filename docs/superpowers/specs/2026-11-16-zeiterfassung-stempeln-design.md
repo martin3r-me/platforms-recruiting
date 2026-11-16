@@ -17,11 +17,13 @@ Martin (Core) hat auf die Frage, ob der Stempel-Kern in den Core gehört, nicht 
 - Stempeln durch den Mitarbeiter im Portal, in einem Zeitfenster um die Schicht.
 - Korrektur und stellvertretendes Stempeln durch die Disposition in der Webapp.
 - Verlauf jeder Änderung: Feld, alter Wert, neuer Wert, wer, wann, warum.
-- Sperre eines Datensatzes (Mechanik vorhanden, Auslöser „ZAS-Übergabe“ erst später).
+- Der Mitarbeiter sieht seine abgeschlossenen Zeiten und jede spätere Korrektur (Markus Folie 9/13/20).
+- Sperre eines Datensatzes über die Kennzeichnung „erledigt“ durch die Disposition (Markus Folie 12/13/18). Der zweite Auslöser „ZAS-Übergabe“ kommt später.
+- Zustände als Text, nicht nur als Farbe (Folie 14): nicht eingecheckt, eingecheckt, ausgecheckt, erledigt.
 - Kern wiederverwendbar: keine Abhängigkeit auf Recruiting-Modelle.
 
 **Nicht-Ziele (spätere Abschnitte)**
-- Abschnitt 1b: Teamleiter korrigiert im Portal auf dem Handy (Markus' Kernanforderung; erkannt über die eigene Einbuchung mit Tätigkeit aus `recruiting.zas.dispo_lead_taetigkeiten`).
+- Abschnitt 1b: Teamleiter korrigiert im Portal auf dem Handy (Markus' Kernanforderung; erkannt über die eigene Einbuchung mit Tätigkeit aus `recruiting.zas.dispo_lead_taetigkeiten`). Dazu gehört „Mitarbeiter-Check-in bei Bedarf sperren / Checkout freigeben“ (Folie 13) — Bedeutung mit Markus zu klären.
 - Abschnitt 2: Vorschuss-Antrag (nur bei grüner Akte inkl. Hemdgröße/Name/Land, 80 % der Stunden × Stundensatz, Abzug im Monatslohn). Braucht eine erweiterte Akten-Ampel und einen Stundensatz-Ermittler; beides gibt es heute nicht als eine Stelle.
 - ZAS-Übergabe der Zeiten, Lohnarten für Leihwäsche, Wäsche-Ausgabe/-Abgabe, Standortprüfung (GPS), Lohnübersicht/SEPA.
 
@@ -119,22 +121,26 @@ Bei mehreren passenden Einbuchungen (zwei Schichten an einem Tag) je Einbuchung 
 
 Der Mitarbeiter kann eigene Stempel **nicht** ändern oder zurücknehmen.
 
+**„Meine Zeiten“:** Im Reiter „jobs“, unter den Einsätzen, eine Liste der Zeitdatensätze der Person (alle Anstellungen der Identitätsgruppe), neueste zuerst, die letzten 3 Monate: Tag, Veranstaltung, Kommen – Gehen, Pause, Arbeitszeit, Zustand als Text. Hat die Disposition etwas geändert (Verlauf mit `art = korrektur` oder `stellvertretend`), steht „korrigiert“ bzw. „von der Disposition erfasst“ daneben — ohne Namen des Bearbeiters und ohne Grund. Die Liste erscheint nur bei Schalter an und nur, wenn es mindestens einen Datensatz gibt. Sie liest über den Zeitdatensatz, nicht über `sichtbareEinsaetze`: auch Zeiten zu inzwischen verschwundenen Einbuchungen bleiben sichtbar (Veranstaltungsname aus der Einbuchung, falls noch vorhanden, sonst nur der Tag).
+
 ## 4. Webapp (Disposition)
 
 Ort: Veranstaltungs-Seite `Dispo\Events\Show`, Einbuchungs-Tabelle.
 
-- Neue Spalte „Zeit“ (nur bei Schalter an): „13:52 – 22:07“, „13:52 – läuft“, oder leer. Verspätung ab 1 Minute als kleiner Zusatz „+12“. Gesperrte Datensätze mit Schloss.
+- Neue Spalte „Zeit“ (nur bei Schalter an) mit Zustand als Text und Uhrzeiten: „nicht eingecheckt“ (grau), „eingecheckt 13:52“, „ausgecheckt 13:52 – 22:07“, „erledigt 13:52 – 22:07“ mit Schloss. Verspätung ab 1 Minute als kleiner Zusatz „+12“. Der Zustand wird aus den Feldern abgeleitet (`ZeitEintrag::zustand()`: `offen | eingecheckt | ausgecheckt | erledigt`), nicht gespeichert.
 - Klick öffnet das Fenster „Zeit“ zur Einbuchung: Soll-Schicht, Kommen, Gehen (Datum + Uhrzeit), Pause (leer = nach Regel, mit Anzeige des Regelwerts), Bemerkung, Pflichtfeld „Grund der Änderung“, darunter der Verlauf (neueste zuerst: wann, wer, Feld, alt → neu, Grund).
 - Zwei Schnellknöpfe im Fenster: „Jetzt kommen“ / „Jetzt gehen“ für stellvertretendes Stempeln (`art = stellvertretend`, ohne Fenster-Prüfung).
 - Speichern = `Stempeluhr::korrigieren` (`art = korrektur`), Akteur = angemeldeter Plattform-Nutzer (Typ `user`).
 - Rechte: nur Nutzer mit vollem Dispo-Zugriff. Konten „Nur Veranstaltungen“ (`blockedForEventOnly()`) sehen die Spalte, können aber nichts ändern.
 - Der bestehende Verspätet-Marker (`toggleLate`) bleibt unberührt.
 
-Sperren/Entsperren gibt es in Abschnitt 1 nur als Kern-Funktion mit Tests, ohne Knopf — der Auslöser kommt mit der ZAS-Übergabe.
+**Erledigt:** Im Fenster „Zeit“ der Knopf „Erledigt“ (nur bei ausgechecktem Datensatz, voller Dispo-Zugriff) → `Stempeluhr::sperren` mit Grund `erledigt`. Danach sind alle Zeitfelder für alle gesperrt, auch für die Disposition (Markus: „auch nicht durch Teamleiter“); das Fenster zeigt die Werte nur noch an. Über der Tabelle zusätzlich „Alle ausgecheckten als erledigt markieren“ für den gewählten Tag, mit Rückfrage und Anzahl.
+
+**Wieder öffnen:** nur für Nutzer, deren E-Mail in der Team-Einstellung `zeit_entsperren_emails` steht (Muster `dispo_event_only_emails` in `DispoAccess`), mit Pflicht-Grund; steht im Verlauf. Leer heißt: niemand kann öffnen. Das ist Markus' „separater Verwaltungsprozess“ für Ausnahmen (Folie 18).
 
 ## 5. Einstellungen
 
-`Dispo\Settings`: Schalter „Stempeln im Mitarbeiter-Portal (Test)“ mit dem Hinweis „Gilt nur für Mitarbeiter im neuen Portal. Die Zeiten gehen nicht an ZAS.“ Der Schlüssel muss beim Speichern anderer Einstellungs-Fenster erhalten bleiben (Vorfall `ApplicantSettingsModal`, 13.11.: Schlüssel immer aus dem gespeicherten Stand übernehmen).
+`Dispo\Settings`: Feld „Darf erledigte Zeiten wieder öffnen (E-Mail-Adressen)“ (`zeit_entsperren_emails`) und Schalter „Stempeln im Mitarbeiter-Portal (Test)“ mit dem Hinweis „Gilt nur für Mitarbeiter im neuen Portal. Die Zeiten gehen nicht an ZAS.“ Der Schlüssel muss beim Speichern anderer Einstellungs-Fenster erhalten bleiben (Vorfall `ApplicantSettingsModal`, 13.11.: Schlüssel immer aus dem gespeicherten Stand übernehmen).
 
 ## 6. Was eine Person merkt, die nicht im Pilot ist
 
@@ -155,7 +161,7 @@ Zwei Migrationen → Deploy mit `migrate` vor Traffic, `view:clear`. Schalter bl
 ## 9. Tests
 
 - Unit (rein): `ZeitRechner` (Pausenstufen an den Grenzen 6:00/6:01/9:00/9:01, negative Werte), `RheingedeckZeitRegeln` (Fenster, Mitternacht), `DispoZeitBezug` (Mitternacht, fehlendes `bis`).
-- Integration (Capsule + SQLite, beide Migrationen laden — sonst SQLite-Spaltenlücke): `Stempeluhr` (alle Rückgaben, Verlauf je Feld, Sperre, Korrektur legt an, unverändert schreibt nichts), Portal-Aktionen (Prüf-Schwerpunkte 1–4, Vorbild `PortalShellVerifyTest` + `TestPortalSitzung`), Webapp-Korrektur (Rechte, Grund Pflicht, Verlauf).
+- Integration (Capsule + SQLite, beide Migrationen laden — sonst SQLite-Spaltenlücke): `Stempeluhr` (alle Rückgaben, Verlauf je Feld, Sperre, Korrektur legt an, unverändert schreibt nichts, Leeren, Umhängen), Portal-Aktionen (Prüf-Schwerpunkte 1–5, Vorbild `PortalShellVerifyTest` + `TestPortalSitzung`), „Meine Zeiten“ (nur eigene Datensätze, Korrektur-Vermerk, verschwundene Einbuchung), Webapp-Korrektur (Rechte, Grund Pflicht, Verlauf), Erledigt (sperrt auch die Disposition, Sammel-Aktion nur Ausgecheckte des Tages, Öffnen nur mit Listen-Eintrag).
 - Architektur: `src/Zeit/` importiert nichts aus dem übrigen Modul.
 - `SharedPartialContractTest` für neue Blade-Teile, `tools/blade-check.php`.
 
@@ -164,7 +170,9 @@ Zwei Migrationen → Deploy mit `migrate` vor Traffic, `view:clear`. Schalter bl
 - Fenster gilt auch fürs Gehen: später als 60 Minuten nach Schichtende geht nur über die Disposition. Bei Veranstaltungen, die deutlich überziehen, bleibt der Stempel „läuft“ stehen, bis die Dispo ihn schließt.
 - Stempeln nur bei **bestätigter** Einbuchung.
 - Der Mitarbeiter kann eigene Stempel nicht ändern.
-- Pause wird nach Regel berechnet und nicht gestempelt.
+- Pause wird nach Regel berechnet und nicht gestempelt; die Disposition kann sie überschreiben. Gerechnet wird minutengenau, **ohne Rundung** — Markus hat die Rundungsregel ausdrücklich offen gelassen (Folie 15), das zeigt der Test.
+- „Meine Zeiten“ zeigt 3 Monate und nennt bei Korrekturen weder Bearbeiter noch Grund.
+- Wieder öffnen nach „erledigt“ läuft über eine E-Mail-Liste in den Einstellungen; leer heißt niemand.
 - Person im Kern = die Anstellung (`rec_employee`) der Einbuchung, nicht die übergreifende Person; so passt es zu Lohn und Einsatz.
 - Tabellen heißen `rec_zeit_*` (Modul-Konvention), nicht neutral.
 - Nach der Gegenprüfung ergänzt: Wer gekommen ist, kann immer gehen, auch wenn der Einsatz inzwischen verschoben, abgesagt oder verschwunden ist. Die Disposition darf einen Stempel leeren (mit Grund), danach kann der Mitarbeiter im Fenster neu stempeln. Wird eine Schicht nach dem Kommen verlängert, gilt das neue Ende. Ohne Beginn-Uhrzeit stempelt nur die Disposition. Bei einem Personenwechsel in ZAS bleibt die gestempelte Zeit bei der alten Person.
