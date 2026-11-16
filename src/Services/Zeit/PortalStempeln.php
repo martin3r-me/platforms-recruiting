@@ -220,10 +220,24 @@ class PortalStempeln
                 continue;
             }
             $e = ZeitEintrag::finde($bezug->personTyp, $bezug->personId, $bezug->bezugTyp, $bezug->bezugId);
+            if ($e === null) {
+                // Dieselbe Person, andere Anstellung (RG -> MA) an derselben Einbuchung:
+                // der Stempel der Schwester-Anstellung gilt weiter und verwaist nicht.
+                $schwester = ZeitEintrag::query()
+                    ->where('person_typ', DispoZeitBezug::PERSON_TYP)
+                    ->whereIn('person_id', $ids)
+                    ->where('bezug_typ', DispoZeitBezug::BEZUG_TYP)
+                    ->where('bezug_id', (int) $a->id)
+                    ->orderBy('id')->first();
+                if ($schwester !== null) {
+                    $e = $schwester;
+                    $bezug = new ZeitBezug($bezug->personTyp, (int) $schwester->person_id, $bezug->bezugTyp, $bezug->bezugId, $bezug->tag, $bezug->sollVon, $bezug->sollBis, $bezug->teamId);
+                }
+            }
             $aus[(int) $a->id] = [
                 'zeile' => $this->zeile((int) $a->id, $a->event?->name, $bezug, $e, $spaet, $jetzt, true),
                 'bezug' => $bezug,
-                'akteur' => new ZeitAkteur('rec_employee', (int) $a->rec_employee_id, $name),
+                'akteur' => new ZeitAkteur('rec_employee', $bezug->personId, $name),
                 'weg1' => true,
             ];
         }

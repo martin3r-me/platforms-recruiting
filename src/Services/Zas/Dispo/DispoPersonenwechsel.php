@@ -3,10 +3,13 @@
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoDeclineCheck;
 use Platform\Recruiting\Models\RecDispoJobOfferShift;
+use Platform\Recruiting\Services\Zeit\DispoZeitBezug;
+use Platform\Recruiting\Zeit\Stempeluhr;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -260,6 +263,38 @@ class DispoPersonenwechsel
                     $c->assignment_ids = array_values(array_map(fn ($id) => $id === $liveId ? $ablageId : $id, $ids));
                     $c->save();
                 });
+        }
+        $this->zeitUmziehen($alt, $liveId, $ablageId);
+    }
+
+    /**
+     * Zeiterfassung (Spec 2026-11-16 §2.2): Der Zeitdatensatz der ALTEN Person
+     * zieht in die Ablage mit — auch ein gesperrter („erledigt“), es aendert
+     * sich ja kein Zeitwert. umhaengen() ist ein einzelnes UPDATE (ohne
+     * Wiederholung) und darf deshalb in der Import-Transaktion laufen. Ein
+     * Fehler hier bricht den Import NICHT ab: die Zeit-Zuordnung ist weniger
+     * wichtig als die Lieferung.
+     */
+    private function zeitUmziehen(RecDispoAssignment $alt, int $liveId, int $ablageId): void
+    {
+        if ($alt->rec_employee_id === null || !Schema::hasTable('rec_zeit_eintraege')) {
+            return;
+        }
+        try {
+            app(Stempeluhr::class)->umhaengen(
+                DispoZeitBezug::BEZUG_TYP,
+                $liveId,
+                $ablageId,
+                DispoZeitBezug::PERSON_TYP,
+                (int) $alt->rec_employee_id,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('zeit_umhaengen_fehlgeschlagen', [
+                'live_id'  => $liveId,
+                'ablage_id' => $ablageId,
+                'person_id' => (int) $alt->rec_employee_id,
+                'fehler'   => $e->getMessage(),
+            ]);
         }
     }
 
