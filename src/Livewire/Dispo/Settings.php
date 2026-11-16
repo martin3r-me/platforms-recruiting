@@ -12,6 +12,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAnlass;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
 use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
+use Platform\Recruiting\Services\Zeit\ZeitSchalter;
 use Platform\Recruiting\Support\Filialen;
 
 /**
@@ -56,6 +57,9 @@ class Settings extends Component
 
     /** Stufe "Nur Veranstaltungen" (Gate Stufe 1): eine E-Mail pro Zeile (Textarea, String-Prop). */
     public string $eventOnlyEmails = '';
+    /** Zeiterfassung: Schalter ('1' = an) und Liste derer, die erledigte Zeiten wieder oeffnen duerfen. */
+    public string $zeitStempelnAktiv = '';
+    public string $zeitEntsperrenEmails = '';
     /** Stufe "Schulungsbewertung" (14.09.2026) — getrennte Liste, siehe DispoAccess. */
     public string $trainingLeaderEmails = '';
 
@@ -79,6 +83,8 @@ class Settings extends Component
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
         $this->eventOnlyEmails = implode("\n", (array) ($settings->getSetting('dispo_event_only_emails') ?? []));
         $this->trainingLeaderEmails = implode("\n", (array) ($settings->getSetting('dispo_training_leader_emails') ?? []));
+        $this->zeitStempelnAktiv    = $settings->getSetting(ZeitSchalter::SETTING_AKTIV) ? '1' : '';
+        $this->zeitEntsperrenEmails = implode("\n", (array) ($settings->getSetting(ZeitSchalter::SETTING_ENTSPERREN) ?? []));
 
         $this->escalationEnabled     = $settings->getSetting('dispo_escalation_enabled') ? '1' : '';
         $this->escalationTime1       = (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00');
@@ -235,6 +241,15 @@ class Settings extends Component
         ))));
         $settings->setSetting('dispo_training_leader_emails', $leaders);
         $this->trainingLeaderEmails = implode("\n", $leaders);
+
+        // Zeiterfassung: Schalter + Liste (gleiche Normalisierung wie die Zugangslisten).
+        $zeitEmails = array_values(array_unique(array_filter(array_map(
+            fn ($line) => mb_strtolower(trim($line)),
+            preg_split('/\r?\n/', $this->zeitEntsperrenEmails) ?: []
+        ))));
+        $settings->setSetting(ZeitSchalter::SETTING_AKTIV, $this->zeitStempelnAktiv !== '');
+        $settings->setSetting(ZeitSchalter::SETTING_ENTSPERREN, $zeitEmails);
+        $this->zeitEntsperrenEmails = implode("\n", $zeitEmails);
 
         \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::flush();
 

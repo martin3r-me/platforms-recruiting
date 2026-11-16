@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
+use Platform\Recruiting\Services\Zeit\ZeitSchalter;
 use Platform\Recruiting\Support\HrEinstellungen;
 use Platform\Recruiting\Support\PilotKreis;
 use Platform\Recruiting\Support\PortalVorlagen;
@@ -307,12 +308,13 @@ class ApplicantSettingsModal extends Component
             $this->addError('settings.' . $feld, $meldung);
         }
 
+        // Zeiterfassung: Schalter und Freigeber-Liste gehoeren ebenfalls Dispo → Einstellungen.
         // Jobs anbieten (Gesamtpruefung C1, 13.11.2026): Schalter und Freigeber sind in
         // Dispo → Einstellungen gesperrt; hier kaemen sie per $wire.set oder aus einem
         // veralteten Fenster ungeprueft zurueck. Deshalb immer der gespeicherte Stand —
         // fehlt ein Schluessel dort, fehlt er auch danach.
         $gespeichert = (array) ($this->settingsModel->fresh()?->settings ?? []);
-        foreach ([DispoJobVersandweg::SETTING_AKTIV, DispoJobVersandweg::SETTING_FREIGEBER] as $schluessel) {
+        foreach ([DispoJobVersandweg::SETTING_AKTIV, DispoJobVersandweg::SETTING_FREIGEBER, ZeitSchalter::SETTING_AKTIV, ZeitSchalter::SETTING_ENTSPERREN] as $schluessel) {
             if (array_key_exists($schluessel, $gespeichert)) {
                 $this->settings[$schluessel] = $gespeichert[$schluessel];
             } else {

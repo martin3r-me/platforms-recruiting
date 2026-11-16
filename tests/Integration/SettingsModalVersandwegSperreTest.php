@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Livewire\Applicant\ApplicantSettingsModal;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVersandweg;
+use Platform\Recruiting\Services\Zeit\ZeitSchalter;
 
 /**
  * Jobs anbieten (Gesamtpruefung C1, 13.11.2026): Schalter und Freigeber sind in
@@ -115,6 +116,37 @@ class SettingsModalVersandwegSperreTest extends TestCase
         $this->assertTrue($roh[DispoJobVersandweg::SETTING_AKTIV]);
         $this->assertSame('markus@rg.de', $roh[DispoJobVersandweg::SETTING_FREIGEBER]);
         $this->assertSame('Neu', $roh['comms_topic_text_ask']);
+    }
+
+    public function test_zeit_schluessel_bleiben_erhalten_und_sind_nicht_faelschbar(): void
+    {
+        $this->speichereRoh([ZeitSchalter::SETTING_AKTIV => true, ZeitSchalter::SETTING_ENTSPERREN => ['chef@rg.de']]);
+
+        $m = $this->offen();
+        $m->settings[ZeitSchalter::SETTING_AKTIV] = false;
+        $m->settings[ZeitSchalter::SETTING_ENTSPERREN] = ['fremd@rg.de'];
+        $m->settings['comms_topic_text_ask'] = 'Neu';
+        $m->save();
+
+        $roh = $this->roh();
+        $this->assertTrue($roh[ZeitSchalter::SETTING_AKTIV]);
+        $this->assertSame(['chef@rg.de'], $roh[ZeitSchalter::SETTING_ENTSPERREN]);
+        $this->assertSame('Neu', $roh['comms_topic_text_ask']);
+    }
+
+    public function test_veraltetes_fenster_loescht_die_zeit_schluessel_nicht_und_legt_keine_an(): void
+    {
+        $m = $this->offen();
+        $this->speichereRoh([ZeitSchalter::SETTING_AKTIV => true, ZeitSchalter::SETTING_ENTSPERREN => ['chef@rg.de']]);
+        $m->save();
+        $this->assertTrue($this->roh()[ZeitSchalter::SETTING_AKTIV]);
+        $this->assertSame(['chef@rg.de'], $this->roh()[ZeitSchalter::SETTING_ENTSPERREN]);
+
+        Capsule::table('rec_applicant_settings')->where('team_id', self::TEAM)->update(['settings' => json_encode([])]);
+        $m2 = $this->offen();
+        $m2->settings[ZeitSchalter::SETTING_AKTIV] = true;
+        $m2->save();
+        $this->assertArrayNotHasKey(ZeitSchalter::SETTING_AKTIV, $this->roh());
     }
 
     private function speichereRoh(array $werte): void

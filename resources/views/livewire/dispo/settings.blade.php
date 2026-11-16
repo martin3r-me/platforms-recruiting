@@ -254,6 +254,24 @@
         <p class="text-xs text-gray-500">Wird mit dem Speichern-Button oben übernommen. Gilt ab dem nächsten Seitenaufruf des Kontos.</p>
     </div>
 
+    <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+        <h2 class="text-base font-semibold">Zeiterfassung</h2>
+        <label class="flex items-start gap-2 text-sm">
+            <input type="checkbox" wire:model="zeitStempelnAktiv" class="mt-0.5 rounded border-gray-300">
+            <span>
+                <span class="block font-medium text-gray-700">Stempeln im Mitarbeiter-Portal (Test)</span>
+                <span class="block text-xs text-gray-500">Gilt nur für Mitarbeiter im neuen Portal. Die Zeiten gehen nicht an ZAS.</span>
+            </span>
+        </label>
+        <label class="block text-sm">
+            <span class="mb-1 block font-medium text-gray-700">Darf erledigte Zeiten wieder öffnen (E-Mail-Adressen)</span>
+            <textarea wire:model="zeitEntsperrenEmails" rows="3" placeholder="chef@rheingedeck.de"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+            <span class="mt-1 block text-xs text-gray-500">Eine Adresse pro Zeile. Leer heißt: niemand.</span>
+        </label>
+        <p class="text-xs text-gray-500">Wird mit dem Speichern-Button oben übernommen.</p>
+    </div>
+
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
         <h2 class="text-base font-semibold">Zugriff „Schulungsbewertung"</h2>
         <p class="text-sm text-gray-600">

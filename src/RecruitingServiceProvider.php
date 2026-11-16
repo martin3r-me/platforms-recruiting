@@ -132,6 +132,12 @@ class RecruitingServiceProvider extends ServiceProvider
             fn () => \Platform\Recruiting\Services\Flynk\PostingAnzeigeStore::default()
         );
 
+        // Zeiterfassung: der generische Kern kennt nur die Schnittstelle, die Rheingedeck-Regeln kommen hier.
+        $this->app->bind(
+            \Platform\Recruiting\Zeit\ZeitRegeln::class,
+            \Platform\Recruiting\Services\Zeit\RheingedeckZeitRegeln::class,
+        );
+
         // Automatischer Versand vorgemerkter Vertraege (Spec Versand vormerken §4).
         $this->app->bind(
             \Platform\Recruiting\Services\ReservedSendTrigger::class,

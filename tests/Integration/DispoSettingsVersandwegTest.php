@@ -147,6 +147,23 @@ class DispoSettingsVersandwegTest extends TestCase
         $this->assertSame('13:30', $s->getSetting('dispo_escalation_time_1'));
     }
 
+    public function test_zeit_schalter_und_liste_werden_normalisiert_gespeichert_und_geladen(): void
+    {
+        self::einstellungen();
+        $c = self::komponente('anna@rg.de', ['zeitStempelnAktiv' => '1', 'zeitEntsperrenEmails' => " Chef@RG.de \r\nchef@rg.de\n\nanna@rg.de"]);
+        $c->save();
+
+        $s = self::frisch();
+        $this->assertTrue($s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_AKTIV));
+        $this->assertSame(['chef@rg.de', 'anna@rg.de'], $s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_ENTSPERREN));
+        $this->assertSame("chef@rg.de\nanna@rg.de", $c->zeitEntsperrenEmails);
+
+        $neu = self::komponente('anna@rg.de');
+        $neu->mount();
+        $this->assertSame('1', $neu->zeitStempelnAktiv);
+        $this->assertSame("chef@rg.de\nanna@rg.de", $neu->zeitEntsperrenEmails);
+    }
+
     public function test_fremder_aendert_schalter_und_freigeber_nicht_den_rest_schon(): void
     {
         self::einstellungen([DispoJobVersandweg::SETTING_AKTIV => true, DispoJobVersandweg::SETTING_FREIGEBER => 'markus@rg.de']);
