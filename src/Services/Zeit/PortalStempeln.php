@@ -13,6 +13,7 @@ use Platform\Recruiting\Zeit\ZeitBezug;
 use Platform\Recruiting\Zeit\ZeitEintrag;
 use Platform\Recruiting\Zeit\ZeitRechner;
 use Platform\Recruiting\Zeit\ZeitRegeln;
+use Platform\Recruiting\Zeit\ZeitVerlauf;
 
 /**
  * Stempeln im Mitarbeiter-Portal (Spec 2026-11-16 §3). Die Sitzungspruefung
@@ -50,6 +51,76 @@ class PortalStempeln
         }
 
         return $zeilen;
+    }
+
+    /** Monate, die „Meine Zeiten“ zurueckreicht (am Ortstag gerechnet). */
+    public const ZEITEN_MONATE = 3;
+
+    /**
+     * „Meine Zeiten“ (Spec 2026-11-16 §3): Zeitdatensaetze der Identitaetsgruppe
+     * mit gesetztem Kommen, letzte drei Monate, neueste zuerst. Gelesen ueber den
+     * Zeitdatensatz — auch Zeiten zu verschwundenen Einbuchungen bleiben (dann
+     * ohne Veranstaltungsname). Leer bei Schalter aus oder gesperrter Gruppe.
+     *
+     * @return list<array{tag:string,name:?string,kommen:?string,gehen:?string,pause:?int,arbeitszeit:?string,zustand:string,vermerk:?string}>
+     */
+    public function meineZeiten(RecEmployee $angemeldet, \DateTimeInterface $jetzt): array
+    {
+        if (!$this->schalter->aktiv()) {
+            return [];
+        }
+        $ids = $this->identitaet->groupFor((int) $angemeldet->id);
+        if (RecEmployee::query()->whereIn('id', $ids)->whereNotNull('portal_locked_at')->exists()) {
+            return [];
+        }
+
+        $grenze = ZeitAnzeige::ortszeit($this->alsCarbon($jetzt))->subMonthsNoOverflow(self::ZEITEN_MONATE)->format('Y-m-d');
+        $eintraege = ZeitEintrag::query()
+            ->where('person_typ', DispoZeitBezug::PERSON_TYP)
+            ->whereIn('person_id', $ids)
+            ->where('bezug_typ', DispoZeitBezug::BEZUG_TYP)
+            ->whereNotNull('kommen_at')
+            ->whereDate('tag', '>=', $grenze)
+            ->orderByDesc('tag')->orderByDesc('id')
+            ->get();
+        if ($eintraege->isEmpty()) {
+            return [];
+        }
+
+        // Gebuendelt: Veranstaltungsnamen und Verlaufs-Arten je eine Abfrage.
+        $namen = [];
+        foreach (RecDispoAssignment::query()->with('event')->whereIn('id', $eintraege->pluck('bezug_id')->unique()->all())->get() as $a) {
+            $n = trim((string) $a->event?->name);
+            $namen[(int) $a->id] = $n !== '' ? $n : null;
+        }
+        $arten = [];
+        foreach (ZeitVerlauf::query()
+            ->whereIn('rec_zeit_eintrag_id', $eintraege->pluck('id')->all())
+            ->whereIn('art', [Stempeluhr::ART_KORREKTUR, Stempeluhr::ART_STELLVERTRETEND])
+            ->distinct()->get(['rec_zeit_eintrag_id', 'art']) as $v) {
+            $arten[(int) $v->rec_zeit_eintrag_id][(string) $v->art] = true;
+        }
+
+        $liste = [];
+        foreach ($eintraege as $e) {
+            $anwesend = ZeitRechner::anwesendMinuten($e->kommen_at, $e->gehen_at);
+            $pause = $anwesend === null ? null : ZeitRechner::pauseMinuten($e->pause_minuten === null ? null : (int) $e->pause_minuten, $anwesend, $this->regeln);
+            $arbeit = $anwesend === null ? null : ZeitRechner::arbeitsMinuten($anwesend, (int) $pause);
+            $a = $arten[(int) $e->id] ?? [];
+            $liste[] = [
+                'tag' => \Carbon\Carbon::parse($e->tag)->format('d.m.Y'),
+                'name' => $namen[(int) $e->bezug_id] ?? null,
+                'kommen' => ZeitAnzeige::uhrzeit($e->kommen_at),
+                'gehen' => $e->gehen_at === null ? null : ZeitAnzeige::uhrzeit($e->gehen_at),
+                'pause' => $pause,
+                'arbeitszeit' => $arbeit === null ? null : ZeitRechner::alsStunden($arbeit),
+                'zustand' => $e->zustand(),
+                'vermerk' => isset($a[Stempeluhr::ART_KORREKTUR]) ? 'korrigiert'
+                    : (isset($a[Stempeluhr::ART_STELLVERTRETEND]) ? 'von der Disposition erfasst' : null),
+            ];
+        }
+
+        return $liste;
     }
 
     /** ok | schon | zu_frueh | zu_spaet | gesperrt | aus | nicht_erlaubt */

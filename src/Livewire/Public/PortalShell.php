@@ -1120,6 +1120,27 @@ class PortalShell extends Component
     }
 
     /**
+     * „Meine Zeiten“ (Spec 2026-11-16 §3): Liste aus PortalStempeln, nur fuer
+     * einen berechtigten Mitarbeiter. Ein Fehler kostet nur diese Liste.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function meineZeiten(RecEmployee $employee): array
+    {
+        try {
+            return app(\Platform\Recruiting\Services\Zeit\PortalStempeln::class)->meineZeiten($employee, now());
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('recruiting.portal.meine_zeiten_fehlgeschlagen', ['employee_id' => $employee->id, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die leere Liste
+            }
+
+            return [];
+        }
+    }
+
+    /**
      * „Kommen“ stempeln. Zeit ist IMMER die Serverzeit; die Einbuchung wird
      * im Dienst neu geladen und gegen die Identitaetsgruppe geprueft.
      * Ohne gueltige Sitzung (berechtigterMitarbeiter) passiert nichts.
@@ -1462,6 +1483,8 @@ class PortalShell extends Component
             'naechsterEinsatz'  => $employee !== null ? $this->naechsterEinsatz($employee) : null,
             // Stempel-Kachel (Spec 2026-11-16 §3): leer bei Schalter aus, Sperre oder ohne Fenster.
             'stempelZeilen'     => $employee !== null ? $this->stempelZeilen($employee) : [],
+            // Meine Zeiten (Spec 2026-11-16 §3): leer bei Schalter aus, Sperre oder ohne Datensaetze.
+            'meineZeiten'       => $employee !== null ? $this->meineZeiten($employee) : [],
             // Karte „N neue Einsätze“ (Spec 2026-11-13 §6.5); nur verified (berechtigterMitarbeiter).
             'neueAngebote'      => $employee !== null ? $this->neueAngebote($employee) : 0,
             // Karte „Portal als App“ (Spec 6.6/6.7): Push-Teil nur mit Push-Dienst, Schluessel nur dann.

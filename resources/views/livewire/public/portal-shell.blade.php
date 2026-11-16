@@ -559,6 +559,9 @@
                 <livewire:recruiting.public.job-offers :token="$token" :eingebettet="true" lazy wire:key="angebote-im-portal" />
 
                 <livewire:recruiting.public.employee-assignments :token="$token" :eingebettet="true" lazy wire:key="einsaetze-im-portal" />
+
+                {{-- Meine Zeiten (Spec 2026-11-16 §3): gibt ohne Zeilen nichts aus. --}}
+                @include('recruiting::livewire.public._meine-zeiten', ['meineZeiten' => $meineZeiten, 'duzen' => $duzen])
             </div>
 
             {{-- ---------------- DOKUMENTE ---------------- --}}
