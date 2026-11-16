@@ -53,6 +53,8 @@ class Show extends Component
 {
     use WithFileUploads;
 
+    /** Nur mount() setzt die Veranstaltung — vom Browser nicht umstellbar (sonst liefen alle Aktionen gegen eine fremde VA). */
+    #[Locked]
     public int $eventId;
 
     public bool $showSendModal = false;
@@ -1897,6 +1899,15 @@ class Show extends Component
         $this->zeitMeldung = $text;
     }
 
+    /** Weichen die Formularfelder vom Schnappschuss beim Oeffnen ab? (Grund zaehlt nicht — er ist kein Wert des Datensatzes.) */
+    private function zeitUngespeichert(): bool
+    {
+        $s = $this->zeitStand;
+
+        return trim($this->zeitKommen) !== ($s['kommen'] ?? '') || trim($this->zeitGehen) !== ($s['gehen'] ?? '')
+            || trim($this->zeitPause) !== ($s['pause'] ?? '') || trim($this->zeitBemerkung) !== ($s['bemerkung'] ?? '');
+    }
+
     /** Korrektur (art = korrektur). Zeiten sind Ortszeit; gespeichert wird UTC. */
     public function zeitSpeichern(): void
     {
@@ -1998,6 +2009,12 @@ class Show extends Component
             return;
         }
         $this->resetErrorBag();
+        // Ungespeicherte Eingaben wuerden beim Neu-Fuellen kommentarlos verschwinden.
+        if ($this->zeitUngespeichert()) {
+            $this->zeitMeldung = 'Bitte erst speichern oder die Eingaben verwerfen.';
+
+            return;
+        }
         $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztKommen($a, $this->zeitAkteur()), 'kommen');
     }
 
@@ -2013,6 +2030,12 @@ class Show extends Component
             return;
         }
         $this->resetErrorBag();
+        // Ungespeicherte Eingaben wuerden beim Neu-Fuellen kommentarlos verschwinden.
+        if ($this->zeitUngespeichert()) {
+            $this->zeitMeldung = 'Bitte erst speichern oder die Eingaben verwerfen.';
+
+            return;
+        }
         $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $this->zeitAkteur()), 'gehen');
     }
 
@@ -2069,9 +2092,7 @@ class Show extends Component
         }
 
         // 2. Ungespeicherte Formular-Eingaben werden nicht mitgespeichert — also auch nicht stillschweigend verworfen.
-        $s = $this->zeitStand;
-        if (trim($this->zeitKommen) !== $s['kommen'] || trim($this->zeitGehen) !== $s['gehen']
-            || trim($this->zeitPause) !== $s['pause'] || trim($this->zeitBemerkung) !== $s['bemerkung']) {
+        if ($this->zeitUngespeichert()) {
             $this->zeitMeldung = 'Bitte erst speichern, dann als erledigt markieren.';
 
             return;

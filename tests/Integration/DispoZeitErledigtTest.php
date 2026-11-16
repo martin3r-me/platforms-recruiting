@@ -257,6 +257,121 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $this->assertSame(1, ZeitVerlauf::query()->where('art', 'sperre')->count(), 'schon Erledigtes bekommt keine zweite Zeile');
     }
 
+    /** K1: „nur ausgecheckt“ entscheidet die Sperr-Transaktion des Kerns, nicht die Vorab-Pruefung des Dienstes. */
+    public function test_erledigt_reicht_die_ausgecheckt_bedingung_und_das_ergebnis_des_kerns_durch(): void
+    {
+        $a = $this->einbuchung();
+        $this->aus($a);
+        $uhr = new class($this->regeln()) extends Stempeluhr {
+            /** @var list<bool> */
+            public array $nurAusgecheckt = [];
+
+            public function sperren(ZeitEintrag $e, \Platform\Recruiting\Zeit\ZeitAkteur $a, string $grund, bool $nurAusgecheckt = false): string
+            {
+                $this->nurAusgecheckt[] = $nurAusgecheckt;
+
+                // Rennen: zwischen Vorab-Pruefung und Sperre wurde das Gehen geleert.
+                return 'nicht_ausgecheckt';
+            }
+        };
+        $d = new DispoZeiten($uhr, $this->schalter, $this->regeln());
+
+        $this->assertSame('nicht_ausgecheckt', $d->erledigt($a, $this->akteur()));
+        $this->assertSame(0, $d->alleErledigt([$a], $this->akteur()), 'zaehlt nur, was der Kern wirklich gesperrt hat');
+        $this->assertSame([true, true], $uhr->nurAusgecheckt);
+    }
+
+    /** K4: Zeilen ohne ausgecheckten Datensatz kosten in der Sammel-Aktion keine Abfrage. */
+    public function test_sammel_aktion_fragt_nicht_je_zeile(): void
+    {
+        $abfragen = function (int $ohne): int {
+            foreach (['rec_zeit_eintraege', 'rec_zeit_verlauf', 'rec_dispo_assignments'] as $t) {
+                Capsule::table($t)->delete();
+            }
+            $event = $this->event();
+            $zeilen = [$this->einbuchung($event, ['rec_employee_id' => 911])];
+            $this->aus($zeilen[0]);
+            for ($i = 0; $i < $ohne; $i++) {
+                $zeilen[] = $this->einbuchung($event, ['rec_employee_id' => 920 + $i]);
+            }
+            $offen = $this->einbuchung($event, ['rec_employee_id' => 990]);
+            $this->eintrag($offen, ['kommen_at' => '2026-10-01 12:00:00']);
+            $zeilen[] = $offen;
+
+            $db = Capsule::connection();
+            $db->flushQueryLog();
+            $db->enableQueryLog();
+            $n = $this->dienst()->alleErledigt($zeilen, $this->akteur());
+            $db->disableQueryLog();
+            $this->assertSame(1, $n);
+
+            return count($db->getQueryLog());
+        };
+
+        $wenig = $abfragen(1);
+        $viel = $abfragen(12);
+        $this->assertSame($wenig, $viel, 'Abfragen wachsen nicht mit der Zeilenzahl');
+    }
+
+    public function test_sammel_aktion_bei_schalter_aus_sperrt_nichts(): void
+    {
+        $a = $this->einbuchung();
+        $this->aus($a);
+        $this->schalter->an = false;
+
+        $this->assertSame(0, $this->dienst()->alleErledigt([$a], $this->akteur()));
+        $this->assertNull($this->gespeichert($a)->gesperrt_at);
+    }
+
+    public function test_sammel_aktion_laesst_den_rest_einer_anderen_person_an_der_zeile_in_ruhe(): void
+    {
+        $a = $this->einbuchung(null, ['rec_employee_id' => 911]);
+        $rest = ZeitEintrag::create([
+            'team_id' => self::TEAM, 'person_typ' => 'rec_employee', 'person_id' => 777,
+            'bezug_typ' => 'rec_dispo_assignment', 'bezug_id' => $a->id, 'tag' => '2026-10-01',
+            'kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00',
+        ]);
+
+        $this->assertSame(0, $this->dienst()->alleErledigt([$a], $this->akteur()));
+        $this->assertNull($rest->fresh()->gesperrt_at);
+    }
+
+    /** K7: die Schnellknoepfe verwerfen keine ungespeicherten Eingaben. */
+    public function test_jetzt_kommen_und_gehen_verweigern_bei_ungespeicherten_eingaben(): void
+    {
+        $a = $this->einbuchung();
+        $c = $this->offen($a);
+        $c->zeitBemerkung = 'noch nicht gespeichert';
+
+        $c->zeitJetztKommen();
+
+        $this->assertNull($this->gespeichert($a), 'nichts gestempelt');
+        $this->assertSame('Bitte erst speichern oder die Eingaben verwerfen.', $c->zeitMeldung);
+        $this->assertSame('noch nicht gespeichert', $c->zeitBemerkung, 'Eingabe bleibt stehen');
+
+        // Verworfen: dann geht es.
+        $c->zeitBemerkung = '';
+        $c->zeitJetztKommen();
+        $this->assertNotNull($this->gespeichert($a)->kommen_at);
+
+        $c->zeitPause = '20';
+        $c->zeitJetztGehen();
+        $this->assertNull($this->gespeichert($a)->gehen_at, 'auch Gehen stempelt nicht ueber ungespeicherte Eingaben');
+        $this->assertSame('Bitte erst speichern oder die Eingaben verwerfen.', $c->zeitMeldung);
+        $this->assertSame('20', $c->zeitPause);
+
+        $c->zeitPause = '';
+        $c->zeitJetztGehen();
+        $this->assertNotNull($this->gespeichert($a)->gehen_at);
+    }
+
+    /** Haertung: die Veranstaltung der Seite ist vom Browser nicht umstellbar. */
+    public function test_event_id_der_seite_ist_gesperrt(): void
+    {
+        $attribute = (new \ReflectionProperty(\Platform\Recruiting\Livewire\Dispo\Events\Show::class, 'eventId'))->getAttributes(\Livewire\Attributes\Locked::class);
+        $this->assertCount(1, $attribute);
+    }
+
     public function test_oeffnen_nur_mit_listen_eintrag(): void
     {
         $a = $this->einbuchung();
