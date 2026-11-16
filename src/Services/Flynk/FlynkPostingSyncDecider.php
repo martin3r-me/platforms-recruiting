@@ -7,6 +7,9 @@ final class FlynkPostingSyncDecider
     public static function decide(FlynkPostingState $s): ?string
     {
         if ($s->isOpen && !$s->publishRowExists) {
+            if (!$s->hasStarted) {
+                return null; // Startdatum liegt noch in der Zukunft
+            }
             return FlynkEvent::PUBLISH;
         }
         if ($s->isOpen && $s->publishSent && $s->contentHash !== $s->lastDeliverableContentHash) {
@@ -71,7 +74,14 @@ final class FlynkPostingSyncDecider
             if (!in_array($r['event_type'], [FlynkEvent::PUBLISH, FlynkEvent::UPDATE], true)) {
                 continue;
             }
-            if (!in_array($r['status'], ['pending', 'sent'], true)) {
+            // ENDGUELTIG gescheiterte Zeilen (422/413/415, Datei nicht lesbar)
+            // zaehlen mit: derselbe Inhalt wuerde genauso wieder scheitern, und
+            // ohne diese Zeile entstuende alle 30 Minuten eine neue Meldung.
+            // Erst ein GEAENDERTER Inhalt (z.B. neue Datei) loest wieder aus.
+            // Voruebergehend gescheiterte (5xx, Netz) bleiben draussen — die
+            // heilen sich wie bisher durch eine frische Meldung.
+            $permanentFailed = $r['status'] === 'failed' && !empty($r['permanent_failure']);
+            if (!in_array($r['status'], ['pending', 'sent'], true) && !$permanentFailed) {
                 continue;
             }
             if ((int) $r['seq'] > $bestSeq) {
@@ -82,7 +92,7 @@ final class FlynkPostingSyncDecider
         return $best;
     }
 
-    public static function buildState(array $rows, bool $isOpen, string $contentHash): FlynkPostingState
+    public static function buildState(array $rows, bool $isOpen, string $contentHash, bool $hasStarted = true): FlynkPostingState
     {
         $gen = self::generation($rows);
 
@@ -94,19 +104,24 @@ final class FlynkPostingSyncDecider
             publishSent: self::publishSent($rows, $gen),
             closeRowExists: self::closeRowExists($rows, $gen),
             lastDeliverableContentHash: self::lastDeliverableContentHash($rows, $gen),
+            hasStarted: $hasStarted,
         );
     }
 
     /**
      * @param array<int,array{id:int,event_type:string}> $undelivered  nur pending/failed-Zeilen der Generation
+     * @param bool $hasStarted  false = Startdatum liegt noch in der Zukunft: eine noch nicht
+     *                          zugestellte publish-Zeile ist dann ebenfalls stale (sonst wuerde
+     *                          der Retry-Pass sie am Startdatum vorbei senden)
      * @return int[]
      */
-    public static function staleRowIds(bool $isOpen, array $undelivered): array
+    public static function staleRowIds(bool $isOpen, array $undelivered, bool $hasStarted = true): array
     {
         $stale = [];
         foreach ($undelivered as $r) {
             $due = match ($r['event_type']) {
-                FlynkEvent::PUBLISH, FlynkEvent::UPDATE => $isOpen,
+                FlynkEvent::PUBLISH => $isOpen && $hasStarted,
+                FlynkEvent::UPDATE => $isOpen,
                 FlynkEvent::CLOSE => !$isOpen,
                 default => true,
             };
@@ -115,6 +130,33 @@ final class FlynkPostingSyncDecider
             }
         }
         return $stale;
+    }
+
+    /**
+     * Endgueltig gescheiterte publish-Zeilen, deren Inhalt inzwischen ein
+     * ANDERER ist. Sie blockieren sonst ihren Platz fuer immer (publishRowExists
+     * bleibt wahr, publishSent falsch) — die Anzeige kaeme nie bei FLYNK an,
+     * auch nicht nach einer neuen Datei. Loeschen gibt den Platz frei.
+     * Bei unveraendertem Inhalt bleibt die Zeile stehen (kein Dauerfeuer).
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return int[]
+     */
+    public static function deadPublishRowIds(array $rows, int $gen, string $currentHash): array
+    {
+        $ids = [];
+        foreach ($rows as $r) {
+            if ($r['event_type'] === FlynkEvent::PUBLISH
+                && (int) $r['generation'] === $gen
+                && $r['status'] === 'failed'
+                && !empty($r['permanent_failure'])
+                && (string) $r['content_hash'] !== $currentHash
+            ) {
+                $ids[] = (int) $r['id'];
+            }
+        }
+
+        return $ids;
     }
 
     /** @param int[] $updateSeqsInGeneration */

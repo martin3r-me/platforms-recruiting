@@ -12,6 +12,12 @@ final class FlynkPostingState
         public readonly bool $publishSent,
         public readonly bool $closeRowExists,
         public readonly ?string $lastDeliverableContentHash,
+        /**
+         * Startdatum erreicht (oder keins gesetzt). Bremst NUR die erste
+         * „veroeffentlichen"-Meldung — eine bereits gemeldete Anzeige wird durch
+         * ein nachtraeglich in die Zukunft gesetztes Startdatum nicht entfernt.
+         */
+        public readonly bool $hasStarted = true,
     ) {
     }
 }

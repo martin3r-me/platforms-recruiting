@@ -118,10 +118,18 @@ class RecruitingServiceProvider extends ServiceProvider
         $this->app->singleton(
             \Platform\Recruiting\Services\Flynk\FlynkClient::class,
             fn ($app) => new \Platform\Recruiting\Services\Flynk\FlynkClient(
-                baseUrl: (string) config('recruiting.flynk.base_url', 'https://flynk.on-forge.com/api'),
+                baseUrl: (string) config('recruiting.flynk.base_url', 'https://app.flynk.me/api'),
                 token:   (string) config('recruiting.flynk.token', ''),
                 timeout: (int) config('recruiting.flynk.timeout', 10),
+                uploadTimeout: (int) config('recruiting.flynk.upload_timeout', 60),
             )
+        );
+
+        // Ablage der Anzeige-Dateien: Filesystem + Disk-Name sind keine
+        // autowire-baren Parameter, deshalb explizit gebunden.
+        $this->app->bind(
+            \Platform\Recruiting\Services\Flynk\PostingAnzeigeStore::class,
+            fn () => \Platform\Recruiting\Services\Flynk\PostingAnzeigeStore::default()
         );
 
         // Automatischer Versand vorgemerkter Vertraege (Spec Versand vormerken §4).
@@ -280,9 +288,12 @@ class RecruitingServiceProvider extends ServiceProvider
             ->withoutOverlapping(5)
             ->runInBackground();
 
+        // Sperre 60 statt 15 Minuten: seit die Anzeige als Datei mitgeht, kann ein
+        // Lauf bei haengender Gegenstelle deutlich laenger dauern — eine zu frueh
+        // verfallene Sperre liesse zwei Laeufe dieselbe Meldung senden.
         Schedule::command('recruiting:flynk-reconcile')
             ->everyThirtyMinutes()
-            ->withoutOverlapping(15)
+            ->withoutOverlapping(60)
             ->runInBackground();
 
         // MA-Kontaktbuch: Konvergenz-Garantie fuer alle Pfade, die der Observer

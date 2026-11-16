@@ -4,7 +4,13 @@ namespace Platform\Recruiting\Services\Flynk;
 
 final class FlynkPostingPayloadBuilder
 {
-    public static function contentHash(?string $title, ?string $description, ?string $activity, ?string $refCode = null): string
+    /**
+     * $fileHash = SHA-256 der angehaengten Anzeige-Datei. Wie beim Referenz-Code
+     * nur bei vorhandener Datei angehaengt: Ausschreibungen ohne Datei behalten
+     * ihren bisherigen Hash (sonst Update-Welle an die Agentur). Ein Dateitausch
+     * aendert den Hash → „aktualisieren"-Meldung; Entfernen der Datei ebenso.
+     */
+    public static function contentHash(?string $title, ?string $description, ?string $activity, ?string $refCode = null, ?string $fileHash = null): string
     {
         $base = trim((string) $title) . "\n" . trim((string) $description) . "\n" . trim((string) $activity);
         // Nur bei vorhandenem Code anhängen — Bestands-Postings ohne Code
@@ -12,6 +18,10 @@ final class FlynkPostingPayloadBuilder
         $refCode = trim((string) $refCode);
         if ($refCode !== '') {
             $base .= "\n" . $refCode;
+        }
+        $fileHash = trim((string) $fileHash);
+        if ($fileHash !== '') {
+            $base .= "\nfile:" . $fileHash;
         }
 
         return hash('sha256', $base);
@@ -27,17 +37,22 @@ final class FlynkPostingPayloadBuilder
         $refCodeLine = $refCode !== ''
             ? "\n\nReferenz-Code: {$refCode} — bitte gut sichtbar in der Anzeige aufführen (dient der automatischen Zuordnung eingehender Bewerbungen)."
             : '';
+        $fileHash = trim((string) ($posting['anzeige_hash'] ?? ''));
+        $fileName = trim((string) ($posting['anzeige_filename'] ?? ''));
+        $fileLine = $fileHash !== ''
+            ? "\n\nDie Stellenanzeige liegt als Datei bei" . ($fileName !== '' ? ": {$fileName}" : '') . '.'
+            : '';
 
         [$taskTitle, $taskType, $taskDescription] = match ($event) {
             FlynkEvent::PUBLISH => [
                 "Stellenanzeige: {$title}",
                 'new_section',
-                $description . $activityLine . $refCodeLine . "\n\nBitte als Stellenanzeige auf der Karriereseite veröffentlichen.",
+                $description . $activityLine . $refCodeLine . $fileLine . "\n\nBitte als Stellenanzeige auf der Karriereseite veröffentlichen.",
             ],
             FlynkEvent::UPDATE => [
                 "Stellenanzeige aktualisieren: {$title}",
                 'text_change',
-                $description . $activityLine . $refCodeLine . "\n\nBestehende Anzeige mit diesem Stand aktualisieren.",
+                $description . $activityLine . $refCodeLine . $fileLine . "\n\nBestehende Anzeige mit diesem Stand aktualisieren.",
             ],
             FlynkEvent::CLOSE => [
                 "Stellenanzeige entfernen: {$title}",
@@ -58,6 +73,7 @@ final class FlynkPostingPayloadBuilder
                 'ref_code' => $refCode !== '' ? $refCode : null,
                 'team_id' => $posting['team_id'] ?? null,
                 'generation' => $posting['generation'] ?? null,
+                'published_at' => $posting['published_at'] ?? null,
                 'closes_at' => $posting['closes_at'] ?? null,
                 'event' => $event,
             ],
@@ -69,7 +85,7 @@ final class FlynkPostingPayloadBuilder
 
         $contentHash = $event === FlynkEvent::CLOSE
             ? ''
-            : self::contentHash($title, $description, $activity, $refCode);
+            : self::contentHash($title, $description, $activity, $refCode, $fileHash);
 
         return new FlynkTask($payload, $contentHash);
     }

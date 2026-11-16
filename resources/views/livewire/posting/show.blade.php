@@ -100,6 +100,49 @@
                     hint="Erfahrungswert im Team: 7–10 Bewerbungen pro Einstellung. Leer = keine Pipeline-Ampel."
                 />
             </div>
+            {{--
+                Stellenanzeige als Datei (FLYNK, 16.11.2026). Wird SOFORT beim
+                Auswaehlen abgelegt (Show::updatedAnzeigeUpload), nicht erst mit
+                „Speichern". Alles vorberechnet + Block-Direktiven: inline-@if in
+                Attributen bricht die x-ui-Komponenten lautlos.
+            --}}
+            @php
+                $anzeigeVorhanden = $posting->hasAnzeigeDatei();
+                $anzeigeName = (string) ($posting->anzeige_filename ?: 'Anzeige');
+                $anzeigeGroesse = $posting->anzeige_size ? number_format($posting->anzeige_size / 1048576, 1, ',', '.') . ' MB' : '';
+                $anzeigeProblem = $this->anzeigeFlynkProblem;
+                $anzeigeProblemText = ($anzeigeProblem['art'] ?? '') === 'datei'
+                    ? 'Die Agentur hat bei der letzten Übergabe den Text bekommen, die Datei aber nicht übernommen. Bitte eine andere Datei hochladen.'
+                    : 'Die letzte Übergabe an die Agentur ist gescheitert und wird nicht von selbst wiederholt. Bitte Datei oder Text ändern, dann geht sie neu raus.';
+                $anzeigeMax = \Platform\Recruiting\Services\Flynk\PostingAnzeigeStore::MAX_LABEL;
+            @endphp
+            <div class="mt-6">
+                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Stellenanzeige als Datei</label>
+                <div class="text-sm text-[var(--ui-muted)] mb-2">
+                    PDF oder DOCX, bis {{ $anzeigeMax }}. Geht zusammen mit Start- und Enddatum an die Website-Agentur, sobald die Ausschreibung veröffentlicht ist. Ohne Datei wird nur der Text übergeben.
+                </div>
+                @if($anzeigeVorhanden)
+                    <div class="flex flex-wrap items-center gap-3 mb-2">
+                        @svg('heroicon-o-paper-clip', 'w-4 h-4 text-[var(--ui-muted)]')
+                        <button type="button" wire:click="downloadAnzeige" class="text-sm font-medium text-blue-700 hover:underline">{{ $anzeigeName }}</button>
+                        <span class="text-sm text-[var(--ui-muted)]">{{ $anzeigeGroesse }}</span>
+                        <button type="button" wire:click="removeAnzeige" wire:confirm="Anzeige-Datei wirklich entfernen?" class="text-sm text-red-600 hover:underline">Entfernen</button>
+                    </div>
+                @endif
+                <input type="file" accept=".pdf,.docx" wire:model="anzeigeUpload" class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
+                <div wire:loading wire:target="anzeigeUpload" class="mt-1 text-sm text-[var(--ui-muted)]">Wird hochgeladen …</div>
+                @if($anzeigeVorhanden)
+                    <div class="mt-1 text-sm text-[var(--ui-muted)]">Eine neue Datei ersetzt die vorhandene.</div>
+                @endif
+                @error('anzeigeUpload')
+                    <div class="mt-1 text-sm text-red-600">{{ $message }}</div>
+                @enderror
+                @if($anzeigeProblem)
+                    <div class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {{ $anzeigeProblemText }} ({{ $anzeigeProblem['text'] }})
+                    </div>
+                @endif
+            </div>
             @if($publishedAt && $closesAt)
                 @php
                     $days = \Carbon\Carbon::parse($publishedAt)->diffInDays(\Carbon\Carbon::parse($closesAt));

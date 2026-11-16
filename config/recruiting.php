@@ -297,10 +297,14 @@ return [
     */
     'flynk' => [
         'enabled'      => (bool) env('RECRUITING_FLYNK_ENABLED', false),
-        'base_url'     => env('RECRUITING_FLYNK_BASE_URL', 'https://flynk.on-forge.com/api'),
+        'base_url'     => env('RECRUITING_FLYNK_BASE_URL', 'https://app.flynk.me/api'),
         'token'        => env('RECRUITING_FLYNK_TOKEN'),
         'careers_url'  => env('RECRUITING_FLYNK_CAREERS_URL'),
         'timeout'      => (int) env('RECRUITING_FLYNK_TIMEOUT', 10),
+        // Eigenes Zeitlimit fuer Meldungen MIT Datei (bis 50 MB).
+        'upload_timeout' => (int) env('RECRUITING_FLYNK_UPLOAD_TIMEOUT', 60),
+        // Ablage der Anzeige-Dateien. Leer = dieselbe Disk wie die ZAS-Dateien.
+        'disk'         => env('RECRUITING_FLYNK_DISK'),
         'per_run_cap'  => (int) env('RECRUITING_FLYNK_PER_RUN_CAP', 50),
         'max_attempts' => (int) env('RECRUITING_FLYNK_MAX_ATTEMPTS', 5),
     ],

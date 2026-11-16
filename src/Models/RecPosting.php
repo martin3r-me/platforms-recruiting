@@ -13,12 +13,14 @@ class RecPosting extends Model
         'uuid', 'rec_position_id', 'team_id', 'title', 'description', 'activity',
         'status', 'published_at', 'closes_at', 'is_active', 'created_by_user_id',
         'bedarf', 'bewerbungs_faktor',
+        'anzeige_disk', 'anzeige_path', 'anzeige_filename', 'anzeige_mime', 'anzeige_size', 'anzeige_hash',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'published_at' => 'datetime',
         'closes_at' => 'datetime',
+        'anzeige_size' => 'integer',
         'bedarf' => 'integer',
         'bewerbungs_faktor' => 'float',
     ];
@@ -191,14 +193,51 @@ class RecPosting extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * OFFEN = veroeffentlicht, aktiv und Laufzeit nicht abgelaufen.
+     *
+     * DER ENDTAG ZAEHLT MIT (Entscheidung 16.11.2026): Enddatum 16.11. heisst
+     * „laeuft bis 16.11. abends", abgelaufen ist sie ab dem 17.11. Das Formular
+     * speichert das Enddatum als Mitternacht zu Tagesbeginn — der fruehere
+     * Vergleich `closes_at > now()` liess die Ausschreibung deshalb schon am
+     * Endtag um 00:00 ablaufen. Dieselbe Regel wie isExpired(); wer eine der
+     * beiden aendert, aendert die andere mit.
+     */
     public function scopeOpen($query)
     {
         return $query->where('status', 'published')
             ->where('is_active', true)
             ->where(function ($q) {
                 $q->whereNull('closes_at')
-                    ->orWhere('closes_at', '>', now());
+                    ->orWhere('closes_at', '>=', now()->startOfDay());
             });
+    }
+
+    /** Laufzeit vorbei: der Tag des Enddatums ist RUM. Ohne Enddatum nie. */
+    public function isExpired(?\DateTimeInterface $now = null): bool
+    {
+        if ($this->closes_at === null) {
+            return false;
+        }
+        $now = $now ? \Illuminate\Support\Carbon::instance($now) : now();
+
+        return $this->closes_at->lt($now->copy()->startOfDay());
+    }
+
+    /** Startdatum erreicht — oder keins gesetzt. */
+    public function hasStarted(?\DateTimeInterface $now = null): bool
+    {
+        if ($this->published_at === null) {
+            return true;
+        }
+        $now = $now ? \Illuminate\Support\Carbon::instance($now) : now();
+
+        return $this->published_at->lte($now);
+    }
+
+    public function hasAnzeigeDatei(): bool
+    {
+        return (string) $this->anzeige_path !== '';
     }
 
     /**
@@ -211,11 +250,11 @@ class RecPosting extends Model
      * Begriffe von „geschlossen" waeren genau der Widerspruch, den die
      * Statistik-Seite abschafft.
      *
-     * ABGRENZUNG zu scopeOpen(): dort zaehlt `closes_at` mit. Hier bewusst NICHT —
-     * eine abgelaufene, aber noch veroeffentlichte Ausschreibung ist online
-     * erreichbar, und genau so liest sie der Kunde. „Offen" (bewerbbar) und
-     * „online" (sichtbar) sind zwei Fragen; wer die Laufzeit braucht, nimmt
-     * scopeOpen.
+     * ABGRENZUNG zu scopeOpen(): dort zaehlt `closes_at` mit, hier nicht.
+     * Seit 16.11.2026 faellt das praktisch zusammen: PostingExpiry schaltet
+     * eine abgelaufene Ausschreibung binnen 30 Minuten inaktiv, danach ist sie
+     * auch hier nicht mehr online. Vorher blieb sie „aktiv" stehen, obwohl die
+     * Anzeige laengst von der Website genommen war.
      */
     public function isOnline(): bool
     {

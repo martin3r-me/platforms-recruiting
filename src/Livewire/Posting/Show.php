@@ -4,15 +4,23 @@ namespace Platform\Recruiting\Livewire\Posting;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Livewire\WithFileUploads;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Models\RecPostingExternalRef;
+use Platform\Recruiting\Models\RecPostingFlynkSync;
+use Platform\Recruiting\Services\Flynk\PostingAnzeigeStore;
 use Platform\Recruiting\Services\PostingRefCodeService;
 
 class Show extends Component
 {
+    use WithFileUploads;
+
     public RecPosting $posting;
+
+    /** Frisch gewaehlte Anzeige-Datei (Livewire-Temp-Upload), wird sofort abgelegt. */
+    public $anzeigeUpload = null;
     public string $description = '';
 
     // Datums-Felder als Y-m-d-Strings statt Model-Binding: das datetime-Cast
@@ -69,10 +77,153 @@ class Show extends Component
         session()->flash('message', 'Ausschreibung erfolgreich aktualisiert.');
     }
 
+    /**
+     * Die Anzeige-Datei wird SOFORT beim Auswaehlen abgelegt, nicht erst mit
+     * „Speichern" — ein Temp-Upload ueberlebt keinen Seitenwechsel, und HR
+     * erwartet, dass eine sichtbar hochgeladene Datei auch da ist.
+     *
+     * Es wird nur die Datei-Spalte geschrieben (frische Instanz): ungespeicherte
+     * Eingaben im Formular bleiben ungespeichert und unangetastet.
+     */
+    public function updatedAnzeigeUpload(): void
+    {
+        $this->resetErrorBag('anzeigeUpload');
+        $file = $this->anzeigeUpload;
+        if (!$file) {
+            return;
+        }
+
+        $reason = PostingAnzeigeStore::rejectionReason((string) $file->getClientOriginalName(), (int) $file->getSize());
+        if ($reason !== null) {
+            $this->anzeigeUpload = null;
+            $this->addError('anzeigeUpload', $reason);
+            return;
+        }
+
+        $fresh = RecPosting::query()->findOrFail($this->posting->id);
+        try {
+            app(PostingAnzeigeStore::class)->put(
+                $fresh,
+                (string) $file->get(),
+                (string) $file->getClientOriginalName(),
+                $file->getMimeType(),
+            );
+        } catch (\InvalidArgumentException $e) {
+            // z.B. Datei liess sich nicht lesen (leer) — Meldung statt 500.
+            $this->anzeigeUpload = null;
+            $this->addError('anzeigeUpload', $e->getMessage());
+            return;
+        }
+        try {
+            $file->delete(); // Temp-Datei nicht 24 h liegen lassen
+        } catch (\Throwable) {
+        }
+        $this->anzeigeUpload = null;
+        $this->syncAnzeigeFrom($fresh);
+        session()->flash('message', 'Anzeige-Datei hochgeladen.');
+    }
+
+    public function removeAnzeige(): void
+    {
+        $fresh = RecPosting::query()->findOrFail($this->posting->id);
+        app(PostingAnzeigeStore::class)->remove($fresh);
+        $this->syncAnzeigeFrom($fresh);
+        session()->flash('message', 'Anzeige-Datei entfernt.');
+    }
+
+    public function downloadAnzeige()
+    {
+        $fresh = RecPosting::query()->findOrFail($this->posting->id);
+        $contents = app(PostingAnzeigeStore::class)->contents($fresh);
+        if ($contents === null) {
+            $this->addError('anzeigeUpload', 'Die Datei ist nicht mehr vorhanden. Bitte neu hochladen.');
+            return null;
+        }
+
+        return response()->streamDownload(
+            function () use ($contents) {
+                echo $contents;
+            },
+            (string) ($fresh->anzeige_filename ?: 'anzeige'),
+            ['Content-Type' => $fresh->anzeige_mime ?: 'application/octet-stream'],
+        );
+    }
+
+    /**
+     * Datei-Spalten in die gebundene Instanz uebernehmen UND als „original"
+     * markieren — sonst wuerde isDirty sie als ungespeicherte Aenderung melden
+     * und das naechste „Speichern" sie (harmlos, aber unnoetig) erneut schreiben.
+     */
+    private function syncAnzeigeFrom(RecPosting $fresh): void
+    {
+        foreach (['anzeige_disk', 'anzeige_path', 'anzeige_filename', 'anzeige_mime', 'anzeige_size', 'anzeige_hash'] as $col) {
+            $this->posting->setAttribute($col, $fresh->getAttribute($col));
+            $this->posting->syncOriginalAttribute($col);
+        }
+    }
+
+    /**
+     * Hat die letzte Uebergabe an FLYNK ein Problem, das den HEUTIGEN Stand
+     * betrifft? Zwei Faelle:
+     *  - 'datei':  Aufgabe angelegt, Datei aber nicht uebernommen (sent + Fehler)
+     *  - 'fehler': Uebergabe endgueltig gescheitert (failed)
+     * Gehoert die Zeile zu einem aelteren Inhalt (z.B. inzwischen neue Datei
+     * hochgeladen, naechster Lauf steht noch aus), wird nichts angezeigt.
+     *
+     * @return array{art:string, text:string}|null
+     */
+    #[Computed]
+    public function anzeigeFlynkProblem(): ?array
+    {
+        $last = RecPostingFlynkSync::query()
+            ->where('rec_posting_id', $this->posting->id)
+            ->whereIn('event_type', ['publish', 'update'])
+            ->whereIn('status', ['sent', 'failed'])
+            ->orderByDesc('id')
+            ->first();
+
+        return self::flynkProblemAus(
+            $last?->status,
+            $last?->last_error,
+            $last?->content_hash,
+            \Platform\Recruiting\Services\Flynk\FlynkPostingPayloadBuilder::contentHash(
+                $this->posting->getOriginal('title'),
+                $this->posting->getOriginal('description'),
+                $this->posting->getOriginal('activity'),
+                $this->refCode,
+                $this->posting->anzeige_hash,
+            ),
+        );
+    }
+
+    /** Reine Regel zu anzeigeFlynkProblem() — ohne Datenbank pruefbar. */
+    public static function flynkProblemAus(?string $status, ?string $lastError, ?string $rowHash, string $currentHash): ?array
+    {
+        if ($status === null || (string) $lastError === '' || $rowHash !== $currentHash) {
+            return null;
+        }
+
+        return ['art' => $status === 'sent' ? 'datei' : 'fehler', 'text' => (string) $lastError];
+    }
+
+    /** Reine Regel zu publish(): ein Startdatum in der Zukunft bleibt stehen. */
+    public static function startdatumBeimVeroeffentlichen(?string $eingetragen, \Illuminate\Support\Carbon $jetzt): \Illuminate\Support\Carbon
+    {
+        $geplant = $eingetragen ? \Illuminate\Support\Carbon::parse($eingetragen)->startOfDay() : null;
+
+        return ($geplant && $geplant->gt($jetzt)) ? $geplant : $jetzt->copy();
+    }
+
+    /**
+     * „Veroeffentlichen" setzt das Startdatum auf jetzt — AUSSER es ist schon
+     * ein Startdatum in der Zukunft eingetragen: das bleibt stehen, und die
+     * Anzeige geht erst dann an FLYNK. Vorher ueberschrieb der Knopf ein vorab
+     * eingetragenes Startdatum mit heute.
+     */
     public function publish(): void
     {
         $this->posting->status = 'published';
-        $this->posting->published_at = now();
+        $this->posting->published_at = self::startdatumBeimVeroeffentlichen($this->publishedAt, now());
         $this->posting->save();
         $this->publishedAt = $this->posting->published_at->format('Y-m-d');
         session()->flash('message', 'Ausschreibung veröffentlicht.');

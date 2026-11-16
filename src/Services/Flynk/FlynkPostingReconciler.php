@@ -8,8 +8,10 @@ use Platform\Recruiting\Models\RecPostingFlynkSync;
 
 class FlynkPostingReconciler
 {
-    public function __construct(private readonly FlynkClient $client)
-    {
+    public function __construct(
+        private readonly FlynkClient $client,
+        private readonly PostingAnzeigeStore $anzeigen,
+    ) {
     }
 
     public function run(): array
@@ -22,6 +24,7 @@ class FlynkPostingReconciler
         $summary = [
             'sent' => 0, 'retried' => 0, 'stale_deleted' => 0,
             'failed' => 0, 'permanent' => 0, 'skipped' => 0,
+            'file_rejected' => 0,
         ];
         $sends = 0;
         $abort = false; // 401 → Lauf hart abbrechen
@@ -42,8 +45,9 @@ class FlynkPostingReconciler
         // ---- 0/1. Analyze + Revalidate (stale löschen) ----
         $context = [];
         foreach ($postings as $pid => $p) {
-            $isOpen = $p->status === 'published' && (bool) $p->is_active
-                && ($p->closes_at === null || $p->closes_at->isFuture());
+            // Endtag zaehlt mit — dieselbe Regel wie RecPosting::scopeOpen().
+            $isOpen = $p->status === 'published' && (bool) $p->is_active && !$p->isExpired();
+            $hasStarted = $p->hasStarted();
 
             $rows = $rowsByPosting->get($pid, collect())->map(fn ($r) => [
                 'id' => (int) $r->id,
@@ -60,7 +64,7 @@ class FlynkPostingReconciler
                 $rows,
                 fn ($r) => in_array($r['status'], ['pending', 'failed'], true)
             ));
-            $staleIds = FlynkPostingSyncDecider::staleRowIds($isOpen, $undelivered);
+            $staleIds = FlynkPostingSyncDecider::staleRowIds($isOpen, $undelivered, $hasStarted);
             if ($staleIds !== []) {
                 RecPostingFlynkSync::query()->whereIn('id', $staleIds)->delete();
                 $summary['stale_deleted'] += count($staleIds);
@@ -68,7 +72,16 @@ class FlynkPostingReconciler
                 $rows = array_values(array_filter($rows, fn ($r) => !in_array($r['id'], $staleIds, true)));
             }
 
-            $context[$pid] = ['posting' => $p, 'isOpen' => $isOpen, 'rows' => $rows];
+            $currentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity, $this->refCodeOf($p), $p->anzeige_hash);
+            $deadIds = FlynkPostingSyncDecider::deadPublishRowIds($rows, FlynkPostingSyncDecider::generation($rows), $currentHash);
+            if ($deadIds !== []) {
+                RecPostingFlynkSync::query()->whereIn('id', $deadIds)->delete();
+                $summary['stale_deleted'] += count($deadIds);
+                Log::info('flynk: endgueltig gescheiterte publish-Zeile nach Inhaltsaenderung freigegeben', ['posting_id' => $pid, 'ids' => $deadIds]);
+                $rows = array_values(array_filter($rows, fn ($r) => !in_array($r['id'], $deadIds, true)));
+            }
+
+            $context[$pid] = ['posting' => $p, 'isOpen' => $isOpen, 'hasStarted' => $hasStarted, 'rows' => $rows];
         }
 
         // ---- 2. Retry-Pass (Vorrang für hängende Zustellungen) ----
@@ -89,7 +102,9 @@ class FlynkPostingReconciler
                 }
 
                 $model = RecPostingFlynkSync::find($row['id']);
-                if ($model === null) {
+                // Frisch gelesen: hat ein ueberlappender Lauf die Zeile inzwischen
+                // zugestellt, nicht noch einmal senden.
+                if ($model === null || $model->status === 'sent') {
                     continue;
                 }
                 $task = FlynkPostingPayloadBuilder::build(
@@ -98,7 +113,7 @@ class FlynkPostingReconciler
                     $careersUrl
                 );
                 $model->content_hash = $task->contentHash; // Hash des tatsächlich gesendeten Payloads persistieren
-                $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary);
+                $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary, $ctx['posting']);
                 $sends++;
                 $summary['retried']++;
                 $context[$pid]['rows'][$i]['status'] = $model->status; // in-memory für Detect-Pass syncen
@@ -122,8 +137,8 @@ class FlynkPostingReconciler
             $p = $ctx['posting'];
             $rows = $ctx['rows'];
 
-            $contentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity, $this->refCodeOf($p));
-            $state = FlynkPostingSyncDecider::buildState($rows, $ctx['isOpen'], $contentHash);
+            $contentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity, $this->refCodeOf($p), $p->anzeige_hash);
+            $state = FlynkPostingSyncDecider::buildState($rows, $ctx['isOpen'], $contentHash, $ctx['hasStarted']);
             $event = FlynkPostingSyncDecider::decide($state);
             if ($event === null) {
                 continue;
@@ -161,7 +176,7 @@ class FlynkPostingReconciler
                 continue;
             }
 
-            $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary);
+            $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary, $p);
             $sends++;
             if ($outcome === 'abort') {
                 $abort = true;
@@ -183,9 +198,39 @@ class FlynkPostingReconciler
     }
 
     /** @return 'ok'|'abort'|'stop' */
-    private function dispatch(RecPostingFlynkSync $model, array $payload, int $maxAttempts, array &$summary): string
+    private function dispatch(RecPostingFlynkSync $model, array $payload, int $maxAttempts, array &$summary, RecPosting $posting): string
     {
-        $result = $this->client->createTask($payload);
+        // Die Datei geht nur mit „veroeffentlichen"/„aktualisieren" mit — eine
+        // „entfernen"-Meldung braucht keine Anzeige.
+        $attachment = null;
+        if ($model->event_type !== FlynkEvent::CLOSE && $posting->hasAnzeigeDatei()) {
+            $contents = $this->anzeigen->contents($posting);
+            if ($contents === null) {
+                // Datei ist hinterlegt, liegt aber nicht (mehr) auf der Platte.
+                // NICHT ohne Datei senden: FLYNK bekaeme eine Anzeige ohne
+                // Anzeige, und der Hash haette die Datei als zugestellt gebucht.
+                // ENDGUELTIG, nicht „spaeter nochmal": eine fehlende Datei kommt
+                // nicht von selbst zurueck. Eine neu hochgeladene (andere) Datei
+                // aendert den Hash und loest eine frische Meldung aus.
+                $model->attempts = $model->attempts + 1;
+                $model->status = 'failed';
+                $model->permanent_failure = true;
+                $model->last_error = 'Anzeige-Datei nicht lesbar: ' . $posting->anzeige_path;
+                $model->save();
+                $summary['permanent']++;
+                Log::error('flynk: Anzeige-Datei nicht lesbar — nichts gesendet', [
+                    'posting_id' => $posting->id, 'path' => $posting->anzeige_path,
+                ]);
+                return 'ok';
+            }
+            $attachment = new FlynkAttachment(
+                (string) ($posting->anzeige_filename ?: basename((string) $posting->anzeige_path)),
+                $contents,
+                $posting->anzeige_mime,
+            );
+        }
+
+        $result = $this->client->createTask($payload, $attachment);
         $model->http_status = $result->httpStatus;
 
         if ($result->unauthorized) {
@@ -209,9 +254,20 @@ class FlynkPostingReconciler
             $model->status = 'sent';
             $model->flynk_task_id = $result->taskId;
             $model->sent_at = now();
-            $model->last_error = null;
+            // 201 mit abgelehnter Datei: die Aufgabe LIEGT bei FLYNK (mit Text),
+            // also „sent" — ein Retry wuerde dort nur eine zweite Aufgabe anlegen
+            // und die Datei genauso abgelehnt bekommen. Der Grund bleibt in
+            // last_error stehen und wird an der Ausschreibung angezeigt; eine neu
+            // hochgeladene Datei aendert den Hash und geht als Update raus.
+            $model->last_error = $result->fileProblem;
             $model->save();
             $summary['sent']++;
+            if ($result->fileProblem !== null) {
+                $summary['file_rejected']++;
+                Log::error('flynk: Aufgabe angelegt, aber Datei nicht uebernommen', [
+                    'posting_id' => $posting->id, 'flynk_task_id' => $result->taskId, 'problem' => $result->fileProblem,
+                ]);
+            }
             return 'ok';
         }
 
@@ -251,7 +307,13 @@ class FlynkPostingReconciler
             'position_title' => $p->position?->title,
             'team_id' => $p->team_id,
             'generation' => $generation,
-            'closes_at' => $p->closes_at?->toIso8601String(),
+            'published_at' => $p->published_at?->toDateString(),
+            // Als Datum, nicht als Zeitstempel: der Endtag zaehlt mit, und FLYNK
+            // rechnet mit dem Datum (ihr Beispiel: meta[closes_at]=2026-11-19).
+            // Vorher ging hier Mitternacht zu Tagesbeginn als ISO-Zeit raus.
+            'closes_at' => $p->closes_at?->toDateString(),
+            'anzeige_hash' => $p->anzeige_hash,
+            'anzeige_filename' => $p->anzeige_filename,
         ];
     }
 
