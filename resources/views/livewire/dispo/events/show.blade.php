@@ -3,12 +3,16 @@
     // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
     // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
     $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showNotesModal || $showAttachmentModal
-        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal || $showDokumentModal;
+        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal || $showDokumentModal || $showZeitModal;
 @endphp
 <div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
     @php
         $event = $this->event;
         $eventOnly = $this->eventOnly;
+        // Zeiterfassung: Spalte „Stempel“ nur bei Schalter an; Datensaetze einmal je Seite geladen.
+        $zeitAktiv = $this->zeitAktiv;
+        $zeitKarte = $this->zeitEintraege;
+        $zeitDienst = $zeitAktiv ? app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class) : null;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
         $statusClasses = [
             0 => 'bg-gray-100 text-gray-700',
@@ -423,6 +427,9 @@
                     <th class="px-4 py-2 font-medium text-center"><button type="button" wire:click="sortRows('chat')" class="hover:text-gray-800" title="Nach ungelesenen Nachrichten sortieren">💬{{ $rowSortArrow('chat') }}</button></th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
+                    @if ($zeitAktiv)
+                        <th class="px-4 py-2 font-medium" title="Stempeluhr: eingecheckt / ausgecheckt (Zeiten in Ortszeit)">Stempel</th>
+                    @endif
                     <th class="px-4 py-2 font-medium">Hinweis</th>
                     <th class="px-4 py-2 font-medium">Anhang</th>
                     <th class="px-4 py-2 font-medium text-center" title="In ZAS rausgenommen (nur Dokumentation — wir schreiben nie nach ZAS)">ZAS raus</th>
@@ -498,6 +505,24 @@
                                         title="Manuell bestätigen (z. B. telefonische Zusage) — stoppt die Eskalation">✓ manuell</button>
                             @endif
                         </td>
+                        @if ($zeitAktiv)
+                            @php
+                                $zelle = $zeitDienst->zelle($zeitKarte[(int) $assignment->id] ?? null);
+                                $zelleFarbe = match ($zelle['zustand']) {
+                                    'eingecheckt' => 'text-green-700',
+                                    'ausgecheckt' => 'text-gray-800',
+                                    'erledigt' => 'text-gray-800',
+                                    default => 'text-gray-400',
+                                };
+                            @endphp
+                            <td class="px-4 py-2 whitespace-nowrap">
+                                @if ($assignment->rec_employee_id)
+                                    <button type="button" wire:click="openZeit({{ $assignment->id }})" class="text-left text-xs {{ $zelleFarbe }} hover:underline" title="Zeit ansehen{{ $eventOnly ? '' : ' und korrigieren' }}">
+                                        @if ($zelle['gesperrt'])<span title="Erledigt und gesperrt">🔒</span> @endif{{ $zelle['text'] }}@if ($zelle['verspaetung'] > 0) <span class="ml-0.5 rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-800" title="Verspätung gegenüber dem Schichtbeginn">+{{ $zelle['verspaetung'] }}</span>@endif
+                                    </button>
+                                @endif
+                            </td>
+                        @endif
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
                                 @php $note = trim($notes[$assignment->rec_employee_id] ?? ''); @endphp
@@ -565,7 +590,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' && $rfAktiv === [] ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</td></tr>
+                    <tr><td colspan="{{ $zeitAktiv ? 11 : 10 }}" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' && $rfAktiv === [] ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -975,6 +1000,10 @@
                 </div>
             </div>
         </div>
+    @endif
+
+    @if ($showZeitModal)
+        @include('recruiting::livewire.dispo.events._zeit-fenster')
     @endif
 
     @if ($showNoteModal)

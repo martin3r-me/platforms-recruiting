@@ -57,6 +57,11 @@ class SharedPartialContractTest extends TestCase
         'dispo/events/_info-felder' => [
             \Platform\Recruiting\Livewire\Dispo\Events\Show::class,
         ],
+        // Fenster „Zeit“ der Zeiterfassung (16.11.2026): greift auf $this->zeitFenster
+        // und $this->zeitAssignmentId zu.
+        'dispo/events/_zeit-fenster' => [
+            \Platform\Recruiting\Livewire\Dispo\Events\Show::class,
+        ],
     ];
 
     /**
