@@ -46,7 +46,7 @@ Der Kern kennt nur „eine Person“ und „einen Bezug“ als Typ-Kürzel plus 
 | `person_typ`, `person_id` | Kürzel + ID, z. B. `rec_employee` / 4711 |
 | `bezug_typ`, `bezug_id` | Kürzel + ID, z. B. `rec_dispo_assignment` / 9001 |
 | `tag` (date) | Einsatztag, vom Aufrufer gesetzt |
-| `soll_von_at`, `soll_bis_at` (datetime, nullable) | Schicht laut Plan zum Zeitpunkt des ersten Stempels (Schnappschuss) |
+| `soll_von_at`, `soll_bis_at` (datetime, nullable) | Schicht laut Plan, bei **jedem** Schreiben aus dem übergebenen `ZeitBezug` nachgezogen (letzter bekannter Plan) |
 | `kommen_at`, `gehen_at` (datetime, nullable) | Ist-Zeiten |
 | `pause_minuten` (unsigned int, nullable) | null = nach Regel berechnet; Zahl = von Hand gesetzt |
 | `bemerkung` (text, nullable) | |
@@ -67,9 +67,11 @@ Eindeutig über (`person_typ`, `person_id`, `bezug_typ`, `bezug_id`). Keine Frem
 - `Stempeluhr` (Service, bekommt `ZeitRegeln`):
   - `kommen(ZeitBezug, ZeitAkteur, string $art, ?Carbon $zeit = null): string` → `ok | schon | zu_frueh | zu_spaet | gesperrt`
   - `gehen(ZeitBezug, ZeitAkteur, string $art, ?Carbon $zeit = null): string` → `ok | kein_kommen | schon | zu_spaet | gesperrt`
-  - `korrigieren(ZeitBezug, ZeitAkteur, array $werte, string $grund): string` → `ok | gesperrt | ungueltig | unveraendert` (`$werte`: `kommen_at`, `gehen_at`, `pause_minuten`, `bemerkung`; legt den Datensatz an, wenn es ihn noch nicht gibt; Grund Pflicht; Gehen nicht vor Kommen)
+  - `korrigieren(ZeitBezug, ZeitAkteur, array $werte, string $grund): string` → `ok | gesperrt | ungueltig | unveraendert` (`$werte`: `kommen_at`, `gehen_at`, `pause_minuten`, `bemerkung`; legt den Datensatz an, wenn es ihn noch nicht gibt; Grund Pflicht; Gehen nicht vor Kommen). **Leeren ist erlaubt:** `kommen_at = null` nur zusammen mit `gehen_at = null` (sonst `ungueltig`); ein geleerter Datensatz bleibt mit seinem Verlauf bestehen, und im offenen Fenster kann neu gestempelt werden (Fall: an der falschen von zwei Schichten gestempelt).
+  - `umhaengen(string $bezugTyp, int $vonBezugId, int $nachBezugId, string $personTyp, int $personId): void` — hängt den Datensatz **dieser Person** an einen anderen Bezug (siehe 2.2 Personenwechsel); ohne Verlaufseintrag, weil sich kein Zeitwert ändert.
   - `sperren(ZeitEintrag, ZeitAkteur, string $grund)`, `entsperren(...)`
-  - `$zeit = null` heißt Serverzeit jetzt. Fenster-Prüfung nur bei `art = selbst`.
+  - `$zeit = null` heißt Serverzeit jetzt. Fenster-Prüfung nur bei `art = selbst`, und immer gegen den **übergebenen** `ZeitBezug` (aktueller Plan), nicht gegen gespeicherte Soll-Werte: wird die Schicht nach dem Kommen verlängert, gilt das neue Ende.
+  - `ZeitRegeln` liefert `null`, wenn es keine Grenze gibt, die sich berechnen lässt. `fruehestesKommen = null` heißt: **kein Selbst-Stempeln** (`zu_frueh`). `spaetestesStempeln = null` kommt in der Rheingedeck-Schicht nicht vor (siehe dort).
 - `ZeitRechner` (rein): `anwesendMinuten`, `pauseMinuten` (gesetzter Wert, sonst Regel), `arbeitsMinuten` = anwesend − Pause, nie negativ; `verspaetungMinuten` = Kommen − Soll-Beginn, nie negativ.
 
 Jeder schreibende Weg läuft in einer Transaktion mit Zeilensperre und schreibt Verlauf im selben Schritt. Doppelklick auf „Kommen“ ergibt `schon`, keinen zweiten Verlaufseintrag.
@@ -83,6 +85,9 @@ Jeder schreibende Weg läuft in einer Transaktion mit Zeilensperre und schreibt 
   - Stempeln (Kommen wie Gehen) spätestens **60 Minuten nach** Schichtende. Danach nur noch Korrektur durch die Disposition.
   - Pause: mehr als 6 Stunden anwesend → 30 Minuten, mehr als 9 Stunden → 45 Minuten, sonst 0.
 - `DispoZeitBezug::fuer(RecDispoAssignment): ZeitBezug` baut den Bezug: Person = `rec_employee` + `rec_employee_id` der Einbuchung, Bezug = `rec_dispo_assignment` + ID, Tag = `datum`, Soll aus `datum` + `von`/`bis` (Text `HH:MM`). **Schicht über Mitternacht:** ist `bis` kleiner oder gleich `von`, liegt das Ende am Folgetag. Zeitzone `Europe/Berlin`.
+- **Fehlende Zeiten:** ohne `von` gibt es kein Selbst-Stempeln (nur Disposition). Ohne `bis` gilt als Ende das Tagesende des Einsatztags (wie `DispoEinsatzAktuell`), das Fenster schließt also um 01:00 des Folgetags.
+- **Personenwechsel** (`DispoPersonenwechsel`: die Zeile behält ihre ID für die neue Person, die alte Besetzung wandert in eine `~alt`-Zeile): der Zeitdatensatz der alten Person zieht per `Stempeluhr::umhaengen` in die Ablage-Zeile mit — gleiches Muster wie Absage-Prüfungen und Jobangebote dort. So hängt an jeder Zeile höchstens ein Datensatz, und er bleibt bei seiner Person.
+- **Zeilen ohne zugeordnete Person** (`rec_employee_id = null`): keine Zeit möglich, Spalte leer und nicht klickbar.
 - Schalter `zeit_stempeln_aktiv` in den Team-Settings (`RecApplicantSettings`, Anker-Team wie die `dispo_*`-Settings), Standard **aus**. Aus heißt: keine Stempel-Kachel im Portal, keine Zeit-Spalte in der Webapp, die Aktionen verweigern serverseitig.
 
 ## 3. Portal (Mitarbeiter)
@@ -96,6 +101,8 @@ Ort: `PortalShell`, Reiter „start“, oberhalb der bestehenden Kacheln. Nur do
 
 Bei mehreren passenden Einbuchungen (zwei Schichten an einem Tag) je Einbuchung eine Zeile.
 
+**Offener Stempel schlägt alles andere:** Ist „Kommen“ gestempelt und „Gehen“ fehlt, zählen nur noch Schalter, Sitzung und dass der **Zeitdatensatz** einer Anstellung aus der Identitätsgruppe des Angemeldeten gehört. Sichtbarkeit, Bestätigung und Status der Einbuchung spielen dann keine Rolle mehr — eine Zeitverschiebung leert `confirmed_at`, eine verschwundene oder abgesagte Zeile fällt aus `sichtbareEinsaetze`, und wer schon da ist, muss trotzdem gehen können. Dafür gibt es eine eigene Abfrage über offene Zeitdatensätze neben `sichtbareEinsaetze`. Das Fenster-Ende gilt weiter (danach Disposition).
+
 **Was die Kachel zeigt**
 - Veranstaltung, Tag, Schicht laut Plan.
 - Vor dem Kommen: Knopf „Kommen“.
@@ -106,7 +113,7 @@ Bei mehreren passenden Einbuchungen (zwei Schichten an einem Tag) je Einbuchung 
 
 **Aktionen** `stempelKommen(int $assignmentId)`, `stempelGehen(int $assignmentId)` an `PortalShell`:
 1. `berechtigterMitarbeiter()` wie jede schreibende Portal-Aktion (aktiv, `portal_v2_since`, nicht gesperrt, Sitzung gültig).
-2. Die Einbuchung muss zur Identitätsgruppe des angemeldeten Mitarbeiters gehören und die Bedingungen oben erfüllen — neu geladen, nicht aus dem Formularzustand.
+2. Die Einbuchung muss zur Identitätsgruppe des angemeldeten Mitarbeiters gehören und die Bedingungen oben erfüllen — neu geladen, nicht aus dem Formularzustand. Beim Gehen mit offenem Stempel gilt stattdessen die Eigentums-Prüfung am Zeitdatensatz (siehe oben).
 3. `Stempeluhr` mit `art = selbst`, Akteur = Mitarbeiter (Typ `rec_employee`, Name aus der Akte), Zeit = Serverzeit.
 4. Ergebnis als kurze Meldung in der Kachel: „zu früh – ab 13:00 möglich“, „Zeitfenster vorbei – bitte bei der Disposition melden“, „gesperrt“.
 
@@ -160,3 +167,4 @@ Zwei Migrationen → Deploy mit `migrate` vor Traffic, `view:clear`. Schalter bl
 - Pause wird nach Regel berechnet und nicht gestempelt.
 - Person im Kern = die Anstellung (`rec_employee`) der Einbuchung, nicht die übergreifende Person; so passt es zu Lohn und Einsatz.
 - Tabellen heißen `rec_zeit_*` (Modul-Konvention), nicht neutral.
+- Nach der Gegenprüfung ergänzt: Wer gekommen ist, kann immer gehen, auch wenn der Einsatz inzwischen verschoben, abgesagt oder verschwunden ist. Die Disposition darf einen Stempel leeren (mit Grund), danach kann der Mitarbeiter im Fenster neu stempeln. Wird eine Schicht nach dem Kommen verlängert, gilt das neue Ende. Ohne Beginn-Uhrzeit stempelt nur die Disposition. Bei einem Personenwechsel in ZAS bleibt die gestempelte Zeit bei der alten Person.
