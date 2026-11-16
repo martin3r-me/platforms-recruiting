@@ -28,6 +28,9 @@ use Platform\Recruiting\Zeit\ZeitRegeln;
  */
 class PortalStempeln
 {
+    /** Ein offener Stempel bleibt so viele Tage nach dem Einsatztag in der Kachel (danach sieht ihn die Disposition). */
+    public const OFFEN_SICHTBAR_TAGE = 7;
+
     public function __construct(
         private Stempeluhr $uhr,
         private ZeitSchalter $schalter,
@@ -37,7 +40,7 @@ class PortalStempeln
     }
 
     /**
-     * @return list<array{assignment_id:int,name:string,tag:string,soll:string,zustand:string,kommen:?string,gehen:?string,pause:?int,arbeitszeit:?string,kann_kommen:bool,kann_gehen:bool}>
+     * @return list<array{assignment_id:int,name:string,tag:string,soll:string,zustand:string,kommen:?string,gehen:?string,pause:?int,arbeitszeit:?string,kann_kommen:bool,kann_gehen:bool,fenster_vorbei:bool,heute:bool}>
      */
     public function zeilen(RecEmployee $angemeldet, \DateTimeInterface $jetzt): array
     {
@@ -175,6 +178,10 @@ class PortalStempeln
                 $bezug = DispoZeitBezug::fuer($a, $team);
             }
             $bezug ??= DispoZeitBezug::ausEintrag($e);
+            $heute = ZeitAnzeige::ortszeit($jetzt)->format('Y-m-d');
+            if ($heute > \Carbon\Carbon::parse($bezug->tag)->addDays(self::OFFEN_SICHTBAR_TAGE)->format('Y-m-d')) {
+                continue;
+            }
             $spaet = $this->regeln->spaetestesStempeln($bezug);
             $aus[$id] = [
                 'zeile' => $this->zeile($id, $a?->event?->name, $bezug, $e, $spaet, $jetzt, false),
@@ -211,6 +218,8 @@ class PortalStempeln
             'arbeitszeit' => $arbeit === null ? null : ZeitRechner::alsStunden($arbeit),
             'kann_kommen' => $imFenster && $zustand === 'offen',
             'kann_gehen' => $zustand === 'eingecheckt' && $innerhalb,
+            'fenster_vorbei' => $zustand === 'eingecheckt' && !$innerhalb,
+            'heute' => $bezug->tag === ZeitAnzeige::ortszeit($jetzt)->format('Y-m-d'),
         ];
     }
 

@@ -176,4 +176,128 @@ class PortalShellStempelnTest extends ZeitTestCase
             }
         }
     }
+
+    /** Das Partial ohne View-Fabrik uebersetzen und rendern (reine Variablen-Vorlage). */
+    private function kachel(array $vars): string
+    {
+        $compiler = new \Illuminate\View\Compilers\BladeCompiler(new \Illuminate\Filesystem\Filesystem(), sys_get_temp_dir());
+        $php = $compiler->compileString((string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/_stempel-kachel.blade.php'));
+        extract($vars);
+        // @foreach ruft die Schleifen-Buchfuehrung der View-Fabrik; hier ein stummer Ersatz.
+        $__env = new class {
+            public function addLoop($data): void {}
+            public function incrementLoopIndices(): void {}
+            public function popLoop(): void {}
+            public function getLastLoop() { return null; }
+        };
+        ob_start();
+        try {
+            eval('?>' . $php);
+        } finally {
+            $html = ob_get_clean();
+        }
+
+        return $html;
+    }
+
+    /** Offener Stempel vorbereiten: mit gueltiger Sitzung kommen. */
+    private function offenerStempel(): array
+    {
+        $ma = $this->ma();
+        $id = $this->einsatz();
+        TestPortalSitzung::oeffne(901);
+        $shell = $this->shell($ma);
+        $shell->stempelKommen($id);
+        $this->assertNotNull(ZeitEintrag::query()->first()?->kommen_at, 'Vorflug: gekommen');
+
+        return [$shell, $id];
+    }
+
+    public function test_gehen_ohne_sitzung_bleibt_offen(): void
+    {
+        [$shell, $id] = $this->offenerStempel();
+        TestPortalSitzung::aufraeumen();
+        Container::getInstance()->instance('session', new Store('leer', new ArraySessionHandler(60)));
+        Facade::clearResolvedInstance('session');
+
+        $shell->stempelGehen($id);
+
+        $this->assertNull(ZeitEintrag::query()->first()->gehen_at);
+        $this->assertSame('unverified', $shell->state);
+    }
+
+    public function test_gehen_bei_gesperrtem_portal_bleibt_offen(): void
+    {
+        [$shell, $id] = $this->offenerStempel();
+        Capsule::table('rec_employees')->where('id', 901)->update(['portal_locked_at' => '2026-10-01 12:00:00']);
+
+        $shell->stempelGehen($id);
+
+        $this->assertNull(ZeitEintrag::query()->first()->gehen_at);
+        $this->assertSame('gesperrt', $shell->state);
+    }
+
+    public function test_gehen_bei_inaktivem_mitarbeiter_bleibt_offen(): void
+    {
+        [$shell, $id] = $this->offenerStempel();
+        Capsule::table('rec_employees')->where('id', 901)->update(['is_active' => 0]);
+
+        $shell->stempelGehen($id);
+
+        $this->assertNull(ZeitEintrag::query()->first()->gehen_at);
+        $this->assertSame('weg', $shell->state);
+    }
+
+    public function test_gehen_mit_gueltiger_sitzung_gegenprobe(): void
+    {
+        [$shell, $id] = $this->offenerStempel();
+
+        $shell->stempelGehen($id);
+
+        $this->assertNotNull(ZeitEintrag::query()->first()->gehen_at);
+    }
+
+    public function test_meldung_steht_in_der_kachel_auch_ohne_zeilen(): void
+    {
+        $ma = $this->ma();
+        $id = $this->einsatz();
+        TestPortalSitzung::oeffne(901);
+        $shell = $this->shell($ma);
+        // Fenster ist inzwischen zu: kein Eintrag, keine Zeile.
+        Carbon::setTestNow(Carbon::parse('2026-10-01 23:30', 'Europe/Berlin'));
+
+        $shell->stempelKommen($id);
+
+        $this->assertSame('Das geht gerade nicht.', $shell->stempelMeldung);
+        $html = $this->kachel(['stempelZeilen' => [], 'stempelMeldung' => $shell->stempelMeldung, 'duzen' => true]);
+        $this->assertStringContainsString('Das geht gerade nicht.', $html);
+        $leer = $this->kachel(['stempelZeilen' => [], 'stempelMeldung' => null, 'duzen' => true]);
+        $this->assertSame('', trim($leer));
+    }
+
+    private function zeile(array $attr = []): array
+    {
+        return array_merge([
+            'assignment_id' => 5, 'name' => 'Gala Nacht', 'tag' => '01.10.2026', 'soll' => '14:00–22:00',
+            'zustand' => 'eingecheckt', 'kommen' => '13:52', 'gehen' => null, 'pause' => null, 'arbeitszeit' => null,
+            'kann_kommen' => false, 'kann_gehen' => false, 'heute' => true, 'fenster_vorbei' => false,
+        ], $attr);
+    }
+
+    public function test_kachel_fensterhinweis_und_ueberschrift(): void
+    {
+        $vergessen = $this->zeile(['heute' => false, 'fenster_vorbei' => true]);
+        $du = $this->kachel(['stempelZeilen' => [$vergessen], 'stempelMeldung' => null, 'duzen' => true]);
+        $this->assertStringContainsString('Zeitfenster vorbei – bitte melde dich bei der Disposition.', $du);
+        $this->assertStringContainsString('Dein Einsatz</', $du);
+        $this->assertStringNotContainsString('Gehen</button>', $du);
+        $sie = $this->kachel(['stempelZeilen' => [$vergessen], 'stempelMeldung' => null, 'duzen' => false]);
+        $this->assertStringContainsString('Zeitfenster vorbei – bitte melden Sie sich bei der Disposition.', $sie);
+        $this->assertStringContainsString('Ihr Einsatz</', $sie);
+
+        $heute = $this->kachel(['stempelZeilen' => [$this->zeile(['kann_gehen' => true])], 'stempelMeldung' => null, 'duzen' => true]);
+        $this->assertStringContainsString('Dein Einsatz heute</', $heute);
+        $gemischt = $this->kachel(['stempelZeilen' => [$this->zeile(), $vergessen], 'stempelMeldung' => null, 'duzen' => false]);
+        $this->assertStringContainsString('Ihr Einsatz</', $gemischt);
+    }
 }

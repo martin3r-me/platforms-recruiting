@@ -319,4 +319,55 @@ class PortalStempelnTest extends ZeitTestCase
             $this->assertSame('Das geht gerade nicht.', PortalStempeln::meldung($s, null, true));
         }
     }
+
+    public function test_vergessenes_gehen_zeigt_zeile_mit_fensterhinweis_bis_sieben_tage(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        $this->dienst()->kommen($ma, $a->id, Carbon::now());
+
+        $this->jetzt('10:00', '2026-10-02');
+        $z = $this->dienst()->zeilen($ma, Carbon::now());
+        $this->assertCount(1, $z);
+        $this->assertFalse($z[0]['kann_gehen']);
+        $this->assertTrue($z[0]['fenster_vorbei']);
+        $this->assertFalse($z[0]['heute']);
+
+        $this->jetzt('23:30', '2026-10-08');
+        $this->assertCount(1, $this->dienst()->zeilen($ma, Carbon::now()), 'bis einschliesslich 7 Tage nach dem Einsatztag');
+
+        $this->jetzt('00:30', '2026-10-09');
+        $this->assertSame([], $this->dienst()->zeilen($ma, Carbon::now()), 'danach nicht mehr');
+        $this->assertSame('nicht_erlaubt', $this->dienst()->gehen($ma, $a->id, Carbon::now()));
+    }
+
+    public function test_heute_flag_und_kein_fensterhinweis_im_laufenden_fenster(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        $this->dienst()->kommen($ma, $a->id, Carbon::now());
+
+        $z = $this->dienst()->zeilen($ma, Carbon::now())[0];
+        $this->assertTrue($z['heute']);
+        $this->assertFalse($z['fenster_vorbei']);
+    }
+
+    public function test_gruppensperre_der_schwester_anstellung_sperrt_alles(): void
+    {
+        $ma = $this->ma(901);
+        $this->ma(902, ['portal_locked_at' => '2026-09-30 09:00:00']);
+        $a = $this->einsatz(901);
+        $gruppe = new class extends DispoIdentityResolver {
+            public function groupFor(int $employeeId): array
+            {
+                return [901, 902];
+            }
+        };
+        $dienst = new PortalStempeln(new Stempeluhr($this->regeln()), $this->schalter, $gruppe, $this->regeln());
+
+        $this->assertSame([], $dienst->zeilen($ma, Carbon::now()));
+        $this->assertSame('nicht_erlaubt', $dienst->kommen($ma, $a->id, Carbon::now()));
+        $this->assertSame('nicht_erlaubt', $dienst->gehen($ma, $a->id, Carbon::now()));
+        $this->assertSame(0, ZeitEintrag::query()->count());
+    }
 }

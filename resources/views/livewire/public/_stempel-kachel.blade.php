@@ -3,13 +3,18 @@
     (stempelZeilen, stempelMeldung, duzen) — kein $this-> hier, damit der Vertrag
     mit PortalShell nur die Aktionen stempelKommen/stempelGehen betrifft.
     Uhrzeiten kommen fertig als Ortszeit aus PortalStempeln.
+    Die Meldung steht auch ohne Zeilen da (Fenster zwischen Seite und Klick abgelaufen).
 --}}
-@if (!empty($stempelZeilen))
+@if (!empty($stempelZeilen) || !empty($stempelMeldung))
     @php
-        $stempelTitel = $duzen ? 'Dein Einsatz heute' : 'Ihr Einsatz heute';
+        $alleHeute = !empty($stempelZeilen) && count(array_filter($stempelZeilen, static fn ($z) => !$z['heute'])) === 0;
+        $stempelTitel = ($duzen ? 'Dein Einsatz' : 'Ihr Einsatz') . ($alleHeute ? ' heute' : '');
         $stempelHinweis = $duzen
             ? 'Stimmt etwas nicht? Sag deiner Teamleitung oder der Disposition Bescheid.'
             : 'Stimmt etwas nicht? Sagen Sie Ihrer Teamleitung oder der Disposition Bescheid.';
+        $stempelVorbei = $duzen
+            ? 'Zeitfenster vorbei – bitte melde dich bei der Disposition.'
+            : 'Zeitfenster vorbei – bitte melden Sie sich bei der Disposition.';
     @endphp
     <div class="sec-label">{{ $stempelTitel }}</div>
     @foreach ($stempelZeilen as $zeile)
@@ -36,10 +41,16 @@
             @endif
             @if ($zeile['kann_gehen'])
                 <button type="button" class="btn primary" wire:click="stempelGehen({{ $zeileId }})" wire:loading.attr="disabled">Gehen</button>
+            @elseif ($zeile['fenster_vorbei'])
+                <p class="klein">{{ $stempelVorbei }}</p>
             @endif
         </div>
     @endforeach
     @if (!empty($stempelMeldung))
-        <div class="s" style="margin-top:8px">{{ $stempelMeldung }}</div>
+        @if (empty($stempelZeilen))
+            <div class="card kachel" style="margin-top:11px"><p>{{ $stempelMeldung }}</p></div>
+        @else
+            <div class="s" style="margin-top:8px">{{ $stempelMeldung }}</div>
+        @endif
     @endif
 @endif
