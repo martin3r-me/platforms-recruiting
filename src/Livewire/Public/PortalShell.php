@@ -74,6 +74,8 @@ class PortalShell extends Component
     #[Locked] public string $displayName = '';
     #[Locked] public string $initialen = '';
     #[Locked] public bool $duzen = true;
+    /** Kurzmeldung der Stempel-Kachel (Spec 2026-11-16 §3); nur der Server setzt sie. */
+    #[Locked] public ?string $stempelMeldung = null;
 
     /** Eingaben der Anmeldung — bewusst NICHT gesperrt, sie kommen ja vom Menschen. */
     public string $birthDate = '';
@@ -1095,6 +1097,78 @@ class PortalShell extends Component
         }
     }
 
+    /**
+     * Stempel-Kachel (Spec 2026-11-16 §3): Zeilen aus PortalStempeln, nur fuer
+     * einen berechtigten Mitarbeiter. Wie die Einsatz-Kachel: ein Fehler kostet
+     * nur diese Kachel.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function stempelZeilen(RecEmployee $employee): array
+    {
+        try {
+            return app(\Platform\Recruiting\Services\Zeit\PortalStempeln::class)->zeilen($employee, now());
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('recruiting.portal.stempel_kachel_fehlgeschlagen', ['employee_id' => $employee->id, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die leere Kachel
+            }
+
+            return [];
+        }
+    }
+
+    /**
+     * „Kommen“ stempeln. Zeit ist IMMER die Serverzeit; die Einbuchung wird
+     * im Dienst neu geladen und gegen die Identitaetsgruppe geprueft.
+     * Ohne gueltige Sitzung (berechtigterMitarbeiter) passiert nichts.
+     */
+    public function stempelKommen(int $assignmentId): void
+    {
+        $this->stempelMeldung = null;
+        $employee = $this->berechtigterMitarbeiter();
+        if (!$employee) {
+            return;
+        }
+
+        $this->stempelAusfuehren($employee, $assignmentId, true);
+    }
+
+    /** „Gehen“ stempeln — gleiche Wache wie stempelKommen(). */
+    public function stempelGehen(int $assignmentId): void
+    {
+        $this->stempelMeldung = null;
+        $employee = $this->berechtigterMitarbeiter();
+        if (!$employee) {
+            return;
+        }
+
+        $this->stempelAusfuehren($employee, $assignmentId, false);
+    }
+
+    private function stempelAusfuehren(RecEmployee $employee, int $assignmentId, bool $kommen): void
+    {
+        try {
+            $dienst = app(\Platform\Recruiting\Services\Zeit\PortalStempeln::class);
+            $status = $kommen
+                ? $dienst->kommen($employee, $assignmentId, now())
+                : $dienst->gehen($employee, $assignmentId, now());
+            $this->stempelMeldung = \Platform\Recruiting\Services\Zeit\PortalStempeln::meldung(
+                $status,
+                $status === 'zu_frueh' ? $dienst->fruehestes($employee, $assignmentId) : null,
+                $this->duzen,
+            );
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('recruiting.portal.stempeln_fehlgeschlagen', ['employee_id' => $employee->id, 'assignment_id' => $assignmentId, 'exception' => $e]);
+            } catch (\Throwable) {
+                // ohne Log (Test-Container) bleibt nur die Meldung
+            }
+            $this->stempelMeldung = 'Das geht gerade nicht.';
+        }
+    }
+
     /** Whitelist fuer `?tab=` — unbekannt oder kein String: Startseite. */
     public static function startReiter(mixed $roh): string
     {
@@ -1386,6 +1460,8 @@ class PortalShell extends Component
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             // Startseite (29.10.2026): kurze Kacheln mit Sprung in den Bereich.
             'naechsterEinsatz'  => $employee !== null ? $this->naechsterEinsatz($employee) : null,
+            // Stempel-Kachel (Spec 2026-11-16 §3): leer bei Schalter aus, Sperre oder ohne Fenster.
+            'stempelZeilen'     => $employee !== null ? $this->stempelZeilen($employee) : [],
             // Karte „N neue Einsätze“ (Spec 2026-11-13 §6.5); nur verified (berechtigterMitarbeiter).
             'neueAngebote'      => $employee !== null ? $this->neueAngebote($employee) : 0,
             // Karte „Portal als App“ (Spec 6.6/6.7): Push-Teil nur mit Push-Dienst, Schluessel nur dann.

@@ -241,6 +241,9 @@
                     @endif
                 </div>
 
+                {{-- Stempel-Kachel (Spec 2026-11-16 §3): gibt ohne Zeilen nichts aus. --}}
+                @include('recruiting::livewire.public._stempel-kachel', ['stempelZeilen' => $stempelZeilen, 'stempelMeldung' => $stempelMeldung, 'duzen' => $duzen])
+
                 {{--
                     Naechster Einsatz (29.10.2026): kurz — wann, Zeit, wo, Status.
                     Details und Bestaetigen im Reiter "Einsaetze" (dieselbe Abfrage,
