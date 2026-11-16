@@ -5,11 +5,18 @@ namespace Platform\Recruiting\Zeit;
 use Carbon\Carbon;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 
 /**
  * Stempeln, Korrigieren, Leeren, Umhaengen, Sperren — jeder schreibende Weg
  * laeuft in einer Transaktion mit Zeilensperre und schreibt den Verlauf im
  * selben Schritt (Spec 2026-11-16 §2.1).
+ *
+ * Aufrufer rufen die Stempeluhr NICHT innerhalb einer eigenen Transaktion auf —
+ * sonst greift die Wiederholung bei Deadlock nicht.
+ *
+ * Gespeichert wird in der PHP-Standard-Zeitzone. Eindeutig ist das nur, wenn diese
+ * keine Sommerzeit kennt (UTC) — genau das ist die Host-App.
  */
 class Stempeluhr
 {
@@ -27,8 +34,11 @@ class Stempeluhr
     /** ok | schon | zu_frueh | zu_spaet | gesperrt */
     public function kommen(ZeitBezug $b, ZeitAkteur $a, string $art, ?\DateTimeInterface $zeit = null): string
     {
+        $this->pruefeArt($art);
         $zeit = $this->zeitpunkt($zeit);
 
+        // Wiederholung (3): zwei gleichzeitige Erst-Stempel enden unter InnoDB im Deadlock; der Verlierer
+        // findet beim zweiten Lauf die Zeile und liefert "schon".
         return $this->verbindung()->transaction(function () use ($b, $a, $art, $zeit) {
             $e = $this->lade($b);
             if ($e !== null) {
@@ -63,12 +73,13 @@ class Stempeluhr
             $this->schreibe($e, $b, ['kommen_at' => $zeit], $a, $art, null);
 
             return 'ok';
-        });
+        }, 3);
     }
 
-    /** ok | kein_kommen | schon | zu_spaet | gesperrt */
+    /** ok | kein_kommen | schon | zu_spaet | gesperrt | ungueltig (Gehen vor Kommen) */
     public function gehen(ZeitBezug $b, ZeitAkteur $a, string $art, ?\DateTimeInterface $zeit = null): string
     {
+        $this->pruefeArt($art);
         $zeit = $this->zeitpunkt($zeit);
 
         return $this->verbindung()->transaction(function () use ($b, $a, $art, $zeit) {
@@ -85,6 +96,9 @@ class Stempeluhr
             if ($e->gehen_at !== null) {
                 return 'schon';
             }
+            if ($zeit->lt($e->kommen_at)) {
+                return 'ungueltig';
+            }
 
             if ($art === self::ART_SELBST) {
                 // Gegen den uebergebenen (aktuellen) Plan: eine verlaengerte Schicht gilt sofort.
@@ -97,7 +111,7 @@ class Stempeluhr
             $this->schreibe($e, $b, ['gehen_at' => $zeit], $a, $art, null);
 
             return 'ok';
-        });
+        }, 3);
     }
 
     /**
@@ -108,35 +122,59 @@ class Stempeluhr
      */
     public function korrigieren(ZeitBezug $b, ZeitAkteur $a, array $werte, string $grund): string
     {
-        if (trim($grund) === '') {
+        if (trim($grund) === '' || mb_strlen($grund) > 255) {
             return 'ungueltig';
         }
 
-        return $this->verbindung()->transaction(function () use ($b, $a, $werte, $grund) {
+        // Strenge Annahme der Werte (rein, ohne Datenbank).
+        $neu = [];
+        foreach ($werte as $feld => $wert) {
+            switch ($feld) {
+                case 'kommen_at':
+                case 'gehen_at':
+                    $zeit = $this->strengeZeit($wert);
+                    if ($zeit === false) {
+                        return 'ungueltig';
+                    }
+                    $neu[$feld] = $zeit;
+                    break;
+                case 'pause_minuten':
+                    if ($wert === null || $wert === '') {
+                        $neu[$feld] = null;
+                    } elseif ((is_int($wert) && $wert >= 0) || (is_string($wert) && ctype_digit($wert))) {
+                        $neu[$feld] = (int) $wert;
+                        if ($neu[$feld] > 600) {
+                            return 'ungueltig';
+                        }
+                    } else {
+                        return 'ungueltig';
+                    }
+                    break;
+                case 'bemerkung':
+                    if ($wert !== null && !is_string($wert)) {
+                        return 'ungueltig';
+                    }
+                    $neu[$feld] = $wert;
+                    break;
+                default:
+                    return 'ungueltig';
+            }
+        }
+
+        // Validierung gegen den vorhandenen Datensatz liegt in der wiederholten Closure (Wiederholung wie bei kommen()).
+        return $this->verbindung()->transaction(function () use ($b, $a, $neu, $grund) {
             $e = $this->lade($b);
             if ($e !== null && $e->istGesperrt()) {
                 return 'gesperrt';
             }
 
-            $neu = [];
-            foreach (['kommen_at', 'gehen_at', 'pause_minuten', 'bemerkung'] as $feld) {
-                if (array_key_exists($feld, $werte)) {
-                    $neu[$feld] = $werte[$feld];
-                }
-            }
-
-            $kommen = array_key_exists('kommen_at', $neu) ? $this->alsZeit($neu['kommen_at']) : $e?->kommen_at;
-            $gehen = array_key_exists('gehen_at', $neu) ? $this->alsZeit($neu['gehen_at']) : $e?->gehen_at;
+            $kommen = array_key_exists('kommen_at', $neu) ? $neu['kommen_at'] : $e?->kommen_at;
+            $gehen = array_key_exists('gehen_at', $neu) ? $neu['gehen_at'] : $e?->gehen_at;
             if ($kommen === null && $gehen !== null) {
                 return 'ungueltig';
             }
             if ($kommen !== null && $gehen !== null && $gehen->lt($kommen)) {
                 return 'ungueltig';
-            }
-            if (array_key_exists('pause_minuten', $neu) && $neu['pause_minuten'] !== null) {
-                if (!is_numeric($neu['pause_minuten']) || (int) $neu['pause_minuten'] < 0 || (int) $neu['pause_minuten'] > 600) {
-                    return 'ungueltig';
-                }
             }
 
             if ($this->aenderungen($e, $neu) === []) {
@@ -150,7 +188,7 @@ class Stempeluhr
             $this->schreibe($e, $b, $neu, $a, self::ART_KORREKTUR, $grund);
 
             return 'ok';
-        });
+        }, 3);
     }
 
     /** Haengt den Datensatz dieser Person an einen anderen Bezug; kein Verlauf, weil sich kein Zeitwert aendert. */
@@ -170,7 +208,7 @@ class Stempeluhr
 
             try {
                 $this->verbindung()->transaction(fn () => $e->update(['bezug_id' => $nachBezugId]));
-            } catch (QueryException) {
+            } catch (UniqueConstraintViolationException) {
                 // Das Ziel entstand gerade eben fuer diese Person: dann gilt dort der vorhandene Datensatz.
             }
         });
@@ -179,6 +217,10 @@ class Stempeluhr
     /** ok | schon */
     public function sperren(ZeitEintrag $e, ZeitAkteur $a, string $grund): string
     {
+        if (trim($grund) === '' || mb_strlen($grund) > 255) {
+            throw new \InvalidArgumentException('Grund fehlt oder ist laenger als 255 Zeichen.');
+        }
+
         return $this->verbindung()->transaction(function () use ($e, $a, $grund) {
             $e = ZeitEintrag::query()->whereKey($e->getKey())->lockForUpdate()->firstOrFail();
             if ($e->istGesperrt()) {
@@ -198,6 +240,9 @@ class Stempeluhr
     /** ok | nicht_gesperrt | ungueltig (leerer Grund) */
     public function entsperren(ZeitEintrag $e, ZeitAkteur $a, string $grund): string
     {
+        if (mb_strlen($grund) > 255) {
+            throw new \InvalidArgumentException('Grund ist laenger als 255 Zeichen.');
+        }
         if (trim($grund) === '') {
             return 'ungueltig';
         }
@@ -216,6 +261,35 @@ class Stempeluhr
 
             return 'ok';
         });
+    }
+
+    private function pruefeArt(string $art): void
+    {
+        if ($art !== self::ART_SELBST && $art !== self::ART_STELLVERTRETEND) {
+            throw new \InvalidArgumentException("Unbekannte Stempel-Art: {$art}");
+        }
+    }
+
+    /** null | Carbon (Standardzone) | false = ungueltig. Strings nur als Y-m-d H:i[:s] (auch mit T) und optionalem Offset/Z. */
+    private function strengeZeit(mixed $wert): Carbon|false|null
+    {
+        if ($wert === null) {
+            return null;
+        }
+        if ($wert instanceof \DateTimeInterface) {
+            return $this->inStandardZone($wert);
+        }
+        if (!is_string($wert) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:\d{2})?$/', $wert, $m)) {
+            return false;
+        }
+        if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1]) || (int) $m[4] > 23 || (int) $m[5] > 59 || (int) ($m[6] ?? 0) > 59) {
+            return false;
+        }
+        try {
+            return Carbon::parse($wert, date_default_timezone_get())->setTimezone(date_default_timezone_get());
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function verbindung(): Connection
@@ -346,7 +420,7 @@ class Stempeluhr
             'art'                 => $art,
             'akteur_typ'          => $a->typ,
             'akteur_id'           => $a->id,
-            'akteur_name'         => $a->name,
+            'akteur_name'         => mb_substr($a->name, 0, 255),
             'grund'               => $grund,
         ]);
     }

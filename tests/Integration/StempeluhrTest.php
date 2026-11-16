@@ -277,4 +277,145 @@ class StempeluhrTest extends ZeitTestCase
         $this->assertSame('unveraendert', $uhr->korrigieren($this->berlinBezug(), $this->akteur(), ['gehen_at' => $andereZone], 'x'));
         $this->assertSame($anzahl, ZeitVerlauf::count());
     }
+
+    private function roh(string $spalte): mixed
+    {
+        return \Illuminate\Database\Capsule\Manager::table('rec_zeit_eintraege')->value($spalte);
+    }
+
+    public function test_kommen_nach_fensterende_ist_zu_spaet(): void
+    {
+        $this->jetzt('23:01');
+        $this->assertSame('zu_spaet', $this->uhr()->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST));
+        $this->assertSame(0, ZeitEintrag::count());
+    }
+
+    public function test_stellvertretendes_gehen_ignoriert_das_fenster(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        Carbon::setTestNow(Carbon::parse('2026-10-02 09:00:00', 'Europe/Berlin'));
+        $this->assertSame('ok', $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND));
+    }
+
+    public function test_gehen_vor_kommen_ist_ungueltig_gleichzeitig_erlaubt(): void
+    {
+        $uhr = $this->uhr();
+        $uhr->korrigieren($this->bezug(), $this->akteur(), ['kommen_at' => Carbon::parse('2026-10-01 18:00:00')], 'x');
+        $verlauf = ZeitVerlauf::count();
+        $this->assertSame('ungueltig', $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND, Carbon::parse('2026-10-01 17:00:00')));
+        $this->assertNull($this->roh('gehen_at'));
+        $this->assertSame($verlauf, ZeitVerlauf::count());
+        $this->assertSame('ok', $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND, Carbon::parse('2026-10-01 18:00:00')));
+    }
+
+    public function test_uebergebene_zeit_wird_in_standardzone_gespeichert(): void
+    {
+        $this->uhr()->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND, Carbon::parse('2026-10-01 14:30', 'Europe/Berlin'));
+        $this->assertSame('2026-10-01 12:30:00', $this->roh('kommen_at'));
+    }
+
+    public function test_sperre_steht_in_standardzone_und_entsperren_grund_im_verlauf(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        Carbon::setTestNow(Carbon::parse('2026-10-01 14:05:00', 'Europe/Berlin'));
+        $uhr->sperren(ZeitEintrag::first(), $this->akteur(), 'fertig');
+        $this->assertSame('2026-10-01 12:05:00', $this->roh('gesperrt_at'));
+        $this->assertSame('2026-10-01 12:05:00', ZeitVerlauf::where('feld', 'gesperrt_at')->value('neu'));
+        $uhr->entsperren(ZeitEintrag::first(), $this->akteur(), 'Irrtum');
+        $this->assertSame('Irrtum', ZeitVerlauf::orderByDesc('id')->first()->grund);
+    }
+
+    public function test_jedes_schreiben_zieht_den_plan_nach(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
+        $neu = new \Platform\Recruiting\Zeit\ZeitBezug('rec_employee', 901, 'rec_dispo_assignment', 1, '2026-10-02',
+            \Carbon\CarbonImmutable::parse('2026-10-02 06:00', 'UTC'), \Carbon\CarbonImmutable::parse('2026-10-02 10:00', 'UTC'), self::TEAM + 1);
+        $uhr->gehen($neu, $this->akteur(), Stempeluhr::ART_STELLVERTRETEND, Carbon::parse('2026-10-02 09:00:00', 'UTC'));
+        $this->assertSame('2026-10-02 06:00:00', $this->roh('soll_von_at'));
+        $this->assertSame('2026-10-02 10:00:00', $this->roh('soll_bis_at'));
+        $this->assertSame('2026-10-02', substr((string) $this->roh('tag'), 0, 10));
+        $this->assertSame(self::TEAM + 1, (int) $this->roh('team_id'));
+    }
+
+    public function test_umhaengen_haengt_die_zweite_person_um_nicht_die_erste(): void
+    {
+        $uhr = $this->uhr();
+        $this->jetzt('14:00');
+        $uhr->kommen($this->bezug(901, 1), $this->akteur(), Stempeluhr::ART_SELBST);
+        $uhr->kommen($this->bezug(902, 1), $this->akteur(), Stempeluhr::ART_SELBST);
+        $uhr->umhaengen('rec_dispo_assignment', 1, 2, 'rec_employee', 902);
+        $this->assertSame(1, (int) ZeitEintrag::where('person_id', 901)->value('bezug_id'));
+        $this->assertSame(2, (int) ZeitEintrag::where('person_id', 902)->value('bezug_id'));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('ungueltigeZeiten')]
+    public function test_korrektur_nimmt_nur_strenge_zeiten(mixed $wert): void
+    {
+        $this->assertSame('ungueltig', $this->uhr()->korrigieren($this->bezug(), $this->akteur(), ['kommen_at' => $wert], 'x'));
+        $this->assertSame(0, ZeitEintrag::count());
+    }
+
+    public static function ungueltigeZeiten(): array
+    {
+        return [['quatsch'], ['25:99'], ['14:00'], [0], [[]], ['2026-02-31 10:00'], ['']];
+    }
+
+    public function test_korrektur_nimmt_string_mit_offset(): void
+    {
+        $this->assertSame('ok', $this->uhr()->korrigieren($this->bezug(), $this->akteur(), ['kommen_at' => '2026-10-01T14:00:00+02:00'], 'x'));
+        $this->assertSame('2026-10-01 12:00:00', $this->roh('kommen_at'));
+    }
+
+    public function test_korrektur_unbekannter_schluessel_und_pause_streng(): void
+    {
+        $uhr = $this->uhr();
+        $this->assertSame('ungueltig', $uhr->korrigieren($this->bezug(), $this->akteur(), ['komen_at' => '2026-10-01 14:00'], 'x'));
+        foreach (['12.7', '1e2', -5, 12.5, true] as $p) {
+            $this->assertSame('ungueltig', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => $p], 'x'), var_export($p, true));
+        }
+        $this->assertSame(0, ZeitEintrag::count());
+        $this->assertSame('ok', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => '30'], 'x'));
+        $this->assertSame(30, (int) $this->roh('pause_minuten'));
+        $this->assertSame('ok', $uhr->korrigieren($this->bezug(), $this->akteur(), ['pause_minuten' => ''], 'x'));
+        $this->assertNull($this->roh('pause_minuten'));
+    }
+
+    public function test_unbekannte_art_ist_programmierfehler(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->uhr()->kommen($this->bezug(), $this->akteur(), 'Selbst');
+    }
+
+    public function test_lange_und_leere_gruende(): void
+    {
+        $uhr = $this->uhr();
+        $lang = str_repeat('a', 256);
+        $this->assertSame('ungueltig', $uhr->korrigieren($this->bezug(), $this->akteur(), ['bemerkung' => 'x'], $lang));
+        $uhr->korrigieren($this->bezug(), $this->akteur(), ['bemerkung' => 'x'], 'ok');
+        $e = ZeitEintrag::first();
+        try {
+            $uhr->sperren($e, $this->akteur(), $lang);
+            $this->fail('erwartet InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+        }
+        try {
+            $uhr->sperren($e, $this->akteur(), ' ');
+            $this->fail('erwartet InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+        }
+        $uhr->sperren($e, $this->akteur(), 'g');
+        try {
+            $uhr->entsperren($e, $this->akteur(), $lang);
+            $this->fail('erwartet InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+        }
+        $uhr->entsperren($e, $this->akteur('user', 7, str_repeat('ä', 300)), 'g');
+        $this->assertSame(255, mb_strlen(ZeitVerlauf::orderByDesc('id')->first()->akteur_name));
+    }
 }

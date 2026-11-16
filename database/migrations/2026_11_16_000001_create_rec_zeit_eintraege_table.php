@@ -26,13 +26,13 @@ return new class extends Migration
             $table->string('bezug_typ', 40);
             $table->unsignedBigInteger('bezug_id');
             $table->date('tag');
-            $table->timestamp('soll_von_at')->nullable();
-            $table->timestamp('soll_bis_at')->nullable();
-            $table->timestamp('kommen_at')->nullable();
-            $table->timestamp('gehen_at')->nullable();
+            $table->dateTime('soll_von_at')->nullable();
+            $table->dateTime('soll_bis_at')->nullable();
+            $table->dateTime('kommen_at')->nullable();
+            $table->dateTime('gehen_at')->nullable();
             $table->unsignedInteger('pause_minuten')->nullable();
             $table->text('bemerkung')->nullable();
-            $table->timestamp('gesperrt_at')->nullable();
+            $table->dateTime('gesperrt_at')->nullable();
             $table->string('gesperrt_grund')->nullable();
             $table->timestamps();
 
