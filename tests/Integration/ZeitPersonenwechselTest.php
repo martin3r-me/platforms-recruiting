@@ -465,4 +465,20 @@ class ZeitPersonenwechselTest extends ZeitTestCase
         $v = \Platform\Recruiting\Zeit\ZeitVerlauf::query()->where('feld', 'gehen_at')->firstOrFail();
         $this->assertSame(['rec_employee', 950], [$v->akteur_typ, (int) $v->akteur_id]);
     }
+
+    /** K6: … auch wenn er mit der ANDEREN Anstellung angemeldet ist als der, die an der Zeile haengt. */
+    public function test_schwester_stempel_nennt_den_angemeldeten_nicht_die_anstellung_der_zeile(): void
+    {
+        $rg = $this->ma(901);
+        $this->ma(950);
+        $this->ma(960);
+        $x = $this->einsatz(901);
+        $this->eintrag($x, 960); // Stempel an einer dritten Anstellung der Gruppe
+        $x->update(['rec_employee_id' => 950]);
+
+        $this->assertSame('ok', $this->portal([901, 950, 960])->gehen($rg, (int) $x->id, Carbon::now()));
+
+        $v = \Platform\Recruiting\Zeit\ZeitVerlauf::query()->where('feld', 'gehen_at')->firstOrFail();
+        $this->assertSame(901, (int) $v->akteur_id, 'weder die Zeile (950) noch der Datensatz (960)');
+    }
 }
