@@ -29,16 +29,16 @@ final class DispoZeitBezug
         $zone = TeamClock::resolveTimezone(null);
         $tagStart = CarbonImmutable::parse($tag, $zone)->startOfDay();
 
-        $von = self::uhr($a->von);
-        $bis = self::uhr($a->bis);
+        $von = self::uhr($a->von, false);
+        $bis = self::uhr($a->bis, true);
 
         $sollVon = $von === null ? null : $tagStart->setTime($von[0], $von[1]);
         if ($bis === null) {
             // Ohne Ende: Tagesende des Einsatztags = 00:00 des Folgetags.
             $sollBis = $tagStart->addDay()->startOfDay();
         } else {
-            $sollBis = $tagStart->setTime($bis[0], $bis[1]);
-            if ($sollVon !== null && $sollBis->lessThanOrEqualTo($sollVon)) {
+            $sollBis = $bis[0] === 24 ? $tagStart->addDay()->startOfDay() : $tagStart->setTime($bis[0], $bis[1]);
+            if ($bis[0] !== 24 && $sollVon !== null && $sollBis->lessThanOrEqualTo($sollVon)) {
                 // Schicht ueber Mitternacht: Ende am Folgetag (Wanduhr-Addition in der Zone).
                 $sollBis = $tagStart->addDay()->setTime($bis[0], $bis[1]);
             }
@@ -62,14 +62,21 @@ final class DispoZeitBezug
         );
     }
 
-    /** @return array{0:int,1:int}|null */
-    private static function uhr(mixed $text): ?array
+    /**
+     * H:MM, HH:MM oder HH:MM:SS (getrimmt). 24:00 gilt nur als Ende (= 00:00 Folgetag, als [24, 0]).
+     *
+     * @return array{0:int,1:int}|null
+     */
+    private static function uhr(mixed $text, bool $alsEnde): ?array
     {
-        if (!is_string($text) || !preg_match('/^(\d{2}):(\d{2})/', $text, $m)) {
+        if (!is_string($text) || !preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', trim($text), $m)) {
             return null;
         }
         $h = (int) $m[1];
         $min = (int) $m[2];
+        if ($alsEnde && $h === 24 && $min === 0) {
+            return [24, 0];
+        }
 
         return ($h > 23 || $min > 59) ? null : [$h, $min];
     }

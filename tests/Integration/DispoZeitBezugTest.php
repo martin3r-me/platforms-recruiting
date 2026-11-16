@@ -107,4 +107,30 @@ class DispoZeitBezugTest extends ZeitTestCase
         $this->assertTrue($r->sollVon->equalTo($b->sollVon));
         $this->assertTrue($r->sollBis->equalTo($b->sollBis));
     }
+
+    public function test_uhrzeit_formate(): void
+    {
+        $b = DispoZeitBezug::fuer($this->a(['von' => '7:00', 'bis' => '15:00']));
+        $this->assertSame('2026-10-01 07:00', $this->ort($b->sollVon));
+        $b = DispoZeitBezug::fuer($this->a(['von' => '08:00', 'bis' => '7:00']));
+        $this->assertSame('2026-10-02 07:00', $this->ort($b->sollBis));
+        $b = DispoZeitBezug::fuer($this->a(['von' => ' 07:00 ', 'bis' => '15:00']));
+        $this->assertSame('2026-10-01 07:00', $this->ort($b->sollVon));
+        $b = DispoZeitBezug::fuer($this->a(['von' => '07:00:00', 'bis' => '15:00:00']));
+        $this->assertSame('2026-10-01 15:00', $this->ort($b->sollBis));
+    }
+
+    public function test_ungueltige_uhrzeit_gilt_als_fehlend(): void
+    {
+        $b = DispoZeitBezug::fuer($this->a(['von' => '07:00abc', 'bis' => '24:00']));
+        $this->assertNull($b->sollVon);
+        $b = DispoZeitBezug::fuer($this->a(['von' => '24:00', 'bis' => '15:00']));
+        $this->assertNull($b->sollVon);
+    }
+
+    public function test_bis_24_uhr_ist_mitternacht_des_folgetags(): void
+    {
+        $b = DispoZeitBezug::fuer($this->a(['von' => '16:00', 'bis' => '24:00']));
+        $this->assertSame('2026-10-02 00:00', $this->ort($b->sollBis));
+    }
 }

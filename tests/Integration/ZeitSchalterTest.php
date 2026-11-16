@@ -105,6 +105,13 @@ class ZeitSchalterTest extends ZeitTestCase
         $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => '']));
     }
 
+    public function test_teilstring_schaltet_nicht_frei(): void
+    {
+        $this->team();
+        $this->setting([ZeitSchalter::SETTING_ENTSPERREN => ['xa@x.de']]);
+        $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => 'a@x.de']));
+    }
+
     public function test_schluessel_namen(): void
     {
         $this->assertSame('zeit_stempeln_aktiv', ZeitSchalter::SETTING_AKTIV);

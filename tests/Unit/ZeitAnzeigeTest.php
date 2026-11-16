@@ -54,4 +54,11 @@ class ZeitAnzeigeTest extends TestCase
         $this->assertNull(ZeitAnzeige::ausEingabe('2026-13-45T25:99'));
         $this->assertNull(ZeitAnzeige::ausEingabe('2026-07-01'));
     }
+
+    public function test_luecke_der_zeitumstellung_ist_ungueltig_die_doppelte_stunde_gueltig(): void
+    {
+        $this->assertNull(ZeitAnzeige::ausEingabe('2026-03-29T02:30'));
+        $this->assertNotNull(ZeitAnzeige::ausEingabe('2026-03-29T03:30'));
+        $this->assertNotNull(ZeitAnzeige::ausEingabe('2026-10-25T02:30'));
+    }
 }

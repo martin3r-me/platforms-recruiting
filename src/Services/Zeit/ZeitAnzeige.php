@@ -36,7 +36,9 @@ final class ZeitAnzeige
             $t = \DateTimeImmutable::createFromFormat('!' . $format, $text, new \DateTimeZone(self::zone()));
             $fehler = \DateTimeImmutable::getLastErrors();
             if ($t !== false && ($fehler === false || ($fehler['warning_count'] === 0 && $fehler['error_count'] === 0))) {
-                return CarbonImmutable::instance($t);
+                $ergebnis = CarbonImmutable::instance($t);
+                // Nicht existierende Ortszeit (Umstellungsluecke) wuerde still weiterrollen.
+                return $ergebnis->format($format) === $text ? $ergebnis : null;
             }
         }
 

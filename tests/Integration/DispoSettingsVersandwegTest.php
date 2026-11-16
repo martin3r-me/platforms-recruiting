@@ -164,6 +164,45 @@ class DispoSettingsVersandwegTest extends TestCase
         $this->assertSame("chef@rg.de\nanna@rg.de", $neu->zeitEntsperrenEmails);
     }
 
+    public function test_zeit_felder_berechtigt_gespeichert(): void
+    {
+        self::einstellungen([DispoJobVersandweg::SETTING_FREIGEBER => 'markus@rg.de']);
+        $c = self::komponente('markus@rg.de', ['zeitStempelnAktiv' => '1', 'zeitEntsperrenEmails' => 'chef@rg.de']);
+        $this->assertFalse($c->zeitGesperrt());
+        $c->save();
+
+        $s = self::frisch();
+        $this->assertTrue($s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_AKTIV));
+        $this->assertSame(['chef@rg.de'], $s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_ENTSPERREN));
+    }
+
+    public function test_zeit_felder_nicht_berechtigt_bleiben_unveraendert_auch_bei_direktem_setzen(): void
+    {
+        self::einstellungen([
+            DispoJobVersandweg::SETTING_FREIGEBER => 'markus@rg.de',
+            \Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_AKTIV => true,
+            \Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_ENTSPERREN => ['chef@rg.de'],
+        ]);
+        $c = self::komponente('anna@rg.de', ['zeitStempelnAktiv' => '', 'zeitEntsperrenEmails' => 'anna@rg.de', 'escalationTime1' => '13:30']);
+        $this->assertTrue($c->zeitGesperrt());
+        $c->save();
+
+        $s = self::frisch();
+        $this->assertTrue($s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_AKTIV));
+        $this->assertSame(['chef@rg.de'], $s->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_ENTSPERREN));
+        $this->assertSame('13:30', $s->getSetting('dispo_escalation_time_1'), 'Rest wird gespeichert');
+        $this->assertSame('1', $c->zeitStempelnAktiv, 'Ansicht zeigt den gespeicherten Stand');
+        $this->assertSame('chef@rg.de', $c->zeitEntsperrenEmails);
+    }
+
+    public function test_zeit_liste_trennt_an_komma_semikolon_leerzeichen_und_verwirft_ohne_at(): void
+    {
+        self::einstellungen();
+        $c = self::komponente('anna@rg.de', ['zeitEntsperrenEmails' => "a@x.de, B@x.de;c@x.de  kaputt\nA@x.de"]);
+        $c->save();
+        $this->assertSame(['a@x.de', 'b@x.de', 'c@x.de'], self::frisch()->getSetting(\Platform\Recruiting\Services\Zeit\ZeitSchalter::SETTING_ENTSPERREN));
+    }
+
     public function test_fremder_aendert_schalter_und_freigeber_nicht_den_rest_schon(): void
     {
         self::einstellungen([DispoJobVersandweg::SETTING_AKTIV => true, DispoJobVersandweg::SETTING_FREIGEBER => 'markus@rg.de']);

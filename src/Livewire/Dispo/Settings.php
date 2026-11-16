@@ -139,6 +139,12 @@ class Settings extends Component
         return !DispoJobVersandweg::darfEinstellungenAendern(DispoJobVersandweg::freigeberEmail($settings), $this->nutzer());
     }
 
+    /** Zeit-Schalter und Rechteliste: dieselbe Sperre wie der Versandweg. */
+    public function zeitGesperrt(): bool
+    {
+        return $this->versandwegGesperrt();
+    }
+
     /** Aktive GO/MA-Mitarbeiter ohne neues Portal (Spec 6.3) — Warnung neben dem Schalter. */
     #[Computed]
     public function ohneNeuesPortal(): int
@@ -242,14 +248,18 @@ class Settings extends Component
         $settings->setSetting('dispo_training_leader_emails', $leaders);
         $this->trainingLeaderEmails = implode("\n", $leaders);
 
-        // Zeiterfassung: Schalter + Liste (gleiche Normalisierung wie die Zugangslisten).
-        $zeitEmails = array_values(array_unique(array_filter(array_map(
-            fn ($line) => mb_strtolower(trim($line)),
-            preg_split('/\r?\n/', $this->zeitEntsperrenEmails) ?: []
-        ))));
-        $settings->setSetting(ZeitSchalter::SETTING_AKTIV, $this->zeitStempelnAktiv !== '');
-        $settings->setSetting(ZeitSchalter::SETTING_ENTSPERREN, $zeitEmails);
-        $this->zeitEntsperrenEmails = implode("\n", $zeitEmails);
+        // Zeiterfassung: Schalter + Rechteliste. Gleiche Sperre wie der Versandweg (gegen den
+        // GESPEICHERTEN Freigeber); wer nicht darf, dessen Eingaben werden verworfen.
+        if (!$this->zeitGesperrt()) {
+            $zeitEmails = array_values(array_unique(array_filter(
+                array_map(fn ($e) => mb_strtolower(trim($e)), preg_split('/[\r\n,;\s]+/', $this->zeitEntsperrenEmails) ?: []),
+                fn ($e) => $e !== '' && str_contains($e, '@')
+            )));
+            $settings->setSetting(ZeitSchalter::SETTING_AKTIV, $this->zeitStempelnAktiv !== '');
+            $settings->setSetting(ZeitSchalter::SETTING_ENTSPERREN, $zeitEmails);
+        }
+        $this->zeitStempelnAktiv    = $settings->getSetting(ZeitSchalter::SETTING_AKTIV) ? '1' : '';
+        $this->zeitEntsperrenEmails = implode("\n", (array) ($settings->getSetting(ZeitSchalter::SETTING_ENTSPERREN) ?? []));
 
         \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::flush();
 
