@@ -107,7 +107,15 @@ final class DispoAccess
                 return self::$memo[$key] = [];
             }
             $raw = RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting($key);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // Fehlerrichtung bleibt Opt-in (siehe Klassenkommentar) — aber nicht
+            // mehr still: eine unlesbare Liste soll auffallen (Review 16.11.).
+            try {
+                \Illuminate\Support\Facades\Log::warning('dispo_access_liste_nicht_lesbar', ['key' => $key, 'fehler' => $e->getMessage()]);
+            } catch (\Throwable) {
+                // ohne gebundenes Log (Capsule-Tests) bewusst leer
+            }
+
             return self::$memo[$key] = [];
         }
 

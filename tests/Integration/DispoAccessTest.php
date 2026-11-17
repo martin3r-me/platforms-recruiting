@@ -165,4 +165,46 @@ class DispoAccessTest extends TestCase
         // nicht "alle".
         $this->assertFalse(DispoAccess::trainingLeader($this->user('schulung@rheingedeck.de')));
     }
+
+    /**
+     * Review 16.11.: Ist die Liste nicht lesbar, bleibt die Fehlerrichtung Opt-in
+     * (normaler Nutzer) — aber es faellt auf: eine Protokoll-Zeile. Ohne gebundenes
+     * Log darf der Fang nichts werfen.
+     */
+    public function test_unlesbare_liste_bleibt_opt_in_und_wird_protokolliert(): void
+    {
+        $this->seed(['event@rheingedeck.de']);
+        $log = new class {
+            public array $warnungen = [];
+
+            public function warning(string $m, array $c = []): void
+            {
+                $this->warnungen[] = [$m, $c];
+            }
+        };
+        Container::getInstance()->instance('log', $log);
+        \Illuminate\Support\Facades\Log::clearResolvedInstance('log');
+
+        Capsule::schema()->rename('rec_applicant_settings', 'rec_applicant_settings_weg');
+        try {
+            $this->assertFalse(DispoAccess::eventOnly($this->user('event@rheingedeck.de')), 'unlesbar = normaler Nutzer');
+            $this->assertCount(1, $log->warnungen);
+            $this->assertSame('dispo_access_liste_nicht_lesbar', $log->warnungen[0][0]);
+            $this->assertSame(DispoAccess::SETTING_EVENT_ONLY, $log->warnungen[0][1]['key']);
+
+            // Ohne gebundenes Log: gleiche Antwort, keine Ausnahme.
+            Container::getInstance()->forgetInstance('log');
+            \Illuminate\Support\Facades\Log::clearResolvedInstance('log');
+            DispoAccess::flush();
+            $this->assertFalse(DispoAccess::eventOnly($this->user('event@rheingedeck.de')));
+        } finally {
+            Capsule::schema()->rename('rec_applicant_settings_weg', 'rec_applicant_settings');
+            Container::getInstance()->forgetInstance('log');
+            \Illuminate\Support\Facades\Log::clearResolvedInstance('log');
+            DispoAccess::flush();
+        }
+
+        // Gegenprobe: wieder lesbar -> wieder eingeschraenkt.
+        $this->assertTrue(DispoAccess::eventOnly($this->user('event@rheingedeck.de')));
+    }
 }

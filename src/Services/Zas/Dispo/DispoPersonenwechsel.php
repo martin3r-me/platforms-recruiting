@@ -234,7 +234,31 @@ class DispoPersonenwechsel
             ->whereNotNull('person_key')->where('person_key', '!=', '')
             ->pluck('person_key', 'id')->map(fn ($v) => (string) $v)->all();
 
-        return array_filter($zeilen, fn (array $z) => self::dieselbePerson($z['von'], $z['nach'], $kontakte, $personKeys));
+        $dieselbe = array_filter($zeilen, fn (array $z) => self::dieselbePerson($z['von'], $z['nach'], $kontakte, $personKeys));
+
+        // Gleiche Nummer, aber der Stamm loest sie auf einen ANDEREN Menschen auf:
+        // die Zeile wird (wie schon immer) ohne Ablage auf den neuen Datensatz
+        // gehaengt. Eine gestempelte Zeit bliebe dabei bei der alten Person und
+        // waere in der Disposition unsichtbar — deshalb auffindbar machen
+        // (Review 16.11., F4). Aendert nichts am Verhalten.
+        foreach (array_diff_key($zeilen, $dieselbe) as $dsRef => $z) {
+            self::protokolliere('dispo_zeile_auf_fremden_datensatz_umgehaengt', [
+                'ds_ref' => (string) $dsRef, 'assignment_id' => $z['assignment_id'],
+                'von_person_id' => $z['von'], 'nach_person_id' => $z['nach'],
+            ]);
+        }
+
+        return $dieselbe;
+    }
+
+    /** Protokoll-Zeile, die den Import nie brechen darf (auch nicht ohne gebundenes Log). */
+    private static function protokolliere(string $ereignis, array $kontext): void
+    {
+        try {
+            Log::warning($ereignis, $kontext);
+        } catch (\Throwable) {
+            // bewusst leer
+        }
     }
 
     /**

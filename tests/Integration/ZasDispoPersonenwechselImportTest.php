@@ -544,6 +544,13 @@ class ZasDispoPersonenwechselImportTest extends TestCase
 
         $this->assertSame([$alt->id], ZeitEintrag::pluck('person_id')->map(fn ($v) => (int) $v)->all());
         $this->assertSame(0, ZeitVerlauf::where('art', 'umzug')->count());
+
+        // Review 16.11., F4: der Rest ist auffindbar — eine Protokoll-Zeile mit beiden Personen.
+        $zeilen = array_values(array_filter(PersonenwechselLog::$warnungen, fn ($w) => $w[0] === 'dispo_zeile_auf_fremden_datensatz_umgehaengt'));
+        $this->assertCount(1, $zeilen);
+        $this->assertSame($alt->id, $zeilen[0][1]['von_person_id']);
+        $this->assertSame((int) $this->live()->rec_employee_id, $zeilen[0][1]['nach_person_id']);
+        $this->assertSame($this->live()->id, $zeilen[0][1]['assignment_id']);
     }
 
     public function test_anstellungswechsel_ohne_zeit_tabelle_laeuft_der_import(): void
