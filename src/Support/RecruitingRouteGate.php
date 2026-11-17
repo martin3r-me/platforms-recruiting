@@ -64,6 +64,17 @@ final class RecruitingRouteGate
     ];
 
     /**
+     * Fuehrt dieser Aufruf ins Recruiting (oder auf die Core-Landeseite, von der
+     * aus eingeschraenkte Konten dorthin umgeleitet werden)? Nur dann wird ein
+     * Sammelkonto aufs Anker-Team zurueckgestellt — andere Module in anderen
+     * Teams bleiben unberuehrt.
+     */
+    public static function betrifft(string $routeName): bool
+    {
+        return str_starts_with($routeName, 'recruiting.') || in_array($routeName, self::CORE_LANDING, true);
+    }
+
+    /**
      * Die Route, auf die umgeleitet werden muss — oder null, wenn der
      * Aufruf durchgehen darf.
      */

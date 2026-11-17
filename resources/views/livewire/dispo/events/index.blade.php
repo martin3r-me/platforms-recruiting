@@ -1,7 +1,7 @@
 {{-- Auto-Aktualisierung (Kunde 22.09.): alle 30 s leise nachladen — neue
      Bestaetigungen und Nachrichten erscheinen ohne Neuladen. `visible` haelt
      das Pollen an, sobald der Tab im Hintergrund liegt. --}}
-<div class="p-4 lg:p-6 space-y-6" wire:poll.visible.30s>
+<div class="min-w-0 p-4 lg:p-6 space-y-6" wire:poll.visible.30s>
     <div class="flex items-center justify-between">
         <h1 class="text-xl font-semibold">Veranstaltungen</h1>
         <label class="flex items-center gap-2 text-sm text-gray-600">
@@ -114,7 +114,11 @@
         @endforelse
     </div>
 
-    <div class="hidden rounded-lg border border-gray-200 bg-white lg:block">
+    {{-- Seitlich scrollbar (17.11.2026): die Umschaltung Karte/Tabelle haengt an der
+         FENSTER-Breite; mit ausgeklappter Seitenleiste ist der Inhalt schmaler als
+         die Tabelle. Dann scrollt nur die Tabelle — Ueberschrift, ZAS-Stand und
+         Filter bleiben im Bild. --}}
+    <div class="hidden overflow-x-auto rounded-lg border border-gray-200 bg-white lg:block">
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 <tr>

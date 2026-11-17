@@ -436,7 +436,8 @@
             @endforelse
         </div>
 
-        <div class="hidden lg:block">
+        {{-- Seitlich scrollbar wie die Uebersicht (17.11.2026): mit ausgeklappter Seitenleiste ist der Inhalt schmaler als die Tabelle. --}}
+        <div class="hidden overflow-x-auto lg:block">
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 @php $rowSortArrow = fn ($c) => $rowSort === $c ? ($rowSortDir === 'desc' ? ' ▼' : ' ▲') : ''; @endphp
