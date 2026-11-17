@@ -436,8 +436,10 @@
             @endforelse
         </div>
 
-        {{-- Seitlich scrollbar wie die Uebersicht (17.11.2026): mit ausgeklappter Seitenleiste ist der Inhalt schmaler als die Tabelle. --}}
-        <div class="hidden overflow-x-auto lg:block">
+        {{-- Seitlich scrollbar wie die Uebersicht (17.11.2026): mit ausgeklappter Seitenleiste ist der Inhalt schmaler als die Tabelle.
+             Mindesthoehe PFLICHT: overflow-x macht die Huelle auch senkrecht zum Scroll-Kasten, die Spaltenfilter-Menues
+             im Tabellenkopf (_column-filter, bis ca. 19rem hoch) wuerden bei wenigen Zeilen sonst abgeschnitten (Review 17.11.). --}}
+        <div class="hidden overflow-x-auto lg:block" style="min-height: 22rem">
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 @php $rowSortArrow = fn ($c) => $rowSort === $c ? ($rowSortDir === 'desc' ? ' ▼' : ' ▲') : ''; @endphp
