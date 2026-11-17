@@ -25,7 +25,73 @@ class FlynkPostingSyncDeciderTest extends TestCase
             publishSent: $o['publishSent'] ?? false,
             closeRowExists: $o['closeRowExists'] ?? false,
             lastDeliverableContentHash: $o['lastDeliverableContentHash'] ?? null,
+            closesKey: $o['closesKey'] ?? null,
+            lastDeliverableClosesKey: $o['lastDeliverableClosesKey'] ?? null,
         );
+    }
+
+    public function test_changed_end_date_alone_emits_update(): void
+    {
+        $base = ['publishRowExists' => true, 'publishSent' => true, 'lastDeliverableContentHash' => 'A'];
+        $d = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+
+        $this->assertSame('update', $d::decide($this->state($base + ['closesKey' => '2026-12-15', 'lastDeliverableClosesKey' => '2026-11-30'])));
+        $this->assertSame('update', $d::decide($this->state($base + ['closesKey' => 'none', 'lastDeliverableClosesKey' => '2026-11-30'])));
+        $this->assertNull($d::decide($this->state($base + ['closesKey' => '2026-11-30', 'lastDeliverableClosesKey' => '2026-11-30'])));
+        $this->assertNull($d::decide($this->state($base + ['closesKey' => '2026-12-15', 'lastDeliverableClosesKey' => null])), 'unbekannt: nicht raten');
+        $this->assertNull($d::decide($this->state($base + ['isOpen' => false, 'closeRowExists' => true, 'closesKey' => '2026-12-15', 'lastDeliverableClosesKey' => '2026-11-30'])));
+    }
+
+    public function test_silently_expired_close_ends_the_generation(): void
+    {
+        $d = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [
+            ['event_type' => 'publish', 'status' => 'sent', 'generation' => 1, 'seq' => 0, 'content_hash' => 'A'],
+            ['event_type' => 'close', 'status' => 'expired', 'generation' => 1, 'seq' => 0, 'content_hash' => ''],
+        ];
+        $this->assertSame(2, $d::generation($rows));
+    }
+
+    public function test_last_sent_end_date_ignores_what_never_arrived(): void
+    {
+        $d = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [
+            ['event_type' => 'publish', 'status' => 'sent', 'generation' => 1, 'seq' => 0, 'content_hash' => 'A', 'closes_key' => '2026-11-30'],
+            ['event_type' => 'update', 'status' => 'failed', 'permanent_failure' => true, 'generation' => 1, 'seq' => 1, 'content_hash' => 'A', 'closes_key' => '2026-11-16'],
+        ];
+        $this->assertSame('2026-11-30', $d::lastSentClosesKey($rows, 1));
+        $this->assertSame('2026-11-16', $d::lastDeliverableClosesKey($rows, 1), 'fuer die Aenderungs-Erkennung zaehlt die gescheiterte mit (kein Dauerfeuer)');
+    }
+
+    public function test_silent_expiry_only_for_the_end_date_flynk_really_has(): void
+    {
+        $d = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $publish = ['event_type' => 'publish', 'status' => 'sent', 'generation' => 1, 'seq' => 0, 'content_hash' => 'A', 'closes_key' => '2026-11-30', 'sent_on' => '2026-11-02'];
+        $failedUpdate = ['event_type' => 'update', 'status' => 'failed', 'permanent_failure' => true, 'generation' => 1, 'seq' => 1, 'content_hash' => 'A', 'closes_key' => '2026-11-16'];
+
+        // FLYNK hat den 30.11., die Meldung mit dem 16.11. kam nie an.
+        $s = $d::buildState([$publish, $failedUpdate], false, 'A', true, '2026-11-16', true, '2026-11-01');
+        $this->assertFalse($s->expiresSilently);
+        $this->assertSame('close', $d::decide($s));
+
+        // Dasselbe mit angekommener Meldung: still.
+        $sentUpdate = ['status' => 'sent', 'permanent_failure' => false] + $failedUpdate;
+        $this->assertTrue($d::buildState([$publish, $sentUpdate], false, 'A', true, '2026-11-16', true, '2026-11-01')->expiresSilently);
+
+        // Ohne Enddatum laeuft nie etwas still aus.
+        $this->assertFalse($d::buildState([['closes_key' => 'none'] + $publish], false, 'A', true, 'none', true, '2026-11-01')->expiresSilently);
+    }
+
+    public function test_auto_expiry_needs_cutoff_and_publish_on_or_after_it(): void
+    {
+        $d = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [['event_type' => 'publish', 'status' => 'sent', 'generation' => 1, 'seq' => 0, 'content_hash' => 'A', 'sent_on' => '2026-11-20']];
+
+        $this->assertFalse($d::autoExpiryCovered($rows, 1, null));
+        $this->assertFalse($d::autoExpiryCovered($rows, 1, '2026-11-21'));
+        $this->assertTrue($d::autoExpiryCovered($rows, 1, '2026-11-20'));
+        $this->assertTrue($d::autoExpiryCovered($rows, 1, '2026-11-01'));
+        $this->assertFalse($d::autoExpiryCovered($rows, 2, '2026-11-01'), 'andere Generation');
     }
 
     public function test_open_without_publish_emits_publish(): void

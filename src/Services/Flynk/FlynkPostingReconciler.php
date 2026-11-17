@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Flynk;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPostingFlynkSync;
 
@@ -24,8 +25,19 @@ class FlynkPostingReconciler
         $summary = [
             'sent' => 0, 'retried' => 0, 'stale_deleted' => 0,
             'failed' => 0, 'permanent' => 0, 'skipped' => 0,
-            'file_rejected' => 0,
+            'file_rejected' => 0, 'expired_silent' => 0,
         ];
+        $autoExpirySince = $this->autoExpirySince();
+
+        // Code schon live, Migration noch nicht gelaufen (abgerissener Deploy):
+        // gar nicht erst senden. Sonst legt der Nachsende-Pass die Aufgabe bei
+        // FLYNK an, scheitert danach am Speichern der Zeile — und wiederholt
+        // das alle 30 Minuten.
+        if (!Schema::hasColumn('rec_posting_flynk_syncs', 'closes_key')) {
+            Log::error('flynk: Spalte closes_key fehlt — Migration ausstehend, Lauf uebersprungen');
+
+            return $summary;
+        }
         $sends = 0;
         $abort = false; // 401 → Lauf hart abbrechen
         $stop = false;  // 429 → Lauf höflich beenden
@@ -55,6 +67,9 @@ class FlynkPostingReconciler
                 'event_type' => $r->event_type,
                 'seq' => (int) $r->seq,
                 'content_hash' => (string) $r->content_hash,
+                'closes_key' => $r->closes_key,
+                'closes_assumed' => (bool) $r->closes_assumed,
+                'sent_on' => $r->sent_at?->toDateString(),
                 'status' => $r->status,
                 'attempts' => (int) $r->attempts,
                 'permanent_failure' => (bool) $r->permanent_failure,
@@ -113,11 +128,17 @@ class FlynkPostingReconciler
                     $careersUrl
                 );
                 $model->content_hash = $task->contentHash; // Hash des tatsächlich gesendeten Payloads persistieren
+                $retryKey = $row['event_type'] === FlynkEvent::CLOSE ? null : $this->closesKeyOf($ctx['posting']);
+                $model->closes_key = $retryKey; // ebenso das tatsaechlich gesendete Enddatum
+                $model->closes_assumed = false;
                 $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary, $ctx['posting']);
                 $sends++;
                 $summary['retried']++;
                 $context[$pid]['rows'][$i]['status'] = $model->status; // in-memory für Detect-Pass syncen
                 $context[$pid]['rows'][$i]['content_hash'] = $task->contentHash;
+                $context[$pid]['rows'][$i]['closes_key'] = $retryKey;
+                $context[$pid]['rows'][$i]['closes_assumed'] = false;
+                $context[$pid]['rows'][$i]['sent_on'] = $model->sent_at?->toDateString();
                 if ($outcome === 'abort') {
                     $abort = true;
                     break;
@@ -138,13 +159,42 @@ class FlynkPostingReconciler
             $rows = $ctx['rows'];
 
             $contentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity, $this->refCodeOf($p), $p->anzeige_hash);
-            $state = FlynkPostingSyncDecider::buildState($rows, $ctx['isOpen'], $contentHash, $ctx['hasStarted']);
+            $state = FlynkPostingSyncDecider::buildState(
+                $rows, $ctx['isOpen'], $contentHash, $ctx['hasStarted'],
+                $this->closesKeyOf($p), $p->isExpired(), $autoExpirySince,
+            );
             $event = FlynkPostingSyncDecider::decide($state);
             if ($event === null) {
                 continue;
             }
 
             $gen = $state->generation;
+
+            // Ausgelaufen am Enddatum, das FLYNK kennt: FLYNK nimmt die Anzeige
+            // selbst von der Seite. Nichts senden, aber verbuchen — die Zeile
+            // schliesst die Generation ab, ein spaeteres Verlaengern geht dann
+            // als frische „veroeffentlichen"-Meldung raus.
+            if ($event === FlynkEvent::CLOSE && $state->expiresSilently) {
+                $inserted = RecPostingFlynkSync::query()->insertOrIgnore([
+                    'rec_posting_id' => $pid,
+                    'generation' => $gen,
+                    'event_type' => FlynkEvent::CLOSE,
+                    'seq' => 0,
+                    'content_hash' => '',
+                    'status' => 'expired',
+                    'attempts' => 0,
+                    'permanent_failure' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                if ($inserted !== 0) {
+                    $summary['expired_silent']++;
+                    Log::info('flynk: am Enddatum ausgelaufen — kein „entfernen" gesendet, FLYNK nimmt selbst raus', [
+                        'posting_id' => $pid, 'closes_on' => $state->closesKey,
+                    ]);
+                }
+                continue;
+            }
             $seq = $event === FlynkEvent::UPDATE
                 ? FlynkPostingSyncDecider::nextUpdateSeq($this->updateSeqs($rows, $gen))
                 : 0;
@@ -158,6 +208,7 @@ class FlynkPostingReconciler
                 'event_type' => $event,
                 'seq' => $seq,
                 'content_hash' => $task->contentHash,
+                'closes_key' => $event === FlynkEvent::CLOSE ? null : $state->closesKey,
                 'status' => 'pending',
                 'attempts' => 0,
                 'permanent_failure' => false,
@@ -286,6 +337,31 @@ class FlynkPostingReconciler
         $model->save();
         $summary['failed']++;
         return 'ok';
+    }
+
+    private function closesKeyOf(RecPosting $p): string
+    {
+        return FlynkPostingPayloadBuilder::closesKey($p->closes_at?->toDateString());
+    }
+
+    /**
+     * Stichtag, ab dem FLYNK Anzeigen selbst am Enddatum auslaufen laesst
+     * (`recruiting.flynk.auto_expiry_since`). Leer oder unlesbar = aus: dann
+     * geht nach jedem Ablauf weiter ein echtes „entfernen" raus.
+     */
+    private function autoExpirySince(): ?string
+    {
+        $raw = trim((string) config('recruiting.flynk.auto_expiry_since', ''));
+        if ($raw === '') {
+            return null;
+        }
+        try {
+            return \Illuminate\Support\Carbon::parse($raw)->toDateString();
+        } catch (\Throwable $e) {
+            Log::warning('flynk: RECRUITING_FLYNK_AUTO_EXPIRY_SINCE ist kein Datum — Automatik bleibt aus', ['wert' => $raw]);
+
+            return null;
+        }
     }
 
     private function refCodeOf(RecPosting $p): ?string

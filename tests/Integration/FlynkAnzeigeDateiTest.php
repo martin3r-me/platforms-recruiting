@@ -508,6 +508,318 @@ class FlynkAnzeigeDateiTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Enddatum geaendert → „aktualisieren" (FLYNK laesst selbst auslaufen)
+    // ------------------------------------------------------------------
+
+    public function test_nur_das_enddatum_geaendert_loest_genau_eine_aktualisierung_aus(): void
+    {
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+        $this->assertCount(1, $this->client->calls);
+        $this->assertStringContainsString('Laufzeit: bis einschließlich 30.11.2026.', $this->client->calls[0]['payload']['description']);
+
+        $this->run_();
+        $this->assertCount(1, $this->client->calls, 'unveraendert: nichts');
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-15 00:00:00']);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('update', $this->client->calls[1]['payload']['meta']['event']);
+        $this->assertSame('2026-12-15', $this->client->calls[1]['payload']['meta']['closes_at']);
+        $this->assertStringContainsString('Laufzeit: bis einschließlich 15.12.2026.', $this->client->calls[1]['payload']['description']);
+
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'kein Dauerfeuer');
+    }
+
+    public function test_enddatum_nachtraeglich_gesetzt_und_wieder_entfernt(): void
+    {
+        $id = $this->posting();
+        $this->run_();
+        $this->assertStringContainsString('Laufzeit: ohne Enddatum.', $this->client->calls[0]['payload']['description']);
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('2026-11-30', $this->client->calls[1]['payload']['meta']['closes_at']);
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => null]);
+        $this->run_();
+        $this->assertCount(3, $this->client->calls);
+        $this->assertSame('update', $this->client->calls[2]['payload']['meta']['event']);
+        $this->assertNull($this->client->calls[2]['payload']['meta']['closes_at']);
+        $this->assertStringContainsString('Laufzeit: ohne Enddatum.', $this->client->calls[2]['payload']['description']);
+    }
+
+    public function test_zeile_ohne_gemerktes_enddatum_loest_bei_datumsaenderung_nichts_aus(): void
+    {
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+        Capsule::table('rec_posting_flynk_syncs')->update(['closes_key' => null]); // wie vor der Migration
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-15 00:00:00']);
+        $this->run_();
+        $this->assertCount(1, $this->client->calls, 'unbekannt heisst: nicht raten');
+    }
+
+    public function test_migration_gibt_dem_bestand_das_heutige_enddatum_ohne_meldung(): void
+    {
+        $mit = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $ohne = $this->posting();
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+
+        $schema = Capsule::schema();
+        $schema->table('rec_posting_flynk_syncs', fn ($t) => $t->dropColumn(['closes_key', 'closes_assumed']));
+        (require dirname(__DIR__, 2) . '/database/migrations/2026_11_17_000001_add_closes_key_to_rec_posting_flynk_syncs.php')->up();
+
+        $keys = Capsule::table('rec_posting_flynk_syncs')->pluck('closes_key', 'rec_posting_id')->all();
+        $this->assertSame('2026-11-30', $keys[$mit]);
+        $this->assertSame('none', $keys[$ohne]);
+        $this->assertSame(2, Capsule::table('rec_posting_flynk_syncs')->where('closes_assumed', 1)->count());
+
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'der Ausgangswert loest selbst nichts aus');
+
+        Capsule::table('rec_postings')->where('id', $mit)->update(['closes_at' => '2026-12-15 00:00:00']);
+        $this->run_();
+        $this->assertCount(3, $this->client->calls, 'aber eine spaetere Aenderung wird erkannt');
+        $this->assertSame('update', $this->client->calls[2]['payload']['meta']['event']);
+    }
+
+    public function test_nachgesendete_meldung_traegt_das_aktuelle_enddatum_und_loest_keine_zweite_aus(): void
+    {
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->client->status = 500;
+        $this->run_();
+        $this->client->status = null;
+        $this->assertCount(1, $this->client->calls);
+
+        // Zwischen Fehlversuch und Nachsenden wird das Enddatum geaendert.
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-15 00:00:00']);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'nur das Nachsenden, kein „aktualisieren" obendrauf');
+        $this->assertSame('publish', $this->client->calls[1]['payload']['meta']['event']);
+        $this->assertSame('2026-12-15', $this->client->calls[1]['payload']['meta']['closes_at']);
+
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'auch im naechsten Lauf nicht');
+    }
+
+    // ------------------------------------------------------------------
+    // Stilles Auslaufen: FLYNK nimmt am Enddatum selbst von der Seite
+    // ------------------------------------------------------------------
+
+    public function test_mit_stichtag_laeuft_die_anzeige_still_aus_und_verlaengern_veroeffentlicht_neu(): void
+    {
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->run_();
+
+        Carbon::setTestNow(Carbon::parse(self::ENDTAG_MITTAGS));
+        (new PostingExpiry())->deactivateExpired();
+        $this->run_();
+        $this->assertSame(0, Capsule::table('rec_posting_flynk_syncs')->where('event_type', 'close')->count(), 'am Endtag noch nichts');
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        (new PostingExpiry())->deactivateExpired();
+        $summary = $this->run_();
+
+        $this->assertFalse((bool) RecPosting::find($id)->is_active);
+        $this->assertCount(1, $this->client->calls, 'kein „entfernen" an FLYNK');
+        $this->assertSame(1, $summary['expired_silent']);
+        $close = Capsule::table('rec_posting_flynk_syncs')->where('event_type', 'close')->first();
+        $this->assertSame('expired', $close->status);
+
+        $summary = $this->run_();
+        $this->assertCount(1, $this->client->calls);
+        $this->assertSame(0, $summary['expired_silent'], 'nur einmal verbucht');
+
+        // Verlaengern: frische Veroeffentlichung, nicht „aktualisieren" einer
+        // Anzeige, die FLYNK schon heruntergenommen hat.
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-01 00:00:00', 'is_active' => 1]);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('publish', $this->client->calls[1]['payload']['meta']['event']);
+        $this->assertSame(2, $this->client->calls[1]['payload']['meta']['generation']);
+    }
+
+    public function test_vor_dem_stichtag_gemeldete_anzeige_bekommt_weiter_entfernen(): void
+    {
+        $this->stichtag('2026-11-10'); // gemeldet wird am 02.11.
+        $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->run_();
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        (new PostingExpiry())->deactivateExpired();
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('close', $this->client->calls[1]['payload']['meta']['event']);
+    }
+
+    public function test_am_stichtag_selbst_gemeldet_zaehlt_schon(): void
+    {
+        $this->stichtag('2026-11-02');
+        $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->run_();
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        $this->run_();
+        $this->assertCount(1, $this->client->calls);
+    }
+
+    public function test_enddatum_nachtraeglich_in_die_vergangenheit_schickt_echtes_entfernen(): void
+    {
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+
+        // FLYNK kennt den 30.11. — bei uns wird am 17.11. auf den 10.11. gekuerzt.
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-10 00:00:00']);
+        (new PostingExpiry())->deactivateExpired();
+        $this->run_();
+
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('close', $this->client->calls[1]['payload']['meta']['event']);
+    }
+
+    public function test_von_hand_vor_dem_enddatum_geschlossen_schickt_entfernen(): void
+    {
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['is_active' => 0]);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('close', $this->client->calls[1]['payload']['meta']['event']);
+    }
+
+    public function test_kam_das_neue_enddatum_nie_bei_flynk_an_gibt_es_ein_echtes_entfernen(): void
+    {
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+
+        // Kuerzen auf den 16.11. — die „aktualisieren"-Meldung scheitert endgueltig.
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-16 00:00:00']);
+        $this->client->status = 422;
+        $this->run_();
+        $this->client->status = null;
+        $this->assertCount(2, $this->client->calls);
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        (new PostingExpiry())->deactivateExpired();
+        $this->run_();
+        $this->assertCount(3, $this->client->calls, 'FLYNK kennt noch den 30.11.');
+        $this->assertSame('close', $this->client->calls[2]['payload']['meta']['event']);
+    }
+
+    public function test_bei_der_migration_nur_angenommenes_enddatum_reicht_nicht_fuer_stilles_auslaufen(): void
+    {
+        // Stichtag vor dem Deploy: gemeldet mit 30.11., VOR der Migration auf
+        // den 16.11. gekuerzt (der alte Code meldete das nicht). Die Migration
+        // traegt den 16.11. als Annahme ein — FLYNK kennt aber den 30.11.
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $this->run_();
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-16 00:00:00']);
+        Capsule::table('rec_posting_flynk_syncs')->update(['closes_key' => '2026-11-16', 'closes_assumed' => 1]);
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        (new PostingExpiry())->deactivateExpired();
+        $this->run_();
+
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('close', $this->client->calls[1]['payload']['meta']['event']);
+    }
+
+    public function test_auch_die_verlaengerte_anzeige_laeuft_wieder_still_aus(): void
+    {
+        $this->stichtag('2026-11-01');
+        $id = $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->run_();
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        $this->run_();
+
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-20 00:00:00', 'is_active' => 1]);
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+
+        Carbon::setTestNow(Carbon::parse('2026-11-21 00:10:00'));
+        $summary = $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame(1, $summary['expired_silent']);
+        $this->assertSame(2, Capsule::table('rec_posting_flynk_syncs')->where('status', 'expired')->count());
+    }
+
+    public function test_nachgesendete_meldung_ist_keine_annahme_mehr(): void
+    {
+        // Haengende Meldung zum Zeitpunkt der Migration: bekommt dort einen
+        // angenommenen Wert, wird danach aber WIRKLICH mit Datum zugestellt.
+        $this->stichtag('2026-11-01');
+        $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->client->status = 500;
+        $this->run_();
+        $this->client->status = null;
+        Capsule::table('rec_posting_flynk_syncs')->update(['closes_assumed' => 1]);
+
+        $this->run_();
+        $this->assertSame(0, (int) Capsule::table('rec_posting_flynk_syncs')->value('closes_assumed'));
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'still ausgelaufen, kein „entfernen"');
+    }
+
+    public function test_erst_nach_dem_stichtag_zugestellte_meldung_zaehlt(): void
+    {
+        // Angelegt am 02.11. (Fehlversuch), zugestellt am 12.11. — Stichtag 10.11.
+        $this->stichtag('2026-11-10');
+        $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->client->status = 500;
+        $this->run_();
+        $this->client->status = null;
+
+        Carbon::setTestNow(Carbon::parse('2026-11-12 09:00:00'));
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        $this->run_();
+        $this->assertCount(2, $this->client->calls, 'still ausgelaufen');
+    }
+
+    public function test_ohne_die_neue_spalte_wird_gar_nicht_gesendet(): void
+    {
+        $this->posting(['closes_at' => '2026-11-30 00:00:00']);
+        $schema = Capsule::schema();
+        $schema->table('rec_posting_flynk_syncs', fn ($t) => $t->dropColumn(['closes_key', 'closes_assumed']));
+        try {
+            $this->run_();
+            $this->assertCount(0, $this->client->calls);
+        } finally {
+            (require dirname(__DIR__, 2) . '/database/migrations/2026_11_17_000001_add_closes_key_to_rec_posting_flynk_syncs.php')->up();
+        }
+
+        $this->run_();
+        $this->assertCount(1, $this->client->calls, 'nach der Migration laeuft es normal');
+    }
+
+    public function test_unlesbarer_stichtag_laesst_die_automatik_aus(): void
+    {
+        $this->stichtag('demnaechst irgendwann');
+        $this->posting(['closes_at' => '2026-11-16 00:00:00']);
+        $this->run_();
+
+        Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
+        $this->run_();
+        $this->assertCount(2, $this->client->calls);
+        $this->assertSame('close', $this->client->calls[1]['payload']['meta']['event']);
+    }
+
+    // ------------------------------------------------------------------
     // Der echte Client: Formular-Upload statt JSON
     // ------------------------------------------------------------------
 
@@ -567,6 +879,11 @@ class FlynkAnzeigeDateiTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+
+    private function stichtag(string $wert): void
+    {
+        Container::getInstance()->make('config')->set('recruiting.flynk.auto_expiry_since', $wert);
+    }
 
     private function run_(): array
     {

@@ -32,8 +32,8 @@ class FlynkReconcile extends Command
         // soll bei abgeschaltetem FLYNK gar nicht angefasst werden.
         $s = app(FlynkPostingReconciler::class)->run();
         $this->info(sprintf(
-            'FLYNK-Sync: sent=%d retried=%d stale_deleted=%d failed=%d permanent=%d skipped=%d file_rejected=%d',
-            $s['sent'], $s['retried'], $s['stale_deleted'], $s['failed'], $s['permanent'], $s['skipped'], $s['file_rejected']
+            'FLYNK-Sync: sent=%d retried=%d stale_deleted=%d failed=%d permanent=%d skipped=%d file_rejected=%d expired_silent=%d',
+            $s['sent'], $s['retried'], $s['stale_deleted'], $s['failed'], $s['permanent'], $s['skipped'], $s['file_rejected'], $s['expired_silent']
         ));
 
         return Command::SUCCESS;

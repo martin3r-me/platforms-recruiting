@@ -15,6 +15,15 @@ final class FlynkPostingSyncDecider
         if ($s->isOpen && $s->publishSent && $s->contentHash !== $s->lastDeliverableContentHash) {
             return FlynkEvent::UPDATE;
         }
+        // Nur das Enddatum hat sich geaendert: FLYNK laesst die Anzeige selbst
+        // am Enddatum auslaufen und muss das neue Datum kennen. Unbekanntes
+        // Datum auf einer Seite (NULL) loest nichts aus.
+        if ($s->isOpen && $s->publishSent
+            && $s->closesKey !== null && $s->lastDeliverableClosesKey !== null
+            && $s->closesKey !== $s->lastDeliverableClosesKey
+        ) {
+            return FlynkEvent::UPDATE;
+        }
         if (!$s->isOpen && $s->publishSent && !$s->closeRowExists) {
             return FlynkEvent::CLOSE;
         }
@@ -26,7 +35,9 @@ final class FlynkPostingSyncDecider
     {
         $sentCloses = 0;
         foreach ($rows as $r) {
-            if ($r['event_type'] === FlynkEvent::CLOSE && $r['status'] === 'sent') {
+            // 'expired' = still verbuchtes Auslaufen (FLYNK nimmt selbst raus):
+            // schliesst die Generation genauso ab wie ein gesendetes „entfernen".
+            if ($r['event_type'] === FlynkEvent::CLOSE && in_array($r['status'], ['sent', 'expired'], true)) {
                 $sentCloses++;
             }
         }
@@ -65,6 +76,75 @@ final class FlynkPostingSyncDecider
 
     public static function lastDeliverableContentHash(array $rows, int $gen): ?string
     {
+        $row = self::lastDeliverableRow($rows, $gen);
+
+        return $row === null ? null : (string) $row['content_hash'];
+    }
+
+    /** Enddatum der letzten Meldung, die FLYNK hat oder noch bekommt. NULL = unbekannt. */
+    public static function lastDeliverableClosesKey(array $rows, int $gen): ?string
+    {
+        $row = self::lastDeliverableRow($rows, $gen);
+        $key = $row['closes_key'] ?? null;
+
+        return $key === null || $key === '' ? null : (string) $key;
+    }
+
+    /**
+     * Enddatum der letzten Meldung, die FLYNK WIRKLICH hat (nur `sent`).
+     * Strenger als lastDeliverableClosesKey: fuer das stille Auslaufen zaehlt
+     * nur, was angekommen ist — eine haengende oder gescheiterte Meldung mit
+     * dem neuen Datum hat FLYNK nicht.
+     */
+    public static function lastSentClosesKey(array $rows, int $gen): ?string
+    {
+        $best = null;
+        $bestSeq = -1;
+        foreach ($rows as $r) {
+            if ((int) $r['generation'] !== $gen || $r['status'] !== 'sent') {
+                continue;
+            }
+            if (!in_array($r['event_type'], [FlynkEvent::PUBLISH, FlynkEvent::UPDATE], true)) {
+                continue;
+            }
+            if ((int) $r['seq'] > $bestSeq) {
+                $bestSeq = (int) $r['seq'];
+                // Ein bei der Migration nur ANGENOMMENER Wert ist nicht
+                // „angekommen": dann gilt das Datum bei FLYNK als unbekannt.
+                $best = !empty($r['closes_assumed']) ? null : ($r['closes_key'] ?? null);
+            }
+        }
+
+        return $best === null || $best === '' ? null : (string) $best;
+    }
+
+    /**
+     * Uebernimmt FLYNK das Auslaufen dieser Anzeige selbst? Nur wenn ein
+     * Stichtag gesetzt ist UND die „veroeffentlichen"-Meldung dieser Generation
+     * an oder nach dem Stichtag zugestellt wurde. Aeltere Anzeigen hat FLYNK
+     * von Hand gebaut — die bekommen weiter ein echtes „entfernen".
+     *
+     * @param string|null $since  Stichtag `YYYY-MM-DD`, null = Automatik aus
+     */
+    public static function autoExpiryCovered(array $rows, int $gen, ?string $since): bool
+    {
+        if ($since === null || $since === '') {
+            return false;
+        }
+        foreach ($rows as $r) {
+            if ($r['event_type'] === FlynkEvent::PUBLISH && (int) $r['generation'] === $gen && $r['status'] === 'sent') {
+                $sentOn = (string) ($r['sent_on'] ?? '');
+
+                return $sentOn !== '' && $sentOn >= $since;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function lastDeliverableRow(array $rows, int $gen): ?array
+    {
         $best = null;
         $bestSeq = -1;
         foreach ($rows as $r) {
@@ -86,15 +166,28 @@ final class FlynkPostingSyncDecider
             }
             if ((int) $r['seq'] > $bestSeq) {
                 $bestSeq = (int) $r['seq'];
-                $best = (string) $r['content_hash'];
+                $best = $r;
             }
         }
         return $best;
     }
 
-    public static function buildState(array $rows, bool $isOpen, string $contentHash, bool $hasStarted = true): FlynkPostingState
-    {
+    /**
+     * @param string|null $closesKey  Enddatum jetzt (`YYYY-MM-DD` / `none`), null = nicht vergleichen
+     * @param bool $expired           der Tag des Enddatums ist rum
+     * @param string|null $autoExpirySince  Stichtag, ab dem FLYNK selbst auslaufen laesst
+     */
+    public static function buildState(
+        array $rows,
+        bool $isOpen,
+        string $contentHash,
+        bool $hasStarted = true,
+        ?string $closesKey = null,
+        bool $expired = false,
+        ?string $autoExpirySince = null,
+    ): FlynkPostingState {
         $gen = self::generation($rows);
+        $lastSentKey = self::lastSentClosesKey($rows, $gen);
 
         return new FlynkPostingState(
             isOpen: $isOpen,
@@ -105,6 +198,15 @@ final class FlynkPostingSyncDecider
             closeRowExists: self::closeRowExists($rows, $gen),
             lastDeliverableContentHash: self::lastDeliverableContentHash($rows, $gen),
             hasStarted: $hasStarted,
+            closesKey: $closesKey,
+            lastDeliverableClosesKey: self::lastDeliverableClosesKey($rows, $gen),
+            // Still nur, wenn FLYNK GENAU dieses Enddatum hat: wurde es z.B.
+            // nachtraeglich in die Vergangenheit gesetzt, kennt FLYNK noch das
+            // alte — dann muss ein echtes „entfernen" raus.
+            expiresSilently: $expired
+                && $closesKey !== null && $closesKey !== 'none'
+                && $lastSentKey === $closesKey
+                && self::autoExpiryCovered($rows, $gen, $autoExpirySince),
         );
     }
 

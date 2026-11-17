@@ -27,6 +27,18 @@ final class FlynkPostingPayloadBuilder
         return hash('sha256', $base);
     }
 
+    /**
+     * Enddatum als Vergleichswert je Meldung: `YYYY-MM-DD` oder `none`.
+     * Steht NICHT im Inhalts-Hash (sonst Update-Welle fuer den Bestand),
+     * sondern in einer eigenen Spalte der Meldungs-Zeile.
+     */
+    public static function closesKey(?string $closesAt): string
+    {
+        $date = substr(trim((string) $closesAt), 0, 10);
+
+        return $date !== '' ? $date : 'none';
+    }
+
     public static function build(array $posting, string $event, ?string $careersUrl): FlynkTask
     {
         $title = (string) ($posting['title'] ?? '');
@@ -42,17 +54,23 @@ final class FlynkPostingPayloadBuilder
         $fileLine = $fileHash !== ''
             ? "\n\nDie Stellenanzeige liegt als Datei bei" . ($fileName !== '' ? ": {$fileName}" : '') . '.'
             : '';
+        // Laufzeit im Klartext: bei einer reinen Datumsaenderung ist das der
+        // einzige Unterschied zur vorigen Meldung.
+        $closesKey = self::closesKey($posting['closes_at'] ?? null);
+        $laufzeitLine = $closesKey !== 'none'
+            ? "\n\nLaufzeit: bis einschließlich " . self::deDate($closesKey) . '.'
+            : "\n\nLaufzeit: ohne Enddatum.";
 
         [$taskTitle, $taskType, $taskDescription] = match ($event) {
             FlynkEvent::PUBLISH => [
                 "Stellenanzeige: {$title}",
                 'new_section',
-                $description . $activityLine . $refCodeLine . $fileLine . "\n\nBitte als Stellenanzeige auf der Karriereseite veröffentlichen.",
+                $description . $activityLine . $refCodeLine . $fileLine . $laufzeitLine . "\n\nBitte als Stellenanzeige auf der Karriereseite veröffentlichen.",
             ],
             FlynkEvent::UPDATE => [
                 "Stellenanzeige aktualisieren: {$title}",
                 'text_change',
-                $description . $activityLine . $refCodeLine . $fileLine . "\n\nBestehende Anzeige mit diesem Stand aktualisieren.",
+                $description . $activityLine . $refCodeLine . $fileLine . $laufzeitLine . "\n\nBestehende Anzeige mit diesem Stand aktualisieren.",
             ],
             FlynkEvent::CLOSE => [
                 "Stellenanzeige entfernen: {$title}",
@@ -88,5 +106,12 @@ final class FlynkPostingPayloadBuilder
             : self::contentHash($title, $description, $activity, $refCode, $fileHash);
 
         return new FlynkTask($payload, $contentHash);
+    }
+
+    private static function deDate(string $ymd): string
+    {
+        $p = explode('-', $ymd);
+
+        return count($p) === 3 ? "{$p[2]}.{$p[1]}.{$p[0]}" : $ymd;
     }
 }

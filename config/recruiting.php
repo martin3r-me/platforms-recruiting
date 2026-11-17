@@ -307,6 +307,12 @@ return [
         'disk'         => env('RECRUITING_FLYNK_DISK'),
         'per_run_cap'  => (int) env('RECRUITING_FLYNK_PER_RUN_CAP', 50),
         'max_attempts' => (int) env('RECRUITING_FLYNK_MAX_ATTEMPTS', 5),
+        // Stichtag (YYYY-MM-DD), ab dem FLYNK Anzeigen selbst am Enddatum von
+        // der Seite nimmt. Anzeigen, die an oder nach dem Stichtag gemeldet
+        // wurden, bekommen nach Ablauf KEIN „entfernen" mehr. Leer = aus:
+        // dann geht nach jedem Ablauf weiter ein „entfernen" raus. Erst
+        // setzen, wenn FLYNK die Automatik bestaetigt hat.
+        'auto_expiry_since' => env('RECRUITING_FLYNK_AUTO_EXPIRY_SINCE'),
     ],
 
     /*
