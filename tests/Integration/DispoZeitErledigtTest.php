@@ -379,11 +379,13 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $d = $this->dienst();
         $nutzer = $this->auth->nutzer;
 
-        // leere Liste = niemand; auch ohne Setting-Zeile
+        // Der Eventzugang darf nie — auch bei leerer Liste und auch, wenn er selbst auf der Liste steht.
+        $this->eventOnlyListe(['sebastian@test.de']);
         $this->assertSame('nicht_berechtigt', $d->oeffnen($a, $this->akteur(), 'Irrtum', $nutzer));
-        $this->entsperrListe([]);
+        $this->entsperrListe(['sebastian@test.de']);
         $this->assertSame('nicht_berechtigt', $d->oeffnen($a, $this->akteur(), 'Irrtum', $nutzer));
-        // Teilstring zaehlt nicht
+        $this->eventOnlyListe([]);
+        // Gefuellte Liste schraenkt ein; Teilstring zaehlt nicht
         $this->entsperrListe(['sebastian@test.de.evil.com', 'xsebastian@test.de']);
         $this->assertSame('nicht_berechtigt', $d->oeffnen($a, $this->akteur(), 'Irrtum', $nutzer));
         $this->assertNotNull($this->gespeichert($a)->gesperrt_at);
@@ -403,6 +405,25 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $this->assertSame('nicht_gesperrt', $d->oeffnen($a, $this->akteur(), 'nochmal', $nutzer));
         // danach wieder aenderbar
         $this->assertSame('ok', $d->korrigieren($a, $this->akteur(), ['bemerkung' => 'neu'], 'Nachtrag'));
+    }
+
+    public function test_oeffnen_bei_leerer_liste_darf_jedes_konto_mit_eigener_anmeldung(): void
+    {
+        $d = $this->dienst();
+        $nutzer = $this->auth->nutzer;
+
+        // ohne Setting-Zeile
+        $a = $this->einbuchung();
+        $this->aus($a, ['gesperrt_at' => '2026-10-01 20:30:00', 'gesperrt_grund' => 'erledigt']);
+        Capsule::table('rec_applicant_settings')->delete();
+        $this->assertSame('ok', $d->oeffnen($a, $this->akteur(), 'Nacharbeit', $nutzer));
+        $this->assertNull($this->gespeichert($a)->gesperrt_at);
+
+        // mit leerer Liste
+        ZeitEintrag::query()->update(['gesperrt_at' => '2026-10-01 20:30:00', 'gesperrt_grund' => 'erledigt']);
+        $this->entsperrListe([]);
+        $this->assertSame('ok', $d->oeffnen($a, $this->akteur(), 'Nacharbeit', $nutzer));
+        $this->assertNull($this->gespeichert($a)->gesperrt_at);
     }
 
     public function test_oeffnen_bei_schalter_aus_und_ohne_person(): void
@@ -552,6 +573,8 @@ class DispoZeitErledigtTest extends ZeitTestCase
     {
         $a = $this->einbuchung();
         $this->aus($a, ['gesperrt_at' => '2026-10-01 20:30:00', 'gesperrt_grund' => 'erledigt']);
+        // Gefuellte Liste ohne den Nutzer: eingeschraenkt.
+        $this->entsperrListe(['chef@test.de']);
         $c = $this->offen($a);
         $c->zeitOeffnenGrund = 'Irrtum';
 

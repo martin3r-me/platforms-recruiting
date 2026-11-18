@@ -97,12 +97,50 @@ class ZeitSchalterTest extends ZeitTestCase
         $this->assertFalse($s->darfEntsperren((object) ['email' => '']));
     }
 
-    public function test_leere_liste_erlaubt_niemandem(): void
+    public function test_leere_liste_erlaubt_jedem_konto_mit_eigener_anmeldung_dem_eventzugang_nie(): void
     {
         $this->team();
         $this->setting([ZeitSchalter::SETTING_ENTSPERREN => []]);
-        $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => 'chef@rg.de']));
+        $this->assertTrue((new ZeitSchalter())->darfEntsperren((object) ['email' => 'chef@rg.de']));
         $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => '']));
+        $this->assertFalse((new ZeitSchalter())->darfEntsperren(null));
+
+        $this->eventOnly(['event@rg.de']);
+        try {
+            $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => 'Event@RG.de']));
+            $this->assertTrue((new ZeitSchalter())->darfEntsperren((object) ['email' => 'chef@rg.de']));
+        } finally {
+            $this->eventOnly([]);
+        }
+    }
+
+    public function test_eventzugang_darf_auch_mit_listen_eintrag_nicht(): void
+    {
+        $this->team();
+        $this->setting([ZeitSchalter::SETTING_ENTSPERREN => ['event@rg.de', 'chef@rg.de']]);
+        $this->eventOnly(['event@rg.de']);
+        try {
+            $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => 'event@rg.de']));
+            $this->assertTrue((new ZeitSchalter())->darfEntsperren((object) ['email' => 'chef@rg.de']));
+        } finally {
+            $this->eventOnly([]);
+        }
+    }
+
+    public function test_ohne_team_darf_niemand(): void
+    {
+        $this->assertFalse((new ZeitSchalter())->darfEntsperren((object) ['email' => 'chef@rg.de']));
+    }
+
+    /** @param list<string> $emails */
+    private function eventOnly(array $emails): void
+    {
+        \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::flush();
+        if ($emails !== []) {
+            $ref = new \ReflectionProperty(\Platform\Recruiting\Services\Zas\Dispo\DispoAccess::class, 'memo');
+            $ref->setAccessible(true);
+            $ref->setValue(null, [\Platform\Recruiting\Services\Zas\Dispo\DispoAccess::SETTING_EVENT_ONLY => $emails]);
+        }
     }
 
     public function test_teilstring_schaltet_nicht_frei(): void

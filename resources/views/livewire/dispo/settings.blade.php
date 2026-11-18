@@ -267,10 +267,10 @@
             </span>
         </label>
         <label class="block text-sm">
-            <span class="mb-1 block font-medium text-gray-700">Darf erledigte Zeiten wieder öffnen (E-Mail-Adressen)</span>
+            <span class="mb-1 block font-medium text-gray-700">Erledigte Zeiten wieder öffnen: auf diese Adressen einschränken</span>
             <textarea wire:model="zeitEntsperrenEmails" rows="3" placeholder="chef@rheingedeck.de" {{ $zeitGesperrt ? 'disabled' : '' }}
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"></textarea>
-            <span class="mt-1 block text-xs text-gray-500">Eine Adresse pro Zeile. Leer heißt: niemand.</span>
+            <span class="mt-1 block text-xs text-gray-500">Eine Adresse pro Zeile. Leer heißt: jeder mit eigener Anmeldung. Der Eventzugang darf es nie.</span>
         </label>
         @if ($zeitGesperrt)
             <p class="text-xs text-gray-500">Nur der Freigeber kann das ändern.</p>

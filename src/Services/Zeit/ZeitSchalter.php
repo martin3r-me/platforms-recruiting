@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zeit;
 
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Services\Zas\Dispo\DispoAccess;
 
 /**
  * Schalter und Freigeber fuers Stempeln (Spec 2026-11-16 §2.2/§5). Nicht final und
@@ -38,7 +39,14 @@ class ZeitSchalter
         }
     }
 
-    /** E-Mail (kleingeschrieben, getrimmt) steht in der Liste; leere Liste: niemand. */
+    /**
+     * Erledigte Zeiten wieder oeffnen (Markus 17.11.2026: „Als PL/Disponent mit Anmeldung im HCM darf ich es
+     * nacharbeiten falls noetig, nur mit dem Eventzugang nicht mehr“):
+     *  - Konten „Nur Veranstaltungen“ (Eventzugang): nie.
+     *  - Liste leer: jedes andere Konto.
+     *  - Liste gefuellt: nur die genannten Adressen (freiwillige Einschraenkung).
+     * Ohne E-Mail, ohne Team oder bei einem Lesefehler: nein.
+     */
     public function darfEntsperren(mixed $user): bool
     {
         try {
@@ -47,12 +55,15 @@ class ZeitSchalter
             if ($email === '' || $team === 0) {
                 return false;
             }
-            $liste = array_map(
+            if (DispoAccess::eventOnly($user)) {
+                return false;
+            }
+            $liste = array_values(array_filter(array_map(
                 fn ($e) => mb_strtolower(trim((string) $e)),
                 (array) ($this->settings($team)?->getSetting(self::SETTING_ENTSPERREN) ?? [])
-            );
+            ), fn ($e) => $e !== ''));
 
-            return in_array($email, $liste, true);
+            return $liste === [] || in_array($email, $liste, true);
         } catch (\Throwable) {
             return false;
         }
