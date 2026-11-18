@@ -263,17 +263,81 @@ class ConversationForwarderTest extends TestCase
 
     public function test_falsche_richtung_wird_abgewiesen(): void
     {
-        [$dus, $cgn] = $this->dispoKanaele();
         $t = $this->thread();
         $m = $this->message($t->id, 'inbound', 'Hallo', '2026-10-16 09:00:00');
 
-        // Dispo -> Dispo und HR -> HR gibt es nicht.
-        $a = $this->zurDispo([$dus, $cgn])->forward(self::TEAM, $t, [$m], null, null, 'X', null, ForwardTargets::DISPO, ForwardTargets::SOURCE_DISPO, $cgn);
+        // HR -> HR gibt es nicht.
         $b = (new ConversationForwarder())->forward(self::TEAM, $t, [$m], null, null, 'X', null, ForwardTargets::HR, ForwardTargets::SOURCE_HR);
 
-        $this->assertFalse($a['ok']);
         $this->assertFalse($b['ok']);
         $this->assertSame(0, RecConversationForward::count());
+    }
+
+    /** Thread auf einem bestimmten Dispo-Kanal (thread() haengt fest an Kanal 1). */
+    private function dispoThreadAuf(int $kanal, string $phone = '+4917663854907'): CommsWhatsAppThread
+    {
+        $id = (int) Capsule::table('comms_whatsapp_threads')->insertGetId([
+            'team_id' => self::TEAM, 'token' => 'tok-' . bin2hex(random_bytes(6)), 'comms_channel_id' => $kanal,
+            'remote_phone_number' => $phone, 'is_unread' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return CommsWhatsAppThread::findOrFail($id);
+    }
+
+    public function test_dispo_an_andere_dispo_landet_im_postfach_der_anderen_niederlassung(): void
+    {
+        [$dus, $cgn, $ohne] = $this->dispoKanaele();
+        $quelle = $this->dispoThreadAuf($dus);
+        $m = $this->message($quelle->id, 'inbound', 'Ich wohne jetzt in Köln', '2026-11-18 09:00:00');
+
+        $r = $this->zurDispo([$dus, $cgn, $ohne])->forward(
+            self::TEAM, $quelle, [$m], 'Bitte übernehmen', 42, 'Jonas Stein', (object) ['id' => 7, 'name' => 'Sheran'],
+            ForwardTargets::DISPO, ForwardTargets::SOURCE_DISPO, $cgn,
+        );
+
+        $this->assertTrue($r['ok'], (string) $r['error']);
+        $f = RecConversationForward::findOrFail($r['forward']->id);
+        $this->assertSame('dispo', $f->source);
+        $this->assertSame('dispo', $f->target);
+        $this->assertSame($cgn, (int) $f->target_channel_id);
+        $this->assertSame((int) $quelle->id, (int) $f->source_thread_id);
+        $this->assertSame('Ich wohne jetzt in Köln', $f->messages[0]['body']);
+
+        $ziel = CommsWhatsAppThread::findOrFail($f->target_thread_id);
+        $this->assertNotSame((int) $quelle->id, (int) $ziel->id, 'Ziel ist der Chat bei der ANDEREN Dispo, nie der eigene.');
+        $this->assertSame($cgn, (int) $ziel->comms_channel_id);
+        $this->assertSame('+4917663854907', $ziel->remote_phone_number);
+        $this->assertTrue((bool) $ziel->is_unread);
+        $this->assertFalse((bool) $quelle->fresh()->is_unread, 'Der eigene Chat wird nicht angefasst.');
+    }
+
+    public function test_dispo_an_die_eigene_dispo_oder_einen_fremden_kanal_wird_abgewiesen(): void
+    {
+        [$dus, $cgn] = $this->dispoKanaele();
+        $quelle = $this->dispoThreadAuf($dus);
+        $m = $this->message($quelle->id, 'inbound', 'Hallo', '2026-11-18 09:00:00');
+        $hrKanal = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => self::TEAM, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
+            'name' => 'HR', 'sender_identifier' => '+49 211 78177722', 'is_active' => true,
+        ]);
+
+        $eigene = $this->zurDispo([$dus, $cgn])->forward(
+            self::TEAM, $quelle, [$m], null, null, 'X', null, ForwardTargets::DISPO, ForwardTargets::SOURCE_DISPO, $dus,
+        );
+        $this->assertFalse($eigene['ok']);
+        $this->assertSame('Diese Unterhaltung liegt schon bei dieser Dispo.', $eigene['error']);
+
+        foreach ([null, $hrKanal, 999999] as $kanal) {
+            $r = $this->zurDispo([$dus, $cgn])->forward(
+                self::TEAM, $quelle, [$m], null, null, 'X', null, ForwardTargets::DISPO, ForwardTargets::SOURCE_DISPO, $kanal,
+            );
+            $this->assertFalse($r['ok']);
+            $this->assertSame('Bitte eine Dispo auswählen.', $r['error']);
+        }
+
+        $this->assertSame(0, RecConversationForward::count());
+        $this->assertSame(1, Capsule::table('comms_whatsapp_threads')->count(), 'Kein Ziel-Chat darf entstanden sein.');
     }
 
     public function test_vorbelegung_ist_der_dispo_kanal_der_letzten_unterhaltung(): void

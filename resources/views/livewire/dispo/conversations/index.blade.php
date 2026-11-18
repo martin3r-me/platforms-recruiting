@@ -308,11 +308,31 @@
                     @if ($forwardMessageId !== null)
                         <div class="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-4" wire:key="fwd-{{ $forwardMessageId }}">
                             <div class="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl">
+                                @php
+                                    $fwdZiele = $this->forwardTargetOptions;
+                                    $fwdAnHr = $forwardTarget === \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR;
+                                    $fwdTitel = count($fwdZiele) > 1
+                                        ? 'Weiterleiten'
+                                        : \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::action(\Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR);
+                                    $fwdHinweis = $fwdAnHr
+                                        ? 'Landet in Kommunikation → Weitergeleitet. Der MA bekommt nichts.'
+                                        : 'Landet im Postfach dieser Dispo. Der MA bekommt nichts.';
+                                @endphp
                                 <div class="border-b border-gray-200 px-4 py-3">
-                                    <div class="text-sm font-semibold text-gray-900">{{ \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::action(\Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR) }}</div>
-                                    <div class="text-xs text-gray-500">Landet in Kommunikation → Weitergeleitet. Der MA bekommt nichts.</div>
+                                    <div class="text-sm font-semibold text-gray-900">{{ $fwdTitel }}</div>
+                                    <div class="text-xs text-gray-500">{{ $fwdHinweis }}</div>
                                 </div>
                                 <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                                    @if (count($fwdZiele) > 1)
+                                        <label class="block text-sm">
+                                            <span class="mb-1 block text-xs font-semibold text-gray-600">An wen?</span>
+                                            <select wire:model.live="forwardTarget" class="w-full rounded-lg border-gray-300 text-sm">
+                                                @foreach ($fwdZiele as $ziel)
+                                                    <option value="{{ $ziel['value'] }}">{{ $ziel['label'] }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                    @endif
                                     @foreach ($this->forwardCandidates as $cand)
                                         <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-2 text-sm hover:bg-gray-50">
                                             <input type="checkbox" value="{{ $cand['id'] }}" wire:model="forwardSelection" class="mt-0.5 rounded border-gray-300">
@@ -327,7 +347,7 @@
                                             </span>
                                         </label>
                                     @endforeach
-                                    <textarea wire:model="forwardComment" rows="2" maxlength="1000" placeholder="Kommentar für HR (optional)"
+                                    <textarea wire:model="forwardComment" rows="2" maxlength="1000" placeholder="Kommentar (optional)"
                                               class="w-full rounded-lg border-gray-300 text-sm"></textarea>
                                     @if ($forwardError)
                                         <div class="text-xs font-semibold text-red-600">{{ $forwardError }}</div>

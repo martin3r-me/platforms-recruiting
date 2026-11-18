@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
+use Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels;
 use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
 use Platform\Recruiting\Services\Comms\Forward\ForwardCompletion;
 use Platform\Recruiting\Services\Comms\Forward\ForwardMessageSelection;
@@ -59,6 +60,8 @@ class Index extends Component
     public array $forwardSelection = [];
     public string $forwardComment = '';
     public ?string $forwardError = null;
+    /** Ziel im Weiterleiten-Fenster: 'hr' oder die Kanal-ID einer anderen Dispo als String (18.11.2026). */
+    public string $forwardTarget = ForwardTargets::HR;
 
     /**
      * Weiterleitungen VON HR, die das Oeffnen des aktuellen Chats erledigt hat —
@@ -389,32 +392,42 @@ class Index extends Component
         $forwardStates = [];
         $fwdRows = RecConversationForward::query()
             ->whereIn('source_thread_id', $rows->pluck('id')->all())
-            ->get(['source_thread_id', 'forwarded_at', 'done_at', 'target']);
-        // Eingehend von HR (Spec 16.10.2026): solange offen, hat der Chip "von HR"
-        // Vorrang vor dem eigenen "bei HR"/"HR erledigt" — er ist die offene Aufgabe.
-        $vonHr = RecConversationForward::query()
+            ->get(['source_thread_id', 'forwarded_at', 'done_at', 'target', 'target_channel_id']);
+        // Eingehend von HR (Spec 16.10.2026) oder von einer anderen Dispo
+        // (18.11.2026): solange offen, hat der Chip "von …" Vorrang vor dem eigenen
+        // "bei HR"/"HR erledigt" — er ist die offene Aufgabe. Bei mehreren offenen
+        // zaehlt die juengste.
+        $eingehend = RecConversationForward::query()
             ->where('target', ForwardTargets::DISPO)
             ->whereNull('done_at')
             ->whereIn('target_thread_id', $rows->pluck('id')->all())
-            ->pluck('target_thread_id')
-            ->map(fn ($id) => (int) $id)
-            ->flip()
-            ->all();
+            ->orderBy('forwarded_at')->orderBy('id')
+            ->get(['id', 'source', 'source_thread_id', 'target_thread_id']);
+        $herkunft = $this->forwardHerkunft($eingehend);
+        $vonWem = [];
+        foreach ($eingehend as $f) {
+            $vonWem[(int) $f->target_thread_id] = 'von ' . $herkunft[(int) $f->id];
+        }
+        $teamIdDerListe = (int) ($rows->first()->team_id ?? 0);
+        $zielLabel = fn ($f) => (string) $f->target === ForwardTargets::DISPO
+            ? $this->dispoZiele()->labelFor($teamIdDerListe, $f->target_channel_id !== null ? (int) $f->target_channel_id : null)
+            : null;
         foreach ($fwdRows->groupBy('source_thread_id') as $tid => $group) {
             $latest = ForwardStatus::latest($group->map(fn ($f) => [
                 'forwarded_at' => $f->forwarded_at->getTimestamp(), 'done' => $f->done_at !== null, 'target' => (string) $f->target,
+                'label' => $zielLabel($f),
             ])->values()->all());
             if ($latest !== null) {
                 $forwardStates[(int) $tid] = [
                     'state' => $latest['state'],
                     'label' => $latest['state'] === ForwardStatus::OPEN
-                        ? ForwardTargets::chipOpen($latest['target'])
-                        : ForwardTargets::chipDone($latest['target']),
+                        ? ForwardTargets::chipOpen($latest['target'], $latest['label'])
+                        : ForwardTargets::chipDone($latest['target'], $latest['label']),
                 ];
             }
         }
 
-        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir, $forwardStates, $vonHr) {
+        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir, $forwardStates, $vonWem) {
             $employeeId = $this->resolveEmployee($t);
             // "alte Nummer"-Etikett: Person zugeordnet, aber Thread-Nummer passt
             // zu keiner aktuellen Akten-Nummer der Gruppe (Vorfall Vesa).
@@ -449,8 +462,8 @@ class Index extends Component
                 'filiale'     => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
                 'filial_nr'   => $filialNr,
                 'window'      => $window, // state: open | closed | none, left: "22 h" | "45 min" | null
-                'forward'     => isset($vonHr[(int) $t->id])
-                    ? ['state' => ForwardStatus::OPEN, 'label' => 'von HR']
+                'forward'     => isset($vonWem[(int) $t->id])
+                    ? ['state' => ForwardStatus::OPEN, 'label' => $vonWem[(int) $t->id]]
                     : ($forwardStates[(int) $t->id] ?? null), // null | {state: open|done, label}
             ];
         })->values()->all();
@@ -614,13 +627,17 @@ class Index extends Component
 
         $rows = app(DispoThreadDirectory::class)->messages($thread, $this->templateLabels);
 
-        // Vermerke "an HR weitergeleitet" zeitlich einsortieren (Spec 02.10.2026).
+        // Vermerke "an HR weitergeleitet" bzw. "an Dispo Köln weitergeleitet"
+        // zeitlich einsortieren (Spec 02.10.2026, andere Dispo seit 18.11.2026).
         foreach (RecConversationForward::query()->where('source_thread_id', $thread->id)->get() as $f) {
             $at = $f->forwarded_at;
             $wer = $f->forwarded_by_name ? ' · ' . $f->forwarded_by_name : '';
+            $ziel = (string) $f->target === ForwardTargets::DISPO
+                ? $this->dispoZiele()->labelFor((int) $thread->team_id, $f->target_channel_id !== null ? (int) $f->target_channel_id : null)
+                : null;
             $rows[] = [
                 'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'note', 'direction' => 'note',
-                'body' => 'An ' . ForwardTargets::label((string) $f->target) . ' weitergeleitet' . ($f->done_at ? ' (erledigt)' : '') . $wer,
+                'body' => 'An ' . ForwardTargets::label((string) $f->target, $ziel) . ' weitergeleitet' . ($f->done_at ? ' (erledigt)' : '') . $wer,
                 'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
                 'day_label' => DispoThreadDirectory::dayLabel(\Illuminate\Support\Carbon::instance($at)),
                 'status' => null, 'media_type' => null, 'attachments' => [],
@@ -635,7 +652,8 @@ class Index extends Component
     }
 
     /**
-     * @return list<array<string, mixed>> Karten der Weiterleitungen von HR an diesen Dispo-Thread.
+     * @return list<array<string, mixed>> Karten der Weiterleitungen an diesen Dispo-Thread — von HR
+     *                                    oder (seit 18.11.2026) von der Dispo einer anderen Niederlassung.
      */
     protected function forwardCardsFromHr(CommsWhatsAppThread $thread): array
     {
@@ -643,19 +661,22 @@ class Index extends Component
         // erledigte: Oeffnen erledigt sie (gelesen = erledigt), und die Dispo hat
         // keinen eigenen Weitergeleitet-Reiter. Ohne erledigte waere die Karte
         // genau beim ersten Oeffnen weg (Review 16.10., K1).
-        return RecConversationForward::query()
+        $karten = RecConversationForward::query()
             ->forTeam((int) $thread->team_id)
             ->where('target', ForwardTargets::DISPO)
             ->where('target_thread_id', $thread->id)
             ->orderBy('forwarded_at')->orderBy('id')
-            ->get()
-            ->map(function (RecConversationForward $f) {
+            ->get();
+        $herkunft = $this->forwardHerkunft($karten);
+
+        return $karten
+            ->map(function (RecConversationForward $f) use ($herkunft) {
                 $at = \Illuminate\Support\Carbon::instance($f->forwarded_at);
 
                 return [
                     'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'forward', 'direction' => 'note',
                     'card' => [
-                        'from' => 'Von HR', 'done' => $f->done_at !== null, 'messages' => (array) $f->messages, 'comment' => $f->comment,
+                        'from' => 'Von ' . $herkunft[(int) $f->id], 'done' => $f->done_at !== null, 'messages' => (array) $f->messages, 'comment' => $f->comment,
                         'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $at->format('d.m.Y H:i'),
                         'attachments' => app(ForwardAttachments::class)
                             ->forMessageIds(array_column((array) $f->messages, 'message_id')),
@@ -666,6 +687,78 @@ class Index extends Component
                     'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
                 ];
             })->all();
+    }
+
+    /** Eine Instanz je Request: sie merkt sich die Kanal-Liste, sonst liefe die Abfrage je Zeile. */
+    private ?DispoForwardChannels $dispoZieleMemo = null;
+
+    protected function dispoZiele(): DispoForwardChannels
+    {
+        return $this->dispoZieleMemo ??= app(DispoForwardChannels::class);
+    }
+
+    /**
+     * Woher eine Weiterleitung an die Dispo kam: "HR" oder der Name der
+     * absendenden Dispo ("Dispo Köln"). Der Name haengt am Kanal des
+     * Quell-Threads; ist der nicht (mehr) zuzuordnen, steht schlicht "Dispo".
+     *
+     * @param iterable<RecConversationForward> $forwards
+     * @return array<int, string> Weiterleitungs-ID => Herkunft
+     */
+    private function forwardHerkunft(iterable $forwards): array
+    {
+        $vonDispo = [];
+        foreach ($forwards as $f) {
+            if ((string) $f->source === ForwardTargets::SOURCE_DISPO) {
+                $vonDispo[(int) $f->id] = (int) $f->source_thread_id;
+            }
+        }
+        $kanalJeThread = $vonDispo === [] ? [] : CommsWhatsAppThread::query()
+            ->whereIn('id', array_values(array_unique($vonDispo)))
+            ->get(['id', 'team_id', 'comms_channel_id'])
+            ->keyBy('id')
+            ->all();
+
+        $out = [];
+        foreach ($forwards as $f) {
+            $quelle = $kanalJeThread[$vonDispo[(int) $f->id] ?? 0] ?? null;
+            $out[(int) $f->id] = (string) $f->source === ForwardTargets::SOURCE_DISPO
+                ? ($quelle !== null
+                    ? ($this->dispoZiele()->labelFor((int) $quelle->team_id, (int) $quelle->comms_channel_id) ?? 'Dispo')
+                    : 'Dispo')
+                : ForwardTargets::label(ForwardTargets::HR);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Ziele im Weiterleiten-Fenster: HR und jede ANDERE Dispo-Niederlassung
+     * (Kunde 18.11.2026). Die Liste kommt aus DispoForwardChannels, also aus den
+     * aktiven Dispo-Kanaelen — eine neue Niederlassung steht ohne Deploy zur Wahl.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    #[Computed]
+    public function forwardTargetOptions(): array
+    {
+        return $this->forwardZieleFuer($this->selected);
+    }
+
+    /** @return list<array{value: string, label: string}> */
+    protected function forwardZieleFuer(?CommsWhatsAppThread $thread): array
+    {
+        $out = [['value' => ForwardTargets::HR, 'label' => ForwardTargets::label(ForwardTargets::HR)]];
+        if ($thread === null) {
+            return $out;
+        }
+        foreach ($this->dispoZiele()->options((int) $thread->team_id) as $option) {
+            if ($option['channel_id'] !== (int) $thread->comms_channel_id) {
+                $out[] = ['value' => (string) $option['channel_id'], 'label' => $option['label']];
+            }
+        }
+
+        return $out;
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */
@@ -768,6 +861,7 @@ class Index extends Component
         $this->forwardMessageId = $messageId;
         $this->forwardComment = '';
         $this->forwardError = null;
+        $this->forwardTarget = ForwardTargets::HR;
         unset($this->forwardCandidates);
         if ($this->forwardCandidates === []) {
             $this->forwardMessageId = null;
@@ -783,6 +877,7 @@ class Index extends Component
         $this->forwardSelection = [];
         $this->forwardComment = '';
         $this->forwardError = null;
+        $this->forwardTarget = ForwardTargets::HR;
     }
 
     public function submitForward(): void
@@ -802,6 +897,15 @@ class Index extends Component
             return;
         }
 
+        // Ziel kommt aus dem Browser: nur was die Auswahl wirklich anbietet. Den
+        // eigenen Kanal und fremde Kanaele weist zusaetzlich der Forwarder ab.
+        $erlaubt = array_column($this->forwardTargetOptions, 'value');
+        if (!in_array($this->forwardTarget, $erlaubt, true)) {
+            $this->forwardError = 'Bitte ein Ziel auswählen.';
+            return;
+        }
+        $anDispo = $this->forwardTarget !== ForwardTargets::HR;
+
         $info = $this->selectedInfo;
         $r = app(ConversationForwarder::class)->forward(
             (int) auth()->user()->currentTeam->id,
@@ -811,8 +915,9 @@ class Index extends Component
             $info['employee_id'] ?? null,
             (string) ($info['label'] ?? ''),
             auth()->user(),
-            ForwardTargets::HR,
+            $anDispo ? ForwardTargets::DISPO : ForwardTargets::HR,
             ForwardTargets::SOURCE_DISPO,
+            $anDispo ? (int) $this->forwardTarget : null,
         );
         if (!$r['ok']) {
             $this->forwardError = $r['error'];
@@ -820,7 +925,8 @@ class Index extends Component
         }
 
         $this->closeForward();
-        unset($this->threads, $this->messages);
+        // filialeTabs: die Ziel-Niederlassung hat jetzt einen ungelesenen Chat mehr.
+        unset($this->threads, $this->messages, $this->filialeTabs);
         $this->dispatch('sidebar-refresh');
     }
 

@@ -12,8 +12,11 @@ final class ForwardStatus
     public const DONE = 'done';
 
     /**
-     * @param list<array{forwarded_at:int, done:bool, target:string}> $forwards
-     * @return array{state:string, target:string}|null
+     * `label` (optional) ist die Beschriftung des Ziel-Kanals ("Dispo Köln") und
+     * wird durchgereicht — sie gehoert zur JUENGSTEN Weiterleitung, nicht zu irgendeiner.
+     *
+     * @param list<array{forwarded_at:int, done:bool, target:string, label?:?string}> $forwards
+     * @return array{state:string, target:string, label:?string}|null
      */
     public static function latest(array $forwards): ?array
     {
@@ -25,6 +28,7 @@ final class ForwardStatus
         return [
             'state' => $forwards[0]['done'] ? self::DONE : self::OPEN,
             'target' => (string) $forwards[0]['target'],
+            'label' => $forwards[0]['label'] ?? null,
         ];
     }
 }

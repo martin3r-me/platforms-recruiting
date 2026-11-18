@@ -7,8 +7,10 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
 
 /**
- * Legt eine Weiterleitung an: Dispo → HR (Spec 02.10.2026) oder HR → Dispo
- * (Spec 16.10.2026, Ziel ist ein bestimmter Dispo-Kanal = Filiale).
+ * Legt eine Weiterleitung an: Dispo → HR (Spec 02.10.2026), HR → Dispo
+ * (Spec 16.10.2026, Ziel ist ein bestimmter Dispo-Kanal = Filiale) oder
+ * Dispo → Dispo einer anderen Niederlassung (Kunde 18.11.2026, gleicher Weg
+ * wie HR → Dispo, nur nie auf den eigenen Kanal).
  *
  * Sicherheit: die IDs kommen aus einem Livewire-Aufruf und sind damit frei
  * waehlbar. Kopiert wird nur, was zu DIESEM Thread gehoert und eingehend ist;
@@ -64,6 +66,12 @@ final class ConversationForwarder
             if ($targetChannelId === null || !in_array($targetChannelId, $erlaubt, true)) {
                 return ['ok' => false, 'error' => 'Bitte eine Dispo auswählen.', 'forward' => null];
             }
+            // Dispo -> Dispo (18.11.2026): nur an eine ANDERE Niederlassung. Die ID
+            // kommt aus dem Browser — die Auswahl im Fenster blendet den eigenen
+            // Kanal nur aus, hier wird er abgewiesen.
+            if ($source === ForwardTargets::SOURCE_DISPO && $targetChannelId === (int) $thread->comms_channel_id) {
+                return ['ok' => false, 'error' => 'Diese Unterhaltung liegt schon bei dieser Dispo.', 'forward' => null];
+            }
             $targetChannel = CommsChannel::query()->whereKey($targetChannelId)->where('team_id', $teamId)->first();
             if ($targetChannel === null) {
                 return ['ok' => false, 'error' => 'Bitte eine Dispo auswählen.', 'forward' => null];
@@ -97,7 +105,7 @@ final class ConversationForwarder
 
         $comment = trim((string) $comment);
 
-        // HR -> Dispo: Ziel-Thread sofort festlegen und auf ungelesen setzen —
+        // Ziel Dispo (von HR oder einer anderen Dispo): Ziel-Thread sofort festlegen und auf ungelesen setzen —
         // das Dispo-Postfach zeigt jeden Thread seines Kanals, auch ohne Eingang;
         // ist das 24h-Fenster zu, startet die Dispo mit „Gespräch starten“.
         $targetThread = $targetChannel !== null

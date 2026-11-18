@@ -23,4 +23,21 @@ class ForwardTargetsTest extends TestCase
         $this->assertFalse(ForwardTargets::isSource('irgendwas'));
         $this->assertSame('lohn', ForwardTargets::label('lohn'));
     }
+
+    public function test_drei_richtungen_und_keine_weitere(): void
+    {
+        $this->assertTrue(ForwardTargets::isRoute('dispo', 'hr'));
+        $this->assertTrue(ForwardTargets::isRoute('hr', 'dispo'));
+        $this->assertTrue(ForwardTargets::isRoute('dispo', 'dispo'), 'Dispo an die Dispo einer anderen Niederlassung (18.11.2026).');
+        $this->assertFalse(ForwardTargets::isRoute('hr', 'hr'));
+        $this->assertFalse(ForwardTargets::isRoute('lohn', 'hr'));
+        $this->assertFalse(ForwardTargets::isRoute('dispo', 'lohn'));
+    }
+
+    public function test_chip_traegt_den_namen_der_niederlassung(): void
+    {
+        $this->assertSame('bei Dispo Köln', ForwardTargets::chipOpen('dispo', 'Dispo Köln'));
+        $this->assertSame('Dispo Köln erledigt', ForwardTargets::chipDone('dispo', 'Dispo Köln'));
+        $this->assertSame('bei Dispo', ForwardTargets::chipOpen('dispo', null));
+    }
 }

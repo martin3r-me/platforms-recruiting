@@ -3,8 +3,10 @@
 namespace Platform\Recruiting\Services\Comms\Forward;
 
 /**
- * Katalog der Weiterleitungs-Ziele und -Quellen (Spec 02.10.2026). Zwei
- * Richtungen: dispo -> hr und seit 16.10.2026 hr -> dispo. Ein neues Ziel =
+ * Katalog der Weiterleitungs-Ziele und -Quellen (Spec 02.10.2026). Drei
+ * Richtungen: dispo -> hr, seit 16.10.2026 hr -> dispo und seit 18.11.2026
+ * dispo -> dispo (an die Dispo einer ANDEREN Niederlassung; dass Quelle und
+ * Ziel nicht derselbe Kanal sind, prueft ConversationForwarder). Ein neues Ziel =
  * neuer Eintrag hier + eine Ansicht, die per
  * RecConversationForward::openForTeam($team, $ziel) filtert + ggf. eine eigene
  * Erstnachricht-Regel. Bewusst KEIN Plugin-System.
@@ -26,8 +28,11 @@ final class ForwardTargets
     /** @var list<string> */
     private const SOURCES = [self::SOURCE_DISPO, self::SOURCE_HR];
 
-    /** @var array<string, string> erlaubte Richtungen: Quelle => Ziel */
-    private const ROUTES = [self::SOURCE_DISPO => self::HR, self::SOURCE_HR => self::DISPO];
+    /** @var array<string, list<string>> erlaubte Richtungen: Quelle => Ziele */
+    private const ROUTES = [
+        self::SOURCE_DISPO => [self::HR, self::DISPO],
+        self::SOURCE_HR => [self::DISPO],
+    ];
 
     public static function isTarget(string $target): bool
     {
@@ -39,10 +44,10 @@ final class ForwardTargets
         return in_array($source, self::SOURCES, true);
     }
 
-    /** Nur die beiden Richtungen dispo -> hr und hr -> dispo. */
+    /** Nur dispo -> hr, hr -> dispo und dispo -> dispo; hr -> hr gibt es nicht. */
     public static function isRoute(string $source, string $target): bool
     {
-        return (self::ROUTES[$source] ?? null) === $target;
+        return in_array($target, self::ROUTES[$source] ?? [], true);
     }
 
     /** $channelLabel: Beschriftung des Ziel-Kanals ("Dispo Köln"), ersetzt den Zielnamen. */
