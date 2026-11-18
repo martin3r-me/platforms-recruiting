@@ -288,6 +288,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Meta-Abrechnung (WhatsApp-Kosten je Rufnummer, recruiting:meta-abrechnung)
+    |--------------------------------------------------------------------------
+    |
+    | Kunde will je Rufnummer/Kostenstelle und Kalendermonat abgerechnet
+    | bekommen (Markus, 18.11.2026). Kostenstelle der Dispo-Nummern kommt aus
+    | den Dispo-Einstellungen (Filiale → Kanal); Nummern ohne Filiale (HR)
+    | stehen hier mit ihrer Bezeichnung. waba_ids = die abzurechnenden
+    | WhatsApp-Geschaeftskonten (HR, Dispo) — NICHT bhg digital / Testkonto.
+    */
+    'meta_abrechnung' => [
+        'aufschlag_prozent' => (float) env('RECRUITING_META_AUFSCHLAG_PROZENT', 30),
+        'waba_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+            'RECRUITING_META_WABA_IDS',
+            '2789746154722145,2378798469210132'
+        ))))),
+        'nummern_ohne_filiale' => [
+            '4921178177722' => 'HR',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | FLYNK-Sync (Ausschreibungen → Website-Tasks)
     |--------------------------------------------------------------------------
     |
