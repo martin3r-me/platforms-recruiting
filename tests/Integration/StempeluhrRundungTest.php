@@ -96,7 +96,7 @@ class StempeluhrRundungTest extends ZeitTestCase
     public function test_gehen_in_derselben_viertelstunde_wie_kommen_ist_gueltig(): void
     {
         $uhr = $this->uhr();
-        // Kommen 14:07 -> 14:00; Gehen 14:05 echt liegt VOR dem echten Kommen nicht, aber gerundet gleich: 14:10 -> 14:15.
+        // Kommen 14:07 -> 14:00; Gehen 20 Sekunden spaeter rundet auf dieselbe Viertelstunde: gueltig, 0 Minuten.
         $this->jetzt('2026-10-01 14:07:00');
         $uhr->kommen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST);
         $this->assertSame('2026-10-01 12:00:00', $this->eintrag()->kommen_at->format('Y-m-d H:i:s'));
@@ -104,6 +104,24 @@ class StempeluhrRundungTest extends ZeitTestCase
         $this->jetzt('2026-10-01 14:07:20');
         $this->assertSame('ok', $uhr->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST));
         $this->assertSame('2026-10-01 12:00:00', $this->eintrag()->gehen_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_gehen_kurz_nach_einem_ungerundeten_kommen_wird_nicht_abgelehnt(): void
+    {
+        // Bestand von vor der Rundung: Kommen 14:05 Ortszeit. Gehen um 14:06:30 rundet auf 14:00 — VOR das Kommen.
+        ZeitEintrag::create([
+            'team_id' => self::TEAM, 'person_typ' => 'rec_employee', 'person_id' => 901,
+            'bezug_typ' => 'rec_dispo_assignment', 'bezug_id' => 1, 'tag' => '2026-10-01',
+            'kommen_at' => '2026-10-01 12:05:00',
+        ]);
+        $this->jetzt('2026-10-01 14:06:30');
+        $this->assertSame('ok', $this->uhr()->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_SELBST));
+        $this->assertSame('2026-10-01 12:05:00', $this->eintrag()->gehen_at->format('Y-m-d H:i:s'), 'nie vor dem Kommen');
+
+        // Ein echtes Gehen VOR dem Kommen bleibt ungueltig.
+        ZeitEintrag::query()->update(['gehen_at' => null]);
+        $this->jetzt('2026-10-01 14:04:00');
+        $this->assertSame('ungueltig', $this->uhr()->gehen($this->bezug(), $this->akteur(), Stempeluhr::ART_STELLVERTRETEND));
     }
 
     public function test_korrektur_wird_ebenfalls_gerundet(): void

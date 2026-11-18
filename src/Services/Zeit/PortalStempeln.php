@@ -240,7 +240,7 @@ class PortalStempeln
             // Noch nicht eingecheckt und die Schicht ist vorbei: selbst einchecken geht nicht mehr,
             // die Zeile haette nichts zu zeigen und nichts zu tun.
             $spaetKommen = $this->regeln->spaetestesKommen($bezug);
-            if ($e === null && $spaetKommen !== null && $jetzt->gt($spaetKommen)) {
+            if (($e === null || $e->kommen_at === null) && $spaetKommen !== null && $jetzt->gt($spaetKommen)) {
                 continue;
             }
             $aus[(int) $a->id] = [

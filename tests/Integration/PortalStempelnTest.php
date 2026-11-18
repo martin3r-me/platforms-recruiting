@@ -459,4 +459,35 @@ class PortalStempelnTest extends ZeitTestCase
         $this->assertSame('ok', $this->dienstEcht()->gehen($ma, $a->id, Carbon::now()));
         $this->assertSame('01:45', ZeitEintrag::query()->firstOrFail()->gehen_at->copy()->setTimezone('Europe/Berlin')->format('H:i'), 'gerundet gespeichert');
     }
+
+    public function test_echte_grenzen_geleerter_datensatz_nach_schichtende_bietet_kein_kommen_mehr(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        // Die Disposition hat den Stempel geleert: Datensatz ohne Kommen.
+        ZeitEintrag::create([
+            'team_id' => self::TEAM, 'person_typ' => 'rec_employee', 'person_id' => 901,
+            'bezug_typ' => 'rec_dispo_assignment', 'bezug_id' => $a->id, 'tag' => '2026-10-01',
+        ]);
+
+        $this->jetzt('21:00');
+        $this->assertTrue($this->dienstEcht()->zeilen($ma, Carbon::now())[0]['kann_kommen']);
+        $this->jetzt('22:30');
+        $this->assertSame([], $this->dienstEcht()->zeilen($ma, Carbon::now()));
+    }
+
+    public function test_haken_nur_teamleiter_gilt_auch_fuer_den_offenen_stempel_einer_verschwundenen_einbuchung(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        $this->assertSame('ok', $this->dienst()->kommen($ma, $a->id, Carbon::now()));
+        \Platform\Recruiting\Models\RecDispoEvent::query()->update(['zeit_nur_teamleiter' => 1]);
+        $a->forceFill(['missing_since' => '2026-10-01 12:00:00'])->save();
+
+        $z = $this->dienst()->zeilen($ma, Carbon::now());
+        $this->assertCount(1, $z);
+        $this->assertTrue($z[0]['nur_teamleiter']);
+        $this->assertFalse($z[0]['kann_gehen']);
+        $this->assertSame('nicht_erlaubt', $this->dienst()->gehen($ma, $a->id, Carbon::now()));
+    }
 }

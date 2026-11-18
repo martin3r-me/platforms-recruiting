@@ -360,7 +360,7 @@
                     @endif
                 @else
                     <label class="flex items-center gap-2 text-sm text-gray-700" title="Der Mitarbeiter sieht im Portal dann nur die erfassten Zeiten und kann nicht selbst ein- oder auschecken.">
-                        <input type="checkbox" wire:click="zeitNurTeamleiterUmschalten" @checked($event->zeit_nur_teamleiter) wire:key="zeit-nur-tl-{{ $event->zeit_nur_teamleiter ? 1 : 0 }}" class="rounded border-gray-300">
+                        <input type="checkbox" wire:click="zeitNurTeamleiterSetzen({{ $event->zeit_nur_teamleiter ? 'false' : 'true' }})" @checked($event->zeit_nur_teamleiter) wire:key="zeit-nur-tl-{{ $event->zeit_nur_teamleiter ? 1 : 0 }}" class="rounded border-gray-300">
                         <span>Zeiten erfasst nur der Teamleiter</span>
                     </label>
                 @endif
@@ -471,7 +471,7 @@
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     @if ($zeitAktiv)
-                        <th class="px-4 py-2 font-medium whitespace-nowrap" title="Stempeluhr: eingecheckt / ausgecheckt (Zeiten in Ortszeit)">Stempel@include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Stempel', 'prop' => 'rowStempel', 'options' => $this->rowStempelOptions, 'selected' => $rowStempel, 'align' => 'right'])</th>
+                        <th class="px-4 py-2 font-medium whitespace-nowrap" title="Stempeluhr: eingecheckt / ausgecheckt (Zeiten in Ortszeit)"><span>Stempel</span>@include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Stempel', 'prop' => 'rowStempel', 'options' => $this->rowStempelOptions, 'selected' => $rowStempel, 'align' => 'right'])</th>
                     @endif
                     <th class="px-4 py-2 font-medium">Hinweis</th>
                     <th class="px-4 py-2 font-medium">Anhang</th>

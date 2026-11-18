@@ -111,8 +111,8 @@ class DispoZeiten
 
     /**
      * Daten fuers Fenster „Zeit“. Formularwerte im Format Y-m-d\TH:i (Ortszeit),
-     * Verlauf neueste zuerst — leer bei $mitVerlauf = false (Sammelkonten „Nur Veranstaltungen“: dort stehen
-     * Namen, Gruendezeilen und Bemerkungs-Aenderungen der Disponenten). Ohne Person: leeres Geruest (die Komponente oeffnet so eine Zeile nicht).
+     * Verlauf neueste zuerst — leer bei $mitVerlauf = false (nur fuer den Schnappschuss, der ihn nicht braucht).
+     * Ohne Person: leeres Geruest (die Komponente oeffnet so eine Zeile nicht).
      *
      * @return array{name:string,tag:string,soll:string,kommen:?string,gehen:?string,pause:?int,regelpause:int,bemerkung:string,zustand:string,gesperrt:bool,verlauf:list<array{wann:string,wer:string,feld:string,alt:?string,neu:?string,grund:?string,art:string,text:?string}>}
      */
@@ -270,7 +270,7 @@ class DispoZeiten
     }
 
     /**
-     * „Wieder oeffnen“ nur fuer Personen auf der Entsperr-Liste (E-Mail), mit Pflicht-Grund.
+     * „Wieder oeffnen“: wer nach ZeitSchalter::darfEntsperren() darf (eigene Anmeldung; Eventzugang nie), mit Pflicht-Grund.
      *
      * ok | nicht_berechtigt | nicht_gesperrt | ungueltig | aus | ohne_person
      */

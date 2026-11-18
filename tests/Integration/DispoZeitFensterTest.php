@@ -432,9 +432,9 @@ class DispoZeitFensterTest extends ZeitTestCase
             $this->assertStringNotContainsString('$this->zeitAkteur())', $rumpf, "{$methode}: kein ungeprüfter Akteur im Aufruf");
         }
         // Nur mit eigener Anmeldung: Wieder oeffnen und der Haken an der Veranstaltung.
-        foreach (['zeitOeffnen', 'zeitNurTeamleiterUmschalten'] as $methode) {
+        foreach (['zeitOeffnen\(\)', 'zeitNurTeamleiterSetzen\(bool \$an\)'] as $methode) {
             $this->assertMatchesRegularExpression(
-                '/function ' . $methode . '\(\): void\s*\{\s*if \(!\$this->zeitAktiv \|\| \$this->blockedForEventOnly\(\)\)/',
+                '/function ' . $methode . ': void\s*\{\s*if \(!\$this->zeitAktiv \|\| \$this->blockedForEventOnly\(\)\)/',
                 $quelle,
                 "{$methode} muss mit dem vollen Riegel beginnen"
             );
@@ -853,23 +853,88 @@ class DispoZeitFensterTest extends ZeitTestCase
         $wert = fn () => (bool) \Platform\Recruiting\Models\RecDispoEvent::query()->findOrFail($eventId)->zeit_nur_teamleiter;
 
         $c = $this->dispoComponent($eventId);
-        $c->zeitNurTeamleiterUmschalten();
+        $c->zeitNurTeamleiterSetzen(true);
         $this->assertTrue($wert());
         $this->assertStringContainsString('nur noch der Teamleiter', (string) $c->zeitHinweis);
         $this->assertTrue((bool) $c->event->zeit_nur_teamleiter, 'die Seite zeigt den neuen Stand');
-        $c->zeitNurTeamleiterUmschalten();
+        // Setzen, nicht umschalten: derselbe Klick eines zweiten Disponenten laesst den Haken stehen.
+        $this->dispoComponent($eventId)->zeitNurTeamleiterSetzen(true);
+        $this->assertTrue($wert());
+        $c->zeitNurTeamleiterSetzen(false);
         $this->assertFalse($wert());
 
         $this->eventOnlyListe(['sebastian@test.de']);
         $c = $this->dispoComponent($eventId);
-        $c->zeitNurTeamleiterUmschalten();
+        $c->zeitNurTeamleiterSetzen(true);
         $this->assertFalse($wert(), 'der Eventzugang setzt den Haken nicht');
 
         $this->eventOnlyListe([]);
         $this->schalter->an = false;
         $c = $this->dispoComponent($eventId);
-        $c->zeitNurTeamleiterUmschalten();
+        $c->zeitNurTeamleiterSetzen(true);
         $this->assertFalse($wert());
+    }
+
+    public function test_abgesagte_und_zeilen_ohne_person_zaehlen_im_stempel_filter_nicht(): void
+    {
+        $event = $this->event();
+        $fehlt = $this->einbuchung($event, ['rec_employee_id' => 901]);
+        $this->einbuchung($event, ['rec_employee_id' => 902, 'declined_at' => '2026-09-30 10:00:00']);
+        $this->einbuchung($event, ['rec_employee_id' => null]);
+
+        $c = $this->dispoComponent((int) $event->id);
+        $this->assertSame(1, array_column($c->rowStempelOptions, 'count', 'value')['offen']);
+        $c->rowStempel = ['offen'];
+        $this->assertSame([(int) $fehlt->id], $c->filteredAssignments->pluck('id')->map(fn ($v) => (int) $v)->all());
+    }
+
+    public function test_name_der_aus_der_vorschlagsliste_gefallen_ist_gilt_nicht_mehr(): void
+    {
+        $event = $this->event();
+        $this->mensch(902, 'Tina', 'Teamleiterin');
+        $this->mensch(903, 'Tom', 'Zweiter');
+        $a = $this->einbuchung($event, ['rec_employee_id' => 901]);
+        $this->einbuchung($event, ['rec_employee_id' => 902, 'taetigkeit' => 'Teamleiter']);
+        $tom = $this->einbuchung($event, ['rec_employee_id' => 903, 'taetigkeit' => 'Teamleiter']);
+        $this->eventOnlyListe(['sebastian@test.de']);
+        Carbon::setTestNow('2026-10-01 12:00:00');
+
+        // Tom wurde gewaehlt, sagt dann ab: im Auswahlfeld stuende „Bitte waehlen“, gebucht wuerde unter Tom.
+        $tom->forceFill(['declined_at' => '2026-10-01 09:00:00'])->save();
+        $c = $this->offen($a);
+        $c->zeitTeamleiter = 'Tom Zweiter';
+        $c->zeitJetztKommen();
+        $this->assertSame(0, ZeitVerlauf::query()->count());
+        $this->assertSame('', $c->zeitTeamleiter);
+        $this->assertSame(\Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_NAME_FEHLT, $c->zeitMeldung);
+
+        // Im freien Feld darf jeder Name stehen (Kunde vor Ort).
+        $c->zeitTeamleiterFrei = true;
+        $c->zeitTeamleiter = 'Kunde Vor Ort';
+        $c->zeitJetztKommen();
+        $this->assertSame('Kunde Vor Ort (Eventzugang)', ZeitVerlauf::query()->firstOrFail()->akteur_name);
+    }
+
+    public function test_korrektur_die_auf_den_gespeicherten_wert_rundet_blockiert_das_fenster_nicht(): void
+    {
+        // Mit den ECHTEN Regeln (Rundung), nicht mit der Attrappe.
+        $regeln = new \Platform\Recruiting\Services\Zeit\RheingedeckZeitRegeln();
+        Container::getInstance()->instance(\Platform\Recruiting\Zeit\ZeitRegeln::class, $regeln);
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']); // 14:00 Ortszeit
+        Carbon::setTestNow('2026-10-01 18:07:00');
+        $c = $this->offen($a);
+
+        $c->zeitKommen = '2026-10-01T14:05';
+        $c->zeitGrund = 'Teamleiter';
+        $c->zeitSpeichern();
+        $this->assertStringContainsString('Nichts geändert', (string) $c->zeitMeldung);
+        $this->assertSame('2026-10-01T14:00', $c->zeitKommen, 'Feld steht wieder auf dem gespeicherten Wert');
+        $this->assertSame('Teamleiter', $c->zeitGrund, 'der Grund bleibt stehen');
+
+        $c->zeitJetztGehen();
+        $this->assertNull($c->zeitMeldung);
+        $this->assertSame('2026-10-01 18:00:00', $this->gespeichert($a)->gehen_at->format('Y-m-d H:i:s'), '20:07 Ortszeit -> 20:00');
     }
 
     public function test_beide_ansichten_nutzen_dieselbe_stempel_zelle(): void

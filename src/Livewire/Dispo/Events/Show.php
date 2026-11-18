@@ -1135,9 +1135,18 @@ class Show extends Component
         }
         $karte = $this->zeitEintraege;
 
-        // Wie die Status-Filter: Verschwundene und zur Loeschung Gemeldete sind nicht mehr im Rennen.
-        return $rows->filter(fn ($a) => $a->missing_since === null && $a->deletion_marked_at === null
-            && in_array($this->stempelZustand($a, $karte), $stempel, true));
+        return $rows->filter(fn ($a) => $this->stempelbar($a) && in_array($this->stempelZustand($a, $karte), $stempel, true));
+    }
+
+    /**
+     * Zaehlt die Zeile im Stempel-Filter? Nur wer erwartet wird und stempeln kann: nicht verschwunden, nicht
+     * zur Loeschung gemeldet, nicht abgesagt, mit zugeordneter Person. Sonst stuenden Abgesagte und
+     * unbesetzte Plaetze fuer immer unter „fehlt noch“.
+     */
+    private function stempelbar(RecDispoAssignment $a): bool
+    {
+        return $a->missing_since === null && $a->deletion_marked_at === null
+            && $a->declined_at === null && $a->rec_employee_id !== null;
     }
 
     /** Gueltige, angehakte Werte des Stempel-Filters; leer bei Schalter aus (dann gibt es die Spalte nicht). */
@@ -1161,7 +1170,7 @@ class Show extends Component
 
     /**
      * Auswahlwerte des Stempel-Filters mit Anzahl — gezaehlt im Ausschnitt der uebrigen Spaltenfilter,
-     * ohne Verschwundene/zur Loeschung Gemeldete. Immer alle vier Werte (auch mit 0).
+     * nur stempelbare Zeilen (siehe stempelbar()). Immer alle vier Werte (auch mit 0).
      *
      * @return list<array{value:string,label:string,count:int}>
      */
@@ -1175,7 +1184,7 @@ class Show extends Component
         $zahl = array_fill_keys(array_keys(self::STEMPEL_FILTER), 0);
         $rows = \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply($this->event->assignments, $this->rowDays, $this->rowTimes, $this->rowTaetigkeiten);
         foreach ($rows as $a) {
-            if ($a->missing_since === null && $a->deletion_marked_at === null) {
+            if ($this->stempelbar($a)) {
                 $zahl[$this->stempelZustand($a, $karte)]++;
             }
         }
@@ -1934,6 +1943,14 @@ class Show extends Component
             return new \Platform\Recruiting\Zeit\ZeitAkteur('user', auth()->id(), (string) auth()->user()?->name);
         }
         $name = $this->zeitTeamleiterName();
+        // Listen-Modus: ein Name, der inzwischen aus den Vorschlaegen gefallen ist (Import, Absage), waere im
+        // Auswahlfeld unsichtbar — dann gilt er nicht mehr, der Teamleiter waehlt neu.
+        $vorschlaege = $this->zeitTeamleiterVorschlaege;
+        if (!$this->zeitTeamleiterFrei && $vorschlaege !== [] && !in_array($name, $vorschlaege, true)) {
+            $this->zeitTeamleiter = '';
+
+            return null;
+        }
 
         return $name === '' ? null : new \Platform\Recruiting\Zeit\ZeitAkteur('user', auth()->id(), $name . self::ZEIT_EVENTZUGANG);
     }
@@ -2017,12 +2034,13 @@ class Show extends Component
      * Haken „Zeiten erfasst nur der Teamleiter“ an der Veranstaltung (Markus 17.11.2026). Nur mit eigener
      * Anmeldung. Query-Builder-Update: kein Model-Event, kein Export-Marker.
      */
-    public function zeitNurTeamleiterUmschalten(): void
+    public function zeitNurTeamleiterSetzen(bool $an): void
     {
         if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
             return;
         }
-        $neu = !((bool) $this->event->zeit_nur_teamleiter);
+        // Setzen, nicht umschalten: klicken zwei Disponenten kurz nacheinander dasselbe an, bleibt es dabei.
+        $neu = $an;
         RecDispoEvent::query()->whereKey($this->eventId)->update(['zeit_nur_teamleiter' => $neu]);
         unset($this->event);
         $this->zeitHinweis = $neu
@@ -2386,6 +2404,10 @@ class Show extends Component
         };
         if ($status === 'ok') {
             $this->zeitFormFuellen($a);
+        } elseif ($status === 'unveraendert') {
+            // Die Eingabe rundete auf den gespeicherten Wert: Felder zurueck auf den Stand, sonst gaelten sie
+            // als „ungespeichert“ und sperrten Jetzt kommen/gehen und Erledigt. Der Grund bleibt stehen.
+            $this->zeitFormFuellen($a, true);
         }
     }
 

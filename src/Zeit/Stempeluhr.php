@@ -101,11 +101,14 @@ class Stempeluhr
             if ($e->gehen_at !== null) {
                 return 'schon';
             }
-            // Verglichen wird, was gespeichert wuerde: die Rundung ist monoton, ein echtes Gehen nach dem
-            // echten Kommen liegt gerundet nie davor.
+            if ($zeit->lt($e->kommen_at)) {
+                return 'ungueltig';
+            }
+            // Gespeichert wird gerundet. Rundet das Gehen VOR ein (nicht gerundetes, aelteres oder von Hand
+            // gesetztes) Kommen, gilt das Kommen: nie ein Gehen vor dem Kommen, nie eine Ablehnung deswegen.
             $gerundet = $this->gerundet($zeit);
             if ($gerundet->lt($e->kommen_at)) {
-                return 'ungueltig';
+                $gerundet = Carbon::instance($e->kommen_at)->setTimezone(date_default_timezone_get());
             }
 
             if ($art === self::ART_SELBST) {
