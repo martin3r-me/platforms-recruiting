@@ -4,6 +4,7 @@
     mit PortalShell nur die Aktionen stempelKommen/stempelGehen betrifft.
     Uhrzeiten kommen fertig als Ortszeit aus PortalStempeln.
     Die Meldung steht auch ohne Zeilen da (Fenster zwischen Seite und Klick abgelaufen).
+    Zeilen mit nur_teamleiter haben keine Knoepfe; ende_vorbei zeigt die Erinnerung ans Auschecken.
 --}}
 @if (!empty($stempelZeilen) || !empty($stempelMeldung))
     @php
@@ -15,6 +16,14 @@
         $stempelVorbei = $duzen
             ? 'Zeitfenster vorbei – bitte melde dich bei der Disposition.'
             : 'Zeitfenster vorbei – bitte melden Sie sich bei der Disposition.';
+        // Erinnerung (Markus 17.11.2026): eingecheckt, die geplante Schicht ist vorbei.
+        $stempelErinnerung = $duzen
+            ? 'Du bist noch eingecheckt. Bitte check aus, wenn du fertig bist.'
+            : 'Sie sind noch eingecheckt. Bitte checken Sie aus, wenn Sie fertig sind.';
+        // Haken an der Veranstaltung: nur die Teamleitung erfasst die Zeiten.
+        $stempelNurTeamleiter = $duzen
+            ? 'Deine Zeiten erfasst bei diesem Einsatz die Teamleitung.'
+            : 'Ihre Zeiten erfasst bei diesem Einsatz die Teamleitung.';
     @endphp
     <div class="sec-label">{{ $stempelTitel }}</div>
     @foreach ($stempelZeilen as $zeile)
@@ -35,6 +44,12 @@
             @elseif ($zeileZusammen !== '')
                 <p>{{ $zeileZusammen }}</p>
                 <p class="klein">{{ $stempelHinweis }}</p>
+            @endif
+            @if ($zeile['ende_vorbei'] ?? false)
+                <p style="color:var(--crit);font-weight:600">{{ $stempelErinnerung }}</p>
+            @endif
+            @if ($zeile['nur_teamleiter'] ?? false)
+                <p class="klein">{{ $stempelNurTeamleiter }}</p>
             @endif
             @if ($zeile['kann_kommen'])
                 <button type="button" class="btn primary" wire:click="stempelKommen({{ $zeileId }})" wire:loading.attr="disabled">Kommen</button>

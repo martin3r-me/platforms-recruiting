@@ -34,6 +34,7 @@ abstract class ZeitTestCase extends DressTestCase
             ['2026_09_03_000002_add_note_timestamp_to_rec_dispo_assignments', 'rec_dispo_assignments', 'individual_note_updated_at'],
             ['2026_09_08_000001_add_late_marker_to_rec_dispo_assignments', 'rec_dispo_assignments', 'late_marked_at'],
             ['2026_08_28_000002_add_reconfirm_fields_to_rec_dispo_assignments', 'rec_dispo_assignments', 'confirmed_datum'],
+            ['2026_11_18_000001_add_zeit_nur_teamleiter_to_rec_dispo_events', 'rec_dispo_events', 'zeit_nur_teamleiter'],
             ['2026_11_16_000001_create_rec_zeit_eintraege_table', 'rec_zeit_eintraege', null],
             ['2026_11_16_000002_create_rec_zeit_verlauf_table', 'rec_zeit_verlauf', null],
         ] as [$name, $tabelle, $spalte]) {

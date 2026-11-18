@@ -41,7 +41,7 @@ class PortalStempeln
     }
 
     /**
-     * @return list<array{assignment_id:int,name:string,tag:string,soll:string,zustand:string,kommen:?string,gehen:?string,pause:?int,arbeitszeit:?string,kann_kommen:bool,kann_gehen:bool,fenster_vorbei:bool,heute:bool}>
+     * @return list<array{assignment_id:int,name:string,tag:string,soll:string,zustand:string,kommen:?string,gehen:?string,pause:?int,arbeitszeit:?string,kann_kommen:bool,kann_gehen:bool,fenster_vorbei:bool,heute:bool,nur_teamleiter:bool,ende_vorbei:bool}>
      */
     public function zeilen(RecEmployee $angemeldet, \DateTimeInterface $jetzt): array
     {
@@ -130,7 +130,7 @@ class PortalStempeln
             return 'aus';
         }
         $k = $this->kandidaten($angemeldet, $jetzt)[$assignmentId] ?? null;
-        if ($k === null || !$k['weg1']) {
+        if ($k === null || !$k['weg1'] || $k['zeile']['nur_teamleiter']) {
             return 'nicht_erlaubt';
         }
 
@@ -144,7 +144,7 @@ class PortalStempeln
             return 'aus';
         }
         $k = $this->kandidaten($angemeldet, $jetzt)[$assignmentId] ?? null;
-        if ($k === null) {
+        if ($k === null || $k['zeile']['nur_teamleiter']) {
             return 'nicht_erlaubt';
         }
 
@@ -237,8 +237,14 @@ class PortalStempeln
                     $akteurId = (int) $angemeldet->id;
                 }
             }
+            // Noch nicht eingecheckt und die Schicht ist vorbei: selbst einchecken geht nicht mehr,
+            // die Zeile haette nichts zu zeigen und nichts zu tun.
+            $spaetKommen = $this->regeln->spaetestesKommen($bezug);
+            if ($e === null && $spaetKommen !== null && $jetzt->gt($spaetKommen)) {
+                continue;
+            }
             $aus[(int) $a->id] = [
-                'zeile' => $this->zeile((int) $a->id, $a->event?->name, $bezug, $e, $spaet, $jetzt, true),
+                'zeile' => $this->zeile((int) $a->id, $a->event?->name, $bezug, $e, $spaet, $jetzt, true, (bool) $a->event?->zeit_nur_teamleiter),
                 'bezug' => $bezug,
                 'akteur' => new ZeitAkteur('rec_employee', $akteurId, $name),
                 'weg1' => true,
@@ -272,7 +278,7 @@ class PortalStempeln
             }
             $spaet = $this->regeln->spaetestesStempeln($bezug);
             $aus[$id] = [
-                'zeile' => $this->zeile($id, $a?->event?->name, $bezug, $e, $spaet, $jetzt, false),
+                'zeile' => $this->zeile($id, $a?->event?->name, $bezug, $e, $spaet, $jetzt, false, (bool) $a?->event?->zeit_nur_teamleiter),
                 'bezug' => $bezug,
                 'akteur' => new ZeitAkteur('rec_employee', (int) $e->person_id, $name),
                 'weg1' => false,
@@ -282,7 +288,11 @@ class PortalStempeln
         return $aus;
     }
 
-    private function zeile(int $id, ?string $veranstaltung, ZeitBezug $bezug, ?ZeitEintrag $e, ?CarbonImmutable $spaet, CarbonImmutable $jetzt, bool $imFenster): array
+    /**
+     * $nurTeamleiter (Haken an der Veranstaltung): der Mitarbeiter sieht nur die erfassten Zeiten, kein Knopf.
+     * ende_vorbei: eingecheckt, die geplante Schicht ist vorbei, Auschecken geht noch — die Kachel erinnert daran.
+     */
+    private function zeile(int $id, ?string $veranstaltung, ZeitBezug $bezug, ?ZeitEintrag $e, ?CarbonImmutable $spaet, CarbonImmutable $jetzt, bool $imFenster, bool $nurTeamleiter = false): array
     {
         $zustand = $e?->zustand() ?? 'offen';
         $kommen = $e?->kommen_at;
@@ -304,10 +314,12 @@ class PortalStempeln
             'gehen' => $gehen === null ? null : ZeitAnzeige::uhrzeit($gehen),
             'pause' => $pause,
             'arbeitszeit' => $arbeit === null ? null : ZeitRechner::alsStunden($arbeit),
-            'kann_kommen' => $imFenster && $zustand === 'offen',
-            'kann_gehen' => $zustand === 'eingecheckt' && $innerhalb,
-            'fenster_vorbei' => $zustand === 'eingecheckt' && !$innerhalb,
+            'kann_kommen' => !$nurTeamleiter && $imFenster && $zustand === 'offen',
+            'kann_gehen' => !$nurTeamleiter && $zustand === 'eingecheckt' && $innerhalb,
+            'fenster_vorbei' => !$nurTeamleiter && $zustand === 'eingecheckt' && !$innerhalb,
             'heute' => $bezug->tag === ZeitAnzeige::ortszeit($jetzt)->format('Y-m-d'),
+            'nur_teamleiter' => $nurTeamleiter,
+            'ende_vorbei' => !$nurTeamleiter && $zustand === 'eingecheckt' && $innerhalb && $bezug->sollBis !== null && $jetzt->gt($bezug->sollBis),
         ];
     }
 

@@ -38,6 +38,8 @@ class RecDispoEvent extends Model
         'source_meta' => 'array',
         'escalation_date' => 'date:Y-m-d',
         'dresscode_ack_at' => 'datetime',
+        // Zeiterfassung: nur der Teamleiter stempelt (bewusst NICHT fillable — der Import fasst es nicht an).
+        'zeit_nur_teamleiter' => 'boolean',
     ];
 
     /**

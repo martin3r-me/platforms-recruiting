@@ -370,4 +370,93 @@ class PortalStempelnTest extends ZeitTestCase
         $this->assertSame('nicht_erlaubt', $dienst->gehen($ma, $a->id, Carbon::now()));
         $this->assertSame(0, ZeitEintrag::query()->count());
     }
+
+    // ---- Haken „nur der Teamleiter stempelt“ und die Rheingedeck-Grenzen (Markus 17./18.11.2026) ----
+
+    private function dienstEcht(): PortalStempeln
+    {
+        $regeln = new \Platform\Recruiting\Services\Zeit\RheingedeckZeitRegeln();
+
+        return new PortalStempeln(new Stempeluhr($regeln), $this->schalter, new DispoIdentityResolver(), $regeln);
+    }
+
+    public function test_haken_nur_teamleiter_nimmt_dem_mitarbeiter_beide_knoepfe_er_sieht_nur_die_zeiten(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        \Platform\Recruiting\Models\RecDispoEvent::query()->update(['zeit_nur_teamleiter' => 1]);
+
+        $z = $this->dienst()->zeilen($ma, Carbon::now());
+        $this->assertCount(1, $z);
+        $this->assertTrue($z[0]['nur_teamleiter']);
+        $this->assertFalse($z[0]['kann_kommen']);
+        $this->assertSame('nicht_erlaubt', $this->dienst()->kommen($ma, $a->id, Carbon::now()));
+        $this->assertSame(0, ZeitEintrag::query()->count());
+
+        // Der Teamleiter checkt ein: der Mitarbeiter sieht die Zeit, kann aber nicht auschecken.
+        $bezug = \Platform\Recruiting\Services\Zeit\DispoZeitBezug::fuer($a->fresh(), 1101);
+        (new Stempeluhr($this->regeln()))->kommen($bezug, $this->akteur('user', 5, 'Tina Teamleiterin (Eventzugang)'), Stempeluhr::ART_STELLVERTRETEND);
+
+        $z = $this->dienst()->zeilen($ma, Carbon::now());
+        $this->assertSame('eingecheckt', $z[0]['zustand']);
+        $this->assertSame('13:30', $z[0]['kommen']);
+        $this->assertFalse($z[0]['kann_gehen']);
+        $this->assertFalse($z[0]['fenster_vorbei']);
+        $this->assertFalse($z[0]['ende_vorbei']);
+        $this->assertSame('nicht_erlaubt', $this->dienst()->gehen($ma, $a->id, Carbon::now()));
+        $this->assertNull(ZeitEintrag::query()->firstOrFail()->gehen_at);
+    }
+
+    public function test_ohne_haken_bleibt_alles_wie_bisher(): void
+    {
+        $ma = $this->ma();
+        $this->einsatz();
+
+        $z = $this->dienst()->zeilen($ma, Carbon::now());
+        $this->assertFalse($z[0]['nur_teamleiter']);
+        $this->assertTrue($z[0]['kann_kommen']);
+    }
+
+    public function test_echte_grenzen_nach_schichtende_kein_selbst_einchecken_und_keine_zeile(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+
+        $this->jetzt('13:29');
+        $this->assertSame([], $this->dienstEcht()->zeilen($ma, Carbon::now()), '30 Minuten vorher, nicht 60');
+        $this->jetzt('13:30');
+        $this->assertTrue($this->dienstEcht()->zeilen($ma, Carbon::now())[0]['kann_kommen']);
+
+        $this->jetzt('22:01');
+        $this->assertSame([], $this->dienstEcht()->zeilen($ma, Carbon::now()));
+        $this->assertSame('nicht_erlaubt', $this->dienstEcht()->kommen($ma, $a->id, Carbon::now()));
+        $this->assertSame(0, ZeitEintrag::query()->count());
+    }
+
+    public function test_echte_grenzen_erinnerung_ans_auschecken_nach_schichtende_bis_vier_stunden(): void
+    {
+        $ma = $this->ma();
+        $a = $this->einsatz();
+        $this->jetzt('13:53');
+        $this->assertSame('ok', $this->dienstEcht()->kommen($ma, $a->id, Carbon::now()));
+        $this->assertSame('14:00', $this->dienstEcht()->zeilen($ma, Carbon::now())[0]['kommen'], 'gerundet angezeigt');
+
+        $this->jetzt('21:59');
+        $this->assertFalse($this->dienstEcht()->zeilen($ma, Carbon::now())[0]['ende_vorbei']);
+
+        $this->jetzt('22:30');
+        $z = $this->dienstEcht()->zeilen($ma, Carbon::now())[0];
+        $this->assertTrue($z['ende_vorbei']);
+        $this->assertTrue($z['kann_gehen']);
+
+        $this->jetzt('02:01', '2026-10-02');
+        $z = $this->dienstEcht()->zeilen($ma, Carbon::now())[0];
+        $this->assertFalse($z['ende_vorbei']);
+        $this->assertFalse($z['kann_gehen']);
+        $this->assertTrue($z['fenster_vorbei']);
+
+        $this->jetzt('01:50', '2026-10-02');
+        $this->assertSame('ok', $this->dienstEcht()->gehen($ma, $a->id, Carbon::now()));
+        $this->assertSame('01:45', ZeitEintrag::query()->firstOrFail()->gehen_at->copy()->setTimezone('Europe/Berlin')->format('H:i'), 'gerundet gespeichert');
+    }
 }
