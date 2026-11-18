@@ -82,7 +82,7 @@ class ZeitVerdrahtungTest extends TestCase
         $this->assertStringContainsString('wire:click="openZeit({{ $assignment->id }})"', $zelle);
     }
 
-    public function test_sammel_knopf_steht_hinter_schalter_und_ausschluss_der_nur_veranstaltungen_konten(): void
+    public function test_sammel_knopf_steht_hinter_schalter_und_zaehler(): void
     {
         $show = self::blade('dispo/events/show.blade.php');
         $this->assertSame(1, substr_count($show, 'wire:click="zeitAlleErledigt"'));
@@ -95,7 +95,8 @@ class ZeitVerdrahtungTest extends TestCase
         $this->assertStringNotContainsString('@endif', $dazwischen);
         $this->assertStringNotContainsString('@else', $dazwischen);
         $bedingung = substr($dazwischen, 0, (int) strpos($dazwischen, "\n"));
-        $this->assertSame('@if ($zeitAktiv && !$eventOnly && $zeitErledigbar > 0)', trim($bedingung));
+        // Auch der Eventzugang (Teamleiter) darf erledigen — der Server verlangt dafuer seinen Namen.
+        $this->assertSame('@if ($zeitAktiv && $zeitErledigbar > 0)', trim($bedingung));
 
         // $eventOnly kommt vom Server-Riegel der Seite, nicht aus einer losen Variable.
         $this->assertStringContainsString('$eventOnly = $this->eventOnly;', $show);

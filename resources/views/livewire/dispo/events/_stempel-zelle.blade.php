@@ -8,7 +8,7 @@
     };
 @endphp
 @if ($assignment->rec_employee_id)
-    <button type="button" wire:click="openZeit({{ $assignment->id }})" class="text-left text-xs {{ $zelleFarbe }} hover:underline" title="Zeit ansehen{{ $eventOnly ? '' : ' und korrigieren' }}">
+    <button type="button" wire:click="openZeit({{ $assignment->id }})" class="text-left text-xs {{ $zelleFarbe }} hover:underline" title="Zeit ansehen und korrigieren">
         @if ($zelle['gesperrt'])<span title="Erledigt und gesperrt">🔒</span> @endif{{ $zelle['text'] }}@if ($zelle['verspaetung'] > 0) <span class="ml-0.5 rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-800" title="Verspätung gegenüber dem Schichtbeginn">+{{ $zelle['verspaetung'] }}</span>@endif
     </button>
 @endif

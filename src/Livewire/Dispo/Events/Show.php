@@ -207,6 +207,14 @@ class Show extends Component
     public string $zeitOeffnenGrund = '';
     public ?string $zeitMeldung = null;
 
+    /**
+     * Name des Teamleiters, der mit dem Eventzugang (Sammelkonto) Zeiten bucht (Markus 18.11.2026, „Punkt 1“):
+     * steht im Verlauf statt des Kontonamens. Frei waehlbar — eine Beschriftung, kein Recht.
+     */
+    public string $zeitTeamleiter = '';
+    /** Eventzugang: statt der Vorschlagsliste ein freies Namensfeld zeigen. */
+    public bool $zeitTeamleiterFrei = false;
+
     // Anhang-Modal (Runde 3, #8): eine Datei pro MA fuer diese VA.
     public bool $showAttachmentModal = false;
     public ?int $attachmentEmployeeId = null;
@@ -259,6 +267,7 @@ class Show extends Component
     {
         $this->eventId = $eventId;
         $this->loadNotes();
+        $this->zeitStartEventzugang();
     }
 
     /** Vorbelegung von $notes aus dem ersten nicht-leeren individual_note pro MA. */
@@ -907,6 +916,21 @@ class Show extends Component
     /** @var list<string> Taetigkeiten — was der Kunde "Qualifikation" nennt */
     public array $rowTaetigkeiten = [];
 
+    /**
+     * Spaltenfilter „Stempel“ (Markus 17.11.2026: „wer ist da, wer fehlt“): offen | eingecheckt | ausgecheckt | erledigt.
+     * Wirkt nur bei eingeschalteter Zeiterfassung.
+     *
+     * @var list<string>
+     */
+    public array $rowStempel = [];
+
+    public const STEMPEL_FILTER = [
+        'offen' => 'fehlt noch',
+        'eingecheckt' => 'ist da',
+        'ausgecheckt' => 'ausgecheckt',
+        'erledigt' => 'erledigt',
+    ];
+
     /** Spalten-Sortierung wie Excel (Kunde 04.09.): '' = Lieferreihenfolge (Datum/Zeit). */
     public string $rowSort = '';
     public string $rowSortDir = 'asc';
@@ -930,6 +954,7 @@ class Show extends Component
         $this->rowDays = [];
         $this->rowTimes = [];
         $this->rowTaetigkeiten = [];
+        $this->rowStempel = [];
         $this->rowSearch = '';
         $this->rowFilter = '';
     }
@@ -966,6 +991,9 @@ class Show extends Component
         foreach ($this->rowTaetigkeiten as $v) {
             $out[] = ['prop' => 'rowTaetigkeiten', 'value' => (string) $v, 'label' => 'Tätigkeit: ' . $v];
         }
+        foreach ($this->stempelFilterWerte() as $v) {
+            $out[] = ['prop' => 'rowStempel', 'value' => $v, 'label' => 'Stempel: ' . self::STEMPEL_FILTER[$v]];
+        }
 
         return $out;
     }
@@ -973,7 +1001,7 @@ class Show extends Component
     /** Einen einzelnen Chip entfernen. */
     public function removeRowFilter(string $prop, string $value): void
     {
-        if (!in_array($prop, ['rowDays', 'rowTimes', 'rowTaetigkeiten'], true)) {
+        if (!in_array($prop, ['rowDays', 'rowTimes', 'rowTaetigkeiten', 'rowStempel'], true)) {
             return;
         }
         $this->{$prop} = array_values(array_diff($this->{$prop}, [$value]));
@@ -1094,12 +1122,69 @@ class Show extends Component
      */
     private function columnScope(): \Illuminate\Support\Collection
     {
-        return \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply(
+        $rows = \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply(
             $this->event->assignments,
             $this->rowDays,
             $this->rowTimes,
             $this->rowTaetigkeiten,
         );
+
+        $stempel = $this->stempelFilterWerte();
+        if ($stempel === []) {
+            return $rows;
+        }
+        $karte = $this->zeitEintraege;
+
+        // Wie die Status-Filter: Verschwundene und zur Loeschung Gemeldete sind nicht mehr im Rennen.
+        return $rows->filter(fn ($a) => $a->missing_since === null && $a->deletion_marked_at === null
+            && in_array($this->stempelZustand($a, $karte), $stempel, true));
+    }
+
+    /** Gueltige, angehakte Werte des Stempel-Filters; leer bei Schalter aus (dann gibt es die Spalte nicht). */
+    private function stempelFilterWerte(): array
+    {
+        if ($this->rowStempel === [] || !$this->zeitAktiv) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_keys(self::STEMPEL_FILTER),
+            fn ($k) => in_array($k, $this->rowStempel, true),
+        ));
+    }
+
+    /** @param array<int, \Platform\Recruiting\Zeit\ZeitEintrag> $karte */
+    private function stempelZustand(RecDispoAssignment $a, array $karte): string
+    {
+        return ($karte[(int) $a->id] ?? null)?->zustand() ?? 'offen';
+    }
+
+    /**
+     * Auswahlwerte des Stempel-Filters mit Anzahl — gezaehlt im Ausschnitt der uebrigen Spaltenfilter,
+     * ohne Verschwundene/zur Loeschung Gemeldete. Immer alle vier Werte (auch mit 0).
+     *
+     * @return list<array{value:string,label:string,count:int}>
+     */
+    #[Computed]
+    public function rowStempelOptions(): array
+    {
+        if (!$this->zeitAktiv) {
+            return [];
+        }
+        $karte = $this->zeitEintraege;
+        $zahl = array_fill_keys(array_keys(self::STEMPEL_FILTER), 0);
+        $rows = \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply($this->event->assignments, $this->rowDays, $this->rowTimes, $this->rowTaetigkeiten);
+        foreach ($rows as $a) {
+            if ($a->missing_since === null && $a->deletion_marked_at === null) {
+                $zahl[$this->stempelZustand($a, $karte)]++;
+            }
+        }
+        $out = [];
+        foreach (self::STEMPEL_FILTER as $wert => $label) {
+            $out[] = ['value' => $wert, 'label' => $label, 'count' => $zahl[$wert]];
+        }
+
+        return $out;
     }
 
     private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
@@ -1794,7 +1879,7 @@ class Show extends Component
         return $this->zeitAktiv ? app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fuerEvent($this->eventId) : [];
     }
 
-    /** Daten des offenen Fensters; null ohne offenes Fenster, bei Schalter aus oder geaenderter Zeile. Sammelkonten ohne Verlauf. */
+    /** Daten des offenen Fensters; null ohne offenes Fenster, bei Schalter aus oder geaenderter Zeile. */
     #[Computed]
     public function zeitFenster(): ?array
     {
@@ -1803,7 +1888,8 @@ class Show extends Component
         }
         $a = $this->zeitEinbuchung();
 
-        return $a === null ? null : app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fenster($a, !$this->blockedForEventOnly());
+        // Mit Verlauf auch fuer den Eventzugang: der Teamleiter „sieht Bearbeitungshistorie“ (Folie 9).
+        return $a === null ? null : app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->fenster($a, true);
     }
 
     /** Die Einbuchung dieser Veranstaltung mit DERSELBEN Person wie beim Oeffnen, frisch geladen — sonst null. */
@@ -1835,12 +1921,116 @@ class Show extends Component
         }
     }
 
-    private function zeitAkteur(): \Platform\Recruiting\Zeit\ZeitAkteur
+    public const ZEIT_EVENTZUGANG = ' (Eventzugang)';
+    public const ZEIT_NAME_FEHLT = 'Bitte zuerst den eigenen Namen auswählen.';
+
+    /**
+     * Wer bucht. Eigenes Konto: der Kontoname. Eventzugang (Sammelkonto, mehrere Teamleiter): der gewaehlte
+     * Name mit dem Zusatz „(Eventzugang)“ — null, solange keiner gewaehlt ist (dann wird nichts geschrieben).
+     */
+    private function zeitAkteur(): ?\Platform\Recruiting\Zeit\ZeitAkteur
     {
-        return new \Platform\Recruiting\Zeit\ZeitAkteur('user', auth()->id(), (string) auth()->user()?->name);
+        if (!$this->blockedForEventOnly()) {
+            return new \Platform\Recruiting\Zeit\ZeitAkteur('user', auth()->id(), (string) auth()->user()?->name);
+        }
+        $name = $this->zeitTeamleiterName();
+
+        return $name === '' ? null : new \Platform\Recruiting\Zeit\ZeitAkteur('user', auth()->id(), $name . self::ZEIT_EVENTZUGANG);
     }
 
-    /** Oeffnet das Fenster; Konten „Nur Veranstaltungen“ sehen es nur lesend (Knoepfe fehlen, Aktionen verweigern). */
+    /** Bereinigter Name: Steuerzeichen raus, Leerraum zusammengezogen, hoechstens 80 Zeichen. */
+    private function zeitTeamleiterName(): string
+    {
+        $name = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\p{C}]+/u', ' ', $this->zeitTeamleiter)));
+
+        return mb_substr($name, 0, 80);
+    }
+
+    /**
+     * Vorschlaege fuers Namensfeld des Eventzugangs: wer an DIESER Veranstaltung als Teamleiter eingebucht ist
+     * (Taetigkeit enthaelt „teamleit“ oder ist „TL“), ohne Verschwundene und Abgesagte.
+     *
+     * @return list<string> „Vorname Nachname“
+     */
+    #[Computed]
+    public function zeitTeamleiterVorschlaege(): array
+    {
+        $namen = [];
+        foreach ($this->event->assignments as $a) {
+            if ($a->employee === null || $a->missing_since !== null || $a->deletion_marked_at !== null || $a->declined_at !== null) {
+                continue;
+            }
+            $t = mb_strtolower(trim((string) $a->taetigkeit));
+            if ($t !== 'tl' && !str_contains($t, 'teamleit')) {
+                continue;
+            }
+            $name = trim($a->employee->first_name . ' ' . $a->employee->last_name);
+            if ($name !== '') {
+                $namen[$name] = true;
+            }
+        }
+        $namen = array_keys($namen);
+        sort($namen, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $namen;
+    }
+
+    /**
+     * Start fuer den Eventzugang (nur bei eingeschalteter Zeiterfassung):
+     *  - genau EIN eingebuchter Teamleiter → sein Name ist vorbelegt (bei mehreren muss gewaehlt werden,
+     *    sonst stuende still der falsche im Verlauf);
+     *  - laeuft die Veranstaltung heute, zeigt die Liste zuerst nur, wer noch fehlt (Markus 17.11.2026:
+     *    „Check in erfolgt, Name verschwindet in der Uebersicht“) — als sichtbarer, abwaehlbarer Filter.
+     */
+    private function zeitStartEventzugang(): void
+    {
+        try {
+            if (!$this->blockedForEventOnly() || !$this->zeitAktiv) {
+                return;
+            }
+            $vorschlaege = $this->zeitTeamleiterVorschlaege;
+            if (count($vorschlaege) === 1) {
+                $this->zeitTeamleiter = $vorschlaege[0];
+            }
+            $heute = \Platform\Recruiting\Services\Zeit\ZeitAnzeige::ortszeit(now())->format('Y-m-d');
+            foreach ($this->event->assignments as $a) {
+                if ($a->datum !== null && $a->datum->format('Y-m-d') === $heute) {
+                    $this->rowStempel = ['offen'];
+                    break;
+                }
+            }
+        } catch (\Throwable) {
+            // Vorbelegung ist Komfort — ein Fehler hier darf die Seite nicht kosten.
+        }
+    }
+
+    /** Eventzugang: zwischen Vorschlagsliste und freiem Namensfeld wechseln. */
+    public function zeitTeamleiterFreiUmschalten(): void
+    {
+        $this->zeitTeamleiterFrei = !$this->zeitTeamleiterFrei;
+        if (!$this->zeitTeamleiterFrei && !in_array($this->zeitTeamleiter, $this->zeitTeamleiterVorschlaege, true)) {
+            $this->zeitTeamleiter = '';
+        }
+    }
+
+    /**
+     * Haken „Zeiten erfasst nur der Teamleiter“ an der Veranstaltung (Markus 17.11.2026). Nur mit eigener
+     * Anmeldung. Query-Builder-Update: kein Model-Event, kein Export-Marker.
+     */
+    public function zeitNurTeamleiterUmschalten(): void
+    {
+        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+            return;
+        }
+        $neu = !((bool) $this->event->zeit_nur_teamleiter);
+        RecDispoEvent::query()->whereKey($this->eventId)->update(['zeit_nur_teamleiter' => $neu]);
+        unset($this->event);
+        $this->zeitHinweis = $neu
+            ? 'Bei dieser Veranstaltung erfasst nur noch der Teamleiter die Zeiten. Die Mitarbeiter können nicht selbst stempeln.'
+            : 'Die Mitarbeiter können bei dieser Veranstaltung wieder selbst stempeln.';
+    }
+
+    /** Oeffnet das Fenster — auch fuer den Eventzugang (der Teamleiter bucht dort mit seinem Namen). */
     public function openZeit(int $assignmentId): void
     {
         if (!$this->zeitAktiv) {
@@ -1911,7 +2101,7 @@ class Show extends Component
     /** Korrektur (art = korrektur). Zeiten sind Ortszeit; gespeichert wird UTC. */
     public function zeitSpeichern(): void
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
             return;
         }
         $a = $this->zeitEinbuchung();
@@ -1923,6 +2113,12 @@ class Show extends Component
         $dienst = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class);
         $this->resetErrorBag();
         $this->zeitMeldung = null;
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
+
+            return;
+        }
 
         // 1. Hat sich der Datensatz seit dem Oeffnen geaendert? Dann nichts schreiben (kein stilles Zurueckschreiben).
         $frisch = $dienst->stand($dienst->fenster($a, false));
@@ -1990,7 +2186,7 @@ class Show extends Component
             $werte['bemerkung'] = $bemerkung === '' ? null : $bemerkung;
         }
 
-        $status = $dienst->korrigieren($a, $this->zeitAkteur(), $werte, $grund);
+        $status = $dienst->korrigieren($a, $akteur, $werte, $grund);
         if ($grund === '') {
             $this->addError('zeitGrund', 'Bitte einen Grund angeben.');
         }
@@ -1999,7 +2195,7 @@ class Show extends Component
 
     public function zeitJetztKommen(): void
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
             return;
         }
         $a = $this->zeitEinbuchung();
@@ -2009,18 +2205,24 @@ class Show extends Component
             return;
         }
         $this->resetErrorBag();
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
+
+            return;
+        }
         // Ungespeicherte Eingaben wuerden beim Neu-Fuellen kommentarlos verschwinden.
         if ($this->zeitUngespeichert()) {
             $this->zeitMeldung = 'Bitte erst speichern oder die Eingaben verwerfen.';
 
             return;
         }
-        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztKommen($a, $this->zeitAkteur()), 'kommen');
+        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztKommen($a, $akteur), 'kommen');
     }
 
     public function zeitJetztGehen(): void
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
             return;
         }
         $a = $this->zeitEinbuchung();
@@ -2030,20 +2232,26 @@ class Show extends Component
             return;
         }
         $this->resetErrorBag();
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
+
+            return;
+        }
         // Ungespeicherte Eingaben wuerden beim Neu-Fuellen kommentarlos verschwinden.
         if ($this->zeitUngespeichert()) {
             $this->zeitMeldung = 'Bitte erst speichern oder die Eingaben verwerfen.';
 
             return;
         }
-        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $this->zeitAkteur()), 'gehen');
+        $this->zeitNachSchreiben($a, app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->jetztGehen($a, $akteur), 'gehen');
     }
 
-    /** Ausgecheckte, noch nicht gesperrte Datensaetze unter den aktuell GEFILTERTEN Zeilen (nur voller Zugriff). */
+    /** Ausgecheckte, noch nicht gesperrte Datensaetze unter den aktuell GEFILTERTEN Zeilen. */
     #[Computed]
     public function zeitErledigbar(): int
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
             return 0;
         }
         $karte = $this->zeitEintraege;
@@ -2057,7 +2265,7 @@ class Show extends Component
         return $n;
     }
 
-    /** Steht die E-Mail des Nutzers in der Entsperr-Liste? Konten „Nur Veranstaltungen“ nie. */
+    /** Wieder oeffnen: eigene Anmeldung ja (Liste in den Einstellungen kann einschraenken), Eventzugang nie. */
     #[Computed]
     public function zeitDarfOeffnen(): bool
     {
@@ -2068,7 +2276,7 @@ class Show extends Component
     /** „Erledigt“ im Fenster: sperrt fuer alle. Nur den gesehenen, gespeicherten Stand — nie ungespeicherte Eingaben. */
     public function zeitErledigt(): void
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
             return;
         }
         $a = $this->zeitEinbuchung();
@@ -2080,6 +2288,12 @@ class Show extends Component
         $dienst = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class);
         $this->resetErrorBag();
         $this->zeitMeldung = null;
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
+
+            return;
+        }
 
         // 1. Hat sich der Datensatz seit dem Oeffnen geaendert? Dann nichts besiegeln, was der Disponent nie gesehen hat.
         $frisch = $dienst->stand($dienst->fenster($a, false));
@@ -2098,18 +2312,24 @@ class Show extends Component
             return;
         }
 
-        $this->zeitNachSchreiben($a, $dienst->erledigt($a, $this->zeitAkteur()), 'erledigt');
+        $this->zeitNachSchreiben($a, $dienst->erledigt($a, $akteur), 'erledigt');
     }
 
     /** Sammel-Aktion ueber die aktuell gefilterten Zeilen; die Anzahl wird HIER neu ermittelt. */
     public function zeitAlleErledigt(): void
     {
-        if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
+        if (!$this->zeitAktiv) {
+            return;
+        }
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitHinweis = self::ZEIT_NAME_FEHLT;
+
             return;
         }
         unset($this->filteredAssignments);
-        $n = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->alleErledigt($this->filteredAssignments, $this->zeitAkteur());
-        unset($this->zeitEintraege, $this->zeitFenster, $this->zeitErledigbar);
+        $n = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->alleErledigt($this->filteredAssignments, $akteur);
+        unset($this->zeitEintraege, $this->zeitFenster, $this->zeitErledigbar, $this->filteredAssignments, $this->rowStempelOptions, $this->rowFilterCounts);
         $this->zeitHinweis = $n === 0
             ? 'Keine ausgecheckten Einträge zu markieren.'
             : ($n === 1 ? '1 Eintrag als erledigt markiert.' : $n . ' Einträge als erledigt markiert.');
@@ -2118,7 +2338,7 @@ class Show extends Component
         }
     }
 
-    /** „Wieder oeffnen“: nur mit Listen-Eintrag (serverseitig geprueft) und Pflicht-Grund. */
+    /** „Wieder oeffnen“: nie mit dem Eventzugang; Recht serverseitig geprueft, Pflicht-Grund. */
     public function zeitOeffnen(): void
     {
         if (!$this->zeitAktiv || $this->blockedForEventOnly()) {
@@ -2131,7 +2351,12 @@ class Show extends Component
             return;
         }
         $this->resetErrorBag();
-        $status = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->oeffnen($a, $this->zeitAkteur(), $this->zeitOeffnenGrund, auth()->user());
+        // Hier nie null: der Riegel oben laesst den Eventzugang nicht durch.
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            return;
+        }
+        $status = app(\Platform\Recruiting\Services\Zeit\DispoZeiten::class)->oeffnen($a, $akteur, $this->zeitOeffnenGrund, auth()->user());
         if ($status === 'ungueltig') {
             $this->addError('zeitOeffnenGrund', 'Bitte einen Grund angeben.');
         }
@@ -2141,7 +2366,8 @@ class Show extends Component
     /** Meldung zum Ergebnis; bei ok Formular und Schnappschuss neu fuellen. Cache der Spalte und des Fensters verwerfen. */
     private function zeitNachSchreiben(RecDispoAssignment $a, string $status, string $aktion = 'speichern'): void
     {
-        unset($this->zeitEintraege, $this->zeitFenster);
+        // Auch die gefilterten Zeilen und Zaehler: der Stempel-Filter haengt am Zustand, der sich gerade geaendert hat.
+        unset($this->zeitEintraege, $this->zeitFenster, $this->filteredAssignments, $this->rowStempelOptions, $this->zeitErledigbar, $this->rowFilterCounts);
         $this->zeitMeldung = match (true) {
             $status === 'ok' => null,
             $status === 'ungueltig' && $aktion === 'oeffnen' => 'Bitte einen Grund angeben (höchstens 255 Zeichen).',

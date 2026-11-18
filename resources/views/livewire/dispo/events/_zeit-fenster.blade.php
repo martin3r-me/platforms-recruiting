@@ -1,9 +1,11 @@
-{{-- Fenster „Zeit“ (Zeiterfassung, Spec 2026-11-16 §4). Greift auf $this->zeitFenster, $this->zeitAssignmentId zu;
-     Konten „Nur Veranstaltungen“ ($eventOnly) und erledigte Datensaetze sehen es nur lesend. --}}
+{{-- Fenster „Zeit“ (Zeiterfassung, Spec 2026-11-16 §4). Greift auf $this->zeitFenster, $this->zeitAssignmentId zu.
+     Erledigte Datensaetze sind nur lesbar. Der Eventzugang ($eventOnly) bucht wie die Disposition, aber mit dem
+     gewaehlten Teamleiter-Namen (Markus 18.11.2026) — nur „Wieder oeffnen“ bleibt ihm verwehrt.
+     Zeitfelder in Viertelstunden-Schritten: gespeichert wird ohnehin gerundet. --}}
 @php
     $zf = $this->zeitFenster;
     $zfAssignmentId = $this->zeitAssignmentId;
-    $zfNurLesen = $eventOnly || ($zf !== null && $zf['gesperrt']);
+    $zfNurLesen = $zf !== null && $zf['gesperrt'];
     $zfDarfOeffnen = $zf !== null && $zf['gesperrt'] && $this->zeitDarfOeffnen;
     $zfKannErledigen = $zf !== null && !$zfNurLesen && $zf['zustand'] === 'ausgecheckt';
     $zfRegel = $zf === null ? '' : 'nach Regel: ' . $zf['regelpause'];
@@ -27,19 +29,21 @@
                 @if ($zf['gesperrt'])
                     <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Erledigt und gesperrt. Die Werte sind nur noch lesbar.</p>
                 @elseif ($eventOnly)
-                    <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Dieses Konto kann Zeiten nur ansehen.</p>
+                    <div class="rounded bg-gray-50 px-3 py-2">
+                        @include('recruiting::livewire.dispo.events._zeit-teamleiter-name', ['zeitTlVorschlaege' => $this->zeitTeamleiterVorschlaege])
+                    </div>
                 @endif
 
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label class="block text-sm">
                         <span class="text-gray-600">Kommen</span>
-                        <input type="datetime-local" wire:model="zeitKommen" @if ($zfNurLesen) disabled @endif
+                        <input type="datetime-local" step="900" wire:model="zeitKommen" @if ($zfNurLesen) disabled @endif
                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500">
                         @error('zeitKommen') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                     </label>
                     <label class="block text-sm">
                         <span class="text-gray-600">Gehen</span>
-                        <input type="datetime-local" wire:model="zeitGehen" @if ($zfNurLesen) disabled @endif
+                        <input type="datetime-local" step="900" wire:model="zeitGehen" @if ($zfNurLesen) disabled @endif
                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500">
                         @error('zeitGehen') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                     </label>
@@ -55,6 +59,9 @@
                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500">
                     </label>
                 </div>
+                @if (!$zfNurLesen)
+                    <p class="text-xs text-gray-500">Zeiten werden auf die nächste Viertelstunde gerundet.</p>
+                @endif
 
                 @if (!$zfNurLesen)
                     <label class="block text-sm">
@@ -117,10 +124,10 @@
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     @if (!$zfNurLesen)
                         <div class="flex gap-2">
-                            <button type="button" wire:click="zeitJetztKommen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Server-Uhrzeit jetzt, ohne Zeitfenster-Prüfung">Jetzt kommen</button>
-                            <button type="button" wire:click="zeitJetztGehen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Server-Uhrzeit jetzt, ohne Zeitfenster-Prüfung">Jetzt gehen</button>
+                            <button type="button" wire:click="zeitJetztKommen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Uhrzeit jetzt, auf die Viertelstunde gerundet, ohne Zeitfenster-Prüfung">Jetzt kommen</button>
+                            <button type="button" wire:click="zeitJetztGehen" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Stellvertretend: Uhrzeit jetzt, auf die Viertelstunde gerundet, ohne Zeitfenster-Prüfung">Jetzt gehen</button>
                             @if ($zfKannErledigen)
-                                <button type="button" wire:click="zeitErledigt" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Sperrt den Eintrag für alle, auch für die Disposition">Erledigt</button>
+                                <button type="button" wire:click="zeitErledigt" class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" title="Sperrt den Eintrag für alle. Wieder öffnen kann ihn nur jemand mit eigener Anmeldung.">Erledigt</button>
                             @endif
                         </div>
                     @else

@@ -477,7 +477,7 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $this->assertSame('Erledigt geht nur bei ausgecheckten Einträgen.', $c->zeitMeldung);
     }
 
-    public function test_fenster_erledigt_schalter_aus_und_nur_veranstaltungen_verweigern(): void
+    public function test_fenster_erledigt_schalter_aus_und_eventzugang_ohne_namen_verweigern(): void
     {
         $a = $this->einbuchung();
         $this->aus($a);
@@ -485,8 +485,8 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $c = $this->offen($a);
         $c->zeitErledigt();
         $c->zeitAlleErledigt();
-        $this->assertSame(0, $c->zeitErledigbar);
-        $this->assertNull($this->gespeichert($a)->gesperrt_at);
+        $this->assertSame(1, $c->zeitErledigbar, 'der Eventzugang sieht, was sich erledigen laesst');
+        $this->assertNull($this->gespeichert($a)->gesperrt_at, 'ohne gewaehlten Namen wird nichts gesperrt');
 
         $this->eventOnlyListe([]);
         $c2 = $this->offen($a);
@@ -633,16 +633,14 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $this->assertNotNull($this->gespeichert($a)->gesperrt_at);
     }
 
-    public function test_neue_aktionen_pruefen_den_riegel_im_quelltext(): void
+    public function test_wieder_oeffnen_prueft_den_vollen_riegel_im_quelltext(): void
     {
         $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Dispo/Events/Show.php');
-        foreach (['zeitErledigt', 'zeitAlleErledigt', 'zeitOeffnen'] as $methode) {
-            $this->assertMatchesRegularExpression(
-                '/function ' . $methode . '\(\): void\s*\{\s*if \(!\$this->zeitAktiv \|\| \$this->blockedForEventOnly\(\)\)/',
-                $quelle,
-                "{$methode} muss mit dem Riegel beginnen"
-            );
-        }
+        $this->assertMatchesRegularExpression(
+            '/function zeitOeffnen\(\): void\s*\{\s*if \(!\$this->zeitAktiv \|\| \$this->blockedForEventOnly\(\)\)/',
+            $quelle,
+            'zeitOeffnen muss mit dem Riegel beginnen'
+        );
     }
 
     public function test_blade_zeigt_schloss_in_beiden_ansichten_ueber_das_gemeinsame_partial(): void

@@ -328,6 +328,9 @@
                     @include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Datum', 'prop' => 'rowDays', 'options' => $rfOptions['days'], 'selected' => $rowDays])
                     @include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Zeit', 'prop' => 'rowTimes', 'options' => $rfOptions['times'], 'selected' => $rowTimes])
                     @include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Tätigkeit', 'prop' => 'rowTaetigkeiten', 'options' => $rfOptions['taetigkeiten'], 'selected' => $rowTaetigkeiten])
+                    @if ($zeitAktiv)
+                        @include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Stempel', 'prop' => 'rowStempel', 'options' => $this->rowStempelOptions, 'selected' => $rowStempel, 'align' => 'right'])
+                    @endif
                 </div>
                 <input type="search" wire:model.live.debounce.300ms="rowSearch" placeholder="Mitarbeiter suchen (Name/PNr) …"
                        class="w-full rounded-full border border-gray-200 px-3 py-1 text-xs focus:border-blue-500 focus:ring-blue-500 lg:ml-auto lg:w-64">
@@ -347,7 +350,23 @@
                 </div>
             @endif
         </div>
-        @if ($zeitAktiv && !$eventOnly && $zeitErledigbar > 0)
+        @if ($zeitAktiv)
+            {{-- Zeiterfassung: wer bucht (Eventzugang) bzw. Haken „nur der Teamleiter stempelt“ (eigene Anmeldung). --}}
+            <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-gray-100 px-4 py-2">
+                @if ($eventOnly)
+                    @include('recruiting::livewire.dispo.events._zeit-teamleiter-name', ['zeitTlVorschlaege' => $this->zeitTeamleiterVorschlaege])
+                    @if ($event->zeit_nur_teamleiter)
+                        <span class="text-xs text-gray-500">Bei dieser Veranstaltung stempeln die Mitarbeiter nicht selbst.</span>
+                    @endif
+                @else
+                    <label class="flex items-center gap-2 text-sm text-gray-700" title="Der Mitarbeiter sieht im Portal dann nur die erfassten Zeiten und kann nicht selbst ein- oder auschecken.">
+                        <input type="checkbox" wire:click="zeitNurTeamleiterUmschalten" @checked($event->zeit_nur_teamleiter) wire:key="zeit-nur-tl-{{ $event->zeit_nur_teamleiter ? 1 : 0 }}" class="rounded border-gray-300">
+                        <span>Zeiten erfasst nur der Teamleiter</span>
+                    </label>
+                @endif
+            </div>
+        @endif
+        @if ($zeitAktiv && $zeitErledigbar > 0)
             <div class="border-b border-gray-100 px-4 py-2">
                 <button type="button" wire:click="zeitAlleErledigt"
                         wire:confirm="{{ $zeitErledigbar }} Einträge als erledigt markieren? Danach sind sie gesperrt."
@@ -452,7 +471,7 @@
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     @if ($zeitAktiv)
-                        <th class="px-4 py-2 font-medium" title="Stempeluhr: eingecheckt / ausgecheckt (Zeiten in Ortszeit)">Stempel</th>
+                        <th class="px-4 py-2 font-medium whitespace-nowrap" title="Stempeluhr: eingecheckt / ausgecheckt (Zeiten in Ortszeit)">Stempel@include('recruiting::livewire.dispo.events._column-filter', ['label' => 'Stempel', 'prop' => 'rowStempel', 'options' => $this->rowStempelOptions, 'selected' => $rowStempel, 'align' => 'right'])</th>
                     @endif
                     <th class="px-4 py-2 font-medium">Hinweis</th>
                     <th class="px-4 py-2 font-medium">Anhang</th>

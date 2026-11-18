@@ -370,7 +370,7 @@ class DispoZeitFensterTest extends ZeitTestCase
         $this->assertNull($c->zeitFenster);
     }
 
-    public function test_nur_veranstaltungen_konto_sieht_aber_aendert_nichts(): void
+    public function test_eventzugang_ohne_gewaehlten_namen_aendert_nichts(): void
     {
         $a = $this->einbuchung();
         $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']);
@@ -381,13 +381,19 @@ class DispoZeitFensterTest extends ZeitTestCase
         $this->assertTrue($c->zeitAktiv);
         $this->assertCount(1, $c->zeitEintraege, 'die Spalte ist sichtbar');
         $c->openZeit((int) $a->id);
-        $this->assertTrue($c->showZeitModal, 'das Fenster oeffnet lesend');
+        $this->assertTrue($c->showZeitModal);
 
         $c->zeitBemerkung = 'x';
         $c->zeitGrund = 'x';
         $c->zeitSpeichern();
+        $this->assertSame(\Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_NAME_FEHLT, $c->zeitMeldung);
+        $this->assertTrue($c->getErrorBag()->has('zeitTeamleiter'));
         $c->zeitJetztGehen();
         $c->zeitJetztKommen();
+        $c->zeitErledigt();
+        // Nur Leerraum und Steuerzeichen sind kein Name.
+        $c->zeitTeamleiter = " \t\u{200B} ";
+        $c->zeitJetztGehen();
 
         $this->assertSame(0, ZeitVerlauf::query()->count());
         $this->assertNull($this->gespeichert($a)->gehen_at);
@@ -400,14 +406,37 @@ class DispoZeitFensterTest extends ZeitTestCase
         $this->assertNull($this->gespeichert($b), 'auch Jetzt kommen verweigert');
     }
 
-    public function test_alle_schreibenden_aktionen_pruefen_den_riegel_im_quelltext(): void
+    /**
+     * Schreibende Aktionen: Schalter-Riegel zuerst; danach muss feststehen, WER bucht — der Eventzugang
+     * ohne gewaehlten Namen (zeitAkteur() === null) kommt nicht bis zum Dienst.
+     */
+    public function test_alle_schreibenden_aktionen_pruefen_schalter_und_akteur_im_quelltext(): void
     {
         $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Dispo/Events/Show.php');
-        foreach (['zeitSpeichern', 'zeitJetztKommen', 'zeitJetztGehen'] as $methode) {
+        foreach (['zeitSpeichern', 'zeitJetztKommen', 'zeitJetztGehen', 'zeitErledigt', 'zeitAlleErledigt'] as $methode) {
+            $this->assertMatchesRegularExpression(
+                '/function ' . $methode . '\(\): void\s*\{\s*if \(!\$this->zeitAktiv\) \{\s*return;/',
+                $quelle,
+                "{$methode} muss mit dem Schalter-Riegel beginnen"
+            );
+            $start = strpos($quelle, 'function ' . $methode . '(): void');
+            $rumpf = substr($quelle, $start, strpos($quelle, "\n    }\n", $start) - $start);
+            $wache = strpos($rumpf, 'if ($akteur === null) {');
+            $this->assertNotFalse($wache, "{$methode} prueft den Akteur");
+            foreach (['->korrigieren(', '->jetztKommen(', '->jetztGehen(', '->erledigt(', '->alleErledigt('] as $aufruf) {
+                $stelle = strpos($rumpf, $aufruf);
+                if ($stelle !== false) {
+                    $this->assertGreaterThan($wache, $stelle, "{$methode}: Dienst-Aufruf erst nach der Akteur-Pruefung");
+                }
+            }
+            $this->assertStringNotContainsString('$this->zeitAkteur())', $rumpf, "{$methode}: kein ungeprüfter Akteur im Aufruf");
+        }
+        // Nur mit eigener Anmeldung: Wieder oeffnen und der Haken an der Veranstaltung.
+        foreach (['zeitOeffnen', 'zeitNurTeamleiterUmschalten'] as $methode) {
             $this->assertMatchesRegularExpression(
                 '/function ' . $methode . '\(\): void\s*\{\s*if \(!\$this->zeitAktiv \|\| \$this->blockedForEventOnly\(\)\)/',
                 $quelle,
-                "{$methode} muss mit dem Riegel beginnen"
+                "{$methode} muss mit dem vollen Riegel beginnen"
             );
         }
     }
@@ -589,21 +618,258 @@ class DispoZeitFensterTest extends ZeitTestCase
         $this->assertSame('Gehen liegt vor dem eingetragenen Kommen – bitte die Zeiten prüfen.', $c->zeitMeldung);
     }
 
-    public function test_nur_veranstaltungen_konto_sieht_keinen_verlauf(): void
+    public function test_eventzugang_sieht_den_verlauf(): void
     {
         $a = $this->einbuchung();
         $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00']);
         $normal = $this->offen($a);
-        $normal->zeitBemerkung = 'geheim';
-        $normal->zeitGrund = 'intern';
+        $normal->zeitBemerkung = 'Stau';
+        $normal->zeitGrund = 'gemeldet';
         $normal->zeitSpeichern();
-        $this->assertNotSame([], $normal->zeitFenster['verlauf']);
 
         $this->eventOnlyListe(['sebastian@test.de']);
         $c = $this->offen($a);
 
-        $this->assertSame([], $c->zeitFenster['verlauf']);
-        $this->assertSame('geheim', $c->zeitFenster['bemerkung'], 'aktuelle Werte bleiben sichtbar');
+        $this->assertCount(1, $c->zeitFenster['verlauf'], 'der Teamleiter sieht die Bearbeitungshistorie (Folie 9)');
+        $this->assertSame('Sebastian Test', $c->zeitFenster['verlauf'][0]['wer']);
+    }
+
+    // ---- Eventzugang bucht mit Namen, Haken an der Veranstaltung, Stempel-Filter (Markus 17./18.11.2026) ----
+
+    private function mensch(int $id, string $vor, string $nach): void
+    {
+        \Illuminate\Database\Capsule\Manager::table('rec_employees')->where('id', $id)->delete();
+        \Illuminate\Database\Capsule\Manager::table('rec_employees')->insert(['id' => $id, 'first_name' => $vor, 'last_name' => $nach]);
+    }
+
+    public function test_eventzugang_bucht_mit_gewaehltem_namen_bis_erledigt_und_darf_nicht_wieder_oeffnen(): void
+    {
+        $a = $this->einbuchung();
+        $this->eventOnlyListe(['sebastian@test.de']);
+        Carbon::setTestNow('2026-10-01 12:00:00');
+        $c = $this->offen($a);
+        $c->zeitTeamleiter = "  Tina \n Teamleiterin ";
+
+        $c->zeitJetztKommen();
+        $this->assertNull($c->zeitMeldung);
+        $this->assertNotNull($this->gespeichert($a)->kommen_at);
+        $v = ZeitVerlauf::query()->orderBy('id')->get();
+        $this->assertSame('Tina Teamleiterin (Eventzugang)', $v[0]->akteur_name, 'bereinigt, mit Zusatz');
+        $this->assertSame('stellvertretend', $v[0]->art);
+        $this->assertSame(7, (int) $v[0]->akteur_id);
+
+        $c->zeitBemerkung = 'kam mit dem Bus';
+        $c->zeitGrund = 'Nachtrag';
+        $c->zeitSpeichern();
+        $this->assertSame('kam mit dem Bus', $this->gespeichert($a)->bemerkung);
+
+        Carbon::setTestNow('2026-10-01 20:00:00');
+        $c->zeitJetztGehen();
+        $this->assertSame('ausgecheckt', $this->gespeichert($a)->zustand());
+        $this->assertSame(1, $c->zeitErledigbar);
+        $c->zeitErledigt();
+        $this->assertSame('erledigt', $this->gespeichert($a)->zustand());
+        $this->assertSame(
+            ['Tina Teamleiterin (Eventzugang)'],
+            ZeitVerlauf::query()->distinct()->pluck('akteur_name')->all(),
+            'jede Zeile nennt den Teamleiter'
+        );
+
+        // Erledigt ist auch fuer ihn zu — und wieder oeffnen darf der Eventzugang nie.
+        $this->assertFalse($c->zeitDarfOeffnen);
+        $c->zeitOeffnenGrund = 'doch nicht';
+        $c->zeitOeffnen();
+        $this->assertNotNull($this->gespeichert($a)->gesperrt_at);
+        $c->zeitBemerkung = 'nachtraeglich';
+        $c->zeitGrund = 'x';
+        $c->zeitSpeichern();
+        $this->assertSame('kam mit dem Bus', $this->gespeichert($a)->bemerkung);
+    }
+
+    public function test_eigene_anmeldung_bucht_weiter_unter_dem_kontonamen_auch_mit_gefuelltem_namensfeld(): void
+    {
+        $a = $this->einbuchung();
+        $c = $this->offen($a);
+        $c->zeitTeamleiter = 'Jemand Anderes';
+        $c->zeitJetztKommen();
+
+        $this->assertSame('Sebastian Test', ZeitVerlauf::query()->firstOrFail()->akteur_name);
+    }
+
+    public function test_sammel_erledigt_mit_eventzugang_braucht_den_namen(): void
+    {
+        $a = $this->einbuchung();
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00']);
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->dispoComponent((int) $a->rec_dispo_event_id);
+
+        $c->zeitAlleErledigt();
+        $this->assertSame(\Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_NAME_FEHLT, $c->zeitHinweis);
+        $this->assertNull($this->gespeichert($a)->gesperrt_at);
+
+        $c->zeitTeamleiter = 'Tina Teamleiterin';
+        $c->zeitAlleErledigt();
+        $this->assertNotNull($this->gespeichert($a)->gesperrt_at);
+        $this->assertSame('Tina Teamleiterin (Eventzugang)', ZeitVerlauf::query()->firstOrFail()->akteur_name);
+    }
+
+    public function test_namensvorschlaege_sind_die_eingebuchten_teamleiter_und_ein_einzelner_ist_vorbelegt(): void
+    {
+        $event = $this->event();
+        $this->mensch(901, 'Erika', 'Muster');
+        $this->mensch(902, 'Tina', 'Teamleiterin');
+        $this->mensch(903, 'Tom', 'Zweiter');
+        $this->mensch(904, 'Abgesagt', 'Leiter');
+        $this->einbuchung($event, ['rec_employee_id' => 901, 'taetigkeit' => 'Service']);
+        $this->einbuchung($event, ['rec_employee_id' => 902, 'taetigkeit' => 'Teamleitung Service']);
+        $this->einbuchung($event, ['rec_employee_id' => 902, 'taetigkeit' => 'TL', 'datum' => '2026-10-02']);
+        $this->einbuchung($event, ['rec_employee_id' => 904, 'taetigkeit' => 'Teamleiter', 'declined_at' => '2026-09-30 10:00:00']);
+        Carbon::setTestNow('2026-10-01 12:00:00');
+
+        // Eigene Anmeldung: keine Vorbelegung, kein Filter.
+        $c = $this->dispoComponent((int) $event->id);
+        $this->callPrivate($c, 'zeitStartEventzugang');
+        $this->assertSame('', $c->zeitTeamleiter);
+        $this->assertSame([], $c->rowStempel);
+
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->dispoComponent((int) $event->id);
+        $this->assertSame(['Tina Teamleiterin'], $c->zeitTeamleiterVorschlaege);
+        $this->callPrivate($c, 'zeitStartEventzugang');
+        $this->assertSame('Tina Teamleiterin', $c->zeitTeamleiter);
+        $this->assertSame(['offen'], $c->rowStempel, 'am Veranstaltungstag zuerst nur, wer noch fehlt');
+
+        // Zwei Teamleiter: nichts vorbelegt, sonst stuende still der falsche im Verlauf.
+        $this->einbuchung($event, ['rec_employee_id' => 903, 'taetigkeit' => 'Teamleiter']);
+        $c = $this->dispoComponent((int) $event->id);
+        $this->assertSame(['Tina Teamleiterin', 'Tom Zweiter'], $c->zeitTeamleiterVorschlaege);
+        $this->callPrivate($c, 'zeitStartEventzugang');
+        $this->assertSame('', $c->zeitTeamleiter);
+
+        // Anderer Tag: kein voreingestellter Filter. Schalter aus: gar nichts.
+        Carbon::setTestNow('2026-10-05 12:00:00');
+        $c = $this->dispoComponent((int) $event->id);
+        $this->callPrivate($c, 'zeitStartEventzugang');
+        $this->assertSame([], $c->rowStempel);
+        Carbon::setTestNow('2026-10-01 12:00:00');
+        $this->schalter->an = false;
+        $c = $this->dispoComponent((int) $event->id);
+        $this->callPrivate($c, 'zeitStartEventzugang');
+        $this->assertSame([], $c->rowStempel);
+    }
+
+    public function test_freies_namensfeld_umschalten_verwirft_einen_namen_ausserhalb_der_liste(): void
+    {
+        $event = $this->event();
+        $this->mensch(902, 'Tina', 'Teamleiterin');
+        $this->einbuchung($event, ['rec_employee_id' => 902, 'taetigkeit' => 'Teamleiter']);
+        $c = $this->dispoComponent((int) $event->id);
+
+        $c->zeitTeamleiterFreiUmschalten();
+        $this->assertTrue($c->zeitTeamleiterFrei);
+        $c->zeitTeamleiter = 'Kunde Vor Ort';
+        $c->zeitTeamleiterFreiUmschalten();
+        $this->assertFalse($c->zeitTeamleiterFrei);
+        $this->assertSame('', $c->zeitTeamleiter);
+
+        $c->zeitTeamleiter = 'Tina Teamleiterin';
+        $c->zeitTeamleiterFreiUmschalten();
+        $c->zeitTeamleiterFreiUmschalten();
+        $this->assertSame('Tina Teamleiterin', $c->zeitTeamleiter, 'ein Listen-Name bleibt');
+    }
+
+    public function test_stempel_filter_zeigt_wer_fehlt_und_wer_da_ist_kombiniert_mit_den_anderen_filtern(): void
+    {
+        $event = $this->event();
+        $fehlt = $this->einbuchung($event, ['rec_employee_id' => 901, 'taetigkeit' => 'Service']);
+        $da = $this->einbuchung($event, ['rec_employee_id' => 902, 'taetigkeit' => 'Service']);
+        $fertig = $this->einbuchung($event, ['rec_employee_id' => 903, 'taetigkeit' => 'Bar']);
+        $weg = $this->einbuchung($event, ['rec_employee_id' => 904, 'taetigkeit' => 'Service', 'missing_since' => '2026-09-30 10:00:00']);
+        $this->eintrag($da, ['kommen_at' => '2026-10-01 12:00:00']);
+        $this->eintrag($fertig, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00']);
+
+        $ids = fn ($c) => $c->filteredAssignments->pluck('id')->map(fn ($v) => (int) $v)->sort()->values()->all();
+
+        $c = $this->dispoComponent((int) $event->id);
+        $this->assertCount(4, $c->filteredAssignments, 'ohne Filter alles, auch die verschwundene Zeile');
+        $this->assertSame(
+            ['offen' => 1, 'eingecheckt' => 1, 'ausgecheckt' => 1, 'erledigt' => 0],
+            array_column($c->rowStempelOptions, 'count', 'value'),
+            'die verschwundene Zeile zaehlt nicht als „fehlt noch“'
+        );
+        $this->assertSame(['fehlt noch', 'ist da', 'ausgecheckt', 'erledigt'], array_column($c->rowStempelOptions, 'label'));
+
+        $c = $this->dispoComponent((int) $event->id);
+        $c->rowStempel = ['offen'];
+        $this->assertSame([(int) $fehlt->id], $ids($c));
+        $this->assertSame([['prop' => 'rowStempel', 'value' => 'offen', 'label' => 'Stempel: fehlt noch']], $c->activeRowFilters);
+        $this->assertCount(1, $this->callPrivate($c, 'columnScope'), 'die Status-Pills zaehlen im selben Ausschnitt');
+
+        $c = $this->dispoComponent((int) $event->id);
+        $c->rowStempel = ['eingecheckt', 'ausgecheckt', 'quatsch'];
+        $this->assertSame([(int) $da->id, (int) $fertig->id], $ids($c));
+
+        // Doppelter Filter: Taetigkeit UND Stempel.
+        $c = $this->dispoComponent((int) $event->id);
+        $c->rowStempel = ['eingecheckt', 'ausgecheckt'];
+        $c->rowTaetigkeiten = ['Service'];
+        $this->assertSame([(int) $da->id], $ids($c));
+        $this->assertSame(['offen' => 1, 'eingecheckt' => 1, 'ausgecheckt' => 0, 'erledigt' => 0], array_column($c->rowStempelOptions, 'count', 'value'));
+
+        // Chip entfernen und alles zuruecksetzen.
+        $c->removeRowFilter('rowStempel', 'eingecheckt');
+        $this->assertSame(['ausgecheckt'], $c->rowStempel);
+        $c->resetRowFilters();
+        $this->assertSame([], $c->rowStempel);
+
+        // Schalter aus: der Filter wirkt nicht (die Spalte gibt es dann nicht).
+        $this->schalter->an = false;
+        $c = $this->dispoComponent((int) $event->id);
+        $c->rowStempel = ['offen'];
+        $this->assertCount(4, $c->filteredAssignments);
+        $this->assertSame([], $c->activeRowFilters);
+        $this->assertSame([], $c->rowStempelOptions);
+    }
+
+    public function test_nach_dem_einchecken_verschwindet_die_zeile_aus_dem_filter_wer_fehlt(): void
+    {
+        $a = $this->einbuchung();
+        Carbon::setTestNow('2026-10-01 12:00:00');
+        $c = $this->dispoComponent((int) $a->rec_dispo_event_id);
+        $c->rowStempel = ['offen'];
+        $this->assertCount(1, $c->filteredAssignments);
+
+        $c->openZeit((int) $a->id);
+        $c->zeitJetztKommen();
+
+        $this->assertCount(0, $c->filteredAssignments, 'im selben Aufruf, nicht erst beim naechsten Nachladen');
+        $this->assertSame(1, array_column($c->rowStempelOptions, 'count', 'value')['eingecheckt']);
+    }
+
+    public function test_haken_nur_teamleiter_setzt_nur_die_eigene_anmeldung(): void
+    {
+        $a = $this->einbuchung();
+        $eventId = (int) $a->rec_dispo_event_id;
+        $wert = fn () => (bool) \Platform\Recruiting\Models\RecDispoEvent::query()->findOrFail($eventId)->zeit_nur_teamleiter;
+
+        $c = $this->dispoComponent($eventId);
+        $c->zeitNurTeamleiterUmschalten();
+        $this->assertTrue($wert());
+        $this->assertStringContainsString('nur noch der Teamleiter', (string) $c->zeitHinweis);
+        $this->assertTrue((bool) $c->event->zeit_nur_teamleiter, 'die Seite zeigt den neuen Stand');
+        $c->zeitNurTeamleiterUmschalten();
+        $this->assertFalse($wert());
+
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->dispoComponent($eventId);
+        $c->zeitNurTeamleiterUmschalten();
+        $this->assertFalse($wert(), 'der Eventzugang setzt den Haken nicht');
+
+        $this->eventOnlyListe([]);
+        $this->schalter->an = false;
+        $c = $this->dispoComponent($eventId);
+        $c->zeitNurTeamleiterUmschalten();
+        $this->assertFalse($wert());
     }
 
     public function test_beide_ansichten_nutzen_dieselbe_stempel_zelle(): void

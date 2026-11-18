@@ -176,3 +176,19 @@ Zwei Migrationen → Deploy mit `migrate` vor Traffic, `view:clear`. Schalter bl
 - Person im Kern = die Anstellung (`rec_employee`) der Einbuchung, nicht die übergreifende Person; so passt es zu Lohn und Einsatz.
 - Tabellen heißen `rec_zeit_*` (Modul-Konvention), nicht neutral.
 - Nach der Gegenprüfung ergänzt: Wer gekommen ist, kann immer gehen, auch wenn der Einsatz inzwischen verschoben, abgesagt oder verschwunden ist. Die Disposition darf einen Stempel leeren (mit Grund), danach kann der Mitarbeiter im Fenster neu stempeln. Wird eine Schicht nach dem Kommen verlängert, gilt das neue Ende. Ohne Beginn-Uhrzeit stempelt nur die Disposition. Bei einem Personenwechsel in ZAS bleibt die gestempelte Zeit bei der alten Person.
+
+---
+
+## Nachtrag 18.11.2026 — Antworten von Markus (kommentierte Präsentation, zwei Runden)
+
+Ersetzt die entsprechenden Stellen oben.
+
+- **Zeitfenster:** Check-in ab 30 Minuten vor Schichtbeginn (statt 60), selbst einchecken bis zum geplanten Schichtende, Check-out bis 4 Stunden nach dem geplanten Ende (statt 60 Minuten).
+- **Rundung:** Jede gespeicherte Zeit (Stempel wie Korrektur) wird auf die nächste Viertelstunde gerundet; niemand wählt. Das Fenster prüft die echte Uhrzeit. Die echte Uhrzeit eines Stempels ist der Zeitpunkt seiner Verlaufszeile.
+- **Teamleiter = Eventzugang:** Die Teamleiter arbeiten vor Ort mit dem Sammelkonto „Nur Veranstaltungen“. Es darf stellvertretend ein- und auschecken, korrigieren und „erledigt“ setzen. Weil mehrere Personen das Konto nutzen, wählt der Teamleiter seinen Namen (Vorschläge: an der Veranstaltung als Teamleiter Eingebuchte; genau einer ist vorbelegt); im Verlauf steht „Name (Eventzugang)“. Ohne Namen wird nichts geschrieben. Eine eigene Teamleiter-Ansicht im Mitarbeiter-Portal (früher „Abschnitt 1b“) entfällt.
+- **Wieder öffnen:** Jedes Konto mit eigener Anmeldung, der Eventzugang nie. Die Liste in den Einstellungen ist nur noch eine freiwillige Einschränkung (leer = alle mit eigener Anmeldung).
+- **Haken an der Veranstaltung „Zeiten erfasst nur der Teamleiter“:** Der Mitarbeiter sieht im Portal nur die erfassten Zeiten, keine Knöpfe. Setzen kann ihn nur eine eigene Anmeldung.
+- **Filter „Stempel“:** fehlt noch / ist da / ausgecheckt / erledigt, kombinierbar mit den übrigen Spaltenfiltern. Für den Eventzugang ist am Veranstaltungstag „fehlt noch“ voreingestellt (sichtbarer, abwählbarer Chip).
+- **Erinnerung:** Eingecheckt und die geplante Schicht ist vorbei → Hinweis in der Stempel-Kachel des Portals.
+
+Offen (nicht gebaut): Kennzeichen „kommt später“ (Folie 14, unbeantwortet), Wäsche-Erfassung mit festen Artikeln (Folie 16), Übergabe an ZAS (Folie 18, Dateiaufbau und Lohnarten mit Olaf).
