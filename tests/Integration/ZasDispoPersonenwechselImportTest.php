@@ -753,9 +753,19 @@ class ZasDispoPersonenwechselImportTest extends TestCase
                 return $b->sollVon?->subMinutes(60);
             }
 
+            public function spaetestesKommen(ZeitBezug $b): ?\Carbon\CarbonImmutable
+            {
+                return null;
+            }
+
             public function spaetestesStempeln(ZeitBezug $b): ?\Carbon\CarbonImmutable
             {
                 return $b->sollBis?->addMinutes(60);
+            }
+
+            public function runde(\DateTimeInterface $zeit): \Carbon\CarbonImmutable
+            {
+                return \Carbon\CarbonImmutable::instance($zeit);
             }
 
             public function pauseMinuten(int $anwesendMinuten): int

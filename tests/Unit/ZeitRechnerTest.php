@@ -14,7 +14,9 @@ class ZeitRechnerTest extends TestCase
     {
         return new class implements ZeitRegeln {
             public function fruehestesKommen(ZeitBezug $b): ?CarbonImmutable { return null; }
+            public function spaetestesKommen(ZeitBezug $b): ?CarbonImmutable { return null; }
             public function spaetestesStempeln(ZeitBezug $b): ?CarbonImmutable { return null; }
+            public function runde(\DateTimeInterface $zeit): CarbonImmutable { return CarbonImmutable::instance($zeit); }
             public function pauseMinuten(int $anwesendMinuten): int
             {
                 return $anwesendMinuten > 540 ? 45 : ($anwesendMinuten > 360 ? 30 : 0);

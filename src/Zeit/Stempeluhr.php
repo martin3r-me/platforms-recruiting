@@ -15,6 +15,9 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * Aufrufer rufen die Stempeluhr NICHT innerhalb einer eigenen Transaktion auf —
  * sonst greift die Wiederholung bei Deadlock nicht.
  *
+ * Kommen und Gehen werden nach ZeitRegeln::runde() gespeichert (Stempel wie Korrektur); die echte
+ * Uhrzeit eines Stempels ist der Zeitpunkt seiner Verlaufszeile.
+ *
  * Gespeichert wird in der PHP-Standard-Zeitzone. Eindeutig ist das nur, wenn diese
  * keine Sommerzeit kennt (UTC) — genau das ist die Host-App.
  */
@@ -56,7 +59,7 @@ class Stempeluhr
                 if ($frueh === null || $zeit->lt($frueh)) {
                     return 'zu_frueh';
                 }
-                $spaet = $this->regeln->spaetestesStempeln($b);
+                $spaet = $this->regeln->spaetestesKommen($b) ?? $this->regeln->spaetestesStempeln($b);
                 if ($spaet !== null && $zeit->gt($spaet)) {
                     return 'zu_spaet';
                 }
@@ -71,7 +74,8 @@ class Stempeluhr
                 return 'schon';
             }
 
-            $this->schreibe($e, $b, ['kommen_at' => $zeit], $a, $art, null);
+            // Fenster an der echten Uhrzeit geprueft, gespeichert wird gerundet.
+            $this->schreibe($e, $b, ['kommen_at' => $this->gerundet($zeit)], $a, $art, null);
 
             return 'ok';
         }, 3);
@@ -97,7 +101,10 @@ class Stempeluhr
             if ($e->gehen_at !== null) {
                 return 'schon';
             }
-            if ($zeit->lt($e->kommen_at)) {
+            // Verglichen wird, was gespeichert wuerde: die Rundung ist monoton, ein echtes Gehen nach dem
+            // echten Kommen liegt gerundet nie davor.
+            $gerundet = $this->gerundet($zeit);
+            if ($gerundet->lt($e->kommen_at)) {
                 return 'ungueltig';
             }
 
@@ -109,7 +116,7 @@ class Stempeluhr
                 }
             }
 
-            $this->schreibe($e, $b, ['gehen_at' => $zeit], $a, $art, null);
+            $this->schreibe($e, $b, ['gehen_at' => $gerundet], $a, $art, null);
 
             return 'ok';
         }, 3);
@@ -137,7 +144,7 @@ class Stempeluhr
                     if ($zeit === false) {
                         return 'ungueltig';
                     }
-                    $neu[$feld] = $zeit;
+                    $neu[$feld] = $zeit === null ? null : $this->gerundet($zeit);
                     break;
                 case 'pause_minuten':
                     if ($wert === null || $wert === '') {
@@ -346,6 +353,12 @@ class Stempeluhr
     private function zeitpunkt(?\DateTimeInterface $zeit): Carbon
     {
         return Carbon::instance($zeit ?? Carbon::now())->setTimezone(date_default_timezone_get());
+    }
+
+    /** Rundung der Regeln, zurueck in die Standard-Zeitzone. */
+    private function gerundet(\DateTimeInterface $zeit): Carbon
+    {
+        return Carbon::instance($this->regeln->runde($zeit))->setTimezone(date_default_timezone_get());
     }
 
     private function inStandardZone(?\DateTimeInterface $z): ?Carbon

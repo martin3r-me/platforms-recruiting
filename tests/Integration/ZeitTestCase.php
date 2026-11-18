@@ -92,9 +92,19 @@ abstract class ZeitTestCase extends DressTestCase
                 return $b->sollVon?->subMinutes(60);
             }
 
+            public function spaetestesKommen(ZeitBezug $b): ?CarbonImmutable
+            {
+                return null;
+            }
+
             public function spaetestesStempeln(ZeitBezug $b): ?CarbonImmutable
             {
                 return $b->sollBis?->addMinutes(60);
+            }
+
+            public function runde(\DateTimeInterface $zeit): CarbonImmutable
+            {
+                return CarbonImmutable::instance($zeit);
             }
 
             public function pauseMinuten(int $anwesendMinuten): int
