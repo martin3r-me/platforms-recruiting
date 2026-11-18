@@ -182,6 +182,97 @@ class DispoInboxForwardFromHrTest extends TestCase
         );
     }
 
+    private function chat(int $kanal, string $nr): int
+    {
+        return (int) CommsWhatsAppThread::create([
+            'team_id' => self::TEAM, 'comms_channel_id' => $kanal,
+            'token' => bin2hex(random_bytes(8)), 'remote_phone_number' => $nr, 'is_unread' => true,
+        ])->id;
+    }
+
+    public function test_wert_aus_dem_browser_wird_nur_als_angebotenes_ziel_angenommen(): void
+    {
+        $eigener = $this->chat(self::$channelId, '+4915100000101');
+        self::bindFakeAuth();
+        $inbox = new DispoInboxMitFestemKanal();
+
+        $this->assertSame(['target' => 'hr', 'channel_id' => null], $inbox->zielFuer('hr', $eigener));
+        $this->assertSame(
+            ['target' => 'dispo', 'channel_id' => self::$andereKanalId],
+            $inbox->zielFuer((string) self::$andereKanalId, $eigener),
+        );
+        foreach ([(string) self::$channelId, '0' . self::$andereKanalId, self::$andereKanalId . 'abc', '999999', '', 'dispo'] as $wert) {
+            $this->assertNull($inbox->zielFuer($wert, $eigener), 'Nicht angeboten: "' . $wert . '"');
+        }
+    }
+
+    public function test_chips_in_der_liste_nennen_ziel_und_herkunft(): void
+    {
+        $quelle = $this->chat(self::$andereKanalId, '+4915100000201');
+        $ziel = $this->chat(self::$channelId, '+4915100000201');
+        $nurHr = $this->chat(self::$channelId, '+4915100000202');
+        $ohne = $this->chat(self::$channelId, '+4915100000203');
+        $offen = $this->forward([
+            'source' => 'dispo', 'target' => 'dispo', 'source_thread_id' => $quelle,
+            'target_channel_id' => self::$channelId, 'target_thread_id' => $ziel,
+        ]);
+        $this->forward(['source' => 'dispo', 'target' => 'hr', 'source_thread_id' => $nurHr]);
+        // Der Ziel-Chat hat selbst frueher etwas an HR gegeben: solange die
+        // eingehende Weiterleitung offen ist, hat sie Vorrang.
+        $this->forward([
+            'source' => 'dispo', 'target' => 'hr', 'source_thread_id' => $ziel,
+            'forwarded_at' => date('Y-m-d H:i:s', time() - 5000),
+        ]);
+
+        self::bindFakeAuth();
+        $inbox = new DispoInboxMitFestemKanal();
+        $chips = $inbox->chipsFuer([$quelle, $ziel, $nurHr, $ohne]);
+
+        // „Dispo RheinGedeck Disposition CGN“: Kanal ohne Filial-Zuordnung traegt seinen Namen.
+        $this->assertSame(['state' => 'open', 'label' => 'bei Dispo RheinGedeck Disposition CGN'], $chips[$quelle]);
+        $this->assertSame(['state' => 'open', 'label' => 'von Dispo Düsseldorf'], $chips[$ziel]);
+        $this->assertSame(['state' => 'open', 'label' => 'bei HR'], $chips[$nurHr]);
+        $this->assertArrayNotHasKey($ohne, $chips);
+
+        $offen->update(['done_at' => date('Y-m-d H:i:s'), 'done_by_user_id' => 2]);
+        $chips = $inbox->chipsFuer([$quelle, $ziel]);
+        $this->assertSame(['state' => 'done', 'label' => 'Dispo RheinGedeck Disposition CGN erledigt'], $chips[$quelle]);
+        $this->assertSame(['state' => 'open', 'label' => 'bei HR'], $chips[$ziel], 'Eingehende erledigt: der eigene Chip gilt wieder.');
+    }
+
+    public function test_der_absender_erledigt_seine_eigene_weiterleitung_nicht_ein_anderer_schon(): void
+    {
+        $quelle = $this->chat(self::$andereKanalId, '+4915100000301');
+        $ziel = $this->chat(self::$channelId, '+4915100000301');
+        $f = $this->forward([
+            'source' => 'dispo', 'target' => 'dispo', 'source_thread_id' => $quelle,
+            'target_channel_id' => self::$channelId, 'target_thread_id' => $ziel,
+            'forwarded_by_user_id' => 1,
+        ]);
+
+        // Nutzer 1 hat weitergeleitet und schaut in den Ziel-Chat.
+        self::bindFakeAuth(1);
+        $absender = new DispoInboxMitFestemKanal();
+        $absender->select($ziel);
+
+        $this->assertNull($f->fresh()->done_at, 'Der Absender darf seine eigene Weiterleitung nicht erledigen.');
+        $this->assertTrue((bool) CommsWhatsAppThread::query()->whereKey($ziel)->value('is_unread'), 'Fuer die Empfaenger bleibt der Chat ungelesen.');
+        $this->assertSame([], $absender->openedForwardIds);
+
+        // Nutzer 2 (Empfaenger) oeffnet ihn: erledigt und gelesen.
+        self::bindFakeAuth(2);
+        $empfaenger = new DispoInboxMitFestemKanal();
+        $empfaenger->select($ziel);
+
+        $this->assertNotNull($f->fresh()->done_at);
+        $this->assertSame(2, (int) $f->fresh()->done_by_user_id);
+        $this->assertFalse((bool) CommsWhatsAppThread::query()->whereKey($ziel)->value('is_unread'));
+
+        // „ungelesen schliessen“ holt sie zurueck — wie bei Weiterleitungen von HR.
+        $empfaenger->markUnreadAndClose();
+        $this->assertNull($f->fresh()->done_at);
+    }
+
     private function forward(array $attrs): RecConversationForward
     {
         return RecConversationForward::create(array_merge([
@@ -190,13 +281,15 @@ class DispoInboxForwardFromHrTest extends TestCase
         ], $attrs));
     }
 
-    private static function bindFakeAuth(): void
+    private static function bindFakeAuth(int $userId = 1): void
     {
         $user = new class {
             public int $id = 1;
             public $currentTeam;
         };
+        $user->id = $userId;
         $user->currentTeam = (object) ['id' => self::TEAM];
+        Facade::clearResolvedInstance('auth');
 
         Container::getInstance()->instance('auth', new class($user) {
             public function __construct(private object $user) {}
@@ -234,6 +327,18 @@ class DispoInboxMitFestemKanal extends Index
     protected function dispoZiele(): \Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels
     {
         return new \Platform\Recruiting\Services\Comms\Forward\DispoForwardChannels(DispoInboxForwardFromHrTest::alleKanaele());
+    }
+
+    /** Nur fuer den Test: Chips der Liste. */
+    public function chipsFuer(array $threadIds): array
+    {
+        return $this->forwardChips($threadIds, 896);
+    }
+
+    /** Nur fuer den Test: Wert aus dem Browser -> Ziel. */
+    public function zielFuer(string $wert, int $threadId): ?array
+    {
+        return $this->forwardZielAufloesen($wert, CommsWhatsAppThread::findOrFail($threadId));
     }
 
     /** Nur fuer den Test: Ziel-Liste des Fensters fuer einen bestimmten Chat. */

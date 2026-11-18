@@ -42,15 +42,16 @@ final class ForwardCompletion
      *
      * @return list<int>
      */
-    public function completeForThreadIds(int $teamId, int $threadId, ?int $userId, string $target = ForwardTargets::HR): array
+    public function completeForThreadIds(int $teamId, int $threadId, ?int $userId, string $target = ForwardTargets::HR, bool $ohneEigene = false): array
     {
         if ($threadId <= 0) {
             return [];
         }
 
-        $ids = RecConversationForward::query()
-            ->openForTeam($teamId, $target)
-            ->where('target_thread_id', $threadId)
+        $ids = $this->ohneEigene(
+            RecConversationForward::query()->openForTeam($teamId, $target)->where('target_thread_id', $threadId),
+            $ohneEigene ? $userId : null,
+        )
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -63,6 +64,44 @@ final class ForwardCompletion
         }
 
         return $ids;
+    }
+
+    /**
+     * Liegt an diesem Chat eine offene Weiterleitung, die DIESER Nutzer selbst
+     * aus der Dispo abgeschickt hat? Das Dispo-Postfach zeigt jedem alle
+     * Niederlassungen — der Absender sieht also auch den Ziel-Chat. Schaut er
+     * hinein, darf das weder die Weiterleitung erledigen noch den Chat fuer die
+     * Empfaenger als gelesen markieren (Review 18.11.2026).
+     */
+    public function hatEigeneOffene(int $teamId, int $threadId, ?int $userId, string $target = ForwardTargets::DISPO): bool
+    {
+        if ($threadId <= 0 || $userId === null) {
+            return false;
+        }
+
+        return RecConversationForward::query()
+            ->openForTeam($teamId, $target)
+            ->where('target_thread_id', $threadId)
+            ->where('source', ForwardTargets::SOURCE_DISPO)
+            ->where('forwarded_by_user_id', $userId)
+            ->exists();
+    }
+
+    /**
+     * Nimmt die Weiterleitungen aus, die $userId selbst aus der Dispo abgeschickt
+     * hat. Zeilen ohne Absender (Altbestand, Automatik) bleiben drin.
+     */
+    private function ohneEigene(\Illuminate\Database\Eloquent\Builder $query, ?int $userId): \Illuminate\Database\Eloquent\Builder
+    {
+        if ($userId === null) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($userId) {
+            $q->where('source', '!=', ForwardTargets::SOURCE_DISPO)
+                ->orWhereNull('forwarded_by_user_id')
+                ->orWhere('forwarded_by_user_id', '!=', $userId);
+        });
     }
 
     /**
