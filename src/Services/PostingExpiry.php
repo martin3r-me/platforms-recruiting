@@ -15,9 +15,12 @@ use Platform\Recruiting\Models\RecPosting;
  * Abgelaufen = der Tag des Enddatums ist RUM (RecPosting::isExpired). Ohne
  * Enddatum passiert nie etwas (Initiativ-Ausschreibungen bleiben offen).
  *
- * Bewusst nur `is_active`, nicht `status`: Verlaengern heisst dann „neues
- * Enddatum eintragen und wieder aktiv schalten" — der Status „Veröffentlicht"
- * bleibt als Aussage stehen, dass die Anzeige fertig war.
+ * Seit 17.11.2026 wird auch der Status auf „Geschlossen" gesetzt: die
+ * Uebersicht zeigt nur den Status, und dort stand eine abgelaufene
+ * Ausschreibung weiter als „Published". Das gilt auch fuer Ausschreibungen,
+ * die schon inaktiv, aber noch „Veröffentlicht" sind (die erste Fassung
+ * schaltete nur den Schalter). Verlaengern heisst: neues Enddatum eintragen
+ * und „Veröffentlichen" klicken — der Knopf schaltet auch wieder aktiv.
  *
  * Einweg: nichts schaltet hier wieder ein.
  */
@@ -31,7 +34,6 @@ class PostingExpiry
         $ids = [];
         RecPosting::query()
             ->where('status', 'published') // Entwuerfe und Geschlossene bleiben, wie sie sind
-            ->where('is_active', true)
             ->whereNotNull('closes_at')
             ->where('closes_at', '<', $now->copy()->startOfDay())
             ->orderBy('id')
@@ -41,12 +43,13 @@ class PostingExpiry
                     return; // Guertel: Query und Model-Regel muessen dasselbe sagen
                 }
                 $posting->is_active = false;
+                $posting->status = 'closed';
                 $posting->save();
                 $ids[] = (int) $posting->id;
             });
 
         if ($ids !== []) {
-            Log::info('recruiting: abgelaufene Ausschreibungen inaktiv geschaltet', ['posting_ids' => $ids]);
+            Log::info('recruiting: abgelaufene Ausschreibungen geschlossen und inaktiv geschaltet', ['posting_ids' => $ids]);
         }
 
         return $ids;

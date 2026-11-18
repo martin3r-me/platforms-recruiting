@@ -168,16 +168,18 @@ class FlynkAnzeigeDateiTest extends TestCase
         $schonInaktiv = $this->posting(['closes_at' => '2026-10-01 00:00:00', 'is_active' => 0]);
 
         Carbon::setTestNow(Carbon::parse(self::ENDTAG_MITTAGS));
-        $this->assertSame([], (new PostingExpiry())->deactivateExpired(), 'am Endtag passiert noch nichts');
+        $this->assertSame([$schonInaktiv], (new PostingExpiry())->deactivateExpired(), 'am Endtag nur die laengst abgelaufene');
 
         Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
         $this->assertSame([$abgelaufen], (new PostingExpiry())->deactivateExpired());
 
         $this->assertFalse((bool) RecPosting::find($abgelaufen)->is_active);
-        $this->assertSame('published', RecPosting::find($abgelaufen)->status, 'nur der Schalter, nicht der Status');
+        $this->assertSame('closed', RecPosting::find($abgelaufen)->status, 'die Uebersicht zeigt nur den Status');
         $this->assertTrue((bool) RecPosting::find($laeuftHeuteAus)->is_active);
+        $this->assertSame('published', RecPosting::find($laeuftHeuteAus)->status);
         $this->assertTrue((bool) RecPosting::find($ohneEnde)->is_active, 'ohne Enddatum nie');
-        $this->assertFalse((bool) RecPosting::find($schonInaktiv)->is_active);
+        $this->assertSame('published', RecPosting::find($ohneEnde)->status);
+        $this->assertSame('closed', RecPosting::find($schonInaktiv)->status, 'schon inaktiv, aber noch „Veröffentlicht": Status wird nachgezogen');
 
         $this->assertSame([], (new PostingExpiry())->deactivateExpired(), 'zweiter Lauf findet nichts mehr');
     }
@@ -461,6 +463,7 @@ class FlynkAnzeigeDateiTest extends TestCase
 
         $this->assertSame([], (new PostingExpiry())->deactivateExpired());
         $this->assertTrue((bool) RecPosting::find($entwurf)->is_active);
+        $this->assertSame('draft', RecPosting::find($entwurf)->status);
         $this->assertTrue((bool) RecPosting::find($geschlossen)->is_active);
     }
 
@@ -499,7 +502,7 @@ class FlynkAnzeigeDateiTest extends TestCase
         $this->assertNull($this->client->calls[1]['attachment'], '„entfernen" braucht keine Datei');
 
         // Verlaengern: neues Enddatum + wieder aktiv → neue Veroeffentlichung mit Datei.
-        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-01 00:00:00', 'is_active' => 1]);
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-01 00:00:00', 'is_active' => 1, 'status' => 'published']);
         $this->run_();
         $this->assertCount(3, $this->client->calls);
         $this->assertSame('publish', $this->client->calls[2]['payload']['meta']['event']);
@@ -637,7 +640,7 @@ class FlynkAnzeigeDateiTest extends TestCase
 
         // Verlaengern: frische Veroeffentlichung, nicht „aktualisieren" einer
         // Anzeige, die FLYNK schon heruntergenommen hat.
-        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-01 00:00:00', 'is_active' => 1]);
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-12-01 00:00:00', 'is_active' => 1, 'status' => 'published']);
         $this->run_();
         $this->assertCount(2, $this->client->calls);
         $this->assertSame('publish', $this->client->calls[1]['payload']['meta']['event']);
@@ -743,7 +746,7 @@ class FlynkAnzeigeDateiTest extends TestCase
         Carbon::setTestNow(Carbon::parse(self::FOLGETAG_FRUEH));
         $this->run_();
 
-        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-20 00:00:00', 'is_active' => 1]);
+        Capsule::table('rec_postings')->where('id', $id)->update(['closes_at' => '2026-11-20 00:00:00', 'is_active' => 1, 'status' => 'published']);
         $this->run_();
         $this->assertCount(2, $this->client->calls);
 

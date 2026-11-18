@@ -20,7 +20,7 @@ class FlynkReconcile extends Command
         // Abgleich direkt danach die „entfernen"-Meldung dazu schickt.
         $expired = $expiry->deactivateExpired();
         if ($expired !== []) {
-            $this->info('Abgelaufen, inaktiv geschaltet: ' . implode(', ', $expired));
+            $this->info('Abgelaufen, geschlossen: ' . implode(', ', $expired));
         }
 
         if (!config('recruiting.flynk.enabled') || !config('recruiting.flynk.token')) {

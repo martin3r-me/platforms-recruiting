@@ -223,6 +223,9 @@ class Show extends Component
     public function publish(): void
     {
         $this->posting->status = 'published';
+        // Eine abgelaufene Ausschreibung wurde automatisch geschlossen UND
+        // inaktiv geschaltet — „Veroeffentlichen" macht beides rueckgaengig.
+        $this->posting->is_active = true;
         $this->posting->published_at = self::startdatumBeimVeroeffentlichen($this->publishedAt, now());
         $this->posting->save();
         $this->publishedAt = $this->posting->published_at->format('Y-m-d');

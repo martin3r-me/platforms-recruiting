@@ -79,7 +79,7 @@
                     @endforeach
                 </datalist>
                 <x-ui-input-select name="posting.status" label="Status" :options="[['value' => 'draft', 'label' => 'Entwurf'], ['value' => 'published', 'label' => 'Veröffentlicht'], ['value' => 'closed', 'label' => 'Geschlossen']]" optionValue="value" optionLabel="label" wire:model.live="posting.status" />
-                <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" label="Aktiv" wire:model.live="posting.is_active" />
+                <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" checkedLabel="Aktiv" uncheckedLabel="Inaktiv" wire:model.live="posting.is_active" />
                 <x-ui-input-date name="publishedAt" label="Startdatum" wire:model.live="publishedAt" :nullable="true" />
                 <x-ui-input-date name="closesAt" label="Enddatum" wire:model.live="closesAt" :nullable="true" />
                 <x-ui-input-text
