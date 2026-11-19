@@ -47,9 +47,11 @@ final class MitarbeiterStatistikRechner
      * @param list<array{id:int, person:?int, aktiv:bool, kostenstelle:?int, name:string, pnr:?string, phones:list<string>}> $anstellungen
      * @param list<array{employee_id:int, datum:string}> $einsaetze nur zählende Einbuchungen
      * @param array<string,bool> $eingehendeNummern normalisierte Nummern mit eingehender Nachricht im Zeitraum
+     * @param array<int,string> $letzterEinsatzAllzeit employee_id => jüngster zählender Einsatz bis heute, auch vor dem
+     *        Ladezeitraum — für die Wahl der Niederlassung bei zwei Kostenstellen (Review 19.11.)
      * @return list<array<string,mixed>> eine Zeile je AKTIVER Person
      */
-    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis): array
+    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis, array $letzterEinsatzAllzeit = []): array
     {
         $stichtag = min($bis, $heute);
         // „letzte 60 Tage“ einschließlich des Stichtags
@@ -83,6 +85,9 @@ final class MitarbeiterStatistikRechner
             $naechster = null;
             $letzterJeAnstellung = [];
             foreach ($liste as $a) {
+                if (isset($letzterEinsatzAllzeit[$a['id']])) {
+                    $letzterJeAnstellung[$a['id']] = (string) $letzterEinsatzAllzeit[$a['id']];
+                }
                 foreach ($jeAnstellung[$a['id']] ?? [] as $datum) {
                     if ($datum >= $von && $datum <= $termineBis) {
                         $termine++;

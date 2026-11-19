@@ -185,4 +185,31 @@ class MitarbeiterStatistikDatenTest extends TestCase
         $this->assertStringContainsString('Gesamt', $inhalt['text']);
         $this->assertStringContainsString('https://example.test/statistik/mitarbeiter', $inhalt['text']);
     }
+
+    public function test_geleertes_soll_hebt_es_ab_seinem_tag_auf(): void
+    {
+        RecKostenstellenSoll::create(['team_id' => 3, 'kostenstelle' => 100, 'soll' => 4, 'gueltig_ab' => '2026-11-01']);
+        RecKostenstellenSoll::create(['team_id' => 3, 'kostenstelle' => 200, 'soll' => 6, 'gueltig_ab' => '2026-11-01']);
+        RecKostenstellenSoll::create(['team_id' => 3, 'kostenstelle' => 100, 'soll' => null, 'gueltig_ab' => '2026-11-10']);
+        $this->assertSame([100 => 4, 200 => 6], RecKostenstellenSoll::geltend(3, '2026-11-09'));
+        $this->assertSame([200 => 6], RecKostenstellenSoll::geltend(3, '2026-11-10'));
+
+        // Zweites Speichern am selben Tag aktualisiert statt die Eindeutigkeit zu verletzen.
+        RecKostenstellenSoll::query()->updateOrCreate(['team_id' => 3, 'kostenstelle' => 100, 'gueltig_ab' => '2026-11-10'], ['soll' => 5]);
+        $this->assertSame([100 => 5, 200 => 6], RecKostenstellenSoll::geltend(3, '2026-11-10'));
+    }
+
+    public function test_niederlassung_nach_altem_letzten_einsatz_auch_ausserhalb_des_ladezeitraums(): void
+    {
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'C', 'last_name' => 'C'],
+            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '200', 'first_name' => 'C', 'last_name' => 'C'],
+        ]);
+        $this->einbuchung(2, '2026-07-15', RecDispoAssignment::STATUS_BEENDET);
+        $this->einbuchung(1, '2026-07-01', RecDispoAssignment::STATUS_STORNO);
+
+        $r = (new MitarbeiterStatistikDaten())->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19');
+        $this->assertSame(200, $r['personen'][0]['kostenstelle']);
+        $this->assertFalse($r['personen'][0]['produktiv']);
+    }
 }

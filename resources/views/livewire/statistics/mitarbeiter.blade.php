@@ -187,7 +187,7 @@
                     <span>gültig ab</span>
                     <input type="date" wire:model="sollGueltigAb" class="rounded border border-[var(--ui-border)] bg-white px-2 py-1 text-black">
                 </label>
-                <p class="mt-1 text-xs text-[color:var(--ui-muted)]">Gespeichert werden nur geänderte Werte; ältere Sollzahlen bleiben als Verlauf erhalten. Leeres Feld = kein Soll.</p>
+                <p class="mt-1 text-xs text-[color:var(--ui-muted)]">Gespeichert werden nur Felder, die du änderst; ältere Sollzahlen bleiben als Verlauf erhalten. Feld leeren = ab diesem Tag kein Soll.</p>
             </div>
 
             <div>
@@ -228,7 +228,7 @@
                                 <tr>
                                     <td class="py-1 pr-3">{{ $v['gueltig_ab'] }}</td>
                                     <td class="py-1 pr-3">{{ $v['kostenstelle'] }}</td>
-                                    <td class="py-1 pr-3 text-right">{{ $v['soll'] }}</td>
+                                    <td class="py-1 pr-3 text-right">{{ $v['soll'] ?? 'kein Soll' }}</td>
                                     <td class="py-1 pr-3">{{ $v['herkunft'] }}</td>
                                 </tr>
                             @endforeach

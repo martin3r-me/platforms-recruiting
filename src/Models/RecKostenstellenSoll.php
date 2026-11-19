@@ -21,7 +21,6 @@ class RecKostenstellenSoll extends Model
         'team_id' => 'integer',
         'kostenstelle' => 'integer',
         'soll' => 'integer',
-        'gueltig_ab' => 'date:Y-m-d',
     ];
 
     /**
@@ -39,8 +38,13 @@ class RecKostenstellenSoll extends Model
             ->orderBy('id')
             ->get(['kostenstelle', 'soll']);
         foreach ($zeilen as $z) {
-            // Aufsteigend sortiert: der juengste Eintrag ueberschreibt die aelteren.
-            $out[(int) $z->kostenstelle] = (int) $z->soll;
+            // Aufsteigend sortiert: der juengste Eintrag ueberschreibt die aelteren; ein leerer
+            // Eintrag hebt das Soll ab seinem Tag auf.
+            if ($z->soll === null) {
+                unset($out[(int) $z->kostenstelle]);
+            } else {
+                $out[(int) $z->kostenstelle] = (int) $z->soll;
+            }
         }
 
         return $out;

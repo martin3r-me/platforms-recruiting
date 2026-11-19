@@ -34,6 +34,13 @@ class Mitarbeiter extends Component
     public bool $showEinstellungen = false;
     /** @var array<string,string> kostenstelle => Soll (Eingabe) */
     public array $sollWerte = [];
+    /**
+     * Was beim Öffnen in den Feldern stand. Gespeichert wird nur, was der Nutzer davon ÄNDERT —
+     * sonst schriebe ein rückdatiertes „gültig ab“ die heutigen Werte aller Felder in den Verlauf
+     * (Review 19.11.).
+     */
+    #[\Livewire\Attributes\Locked]
+    public array $sollAnzeige = [];
     public ?string $sollGueltigAb = null;
     public string $empfaenger = '';
     public bool $reportAktiv = false;
@@ -67,7 +74,7 @@ class Mitarbeiter extends Component
     /** Leeres oder unsinniges Datum fällt auf den Standard zurück; von > bis wird getauscht. */
     private function ordneZeitraum(): void
     {
-        $ok = fn ($d) => is_string($d) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) === 1;
+        $ok = fn ($d) => self::istDatum($d);
         if (!$ok($this->von) || !$ok($this->bis)) {
             $von = $ok($this->von) ? $this->von : null;
             $bis = $ok($this->bis) ? $this->bis : null;
@@ -81,9 +88,17 @@ class Mitarbeiter extends Component
         $this->schliesseDrill();
     }
 
+    /** Echtes Kalenderdatum im Format Y-m-d (kein 2026-13-45 aus einem gebastelten Request). */
+    public static function istDatum(mixed $d): bool
+    {
+        return is_string($d)
+            && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) === 1
+            && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+    }
+
     public function updatedKostenstelleFilter($value): void
     {
-        $this->kostenstelleFilter = ($value === '' || $value === null) ? 'alle' : (string) $value;
+        $this->kostenstelleFilter = (is_string($value) || is_int($value)) && $value !== '' ? (string) $value : 'alle';
         $this->schliesseDrill();
     }
 
@@ -102,8 +117,11 @@ class Mitarbeiter extends Component
 
     private function ordneZeitraumStill(): void
     {
-        if ($this->von === null || $this->bis === null) {
+        if (!self::istDatum($this->von) || !self::istDatum($this->bis)) {
             $this->standardZeitraum();
+        }
+        if ($this->von > $this->bis) {
+            [$this->von, $this->bis] = [$this->bis, $this->von];
         }
     }
 
@@ -112,6 +130,9 @@ class Mitarbeiter extends Component
     public function zeilen(): array
     {
         $alle = $this->auswertung['zeilen'];
+        if (!is_string($this->kostenstelleFilter) && !is_int($this->kostenstelleFilter)) {
+            $this->kostenstelleFilter = 'alle';
+        }
         if ($this->kostenstelleFilter === 'alle') {
             return $alle;
         }
@@ -216,6 +237,7 @@ class Mitarbeiter extends Component
         foreach ($this->sollKostenstellen() as $ks) {
             $this->sollWerte[(string) $ks] = isset($geltend[$ks]) ? (string) $geltend[$ks] : '';
         }
+        $this->sollAnzeige = $this->sollWerte;
         $this->sollGueltigAb = $heute;
         $settings = RecApplicantSettings::query()->where('team_id', $team)->first();
         $this->empfaenger = implode("\n", (array) ($settings?->getSetting(Personalreport::SETTING_EMPFAENGER) ?? []));
@@ -248,15 +270,15 @@ class Mitarbeiter extends Component
             return;
         }
 
-        $ab = (string) $this->sollGueltigAb;
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $ab) !== 1) {
+        $ab = is_string($this->sollGueltigAb) ? $this->sollGueltigAb : '';
+        if (!self::istDatum($ab)) {
             $this->einstellungenMeldung = 'Bitte ein Datum für „gültig ab“ wählen.';
 
             return;
         }
 
         $empfaenger = [];
-        foreach (preg_split('/[\s,;]+/', $this->empfaenger) ?: [] as $mail) {
+        foreach (preg_split('/[\s,;]+/', is_string($this->empfaenger) ? $this->empfaenger : '') ?: [] as $mail) {
             $mail = mb_strtolower(trim($mail));
             if ($mail === '') {
                 continue;
@@ -275,26 +297,25 @@ class Mitarbeiter extends Component
             return;
         }
 
+        // Nur Felder, die der Nutzer geändert hat; leer geräumt = ab „gültig ab“ kein Soll mehr.
         $neu = [];
         foreach ($this->sollWerte as $ks => $wert) {
-            $wert = trim((string) $wert);
-            if ($wert === '') {
+            if (!is_scalar($wert) || !ctype_digit((string) $ks)) {
                 continue;
             }
-            if (!ctype_digit($wert) || !ctype_digit((string) $ks)) {
+            $wert = trim((string) $wert);
+            if ($wert === trim((string) ($this->sollAnzeige[(string) $ks] ?? ''))) {
+                continue;
+            }
+            if ($wert !== '' && (!ctype_digit($wert) || strlen($wert) > 6)) {
                 $this->einstellungenMeldung = 'Soll bitte als ganze Zahl eintragen – nichts gespeichert.';
 
                 return;
             }
-            $neu[(int) $ks] = (int) $wert;
+            $neu[(int) $ks] = $wert === '' ? null : (int) $wert;
         }
 
-        // Nur geänderte Werte schreiben: das Soll ist eine Historie, keine Momentaufnahme.
-        $bisher = RecKostenstellenSoll::geltend($team, $ab);
         foreach ($neu as $ks => $soll) {
-            if (($bisher[$ks] ?? null) === $soll) {
-                continue;
-            }
             RecKostenstellenSoll::query()->updateOrCreate(
                 ['team_id' => $team, 'kostenstelle' => $ks, 'gueltig_ab' => $ab],
                 ['soll' => $soll, 'herkunft' => RecKostenstellenSoll::HERKUNFT_MANUELL, 'created_by_user_id' => auth()->id()],
@@ -306,7 +327,7 @@ class Mitarbeiter extends Component
         $settings->setSetting(Personalreport::SETTING_AKTIV, $this->reportAktiv);
         $settings->save();
 
-        unset($this->auswertung, $this->zeilen, $this->summe);
+        unset($this->auswertung, $this->zeilen, $this->summe, $this->sollVerlauf);
         $this->showEinstellungen = false;
         $this->einstellungenMeldung = '';
     }
@@ -323,7 +344,7 @@ class Mitarbeiter extends Component
             ->map(fn ($s) => [
                 'kostenstelle' => self::kostenstellenName($s->kostenstelle),
                 'soll' => $s->soll,
-                'gueltig_ab' => $s->gueltig_ab?->format('d.m.Y'),
+                'gueltig_ab' => \Carbon\Carbon::parse(substr((string) $s->gueltig_ab, 0, 10))->format('d.m.Y'),
                 'herkunft' => $s->herkunft,
             ])->all();
     }

@@ -31,7 +31,8 @@ class MitarbeiterStatistikDaten
         $einsaetze = $this->einsaetze(array_column($anstellungen, 'id'), $ab);
         $nummern = $this->eingehendeNummern($von, $bis);
 
-        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis);
+        $letzter = $this->letzterEinsatz(array_column($anstellungen, 'id'), $heute);
+        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis, $letzter);
         $soll = RecKostenstellenSoll::geltend($teamId, $stichtag);
         $zeilen = MitarbeiterStatistikRechner::jeKostenstelle($personen, $soll);
 
@@ -97,6 +98,28 @@ class MitarbeiterStatistikDaten
             GeleisteterEinsatz::einschraenken($q);
             foreach ($q->get(['rec_employee_id', 'datum']) as $r) {
                 $out[] = ['employee_id' => (int) $r->rec_employee_id, 'datum' => substr((string) $r->datum, 0, 10)];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Jüngster zählender Einsatz bis heute je Anstellung, ohne Untergrenze.
+     *
+     * @param list<int> $employeeIds
+     * @return array<int,string>
+     */
+    public function letzterEinsatz(array $employeeIds, string $heute): array
+    {
+        $out = [];
+        foreach (array_chunk($employeeIds, 1000) as $chunk) {
+            $q = DB::table('rec_dispo_assignments')
+                ->whereIn('rec_employee_id', $chunk)
+                ->where('datum', '<=', $heute);
+            GeleisteterEinsatz::einschraenken($q);
+            foreach ($q->groupBy('rec_employee_id')->selectRaw('rec_employee_id, MAX(datum) as letzter')->get() as $r) {
+                $out[(int) $r->rec_employee_id] = substr((string) $r->letzter, 0, 10);
             }
         }
 

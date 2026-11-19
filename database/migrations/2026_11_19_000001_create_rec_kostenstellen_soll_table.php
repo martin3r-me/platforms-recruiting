@@ -27,7 +27,8 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('team_id');
             $table->unsignedInteger('kostenstelle');
-            $table->unsignedInteger('soll');
+            // null = ab diesem Tag kein Soll mehr (Feld geleert)
+            $table->unsignedInteger('soll')->nullable();
             $table->date('gueltig_ab');
             $table->string('herkunft', 16)->default('manuell');
             $table->unsignedBigInteger('created_by_user_id')->nullable();
