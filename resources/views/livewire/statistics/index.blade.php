@@ -80,6 +80,8 @@
 
 <div class="space-y-6 p-6">
 
+    @include('recruiting::livewire.statistics.tabs', ['statAktivRoute' => 'recruiting.statistics.index'])
+
     {{-- ------------------------------------------------------------------ --}}
     {{-- Filterleiste                                                       --}}
     {{-- ------------------------------------------------------------------ --}}

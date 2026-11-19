@@ -77,7 +77,7 @@ class StatisticsPageRenderTest extends TestCase
         'http-equiv', 'content',
         // Alpine und Livewire
         'x-data', 'x-show', 'x-text', 'x-cloak', 'x-on:click',
-        'wire:click', 'wire:model', 'wire:model.live', 'wire:loading.attr',
+        'wire:click', 'wire:navigate', 'wire:model', 'wire:model.live', 'wire:loading.attr',
         'hidefooter', 'nulllabel', 'options', 'nullable',
     ];
 

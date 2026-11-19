@@ -21,6 +21,7 @@ class RecruitingServiceProvider extends ServiceProvider
             $this->commands([
                 \Platform\Recruiting\Console\Commands\ProcessAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\LohnParkenFreigeben::class,
+                \Platform\Recruiting\Console\Commands\PersonalreportSenden::class,
                 \Platform\Recruiting\Console\Commands\SyncContactPhonesCommand::class,
                 \Platform\Recruiting\Console\Commands\DispatchAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
@@ -340,6 +341,16 @@ class RecruitingServiceProvider extends ServiceProvider
         // Nachweise aus der alten Akte (Pilot-Feedback 29.10.2026): neue
         // Bestands-MA bekommen ihren Vermerk, ein neueres AusweisBis aus ZAS
         // erneuert ihn. Idempotent; ohne Team-Anker No-op.
+        // Taeglicher Personalreport (Markus 19.11.2026): Mo–Fr 08:00 deutscher Zeit. No-op, solange
+        // er in Statistik → Mitarbeiter → Einstellungen nicht eingeschaltet ist; hoechstens ein
+        // Versand pro Tag (Merker im Kommando).
+        Schedule::command('recruiting:personalreport')
+            ->weekdays()
+            ->dailyAt('08:00')
+            ->timezone('Europe/Berlin')
+            ->withoutOverlapping(30)
+            ->runInBackground();
+
         Schedule::command('recruiting:nachweise-altakte --scheduled')
             ->dailyAt('05:40')
             ->withoutOverlapping(60)

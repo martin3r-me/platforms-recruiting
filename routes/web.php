@@ -34,6 +34,8 @@ Route::get('/hr-desk', \Platform\Recruiting\Livewire\HrDesk\Index::class)
 // Statistik (KPI-Seite; Sidebar-Eintrag unter Uebersicht → Kommunikation)
 Route::get('/statistik', \Platform\Recruiting\Livewire\Statistics\Index::class)
     ->name('recruiting.statistics.index');
+Route::get('/statistik/mitarbeiter', \Platform\Recruiting\Livewire\Statistics\Mitarbeiter::class)
+    ->name('recruiting.statistics.employees');
 
 // Stellen
 Route::get('/positions', PositionIndex::class)->name('recruiting.positions.index');
