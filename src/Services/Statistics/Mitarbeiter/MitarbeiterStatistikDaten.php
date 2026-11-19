@@ -23,7 +23,7 @@ class MitarbeiterStatistikDaten
     /**
      * @return array{personen: list<array<string,mixed>>, zeilen: list<array<string,mixed>>, gesamt: array<string,mixed>, soll: array<int,int>, stichtag: string}
      */
-    public function auswerten(int $teamId, string $heute, string $von, string $bis): array
+    public function auswerten(int $teamId, string $heute, string $von, string $bis, string $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG): array
     {
         $anstellungen = $this->anstellungen($teamId);
         $stichtag = min($bis, $heute);
@@ -32,7 +32,7 @@ class MitarbeiterStatistikDaten
         $nummern = $this->eingehendeNummern($von, $bis);
 
         $letzter = $this->letzterEinsatz(array_column($anstellungen, 'id'), $heute);
-        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis, $letzter);
+        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis, $letzter, $gesellschaft);
         $soll = RecKostenstellenSoll::geltend($teamId, $stichtag);
         $zeilen = MitarbeiterStatistikRechner::jeKostenstelle($personen, $soll);
 
@@ -54,7 +54,13 @@ class MitarbeiterStatistikDaten
             ->where(fn ($w) => $w->whereNull('e.is_test')->orWhere('e.is_test', false));
 
         $spalten = ['e.id', 'e.rec_person_id', 'e.is_active', 'e.cost_center', 'p.cost_center as stelle_cost_center',
-            'e.first_name', 'e.last_name', 'e.personnel_number', 'e.phone'];
+            'e.first_name', 'e.last_name', 'e.personnel_number', 'e.phone', 'e.company'];
+        // Status je Anstellung aus ZAS (GO/MA/INAKTIV): eine RG-Anstellung auf „MA“ ist zur MA gewechselt
+        // und zählt nicht mehr zur RG (Markus 19.11.2026: „Steckel Merle steht auf MA in der RG“).
+        if (Schema::hasTable('rec_employee_hr_data')) {
+            $q->leftJoin('rec_employee_hr_data as h', 'h.rec_employee_id', '=', 'e.id');
+            $spalten[] = 'h.export_status';
+        }
         if (Schema::hasTable('rec_persons')) {
             $q->leftJoin('rec_persons as rp', 'rp.id', '=', 'e.rec_person_id');
             $spalten[] = 'rp.phone as person_phone';
@@ -74,6 +80,8 @@ class MitarbeiterStatistikDaten
                 'name' => trim(((string) ($r->last_name ?? '')) . ', ' . ((string) ($r->first_name ?? '')), ', ') ?: ('#' . $r->id),
                 'pnr' => $r->personnel_number !== null ? (string) $r->personnel_number : null,
                 'phones' => $phones,
+                'firma' => in_array(mb_strtoupper(trim((string) ($r->company ?? ''))), ['RG', 'MA'], true) ? mb_strtoupper(trim((string) $r->company)) : null,
+                'status' => \Platform\Recruiting\Services\Zas\ZasStatus::normalize($r->export_status ?? null),
             ];
         }
 

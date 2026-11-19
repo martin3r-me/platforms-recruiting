@@ -75,6 +75,12 @@ class MitarbeiterStatistikDatenTest extends TestCase
             $t->string('last_name')->nullable();
             $t->string('personnel_number')->nullable();
             $t->string('phone')->nullable();
+            $t->string('company')->nullable();
+        });
+        $schema->create('rec_employee_hr_data', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('rec_employee_id');
+            $t->string('export_status', 8)->default('GO');
         });
         $schema->create('comms_whatsapp_threads', function ($t) {
             $t->id();
@@ -96,7 +102,7 @@ class MitarbeiterStatistikDatenTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['rec_dispo_assignments', 'rec_dispo_events', 'rec_employees', 'rec_persons', 'rec_positions', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'rec_kostenstellen_soll'] as $t) {
+        foreach (['rec_dispo_assignments', 'rec_dispo_events', 'rec_employees', 'rec_employee_hr_data', 'rec_persons', 'rec_positions', 'comms_whatsapp_messages', 'comms_whatsapp_threads', 'rec_kostenstellen_soll'] as $t) {
             DB::table($t)->delete();
         }
         DB::table('rec_dispo_events')->insert(['id' => 1, 'uuid' => 'ev-1', 'einsatz_ref' => 'E1', 'created_at' => now(), 'updated_at' => now()]);
@@ -137,11 +143,11 @@ class MitarbeiterStatistikDatenTest extends TestCase
         DB::table('rec_positions')->insert(['id' => 10, 'cost_center' => 201]);
         DB::table('rec_persons')->insert(['id' => 50, 'phone' => '+491701111111']);
         DB::table('rec_employees')->insert([
-            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 50, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '102', 'first_name' => 'Anna', 'last_name' => 'Alt', 'personnel_number' => 'RG1', 'phone' => null],
-            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 50, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '103', 'first_name' => 'Anna', 'last_name' => 'Alt', 'personnel_number' => 'MA1', 'phone' => null],
-            ['id' => 3, 'team_id' => 3, 'rec_person_id' => null, 'rec_position_id' => 10, 'is_active' => 1, 'is_test' => null, 'cost_center' => null, 'first_name' => 'Ben', 'last_name' => 'Bau', 'personnel_number' => 'RG3', 'phone' => '0170 2222222'],
-            ['id' => 4, 'team_id' => 3, 'rec_person_id' => null, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 1, 'cost_center' => '100', 'first_name' => 'Test', 'last_name' => 'Test', 'personnel_number' => null, 'phone' => null],
-            ['id' => 5, 'team_id' => 9, 'rec_person_id' => null, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '100', 'first_name' => 'Fremd', 'last_name' => 'Team', 'personnel_number' => null, 'phone' => null],
+            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 50, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '102', 'first_name' => 'Anna', 'last_name' => 'Alt', 'personnel_number' => 'RG1', 'phone' => null, 'company' => 'RG'],
+            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 50, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '103', 'first_name' => 'Anna', 'last_name' => 'Alt', 'personnel_number' => 'MA1', 'phone' => null, 'company' => 'RG'],
+            ['id' => 3, 'team_id' => 3, 'rec_person_id' => null, 'rec_position_id' => 10, 'is_active' => 1, 'is_test' => null, 'cost_center' => null, 'first_name' => 'Ben', 'last_name' => 'Bau', 'personnel_number' => 'RG3', 'phone' => '0170 2222222', 'company' => 'RG'],
+            ['id' => 4, 'team_id' => 3, 'rec_person_id' => null, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 1, 'cost_center' => '100', 'first_name' => 'Test', 'last_name' => 'Test', 'personnel_number' => null, 'phone' => null, 'company' => 'RG'],
+            ['id' => 5, 'team_id' => 9, 'rec_person_id' => null, 'rec_position_id' => null, 'is_active' => 1, 'is_test' => 0, 'cost_center' => '100', 'first_name' => 'Fremd', 'last_name' => 'Team', 'personnel_number' => null, 'phone' => null, 'company' => 'RG'],
         ]);
         $this->einbuchung(1, '2026-11-10', RecDispoAssignment::STATUS_BEENDET);
         $this->einbuchung(2, '2026-11-11');
@@ -202,8 +208,8 @@ class MitarbeiterStatistikDatenTest extends TestCase
     public function test_niederlassung_nach_altem_letzten_einsatz_auch_ausserhalb_des_ladezeitraums(): void
     {
         DB::table('rec_employees')->insert([
-            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'C', 'last_name' => 'C'],
-            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '200', 'first_name' => 'C', 'last_name' => 'C'],
+            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'C', 'last_name' => 'C', 'company' => 'RG'],
+            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 70, 'is_active' => 1, 'cost_center' => '200', 'first_name' => 'C', 'last_name' => 'C', 'company' => 'RG'],
         ]);
         $this->einbuchung(2, '2026-07-15', RecDispoAssignment::STATUS_BEENDET);
         $this->einbuchung(1, '2026-07-01', RecDispoAssignment::STATUS_STORNO);
@@ -211,5 +217,42 @@ class MitarbeiterStatistikDatenTest extends TestCase
         $r = (new MitarbeiterStatistikDaten())->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19');
         $this->assertSame(200, $r['personen'][0]['kostenstelle']);
         $this->assertFalse($r['personen'][0]['produktiv']);
+    }
+
+    public function test_gesellschaft_rg_ohne_auf_ma_gewechselte_ma_getrennt_beide_einmal(): void
+    {
+        // Merle Steckel (19.11.): RG-Anstellung aktiv mit ZAS-Status MA, MA-Anstellung inaktiv -> zählt nirgends.
+        // Lena: RG GO aktiv und MA aktiv (eine Person) -> RG 1, MA 1, beide 1.
+        // Tom: nur MA aktiv.
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => 3, 'rec_person_id' => 80, 'is_active' => 1, 'cost_center' => '200', 'first_name' => 'Merle', 'last_name' => 'Steckel', 'company' => 'RG'],
+            ['id' => 2, 'team_id' => 3, 'rec_person_id' => 80, 'is_active' => 0, 'cost_center' => '201', 'first_name' => 'Merle', 'last_name' => 'Steckel', 'company' => 'MA'],
+            ['id' => 3, 'team_id' => 3, 'rec_person_id' => 81, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'Lena', 'last_name' => 'L', 'company' => 'RG'],
+            ['id' => 4, 'team_id' => 3, 'rec_person_id' => 81, 'is_active' => 1, 'cost_center' => '101', 'first_name' => 'Lena', 'last_name' => 'L', 'company' => 'MA'],
+            ['id' => 5, 'team_id' => 3, 'rec_person_id' => null, 'is_active' => 1, 'cost_center' => '400', 'first_name' => 'Tom', 'last_name' => 'T', 'company' => 'MA'],
+        ]);
+        DB::table('rec_employee_hr_data')->insert([
+            ['rec_employee_id' => 1, 'export_status' => 'MA'],
+            ['rec_employee_id' => 2, 'export_status' => 'INAKTIV'],
+            ['rec_employee_id' => 3, 'export_status' => 'GO'],
+            ['rec_employee_id' => 4, 'export_status' => 'GO'],
+            ['rec_employee_id' => 5, 'export_status' => 'GO'],
+        ]);
+        // Lena arbeitet nur über die MA-PNr
+        $this->einbuchung(4, '2026-11-10');
+
+        $d = new MitarbeiterStatistikDaten();
+        $rg = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'RG');
+        $this->assertSame(['L, Lena'], array_column($rg['personen'], 'name'));
+        $this->assertFalse($rg['personen'][0]['produktiv'], 'MA-Einsatz zählt nicht für die RG');
+
+        $ma = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'MA');
+        $this->assertSame(['L, Lena', 'T, Tom'], array_column($ma['personen'], 'name'));
+        $this->assertTrue($ma['personen'][0]['produktiv']);
+
+        $beide = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'beide');
+        $this->assertSame(['L, Lena', 'T, Tom'], array_column($beide['personen'], 'name'), 'Steckel zählt nirgends, Lena einmal');
+        $this->assertTrue($beide['personen'][0]['produktiv']);
+        $this->assertSame(2, $beide['gesamt']['aktiv']);
     }
 }

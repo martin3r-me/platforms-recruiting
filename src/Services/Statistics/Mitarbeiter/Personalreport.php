@@ -39,10 +39,10 @@ class Personalreport
 
         $html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#000">'
             . '<p>Guten Morgen,</p>'
-            . '<p>hier die Personalübersicht vom ' . e($datum) . '.</p>'
+            . '<p>hier die Personalübersicht der RG vom ' . e($datum) . '.</p>'
             . '<table style="border-collapse:collapse;font-size:14px">'
             . '<tr><th ' . $th . '>Kostenstelle</th><th ' . $thr . '>Soll</th><th ' . $thr . '>Aktiv</th><th ' . $thr . '>Produktiv</th><th ' . $thr . '>Abweichung</th></tr>';
-        $text = "Personalübersicht vom {$datum}\n\n"
+        $text = "Personalübersicht der RG vom {$datum}\n\n"
             . sprintf("%-28s %6s %6s %10s %11s\n", 'Kostenstelle', 'Soll', 'Aktiv', 'Produktiv', 'Abweichung');
 
         $alle = $zeilen;
@@ -63,7 +63,7 @@ class Personalreport
             $text .= sprintf("%-28s %6s %6d %10d %11s\n", mb_substr($name, 0, 28), $fmt($z['soll']), $z['aktiv'], $z['produktiv'], $fmtAbw($abw));
         }
 
-        $erklaerung = 'Aktiv = aktive Mitarbeiter im HCM, jede Person einmal. Produktiv = aktiv und mindestens ein '
+        $erklaerung = 'Aktiv = aktive Mitarbeiter der RG (ohne die in ZAS auf „MA“ gewechselten), jede Person einmal. Produktiv = aktiv und mindestens ein '
             . 'disponierter Einsatz in den letzten 60 Tagen oder ein schon disponierter kommender Einsatz. '
             . 'Abweichung = Produktiv minus Soll.';
         $html .= '</table>'

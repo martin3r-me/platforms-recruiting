@@ -26,6 +26,42 @@ final class MitarbeiterStatistikRechner
 {
     public const PRODUKTIV_TAGE = 60;
 
+    /**
+     * Gesellschafts-Filter (Markus 19.11.2026: „Es dürfen nur aktive Mitarbeiter der RG aufgeführt werden“ und
+     * „Filter für die Gesellschaften … Auswahl MA und RG“). RG = Anstellung bei der RG, deren ZAS-Status nicht
+     * „MA“ ist (gewechselt); MA = Anstellung bei der MA. „beide“ = beides, die Person zählt weiter einmal.
+     */
+    public const GESELLSCHAFT_RG = 'RG';
+    public const GESELLSCHAFT_MA = 'MA';
+    public const GESELLSCHAFT_BEIDE = 'beide';
+    public const GESELLSCHAFTEN = [
+        self::GESELLSCHAFT_RG => 'RG',
+        self::GESELLSCHAFT_MA => 'MA',
+        self::GESELLSCHAFT_BEIDE => 'RG und MA',
+    ];
+
+    /** Gehört die Anstellung zur gewählten Gesellschaft (Einsätze zählen mit)? */
+    public static function inGesellschaft(array $a, string $gesellschaft): bool
+    {
+        $firma = $a['firma'] ?? null;
+
+        return $gesellschaft === self::GESELLSCHAFT_BEIDE ? true : $firma === $gesellschaft;
+    }
+
+    /** Macht die Anstellung die Person in der gewählten Gesellschaft „aktiv“? */
+    public static function aktivIn(array $a, string $gesellschaft): bool
+    {
+        if (!$a['aktiv'] || !self::inGesellschaft($a, $gesellschaft)) {
+            return false;
+        }
+        // RG-Anstellung mit ZAS-Status „MA“: zur MA gewechselt, zählt nicht mehr zur RG.
+        if (($a['firma'] ?? null) === self::GESELLSCHAFT_RG && ($a['status'] ?? null) === 'MA') {
+            return false;
+        }
+
+        return true;
+    }
+
     /** Stufen-Schlüssel => [min, max|null] */
     public const STUFEN = [
         '0' => [0, 0],
@@ -51,7 +87,7 @@ final class MitarbeiterStatistikRechner
      *        Ladezeitraum — für die Wahl der Niederlassung bei zwei Kostenstellen (Review 19.11.)
      * @return list<array<string,mixed>> eine Zeile je AKTIVER Person
      */
-    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis, array $letzterEinsatzAllzeit = []): array
+    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis, array $letzterEinsatzAllzeit = [], string $gesellschaft = self::GESELLSCHAFT_BEIDE): array
     {
         $stichtag = min($bis, $heute);
         // „letzte 60 Tage“ einschließlich des Stichtags
@@ -74,7 +110,7 @@ final class MitarbeiterStatistikRechner
         $out = [];
         foreach ($gruppen as $key => $liste) {
             usort($liste, fn ($x, $y) => $x['id'] <=> $y['id']);
-            $aktive = array_values(array_filter($liste, fn ($a) => $a['aktiv']));
+            $aktive = array_values(array_filter($liste, fn ($a) => self::aktivIn($a, $gesellschaft)));
             if ($aktive === []) {
                 continue;
             }
@@ -85,6 +121,9 @@ final class MitarbeiterStatistikRechner
             $naechster = null;
             $letzterJeAnstellung = [];
             foreach ($liste as $a) {
+                if (!self::inGesellschaft($a, $gesellschaft)) {
+                    continue; // Einsätze der anderen Gesellschaft zählen hier nicht
+                }
                 if (isset($letzterEinsatzAllzeit[$a['id']])) {
                     $letzterJeAnstellung[$a['id']] = (string) $letzterEinsatzAllzeit[$a['id']];
                 }

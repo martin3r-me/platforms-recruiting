@@ -14,7 +14,8 @@
     $fmtDatum = fn ($d) => $d ? \Carbon\Carbon::parse($d)->format('d.m.Y') : '–';
     $zeitraum = $fmtDatum($this->von) . ' – ' . $fmtDatum($this->bis);
     $stichtag = $fmtDatum($a['stichtag']);
-    $regel = 'Aktiv = aktive Mitarbeiter im HCM, jede Person einmal (auch wenn sie bei RG und MA geführt wird). '
+    $regel = 'Aktiv = aktive Mitarbeiter der gewählten Gesellschaft, jede Person einmal (auch wenn sie bei RG und MA geführt wird). '
+        . 'RG-Mitarbeiter, die in ZAS auf „MA“ stehen, zählen nicht zur RG. Es zählen nur Einsätze der gewählten Gesellschaft. '
         . 'Produktiv = aktiv und mindestens ein disponierter Einsatz (Auftrag oder beendet, nicht abgesagt/verschwunden) '
         . 'in den 60 Tagen bis ' . $stichtag . '; ist das heute, zählen auch schon disponierte kommende Einsätze. '
         . 'Termine = disponierte Einsätze im gewählten Zeitraum bis heute. '
@@ -27,7 +28,14 @@
     @include('recruiting::livewire.statistics.tabs', ['statAktivRoute' => 'recruiting.statistics.employees'])
 
     <x-ui-panel title="Mitarbeiter" subtitle="Aktive und produktive Mitarbeiter je Kostenstelle — jede Zahl ist anklickbar" class="relative z-30">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <x-ui-input-select
+                name="gesellschaft"
+                label="Gesellschaft"
+                size="sm"
+                :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFTEN"
+                wire:model.live="gesellschaft"
+            />
             <x-ui-input-select
                 name="kostenstelleFilter"
                 label="Kostenstelle"

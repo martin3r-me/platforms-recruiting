@@ -24,6 +24,9 @@ class Mitarbeiter extends Component
     public ?string $von = null;
     public ?string $bis = null;
 
+    /** 'RG' (Standard) | 'MA' | 'beide' — untyped wie die anderen Selects. */
+    public $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
+
     /** 'alle' | 'ohne' | Nummer der Kostenstelle — untyped wie die anderen Selects. */
     public $kostenstelleFilter = 'alle';
 
@@ -107,6 +110,19 @@ class Mitarbeiter extends Component
             && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
     }
 
+    public function updatedGesellschaft($value): void
+    {
+        $this->gesellschaft = $this->gesellschaftSicher();
+        $this->schliesseDrill();
+    }
+
+    private function gesellschaftSicher(): string
+    {
+        return (is_string($this->gesellschaft) && array_key_exists($this->gesellschaft, MitarbeiterStatistikRechner::GESELLSCHAFTEN))
+            ? $this->gesellschaft
+            : MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
+    }
+
     public function updatedKostenstelleFilter($value): void
     {
         $this->kostenstelleFilter = (is_string($value) || is_int($value)) && $value !== '' ? (string) $value : 'alle';
@@ -123,7 +139,7 @@ class Mitarbeiter extends Component
     {
         $this->ordneZeitraumStill();
 
-        return app(MitarbeiterStatistikDaten::class)->auswerten(self::teamId(), now()->toDateString(), $this->von, $this->bis);
+        return app(MitarbeiterStatistikDaten::class)->auswerten(self::teamId(), now()->toDateString(), $this->von, $this->bis, $this->gesellschaftSicher());
     }
 
     private function ordneZeitraumStill(): void
@@ -234,7 +250,7 @@ class Mitarbeiter extends Component
             default => self::kostenstellenName((int) $this->drillKostenstelle),
         };
 
-        return $merkmal . ' · ' . $ks;
+        return $merkmal . ' · ' . $ks . ' · ' . MitarbeiterStatistikRechner::GESELLSCHAFTEN[$this->gesellschaftSicher()];
     }
 
     // ---------------------------------------------------------------- Einstellungen

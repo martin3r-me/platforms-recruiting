@@ -59,7 +59,8 @@ class PersonalreportSenden extends Command
             return self::SUCCESS;
         }
 
-        $auswertung = $daten->auswerten($team, $heute, $heute, $heute);
+        // Report = RG (Markus 19.11.2026: „Es dürfen nur aktive Mitarbeiter der RG aufgeführt werden“).
+        $auswertung = $daten->auswerten($team, $heute, $heute, $heute, \Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFT_RG);
         $link = null;
         try {
             $link = route('recruiting.statistics.employees');
