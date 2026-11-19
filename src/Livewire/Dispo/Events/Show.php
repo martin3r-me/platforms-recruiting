@@ -139,9 +139,12 @@ class Show extends Component
      */
     #[Locked]
     public ?string $sendJobUuid = null;
-    /** @var array{total:int, sent:int, skipped:int, failed:int, started:bool}|null */
+    /** @var array{total:int, sent:int, skipped:int, failed:int, started:bool, wartet_lange:bool}|null */
     #[Locked]
     public ?array $sendProgress = null;
+    /** Der eigene Klick traf auf einen laufenden Versand: Eingaben wurden NICHT gespeichert — das muss dastehen. */
+    #[Locked]
+    public bool $sendLiefSchon = false;
     /** Auswahl bei mehreren Teamleitungen (employee_id als String — Livewire-Typed-Property-Falle). */
     public string $leadChoice = '';
     /** true, wenn das Ansprechpartner-Feld beim Oeffnen automatisch aus der Teamleitung befuellt wurde. */
@@ -3669,7 +3672,12 @@ class Show extends Component
         $this->sendResult = null;
         // Laeuft fuer diese Veranstaltung schon ein Versand (anderer Tab, andere
         // Person, Seite neu geladen)? Dann den Fortschritt zeigen, kein Formular.
-        $this->laufendenVersandAufnehmen();
+        $this->sendLiefSchon = false;
+        if (!$this->laufendenVersandAufnehmen()) {
+            // Fenster war beim Ende des letzten Versands zu: ein Ergebnis mit
+            // Fehlern oder Abbruch darf nicht ungesehen verschwinden.
+            $this->letztesErgebnisAufnehmen();
+        }
         $this->loadEscalationForm();
         $this->eskalationAngebotLaden();
         $this->resetErrorBag('escTime1');
@@ -3724,6 +3732,7 @@ class Show extends Component
         // Ein Versand je Veranstaltung: laeuft schon einer, wird nichts gespeichert
         // und nichts gestartet — das Fenster wechselt auf dessen Fortschritt.
         if ($this->laufendenVersandAufnehmen()) {
+            $this->sendLiefSchon = true;
             return;
         }
 
@@ -3838,7 +3847,12 @@ class Show extends Component
         $laufKey = SendDispoConfirmations::laufKey($this->eventId);
         // add() ist atomar: von zwei gleichzeitigen Klicks gewinnt genau einer.
         if (!\Illuminate\Support\Facades\Cache::add($laufKey, $uuid, SendDispoConfirmations::LAUF_TTL_SECONDS)) {
-            $this->laufendenVersandAufnehmen();
+            if ($this->laufendenVersandAufnehmen()) {
+                $this->sendLiefSchon = true;
+            } else {
+                // Merker da, Stand nicht (Bruchteil einer Sekunde zwischen zwei Klicks): nie still enden.
+                $this->addError('vorlaufMinuten', 'Der Versand konnte nicht gestartet werden. Bitte erneut versuchen.');
+            }
             return;
         }
 
@@ -3848,6 +3862,7 @@ class Show extends Component
                 SendDispoConfirmations::initialProgress(count($recipients)),
                 SendDispoConfirmations::CACHE_TTL_SECONDS
             );
+            \Illuminate\Support\Facades\Cache::put(SendDispoConfirmations::letzterKey($this->eventId), $uuid, SendDispoConfirmations::CACHE_TTL_SECONDS);
             $this->versandStarten(new SendDispoConfirmations(
                 (int) $this->eventId,
                 $recipients,
@@ -3869,7 +3884,7 @@ class Show extends Component
         }
 
         $this->sendJobUuid = $uuid;
-        $this->sendProgress = ['total' => count($recipients), 'sent' => 0, 'skipped' => 0, 'failed' => 0, 'started' => false];
+        $this->sendProgress = ['total' => count($recipients), 'sent' => 0, 'skipped' => 0, 'failed' => 0, 'started' => false, 'wartet_lange' => false];
         unset($this->event, $this->sendPreview); // Computed-Caches invalidieren
     }
 
@@ -3903,6 +3918,40 @@ class Show extends Component
     }
 
     /**
+     * Ergebnis des letzten Versands nachreichen, wenn es niemand gesehen hat und
+     * etwas zu tun bleibt (Fehlgeschlagene, Abbruch, fehlende Vorlage). Ein glatt
+     * durchgelaufener Versand wird nicht noch einmal gezeigt — er steht in der Tabelle.
+     */
+    private function letztesErgebnisAufnehmen(): void
+    {
+        try {
+            $key = SendDispoConfirmations::letzterKey($this->eventId);
+            $uuid = \Illuminate\Support\Facades\Cache::get($key);
+            if (!is_string($uuid) || $uuid === '') {
+                return;
+            }
+            $p = \Illuminate\Support\Facades\Cache::get(SendDispoConfirmations::cacheKey($uuid));
+            if (!is_array($p) || empty($p['done'])) {
+                return;
+            }
+            \Illuminate\Support\Facades\Cache::forget($key);
+            $failed = array_values((array) ($p['failed'] ?? []));
+            $meldung = isset($p['message']) ? (string) $p['message'] : null;
+            if ($failed === [] && ($meldung === null || $meldung === '')) {
+                return;
+            }
+            $this->sendResult = [
+                'sent'    => (int) ($p['sent'] ?? 0),
+                'skipped' => (int) ($p['skipped'] ?? 0),
+                'message' => $meldung,
+                'failed'  => $failed,
+            ];
+        } catch (\Throwable) {
+            // Cache-Fehler: dann eben das normale Formular.
+        }
+    }
+
+    /**
      * Fortschritt des laufenden Versands lesen (vom Fenster alle 2 Sekunden gerufen).
      * Ist er fertig, wird daraus das Ergebnis; das Formular kommt nicht zurueck.
      */
@@ -3925,6 +3974,22 @@ class Show extends Component
             return;
         }
 
+        // Gestartet, nicht fertig, aber kein Lebenszeichen mehr (Worker hart beendet):
+        // als abgebrochen schliessen und die Veranstaltung freigeben — sonst bliebe
+        // sie bis zum Verfall des Merkers gesperrt und das Fenster wartete endlos.
+        if (empty($p['done']) && !empty($p['started']) && !SendDispoConfirmations::lebt($p)) {
+            $p['done'] = true;
+            $p['message'] = SendDispoConfirmations::ABGEBROCHEN;
+            try {
+                \Illuminate\Support\Facades\Cache::put(SendDispoConfirmations::cacheKey($this->sendJobUuid), $p, SendDispoConfirmations::CACHE_TTL_SECONDS);
+                if (\Illuminate\Support\Facades\Cache::get(SendDispoConfirmations::laufKey($this->eventId)) === $this->sendJobUuid) {
+                    \Illuminate\Support\Facades\Cache::forget(SendDispoConfirmations::laufKey($this->eventId));
+                }
+            } catch (\Throwable) {
+                // Anzeige geht vor; der Merker verfaellt sonst von selbst.
+            }
+        }
+
         $failed = array_values((array) ($p['failed'] ?? []));
         $this->sendProgress = [
             'total'   => (int) ($p['total'] ?? 0),
@@ -3932,9 +3997,18 @@ class Show extends Component
             'skipped' => (int) ($p['skipped'] ?? 0),
             'failed'  => count($failed),
             'started' => !empty($p['started']),
+            // Nach einer Minute noch nicht gestartet: die Warteschlange steht oder ist voll.
+            'wartet_lange' => empty($p['started']) && (time() - (int) ($p['beat'] ?? time())) > 60,
         ];
 
         if (!empty($p['done'])) {
+            try {
+                // Ergebnis ist jetzt gesehen — beim naechsten Oeffnen nicht noch einmal zeigen.
+                if (\Illuminate\Support\Facades\Cache::get(SendDispoConfirmations::letzterKey($this->eventId)) === $this->sendJobUuid) {
+                    \Illuminate\Support\Facades\Cache::forget(SendDispoConfirmations::letzterKey($this->eventId));
+                }
+            } catch (\Throwable) {
+            }
             $this->sendResult = [
                 'sent'    => (int) ($p['sent'] ?? 0),
                 'skipped' => (int) ($p['skipped'] ?? 0),

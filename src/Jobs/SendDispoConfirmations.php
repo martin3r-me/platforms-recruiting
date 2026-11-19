@@ -35,7 +35,15 @@ class SendDispoConfirmations implements ShouldQueue
     public const CACHE_TTL_SECONDS = 86400;
     /** Laenger als $timeout: der Laufmerker darf nie vor dem Job verfallen. */
     public const LAUF_TTL_SECONDS = 2100;
-    public const PAKET = 10;
+    /** Klein, damit das Lebenszeichen auch bei langsamem Meta oft genug kommt. */
+    public const PAKET = 5;
+    /**
+     * So lange gilt ein Lauf ohne neues Lebenszeichen noch als lebendig. Ein Paket
+     * braucht normal fuenf Sekunden; haengt Meta, sind es je Nachricht bis zu 30.
+     */
+    public const LEBENSZEICHEN_SEKUNDEN = 240;
+    public const ABGEBROCHEN = 'Der Versand wurde abgebrochen. Bereits verschickte Nachrichten sind markiert, die übrigen bitte erneut senden.';
+    public const FREMDER_LAUF = 'Für diese Veranstaltung lief bereits ein anderer Versand. Dieser hier hat nichts verschickt.';
 
     /**
      * @param list<array{employee_id:int, phone:string, assignment_ids:list<int>, first_datum:string, is_reminder:bool}> $recipients
@@ -63,20 +71,58 @@ class SendDispoConfirmations implements ShouldQueue
         return 'recruiting:dispo-confirm-run:' . $eventId;
     }
 
-    /** @return array{total:int, sent:int, skipped:int, failed:list<array{employee_id:int, error:string}>, started:bool, done:bool, message:?string} */
-    public static function initialProgress(int $total): array
+    /** Letzter Versand je Veranstaltung (uuid) — damit ein Ergebnis mit Fehlern auch nach dem Schliessen des Fensters ankommt. */
+    public static function letzterKey(int $eventId): string
     {
-        return ['total' => $total, 'sent' => 0, 'skipped' => 0, 'failed' => [], 'started' => false, 'done' => false, 'message' => null];
+        return 'recruiting:dispo-confirm-last:' . $eventId;
     }
 
-    /** Nach dem einzigen fehlgeschlagenen Versuch (z. B. Timeout): Fortschritt schliessen, Veranstaltung freigeben. */
+    /**
+     * beat = Unix-Zeit des letzten Lebenszeichens (beim Einreihen: der Klick).
+     *
+     * @return array{total:int, sent:int, skipped:int, failed:list<array{employee_id:int, error:string}>, started:bool, done:bool, message:?string, beat:int}
+     */
+    public static function initialProgress(int $total): array
+    {
+        return ['total' => $total, 'sent' => 0, 'skipped' => 0, 'failed' => [], 'started' => false, 'done' => false, 'message' => null, 'beat' => time()];
+    }
+
+    /** Lebt der Lauf noch? Fertig = nein; sonst entscheidet das letzte Lebenszeichen. */
+    public static function lebt(array $progress): bool
+    {
+        if (!empty($progress['done'])) {
+            return false;
+        }
+
+        return (time() - (int) ($progress['beat'] ?? 0)) < self::LEBENSZEICHEN_SEKUNDEN;
+    }
+
+    /**
+     * Nach dem einzigen fehlgeschlagenen Versuch (Timeout, Absturz): Fortschritt
+     * schliessen, Veranstaltung freigeben.
+     *
+     * NICHT, solange der Lauf noch lebt (Review 19.11.2026): die Warteschlange gibt
+     * einen Auftrag nach retry_after (Standard 90 s) erneut frei, obwohl er noch
+     * sendet. Ein zweiter Worker ruft dann nur failed() — wuerde das den Lauf als
+     * abgebrochen melden und die Veranstaltung freigeben, startete die Disponentin
+     * einen zweiten Versand neben dem ersten. Der lebende Lauf schliesst sich selbst.
+     */
     public function failed(?\Throwable $e): void
     {
         try {
             $cache = app(Cache::class);
-            $progress = $cache->get(self::cacheKey($this->uuid)) ?? self::initialProgress(count($this->recipients));
+            $progress = $cache->get(self::cacheKey($this->uuid));
+            if (is_array($progress) && !empty($progress['started']) && self::lebt($progress)) {
+                return;
+            }
+            if (is_array($progress) && !empty($progress['done'])) {
+                $this->freigeben($cache);
+
+                return;
+            }
+            $progress = is_array($progress) ? $progress : self::initialProgress(count($this->recipients));
             $progress['done'] = true;
-            $progress['message'] = 'Der Versand wurde abgebrochen. Bereits verschickte Nachrichten sind markiert, die übrigen bitte erneut senden.';
+            $progress['message'] = self::ABGEBROCHEN;
             $cache->put(self::cacheKey($this->uuid), $progress, self::CACHE_TTL_SECONDS);
             $this->freigeben($cache);
         } catch (\Throwable) {
@@ -87,9 +133,23 @@ class SendDispoConfirmations implements ShouldQueue
     public function handle(Cache $cache, DispoConfirmationSender $sender): void
     {
         $key = self::cacheKey($this->uuid);
+        $laufKey = self::laufKey($this->eventId);
         $progress = self::initialProgress(count($this->recipients));
+
+        // Gehoert die Veranstaltung inzwischen einem anderen Versand (Laufmerker
+        // waehrend einer langen Wartezeit verfallen, jemand hat neu gestartet)?
+        // Dann sendet dieser hier nichts. Fehlt der Merker nur, wird er neu gesetzt.
+        $besitzer = $cache->get($laufKey);
+        if (is_string($besitzer) && $besitzer !== '' && $besitzer !== $this->uuid) {
+            $progress['done'] = true;
+            $progress['message'] = self::FREMDER_LAUF;
+            $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+
+            return;
+        }
+
         $progress['started'] = true;
-        $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+        $this->lebenszeichen($cache, $progress);
 
         try {
             $event = RecDispoEvent::query()->find($this->eventId);
@@ -109,7 +169,7 @@ class SendDispoConfirmations implements ShouldQueue
             }
             $geplant = Carbon::parse($this->geplantAm);
 
-            // Pakete, damit der Fortschritt waehrend des Laufs sichtbar ist.
+            // Pakete, damit Fortschritt und Lebenszeichen waehrend des Laufs sichtbar sind.
             foreach (array_chunk($this->recipients, self::PAKET) as $paket) {
                 $r = $sender->send($event, $paket, $this->templateId, $due, $geplant);
                 if (!$r['ok']) {
@@ -122,13 +182,26 @@ class SendDispoConfirmations implements ShouldQueue
                 foreach ($r['failed'] as $f) {
                     $progress['failed'][] = ['employee_id' => (int) $f['employee_id'], 'error' => (string) $f['error']];
                 }
-                $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+                $this->lebenszeichen($cache, $progress);
             }
+        } catch (\Throwable $e) {
+            $progress['message'] = self::ABGEBROCHEN;
+
+            throw $e;
         } finally {
             $progress['done'] = true;
+            $progress['beat'] = time();
             $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
             $this->freigeben($cache);
         }
+    }
+
+    /** Fortschritt schreiben und den Laufmerker frisch halten (seine Frist zaehlt sonst ab dem Klick). */
+    private function lebenszeichen(Cache $cache, array &$progress): void
+    {
+        $progress['beat'] = time();
+        $cache->put(self::cacheKey($this->uuid), $progress, self::CACHE_TTL_SECONDS);
+        $cache->put(self::laufKey($this->eventId), $this->uuid, self::LAUF_TTL_SECONDS);
     }
 
     /** Laufmerker nur loeschen, wenn er noch DIESEM Versand gehoert. */

@@ -470,6 +470,22 @@ class DispoConfirmationSenderChannelTest extends TestCase
         $this->assertCount(1, $result['failed']);
     }
 
+    public function test_gemischter_empfaenger_wird_gesendet_solange_eine_einbuchung_ungestempelt_ist(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('GEMISCHT');
+        $zweite = (int) RecDispoAssignment::create([
+            'ds_ref' => 'DS-GEMISCHT-2', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-27', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
+        ])->id;
+        $recipients[0]['assignment_ids'] = [$id, $zweite];
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway()))->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(1, $this->stub->calls, 'Ein neuer Einsatztag ist ungestempelt: die Nachricht geht raus.');
+        $this->assertSame(0, $result['skipped']);
+    }
+
     private function cache(): \Illuminate\Cache\Repository
     {
         return new \Illuminate\Cache\Repository(new \Illuminate\Cache\ArrayStore());
@@ -488,6 +504,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
         $job->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
 
         $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey($uuid));
+        unset($p['beat']);
         $this->assertSame(['total' => 1, 'sent' => 1, 'skipped' => 0, 'failed' => [], 'started' => true, 'done' => true, 'message' => null], $p);
         $this->assertNull($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)), 'Nach dem Lauf ist die Veranstaltung wieder frei.');
         $a = RecDispoAssignment::find($id);
@@ -495,16 +512,149 @@ class DispoConfirmationSenderChannelTest extends TestCase
         $this->assertSame('2026-08-25 12:00:00', $a->escalation_due_2_at->format('Y-m-d H:i:s'), 'Der eigene Erinnerungsplan kommt beim Empfaenger an.');
     }
 
-    public function test_auftrag_laesst_einen_fremden_laufmerker_stehen(): void
+    public function test_auftrag_sendet_nichts_wenn_die_veranstaltung_einem_anderen_versand_gehoert(): void
     {
-        [$event, $recipients] = $this->einEmpfaenger('JOB-FREMD');
+        [$event, $recipients, $id] = $this->einEmpfaenger('JOB-FREMD');
         $cache = $this->cache();
         $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), 'anderer-lauf', 600);
 
         (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-alt', '2026-08-21 09:00:00'))
             ->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
 
-        $this->assertSame('anderer-lauf', $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)));
+        $this->assertSame(0, $this->stub->calls, 'Zwei Versaende nebeneinander darf es nicht geben.');
+        $this->assertNull(RecDispoAssignment::find($id)->reminder_sent_at);
+        $this->assertSame('anderer-lauf', $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)), 'Der fremde Merker bleibt stehen.');
+        $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-alt'));
+        $this->assertTrue($p['done']);
+        $this->assertSame(\Platform\Recruiting\Jobs\SendDispoConfirmations::FREMDER_LAUF, $p['message']);
+    }
+
+    public function test_auftrag_setzt_einen_verfallenen_laufmerker_neu(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('JOB-VERFALLEN');
+        $cache = $this->cache();
+        $gesehen = null;
+        $sender = new class(new DispoEmployeeGateway()) extends DispoConfirmationSender {
+            public ?\Closure $beimSenden = null;
+
+            public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null, ?\DateTimeInterface $laufStart = null): array
+            {
+                ($this->beimSenden)();
+
+                return ['ok' => true, 'message' => null, 'sent' => count($recipients), 'failed' => [], 'skipped' => 0];
+            }
+        };
+        $sender->beimSenden = function () use ($cache, $event, &$gesehen) {
+            $gesehen = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id));
+        };
+
+        (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-spaet', '2026-08-21 09:00:00'))->handle($cache, $sender);
+
+        $this->assertSame('uuid-spaet', $gesehen, 'Waehrend des Laufs ist die Veranstaltung gesperrt, auch wenn der Merker beim Warten verfiel.');
+    }
+
+    public function test_auftrag_arbeitet_in_paketen_und_zaehlt_ueber_alle_zusammen(): void
+    {
+        [$event] = $this->einEmpfaenger('JOB-PAKETE');
+        $cache = $this->cache();
+        $pakete = [];
+        $sender = new class(new DispoEmployeeGateway()) extends DispoConfirmationSender {
+            public array $pakete = [];
+            public array $start = [];
+
+            public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null, ?\DateTimeInterface $laufStart = null): array
+            {
+                $this->pakete[] = count($recipients);
+                $this->start[] = $laufStart?->format('Y-m-d H:i:s');
+                $fehl = count($this->pakete) === 2 ? [['employee_id' => (int) $recipients[0]['employee_id'], 'error' => 'nein']] : [];
+
+                return ['ok' => true, 'message' => null, 'sent' => count($recipients) - count($fehl) - 1, 'failed' => $fehl, 'skipped' => 1];
+            }
+        };
+        $alle = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $alle[] = ['employee_id' => $i, 'phone' => '+49151000' . $i, 'assignment_ids' => [$i], 'first_datum' => '2026-08-26', 'is_reminder' => false];
+        }
+
+        (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $alle, self::$templateId, null, 'uuid-pakete', '2026-08-21 09:00:00'))->handle($cache, $sender);
+
+        $this->assertSame([5, 5, 2], $sender->pakete);
+        $this->assertSame(['2026-08-21 09:00:00', '2026-08-21 09:00:00', '2026-08-21 09:00:00'], $sender->start, 'Der Planungszeitpunkt geht an jedes Paket.');
+        $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-pakete'));
+        $this->assertSame(8, $p['sent']);
+        $this->assertSame(3, $p['skipped']);
+        $this->assertSame([['employee_id' => 6, 'error' => 'nein']], $p['failed']);
+        $this->assertTrue($p['done']);
+    }
+
+    public function test_auftrag_reicht_den_planungszeitpunkt_bis_zum_riegel_durch(): void
+    {
+        // Erinnerung, die ein anderer Lauf NACH der Planung schon verschickt hat.
+        [$event, $recipients, $id] = $this->einEmpfaenger('JOB-ERINN', true);
+        RecDispoAssignment::query()->whereKey($id)->update(['reminder_sent_at' => '2026-08-21 09:00:30']);
+        $cache = $this->cache();
+
+        (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-erinn', '2026-08-21 09:00:00'))
+            ->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
+
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(1, $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-erinn'))['skipped']);
+    }
+
+    public function test_auftrag_uebersteht_die_warteschlange_unveraendert(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('JOB-SERIAL');
+        $job = new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, [1 => 'a', 2 => 'b', 3 => 'c'], 'uuid-serial', '2026-08-21 09:00:00');
+
+        $kopie = unserialize(serialize($job));
+
+        $this->assertSame($job->recipients, $kopie->recipients);
+        $this->assertSame([1 => 'a', 2 => 'b', 3 => 'c'], $kopie->escalationDue);
+        $this->assertSame('uuid-serial', $kopie->uuid);
+        $this->assertSame('2026-08-21 09:00:00', $kopie->geplantAm);
+        $this->assertSame(1, $kopie->tries);
+    }
+
+    public function test_failed_laesst_einen_lebenden_lauf_in_ruhe(): void
+    {
+        // Die Warteschlange gibt den Auftrag nach retry_after erneut frei, obwohl er noch sendet.
+        [$event, $recipients] = $this->einEmpfaenger('JOB-LEBT');
+        $cache = $this->cache();
+        Container::getInstance()->instance(\Illuminate\Contracts\Cache\Repository::class, $cache);
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), 'uuid-lebt', 600);
+        $stand = ['total' => 9, 'sent' => 4, 'skipped' => 0, 'failed' => [], 'started' => true, 'done' => false, 'message' => null, 'beat' => time() - 20];
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-lebt'), $stand, 600);
+
+        try {
+            (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-lebt', '2026-08-21 09:00:00'))
+                ->failed(new \RuntimeException('has been attempted too many times'));
+        } finally {
+            Container::getInstance()->forgetInstance(\Illuminate\Contracts\Cache\Repository::class);
+        }
+
+        $this->assertSame($stand, $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-lebt')), 'Kein „abgebrochen“, solange der Lauf sendet.');
+        $this->assertSame('uuid-lebt', $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)), 'Die Veranstaltung bleibt gesperrt.');
+    }
+
+    public function test_failed_schliesst_einen_toten_lauf_und_gibt_die_veranstaltung_frei(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('JOB-TOT');
+        $cache = $this->cache();
+        Container::getInstance()->instance(\Illuminate\Contracts\Cache\Repository::class, $cache);
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), 'uuid-tot', 600);
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-tot'), ['total' => 9, 'sent' => 4, 'skipped' => 0, 'failed' => [], 'started' => true, 'done' => false, 'message' => null, 'beat' => time() - \Platform\Recruiting\Jobs\SendDispoConfirmations::LEBENSZEICHEN_SEKUNDEN - 5], 600);
+
+        try {
+            (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-tot', '2026-08-21 09:00:00'))->failed(new \RuntimeException('Timeout'));
+        } finally {
+            Container::getInstance()->forgetInstance(\Illuminate\Contracts\Cache\Repository::class);
+        }
+
+        $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey('uuid-tot'));
+        $this->assertTrue($p['done']);
+        $this->assertSame(4, $p['sent'], 'Der bisherige Stand bleibt erhalten.');
+        $this->assertSame(\Platform\Recruiting\Jobs\SendDispoConfirmations::ABGEBROCHEN, $p['message']);
+        $this->assertNull($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)));
     }
 
     public function test_auftrag_meldet_fehlende_vorlage_und_endet(): void

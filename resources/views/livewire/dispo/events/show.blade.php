@@ -644,11 +644,17 @@
                         $spGestartet = !empty($sendProgress['started']);
                     @endphp
                     <div wire:poll.2s="sendFortschritt" class="space-y-3">
+                        @if ($sendLiefSchon)
+                            <div class="rounded bg-amber-50 p-3 text-sm text-amber-900">Für diese Veranstaltung läuft bereits ein Versand. Deine Eingaben in diesem Fenster wurden nicht gespeichert und es wurde nichts zusätzlich verschickt.</div>
+                        @endif
                         <div class="rounded bg-blue-50 p-3 text-sm text-blue-900">
                             @if ($spGestartet)
                                 <div class="font-medium">Der Versand läuft: {{ $spFertig }} von {{ $spGesamt }}</div>
                             @else
                                 <div class="font-medium">Der Versand startet gleich …</div>
+                                @if (!empty($sendProgress['wartet_lange']))
+                                    <div class="mt-1">Das dauert länger als üblich. Es wird nichts doppelt verschickt, der Versand beginnt, sobald er an der Reihe ist. Tut sich nach einigen Minuten nichts, gib bitte Bescheid.</div>
+                                @endif
                             @endif
                             <div class="mt-2 h-2 w-full overflow-hidden rounded bg-blue-100">
                                 <div class="h-2 rounded bg-blue-600" style="width: {{ $spProzent }}%"></div>
