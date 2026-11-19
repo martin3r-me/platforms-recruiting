@@ -196,4 +196,24 @@ final class MitarbeiterStatistikRechnerTest extends TestCase
         $c->drill('ohne', 'rueckmeldung:nein');
         $this->assertSame('ohne', $c->drillKostenstelle);
     }
+
+    public function test_empfaenger_nur_gueltige_adressen_ohne_doppelte(): void
+    {
+        $c = new \Platform\Recruiting\Livewire\Statistics\Mitarbeiter();
+        $c->neueAdresse = 'kein-at-zeichen';
+        $c->fuegeAdresseHinzu();
+        $this->assertSame([], $c->empfaengerListe);
+        $this->assertStringContainsString('keine gültige', $c->adressMeldung);
+
+        $c->neueAdresse = ' Clara@RheinGedeck.de ';
+        $c->fuegeAdresseHinzu();
+        $c->neueAdresse = 'clara@rheingedeck.de';
+        $c->fuegeAdresseHinzu();
+        $this->assertSame(['clara@rheingedeck.de'], $c->empfaengerListe);
+        $this->assertSame('', $c->adressMeldung);
+        $this->assertSame('', $c->neueAdresse);
+
+        $c->entferneEmpfaenger('clara@rheingedeck.de');
+        $this->assertSame([], $c->empfaengerListe);
+    }
 }

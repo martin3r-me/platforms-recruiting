@@ -196,10 +196,52 @@
                     <input type="checkbox" wire:model="reportAktiv">
                     <span>Report per E-Mail senden</span>
                 </label>
-                <label class="mt-3 block">
-                    <span>Empfänger (eine E-Mail-Adresse pro Zeile)</span>
-                    <textarea wire:model="empfaenger" rows="6" class="mt-1 w-full rounded border border-[var(--ui-border)] bg-white px-2 py-1 text-black"></textarea>
-                </label>
+                <div class="mt-3">
+                    <div class="mb-1">Empfänger</div>
+                    @if (count($empfaengerListe) === 0)
+                        <div class="text-xs text-[color:var(--ui-muted)]">Noch keine Empfänger.</div>
+                    @else
+                        <ul class="divide-y divide-[var(--ui-border)]/50 rounded border border-[var(--ui-border)]">
+                            @foreach ($empfaengerListe as $mail)
+                                <li wire:key="empf-{{ md5($mail) }}" class="flex items-center justify-between gap-3 px-3 py-1.5">
+                                    <span>
+                                        @if (isset($this->teamBenutzer[$mail]))
+                                            {{ $this->teamBenutzer[$mail] }} <span class="text-xs text-[color:var(--ui-muted)]">{{ $mail }}</span>
+                                        @else
+                                            {{ $mail }}
+                                        @endif
+                                    </span>
+                                    <button type="button" wire:click="entferneEmpfaenger(@js($mail))" class="text-[color:var(--ui-muted)] hover:text-red-700" title="Entfernen">✕</button>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="block">
+                            <span class="text-xs text-[color:var(--ui-muted)]">HCM-Benutzer hinzufügen</span>
+                            <select wire:model.live="neuerBenutzer" class="mt-1 w-full rounded border border-[var(--ui-border)] bg-white px-2 py-1 text-black">
+                                <option value="">– auswählen –</option>
+                                @foreach ($this->teamBenutzer as $mail => $benutzerName)
+                                    @if (!in_array($mail, $empfaengerListe, true))
+                                        <option value="{{ $mail }}">{{ $benutzerName }} ({{ $mail }})</option>
+                                    @endif
+                                @endforeach
+                            </select>
+                        </label>
+                        <div>
+                            <span class="text-xs text-[color:var(--ui-muted)]">Andere Adresse (ohne HCM-Zugang)</span>
+                            <div class="mt-1 flex gap-2">
+                                <input type="email" wire:model="neueAdresse" wire:keydown.enter.prevent="fuegeAdresseHinzu" placeholder="name@firma.de"
+                                    class="w-full rounded border border-[var(--ui-border)] bg-white px-2 py-1 text-black">
+                                <x-ui-button variant="secondary-outline" size="sm" wire:click="fuegeAdresseHinzu">Hinzufügen</x-ui-button>
+                            </div>
+                            @if ($adressMeldung !== '')
+                                <div class="mt-1 text-xs text-red-700">{{ $adressMeldung }}</div>
+                            @endif
+                        </div>
+                    </div>
+                </div>
             </div>
 
             @if ($einstellungenMeldung !== '')

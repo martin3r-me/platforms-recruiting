@@ -42,7 +42,18 @@ class Mitarbeiter extends Component
     #[\Livewire\Attributes\Locked]
     public array $sollAnzeige = [];
     public ?string $sollGueltigAb = null;
-    public string $empfaenger = '';
+    /**
+     * Empfänger des Reports als Liste — ausgewählt aus den HCM-Benutzern oder einzeln geprüft
+     * hinzugefügt, nie als Freitext (Sebastian 19.11.2026: „sodass er keinen Fehler machen kann“).
+     *
+     * @var list<string>
+     */
+    public array $empfaengerListe = [];
+    /** Auswahl in der Benutzerliste; wird beim Wählen sofort übernommen und geleert. */
+    public $neuerBenutzer = '';
+    /** Freie Adresse für Empfänger ohne HCM-Konto. */
+    public string $neueAdresse = '';
+    public string $adressMeldung = '';
     public bool $reportAktiv = false;
     public string $einstellungenMeldung = '';
 
@@ -240,18 +251,28 @@ class Mitarbeiter extends Component
         $this->sollAnzeige = $this->sollWerte;
         $this->sollGueltigAb = $heute;
         $settings = RecApplicantSettings::query()->where('team_id', $team)->first();
-        $this->empfaenger = implode("\n", (array) ($settings?->getSetting(Personalreport::SETTING_EMPFAENGER) ?? []));
+        $this->empfaengerListe = array_values(array_filter(array_map(
+            fn ($m) => mb_strtolower(trim((string) $m)),
+            (array) ($settings?->getSetting(Personalreport::SETTING_EMPFAENGER) ?? []),
+        ), fn ($m) => $m !== ''));
+        $this->neuerBenutzer = '';
+        $this->neueAdresse = '';
+        $this->adressMeldung = '';
         $this->reportAktiv = (bool) ($settings?->getSetting(Personalreport::SETTING_AKTIV) ?? false);
         $this->einstellungenMeldung = '';
         $this->showEinstellungen = true;
     }
 
-    /** Kostenstellen mit Soll-Feld: alle bekannten Niederlassungen plus alles, was in den Daten vorkommt. */
+    /**
+     * Kostenstellen mit Soll-Feld: nur die, in denen es aktive Mitarbeiter gibt, plus die, für die
+     * schon ein Soll gilt (damit es sich auch wieder ändern lässt). Niederlassungen aus der
+     * Konfiguration ohne Mitarbeiter (Wuppertal, Verwaltung) erscheinen nicht (Sebastian 19.11.2026).
+     */
     public function sollKostenstellen(): array
     {
-        $ks = array_keys(Filialen::all());
+        $ks = array_keys(RecKostenstellenSoll::geltend(self::teamId(), now()->toDateString()));
         foreach ($this->auswertung['zeilen'] as $z) {
-            if ($z['kostenstelle'] !== null) {
+            if ($z['kostenstelle'] !== null && $z['aktiv'] > 0) {
                 $ks[] = $z['kostenstelle'];
             }
         }
@@ -277,22 +298,14 @@ class Mitarbeiter extends Component
             return;
         }
 
-        $empfaenger = [];
-        foreach (preg_split('/[\s,;]+/', is_string($this->empfaenger) ? $this->empfaenger : '') ?: [] as $mail) {
-            $mail = mb_strtolower(trim($mail));
-            if ($mail === '') {
-                continue;
-            }
-            if (filter_var($mail, FILTER_VALIDATE_EMAIL) === false) {
-                $this->einstellungenMeldung = '„' . $mail . '“ ist keine gültige E-Mail-Adresse – nichts gespeichert.';
-
-                return;
-            }
-            $empfaenger[] = $mail;
-        }
-        $empfaenger = array_values(array_unique($empfaenger));
+        // Die Liste wird schon beim Hinzufügen geprüft; hier nur noch einmal als Schloss gegen
+        // einen gebastelten Request.
+        $empfaenger = array_values(array_unique(array_filter(
+            array_map(fn ($m) => is_string($m) ? mb_strtolower(trim($m)) : '', $this->empfaengerListe),
+            fn ($m) => filter_var($m, FILTER_VALIDATE_EMAIL) !== false,
+        )));
         if ($this->reportAktiv && $empfaenger === []) {
-            $this->einstellungenMeldung = 'Für den täglichen Report bitte mindestens eine E-Mail-Adresse eintragen.';
+            $this->einstellungenMeldung = 'Für den täglichen Report bitte mindestens einen Empfänger hinzufügen.';
 
             return;
         }
@@ -330,6 +343,76 @@ class Mitarbeiter extends Component
         unset($this->auswertung, $this->zeilen, $this->summe, $this->sollVerlauf);
         $this->showEinstellungen = false;
         $this->einstellungenMeldung = '';
+    }
+
+    /**
+     * HCM-Benutzer des Teams mit E-Mail-Adresse, zur Auswahl als Empfänger.
+     *
+     * @return array<string,string> email => Name
+     */
+    #[Computed]
+    public function teamBenutzer(): array
+    {
+        try {
+            $team = \Platform\Core\Models\Team::query()->find(self::teamId());
+            if ($team === null) {
+                return [];
+            }
+            $out = [];
+            foreach ($team->users()->get() as $u) {
+                if (($u->type ?? null) === 'ai_user') {
+                    continue; // KI-Benutzer bekommen keine Mails
+                }
+                $mail = mb_strtolower(trim((string) ($u->email ?? '')));
+                if ($mail === '' || filter_var($mail, FILTER_VALIDATE_EMAIL) === false) {
+                    continue;
+                }
+                $name = trim((string) ($u->fullname ?? '')) ?: trim((string) ($u->name ?? '')) ?: $mail;
+                $out[$mail] = $name;
+            }
+            asort($out, SORT_NATURAL | SORT_FLAG_CASE);
+
+            return $out;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    public function updatedNeuerBenutzer($value): void
+    {
+        $mail = is_string($value) ? mb_strtolower(trim($value)) : '';
+        $this->neuerBenutzer = '';
+        if ($mail !== '' && array_key_exists($mail, $this->teamBenutzer)) {
+            $this->fuegeEmpfaengerHinzu($mail);
+        }
+    }
+
+    public function fuegeAdresseHinzu(): void
+    {
+        $mail = mb_strtolower(trim($this->neueAdresse));
+        if ($mail === '') {
+            return;
+        }
+        if (filter_var($mail, FILTER_VALIDATE_EMAIL) === false) {
+            $this->adressMeldung = '„' . $mail . '“ ist keine gültige E-Mail-Adresse.';
+
+            return;
+        }
+        $this->fuegeEmpfaengerHinzu($mail);
+        $this->neueAdresse = '';
+    }
+
+    private function fuegeEmpfaengerHinzu(string $mail): void
+    {
+        $this->adressMeldung = '';
+        if (!in_array($mail, $this->empfaengerListe, true)) {
+            $this->empfaengerListe[] = $mail;
+        }
+    }
+
+    public function entferneEmpfaenger(string $mail): void
+    {
+        $this->empfaengerListe = array_values(array_filter($this->empfaengerListe, fn ($m) => $m !== $mail));
     }
 
     /** Verlauf der Sollzahlen (jüngste zuerst) für die Anzeige im Einstellungsfenster. */
