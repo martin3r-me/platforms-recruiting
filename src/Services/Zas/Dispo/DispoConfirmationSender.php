@@ -31,28 +31,46 @@ class DispoConfirmationSender
         private DispoEmployeeGateway $gateway,
         // Default, damit Controller/Command/Tests unveraendert bleiben.
         private DispoDressResolver $dress = new DispoDressResolver(),
+        // Pause vor dem zweiten Versuch (Sekunden); Tests setzen eine Attrappe.
+        private ?\Closure $pause = null,
     ) {}
+
+    /** Pause vor dem zweiten Versuch bei einer voruebergehenden Meta-Stoerung. */
+    public const PAUSE_SEKUNDEN = 2;
+
+    /**
+     * Meta-Fehlercodes, die „gleich nochmal“ bedeuten (Vorfall 19.11.2026: #2
+     * „Service temporarily unavailable“ und #131000 „Something went wrong“ mitten
+     * im Versand eines Spieltags). Dazu alles, was Meta selbst als is_transient meldet.
+     */
+    private const VORUEBERGEHEND = [2, 131000, 131016];
 
     /**
      * @param list<array{employee_id:int, phone:string, assignment_ids:list<int>, first_datum:string, is_reminder:bool}> $recipients
      * @return array{ok: bool, message: ?string, sent: int, failed: list<array{employee_id:int, error:string}>}
      */
     /** @param array{1:\DateTimeInterface,2:\DateTimeInterface,3:\DateTimeInterface}|null $escalationDue Eskalation pro Sendung: wird den Empfaengern mitgestempelt. */
-    public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null): array
+    /**
+     * $laufStart: Zeitpunkt, zu dem die Empfaengerliste geplant wurde (Hintergrund-Versand).
+     * Damit erkennt der Riegel vor jeder Nachricht auch eine Erinnerung, die ein anderer
+     * Lauf inzwischen schon verschickt hat. Rueckgabe zusaetzlich: skipped = so viele
+     * Empfaenger waren beim Versand schon angeschrieben und wurden ausgelassen.
+     */
+    public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null, ?\DateTimeInterface $laufStart = null): array
     {
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)
             || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
-            return ['ok' => false, 'message' => 'WhatsApp-Integrations-Modul nicht verfuegbar.', 'sent' => 0, 'failed' => []];
+            return ['ok' => false, 'message' => 'WhatsApp-Integrations-Modul nicht verfuegbar.', 'sent' => 0, 'failed' => [], 'skipped' => 0];
         }
 
         $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
         if (!$template || $template->status !== 'APPROVED') {
-            return ['ok' => false, 'message' => 'Template nicht gefunden oder nicht genehmigt.', 'sent' => 0, 'failed' => []];
+            return ['ok' => false, 'message' => 'Template nicht gefunden oder nicht genehmigt.', 'sent' => 0, 'failed' => [], 'skipped' => 0];
         }
 
         $channel = app(\Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver::class)->resolveForEvent($event);
         if (!$channel) {
-            return ['ok' => false, 'message' => 'Kein aktiver Kanal fuer diese Veranstaltung.', 'sent' => 0, 'failed' => []];
+            return ['ok' => false, 'message' => 'Kein aktiver Kanal fuer diese Veranstaltung.', 'sent' => 0, 'failed' => [], 'skipped' => 0];
         }
 
         $contacts = $this->gateway->contacts(array_column($recipients, 'employee_id'));
@@ -68,8 +86,16 @@ class DispoConfirmationSender
 
         $sent = 0;
         $failed = [];
+        $skipped = 0;
 
         foreach ($recipients as $recipient) {
+            // Riegel direkt vor der Nachricht (Vorfall 19.11.2026): die Liste wurde
+            // frueher geplant — hat ein anderer Lauf diese Person inzwischen
+            // angeschrieben, bekommt sie keine zweite Nachricht.
+            if ($this->inzwischenAngeschrieben($recipient, $laufStart)) {
+                $skipped++;
+                continue;
+            }
             $contact = $contacts[$recipient['employee_id']] ?? null;
             // Die in der Vorschau bestimmte Nummer gewinnt (eingebuchter Datensatz
             // zuerst, Gruppen-Fallback) — contacts() nur als letzte Reserve.
@@ -99,13 +125,25 @@ class DispoConfirmationSender
                     ],
                 ];
 
-                $message = $service->sendTemplate(
+                $senden = fn () => $service->sendTemplate(
                     channel:      $channel,
                     to:           $phone,
                     templateName: $template->name,
                     components:   $components,
                     languageCode: $template->language ?? 'de',
                 );
+                $message = $senden();
+
+                // Voruebergehende Stoerung bei Meta: kurz warten, EINMAL erneut.
+                // Nur bei einer ausdruecklichen Ablehnung — nie nach einer Exception
+                // (Zeitueberschreitung): dort kann Meta die Nachricht schon haben.
+                if (($message->status ?? null) === 'failed' && self::istVoruebergehend($message)) {
+                    Log::info('Dispo-Bestaetigung: Meta voruebergehend gestoert, zweiter Versuch', [
+                        'event_id' => $event->id, 'employee_id' => $recipient['employee_id'],
+                    ]);
+                    $this->pausieren();
+                    $message = $senden();
+                }
 
                 if (($message->status ?? null) === 'failed') {
                     $failed[] = [
@@ -167,7 +205,68 @@ class DispoConfirmationSender
             }
         }
 
-        return ['ok' => true, 'message' => null, 'sent' => $sent, 'failed' => $failed];
+        return ['ok' => true, 'message' => null, 'sent' => $sent, 'failed' => $failed, 'skipped' => $skipped];
+    }
+
+    /**
+     * Ist der Empfaenger seit dem Planen der Liste schon angeschrieben worden?
+     *  - Erstversand (mindestens eine Einbuchung war beim Planen ungestempelt):
+     *    ja, sobald ALLE seine Einbuchungen einen Stempel tragen.
+     *  - Erinnerung (alle waren schon gestempelt): ja, wenn alle Stempel ab dem
+     *    Planungszeitpunkt liegen. Ohne $laufStart (direkter Aufruf) nie —
+     *    dort gibt es keinen frueheren Planungszeitpunkt.
+     * Fehlt eine Einbuchung inzwischen ganz, wird gesendet wie bisher.
+     *
+     * @param array{assignment_ids:list<int>, is_reminder?:bool} $recipient
+     */
+    private function inzwischenAngeschrieben(array $recipient, ?\DateTimeInterface $laufStart): bool
+    {
+        $ids = array_values(array_map('intval', (array) ($recipient['assignment_ids'] ?? [])));
+        if ($ids === []) {
+            return false;
+        }
+        $erinnerung = !empty($recipient['is_reminder']);
+        if ($erinnerung && $laufStart === null) {
+            return false;
+        }
+
+        $stempel = RecDispoAssignment::query()->whereIn('id', $ids)->pluck('reminder_sent_at', 'id');
+        if ($stempel->count() !== count(array_unique($ids))) {
+            return false;
+        }
+        $grenze = $laufStart !== null ? \Illuminate\Support\Carbon::instance(\DateTime::createFromInterface($laufStart)) : null;
+        foreach ($stempel as $wert) {
+            if ($wert === null) {
+                return false;
+            }
+            if ($erinnerung && \Illuminate\Support\Carbon::parse($wert)->lessThan($grenze)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Meldet Meta die Ablehnung als voruebergehend (is_transient oder bekannter Code)? */
+    private static function istVoruebergehend(object $message): bool
+    {
+        $payload = $message->meta_payload ?? null;
+        $fehler = is_array($payload) ? ($payload['error'] ?? null) : null;
+        if (!is_array($fehler)) {
+            return false;
+        }
+
+        return !empty($fehler['is_transient']) || in_array((int) ($fehler['code'] ?? 0), self::VORUEBERGEHEND, true);
+    }
+
+    private function pausieren(): void
+    {
+        if ($this->pause !== null) {
+            ($this->pause)(self::PAUSE_SEKUNDEN);
+
+            return;
+        }
+        sleep(self::PAUSE_SEKUNDEN);
     }
 
     /**

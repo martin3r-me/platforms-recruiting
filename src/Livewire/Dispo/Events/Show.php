@@ -8,6 +8,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
+use Platform\Recruiting\Jobs\SendDispoConfirmations;
 use Platform\Recruiting\Models\RecDocument;
 use Platform\Recruiting\Services\DokumentService;
 use Platform\Recruiting\Services\DokumentZaehler;
@@ -130,8 +131,17 @@ class Show extends Component
     public string $escPlanT3 = '';
     /** Auswahl bei Mehrtages-VA: leer = alle Tage, sonst Y-m-d. */
     public string $sendDay = '';
-    /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
+    /** @var array{sent:int, skipped:int, message:?string, failed:list<array{employee_id:int, error:string}>}|null */
     public ?array $sendResult = null;
+    /**
+     * Laufender Hintergrund-Versand dieser Veranstaltung (Vorfall 19.11.2026): solange
+     * gesetzt, zeigt das Fenster den Fortschritt statt des Formulars. Nur der Server setzt sie.
+     */
+    #[Locked]
+    public ?string $sendJobUuid = null;
+    /** @var array{total:int, sent:int, skipped:int, failed:int, started:bool}|null */
+    #[Locked]
+    public ?array $sendProgress = null;
     /** Auswahl bei mehreren Teamleitungen (employee_id als String — Livewire-Typed-Property-Falle). */
     public string $leadChoice = '';
     /** true, wenn das Ansprechpartner-Feld beim Oeffnen automatisch aus der Teamleitung befuellt wurde. */
@@ -3657,6 +3667,9 @@ class Show extends Component
         $this->escPlanT2 = $eff['times'][2];
         $this->escPlanT3 = $eff['times'][3];
         $this->sendResult = null;
+        // Laeuft fuer diese Veranstaltung schon ein Versand (anderer Tab, andere
+        // Person, Seite neu geladen)? Dann den Fortschritt zeigen, kein Formular.
+        $this->laufendenVersandAufnehmen();
         $this->loadEscalationForm();
         $this->eskalationAngebotLaden();
         $this->resetErrorBag('escTime1');
@@ -3708,6 +3721,12 @@ class Show extends Component
 
     private function doSendConfirmations(): void
     {
+        // Ein Versand je Veranstaltung: laeuft schon einer, wird nichts gespeichert
+        // und nichts gestartet — das Fenster wechselt auf dessen Fortschritt.
+        if ($this->laufendenVersandAufnehmen()) {
+            return;
+        }
+
         $this->validate([
             'vorlaufMinuten'  => 'required|integer|min:0|max:480',
             'ansprechpartner' => 'nullable|string|max:255',
@@ -3795,16 +3814,137 @@ class Show extends Component
         }
 
         $preview = $this->sendPreview;
-        $result = app(DispoConfirmationSender::class)
-            ->send($event, $preview['recipients'], $templateId, $escDue);
-
-        if (!$result['ok']) {
-            $this->addError('vorlaufMinuten', (string) $result['message']);
+        $recipients = array_values($preview['recipients']);
+        if ($recipients === []) {
+            $this->sendResult = ['sent' => 0, 'skipped' => 0, 'message' => null, 'failed' => []];
+            unset($this->event, $this->sendPreview);
             return;
         }
 
-        $this->sendResult = ['sent' => $result['sent'], 'failed' => $result['failed']];
+        $this->versandImHintergrund($recipients, (int) $templateId, $escDue);
+    }
+
+    /**
+     * Hintergrund-Versand (Vorfall 19.11.2026): 170 Nachrichten dauern rund drei
+     * Minuten, der Lastverteiler kappt den Seitenaufruf nach einer. Der Klick
+     * legt den Versand nur noch in die Warteschlange.
+     *
+     * @param list<array<string, mixed>> $recipients
+     * @param array{1:\DateTimeInterface,2:\DateTimeInterface,3:\DateTimeInterface}|null $escDue
+     */
+    private function versandImHintergrund(array $recipients, int $templateId, ?array $escDue): void
+    {
+        $uuid = (string) \Symfony\Component\Uid\UuidV7::generate();
+        $laufKey = SendDispoConfirmations::laufKey($this->eventId);
+        // add() ist atomar: von zwei gleichzeitigen Klicks gewinnt genau einer.
+        if (!\Illuminate\Support\Facades\Cache::add($laufKey, $uuid, SendDispoConfirmations::LAUF_TTL_SECONDS)) {
+            $this->laufendenVersandAufnehmen();
+            return;
+        }
+
+        try {
+            \Illuminate\Support\Facades\Cache::put(
+                SendDispoConfirmations::cacheKey($uuid),
+                SendDispoConfirmations::initialProgress(count($recipients)),
+                SendDispoConfirmations::CACHE_TTL_SECONDS
+            );
+            $this->versandStarten(new SendDispoConfirmations(
+                (int) $this->eventId,
+                $recipients,
+                $templateId,
+                $escDue === null ? null : [
+                    1 => $escDue[1]->format('Y-m-d H:i:s'),
+                    2 => $escDue[2]->format('Y-m-d H:i:s'),
+                    3 => $escDue[3]->format('Y-m-d H:i:s'),
+                ],
+                $uuid,
+                now()->toDateTimeString(),
+            ));
+        } catch (\Throwable $e) {
+            // Nicht in die Warteschlange gekommen: Veranstaltung wieder freigeben.
+            \Illuminate\Support\Facades\Cache::forget($laufKey);
+            \Illuminate\Support\Facades\Log::error('dispo_send_dispatch_failed', ['event_id' => $this->eventId, 'error' => $e->getMessage()]);
+            $this->addError('vorlaufMinuten', 'Der Versand konnte nicht gestartet werden. Bitte erneut versuchen.');
+            return;
+        }
+
+        $this->sendJobUuid = $uuid;
+        $this->sendProgress = ['total' => count($recipients), 'sent' => 0, 'skipped' => 0, 'failed' => 0, 'started' => false];
         unset($this->event, $this->sendPreview); // Computed-Caches invalidieren
+    }
+
+    /** In die Warteschlange — getrennt, damit Tests ohne Bus den Auftrag nur sehen. */
+    protected function versandStarten(SendDispoConfirmations $job): void
+    {
+        dispatch($job);
+    }
+
+    /**
+     * Laeuft fuer diese Veranstaltung ein Versand? Dann dessen Kennung und Stand
+     * uebernehmen. Sonst beides leeren. Ein Cache-Fehler heisst „laeuft nicht“.
+     */
+    private function laufendenVersandAufnehmen(): bool
+    {
+        try {
+            $uuid = \Illuminate\Support\Facades\Cache::get(SendDispoConfirmations::laufKey($this->eventId));
+        } catch (\Throwable) {
+            $uuid = null;
+        }
+        if (!is_string($uuid) || $uuid === '') {
+            $this->sendJobUuid = null;
+            $this->sendProgress = null;
+
+            return false;
+        }
+        $this->sendJobUuid = $uuid;
+        $this->sendFortschritt();
+
+        return $this->sendJobUuid !== null;
+    }
+
+    /**
+     * Fortschritt des laufenden Versands lesen (vom Fenster alle 2 Sekunden gerufen).
+     * Ist er fertig, wird daraus das Ergebnis; das Formular kommt nicht zurueck.
+     */
+    public function sendFortschritt(): void
+    {
+        if ($this->sendJobUuid === null) {
+            return;
+        }
+        try {
+            $p = \Illuminate\Support\Facades\Cache::get(SendDispoConfirmations::cacheKey($this->sendJobUuid));
+        } catch (\Throwable) {
+            return; // naechster Aufruf versucht es erneut
+        }
+        if (!is_array($p)) {
+            // Stand verloren (Cache geleert): nicht endlos warten.
+            $this->sendJobUuid = null;
+            $this->sendProgress = null;
+            unset($this->event, $this->sendPreview);
+
+            return;
+        }
+
+        $failed = array_values((array) ($p['failed'] ?? []));
+        $this->sendProgress = [
+            'total'   => (int) ($p['total'] ?? 0),
+            'sent'    => (int) ($p['sent'] ?? 0),
+            'skipped' => (int) ($p['skipped'] ?? 0),
+            'failed'  => count($failed),
+            'started' => !empty($p['started']),
+        ];
+
+        if (!empty($p['done'])) {
+            $this->sendResult = [
+                'sent'    => (int) ($p['sent'] ?? 0),
+                'skipped' => (int) ($p['skipped'] ?? 0),
+                'message' => isset($p['message']) ? (string) $p['message'] : null,
+                'failed'  => $failed,
+            ];
+            $this->sendJobUuid = null;
+            $this->sendProgress = null;
+            unset($this->event, $this->sendPreview);
+        }
     }
 
     public function render()

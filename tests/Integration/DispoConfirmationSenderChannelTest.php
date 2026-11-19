@@ -304,7 +304,251 @@ class DispoConfirmationSenderChannelTest extends TestCase
             public function warning($message, array $context = []): void
             {
             }
+
+            public function info($message, array $context = []): void
+            {
+            }
         });
+    }
+
+    // ---- Hintergrund-Versand (Vorfall 19.11.2026) ----
+
+    /** @return array{0:RecDispoEvent, 1:list<array<string,mixed>>, 2:int} Veranstaltung, Empfaenger, Einbuchungs-id */
+    private function einEmpfaenger(string $ref, bool $erinnerung = false): array
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-' . $ref, 'name' => 'VA ' . $ref, 'filial_nr' => self::FILIAL_NR, 'vorlauf_minuten' => 30,
+        ]);
+        $id = (int) RecDispoAssignment::create([
+            'ds_ref' => 'DS-' . $ref, 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
+        ])->id;
+
+        return [$event, [[
+            'employee_id' => self::$employeeId, 'phone' => RecEmployee::find(self::$employeeId)->phone,
+            'assignment_ids' => [$id], 'first_datum' => '2026-08-26', 'is_reminder' => $erinnerung,
+        ]], $id];
+    }
+
+    /** Meta-Attrappe: die ersten $ablehnungen Aufrufe scheitern mit $fehler, danach „sent“. */
+    private function metaMitAblehnung(int $ablehnungen, array $fehler): object
+    {
+        $stub = new class {
+            public int $calls = 0;
+            public int $ablehnungen = 0;
+            public array $fehler = [];
+
+            public function sendTemplate($channel, string $to, string $templateName, array $components = [], string $languageCode = 'de', $sender = null, bool $isAutoReply = false): object
+            {
+                $this->calls++;
+                if ($this->calls <= $this->ablehnungen) {
+                    return (object) ['id' => 7000 + $this->calls, 'status' => 'failed', 'meta_payload' => ['error' => $this->fehler]];
+                }
+
+                return (object) ['id' => 7000 + $this->calls, 'status' => 'sent'];
+            }
+        };
+        $stub->ablehnungen = $ablehnungen;
+        $stub->fehler = $fehler;
+        Container::getInstance()->instance(WhatsAppMetaService::class, $stub);
+
+        return $stub;
+    }
+
+    public function test_inzwischen_angeschriebener_empfaenger_bekommt_keine_zweite_nachricht(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('SCHON');
+        // Ein anderer Lauf war schneller: die Einbuchung traegt schon den Stempel.
+        RecDispoAssignment::query()->whereKey($id)->update(['reminder_sent_at' => '2026-08-20 10:00:00', 'reminder_message_id' => 1]);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway()))->send($event, $recipients, self::$templateId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(0, $this->stub->calls, 'Schon angeschrieben: keine Nachricht an Meta.');
+        $this->assertSame(0, $result['sent']);
+        $this->assertSame(1, $result['skipped']);
+        $this->assertSame([], $result['failed']);
+        $this->assertSame(1, (int) RecDispoAssignment::find($id)->reminder_message_id, 'Der fremde Stempel bleibt unangetastet.');
+    }
+
+    public function test_erinnerung_geht_raus_wenn_der_stempel_aelter_ist_als_die_planung(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('ERINN-ALT', true);
+        RecDispoAssignment::query()->whereKey($id)->update(['reminder_sent_at' => '2026-08-20 10:00:00']);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway()))
+            ->send($event, $recipients, self::$templateId, null, new \DateTimeImmutable('2026-08-21 09:00:00'));
+
+        $this->assertSame(1, $this->stub->calls, 'Die Erinnerung ist gewollt: Stempel liegt VOR der Planung.');
+        $this->assertSame(1, $result['sent']);
+        $this->assertSame(0, $result['skipped']);
+    }
+
+    public function test_erinnerung_wird_ausgelassen_wenn_seit_der_planung_schon_gesendet_wurde(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('ERINN-NEU', true);
+        RecDispoAssignment::query()->whereKey($id)->update(['reminder_sent_at' => '2026-08-21 09:00:30']);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway()))
+            ->send($event, $recipients, self::$templateId, null, new \DateTimeImmutable('2026-08-21 09:00:00'));
+
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertSame(1, $result['skipped']);
+    }
+
+    public function test_erinnerung_ohne_planungszeitpunkt_wird_nie_ausgelassen(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('ERINN-DIREKT', true);
+        RecDispoAssignment::query()->whereKey($id)->update(['reminder_sent_at' => now()]);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway()))->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(1, $this->stub->calls, 'Direkter Aufruf ohne Planungszeitpunkt: Verhalten wie bisher.');
+        $this->assertSame(1, $result['sent']);
+    }
+
+    public function test_voruebergehende_meta_stoerung_wird_einmal_wiederholt(): void
+    {
+        $this->stubLog();
+        [$event, $recipients, $id] = $this->einEmpfaenger('RETRY-OK');
+        $meta = $this->metaMitAblehnung(1, ['message' => '(#2) Service temporarily unavailable', 'code' => 2, 'is_transient' => true]);
+        $pausen = [];
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway(), new \Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver(), function (int $s) use (&$pausen) {
+            $pausen[] = $s;
+        }))->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(2, $meta->calls, 'Erster Versuch abgelehnt, zweiter geht durch.');
+        $this->assertSame([DispoConfirmationSender::PAUSE_SEKUNDEN], $pausen);
+        $this->assertSame(1, $result['sent']);
+        $this->assertSame([], $result['failed']);
+        $this->assertSame(7002, (int) RecDispoAssignment::find($id)->reminder_message_id, 'Gestempelt wird die Nachricht des zweiten Versuchs.');
+    }
+
+    public function test_code_131000_gilt_als_voruebergehend(): void
+    {
+        $this->stubLog();
+        [$event, $recipients] = $this->einEmpfaenger('RETRY-131000');
+        $meta = $this->metaMitAblehnung(1, ['message' => '(#131000) Something went wrong', 'code' => 131000]);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway(), new \Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver(), fn (int $s) => null))
+            ->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(2, $meta->calls);
+        $this->assertSame(1, $result['sent']);
+    }
+
+    public function test_zweiter_versuch_scheitert_auch_dann_gilt_der_empfaenger_als_fehlgeschlagen(): void
+    {
+        $this->stubLog();
+        [$event, $recipients, $id] = $this->einEmpfaenger('RETRY-FAIL');
+        $meta = $this->metaMitAblehnung(5, ['message' => '(#2) Service temporarily unavailable', 'code' => 2, 'is_transient' => true]);
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway(), new \Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver(), fn (int $s) => null))
+            ->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(2, $meta->calls, 'Genau EIN zweiter Versuch, kein dritter.');
+        $this->assertSame(0, $result['sent']);
+        $this->assertCount(1, $result['failed']);
+        $this->assertSame('(#2) Service temporarily unavailable', $result['failed'][0]['error']);
+        $this->assertNull(RecDispoAssignment::find($id)->reminder_sent_at, 'Nicht zugestellt: kein Stempel, der Nachversand trifft die Person wieder.');
+    }
+
+    public function test_dauerhafte_ablehnung_wird_nicht_wiederholt(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('KEIN-RETRY');
+        $meta = $this->metaMitAblehnung(5, ['message' => '(#131026) Message undeliverable', 'code' => 131026]);
+        $pausen = 0;
+
+        $result = (new DispoConfirmationSender(new DispoEmployeeGateway(), new \Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver(), function (int $s) use (&$pausen) {
+            $pausen++;
+        }))->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(1, $meta->calls);
+        $this->assertSame(0, $pausen);
+        $this->assertCount(1, $result['failed']);
+    }
+
+    private function cache(): \Illuminate\Cache\Repository
+    {
+        return new \Illuminate\Cache\Repository(new \Illuminate\Cache\ArrayStore());
+    }
+
+    public function test_auftrag_sendet_schreibt_den_fortschritt_und_gibt_die_veranstaltung_frei(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('JOB-OK');
+        $cache = $this->cache();
+        $uuid = 'uuid-job-ok';
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), $uuid, 600);
+
+        $job = new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, [
+            1 => '2026-08-25 10:00:00', 2 => '2026-08-25 12:00:00', 3 => '2026-08-25 14:00:00',
+        ], $uuid, '2026-08-21 09:00:00');
+        $job->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
+
+        $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey($uuid));
+        $this->assertSame(['total' => 1, 'sent' => 1, 'skipped' => 0, 'failed' => [], 'started' => true, 'done' => true, 'message' => null], $p);
+        $this->assertNull($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)), 'Nach dem Lauf ist die Veranstaltung wieder frei.');
+        $a = RecDispoAssignment::find($id);
+        $this->assertNotNull($a->reminder_sent_at);
+        $this->assertSame('2026-08-25 12:00:00', $a->escalation_due_2_at->format('Y-m-d H:i:s'), 'Der eigene Erinnerungsplan kommt beim Empfaenger an.');
+    }
+
+    public function test_auftrag_laesst_einen_fremden_laufmerker_stehen(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('JOB-FREMD');
+        $cache = $this->cache();
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), 'anderer-lauf', 600);
+
+        (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, 'uuid-alt', '2026-08-21 09:00:00'))
+            ->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
+
+        $this->assertSame('anderer-lauf', $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)));
+    }
+
+    public function test_auftrag_meldet_fehlende_vorlage_und_endet(): void
+    {
+        [$event, $recipients, $id] = $this->einEmpfaenger('JOB-VORLAGE');
+        $cache = $this->cache();
+        $uuid = 'uuid-job-vorlage';
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), $uuid, 600);
+
+        (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, 999999, null, $uuid, '2026-08-21 09:00:00'))
+            ->handle($cache, new DispoConfirmationSender(new DispoEmployeeGateway()));
+
+        $p = $cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey($uuid));
+        $this->assertTrue($p['done']);
+        $this->assertSame(0, $p['sent']);
+        $this->assertSame('Template nicht gefunden oder nicht genehmigt.', $p['message']);
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertNull(RecDispoAssignment::find($id)->reminder_sent_at);
+        $this->assertNull($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)));
+    }
+
+    public function test_auftrag_gibt_die_veranstaltung_auch_bei_einem_absturz_frei(): void
+    {
+        [$event, $recipients] = $this->einEmpfaenger('JOB-ABSTURZ');
+        $cache = $this->cache();
+        $uuid = 'uuid-job-absturz';
+        $cache->put(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id), $uuid, 600);
+        $kaputt = new class(new DispoEmployeeGateway()) extends DispoConfirmationSender {
+            public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null, ?\DateTimeInterface $laufStart = null): array
+            {
+                throw new \RuntimeException('Datenbank weg');
+            }
+        };
+
+        try {
+            (new \Platform\Recruiting\Jobs\SendDispoConfirmations($event->id, $recipients, self::$templateId, null, $uuid, '2026-08-21 09:00:00'))
+                ->handle($cache, $kaputt);
+            $this->fail('Der Fehler muss durchschlagen, damit die Warteschlange ihn sieht.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Datenbank weg', $e->getMessage());
+        }
+
+        $this->assertTrue($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::cacheKey($uuid))['done'], 'Das Fenster darf nicht endlos warten.');
+        $this->assertNull($cache->get(\Platform\Recruiting\Jobs\SendDispoConfirmations::laufKey($event->id)));
     }
 
     private static function seedFixtures(): void
@@ -383,6 +627,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
             [$own, 'database/migrations/2026_08_21_000001_add_filial_nr_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000001_create_rec_dispo_filiale_settings_table.php'],
             [$own, 'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_04_000002_add_escalation_plan_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_09_04_000003_add_reminder_sent_to_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],

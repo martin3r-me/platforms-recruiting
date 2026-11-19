@@ -256,14 +256,17 @@ class DispoInfoImSendefensterTest extends DressTestCase
         $pruefen = strpos($methode, '$this->infoStehtAn()');
         $eskalation = strpos($methode, '$this->persistEscalation()');
         $hinterlegen = strpos($methode, '$this->infoHinterlegen($infoPersonen');
-        $senden = strpos($methode, '->send($event, $preview[\'recipients\'], $templateId, $escDue)');
+        // Seit 19.11.2026 geht der Versand ueber die Warteschlange (versandImHintergrund).
+        $senden = strpos($methode, '$this->versandImHintergrund($recipients, (int) $templateId, $escDue)');
+        $this->assertStringContainsString('$recipients = array_values($preview[\'recipients\']);', $methode, 'Empfaenger nur aus sendPreview');
 
         $this->assertNotFalse($pruefen);
         $this->assertNotFalse($hinterlegen);
         $this->assertNotFalse($senden);
         $this->assertLessThan($eskalation, $pruefen, 'Infos pruefen, bevor irgendetwas gespeichert wird');
         $this->assertLessThan($senden, $hinterlegen, 'erst hinterlegen, dann senden');
-        $this->assertSame(1, substr_count($methode, '->send('), 'genau ein Versand');
+        $this->assertSame(1, substr_count($methode, '$this->versandImHintergrund('), 'genau ein Versand');
+        $this->assertSame(0, substr_count($methode, '->send('), 'kein Versand mehr im Seitenaufruf');
         $this->assertStringNotContainsString('infoSendWhatsApp', $methode, 'aus dem Bestaetigungs-Fenster nie die WhatsApp „Neue Infos“');
 
         $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/dispo/events/show.blade.php');

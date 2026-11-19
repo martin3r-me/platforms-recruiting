@@ -635,7 +635,31 @@
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
 
-                @if ($sendResult === null)
+                @if ($sendJobUuid !== null)
+                    @php
+                        $spGesamt = (int) ($sendProgress['total'] ?? 0);
+                        $spFertig = (int) ($sendProgress['sent'] ?? 0) + (int) ($sendProgress['skipped'] ?? 0) + (int) ($sendProgress['failed'] ?? 0);
+                        $spProzent = $spGesamt > 0 ? (int) min(100, round($spFertig * 100 / $spGesamt)) : 0;
+                        $spFehler = (int) ($sendProgress['failed'] ?? 0);
+                        $spGestartet = !empty($sendProgress['started']);
+                    @endphp
+                    <div wire:poll.2s="sendFortschritt" class="space-y-3">
+                        <div class="rounded bg-blue-50 p-3 text-sm text-blue-900">
+                            @if ($spGestartet)
+                                <div class="font-medium">Der Versand läuft: {{ $spFertig }} von {{ $spGesamt }}</div>
+                            @else
+                                <div class="font-medium">Der Versand startet gleich …</div>
+                            @endif
+                            <div class="mt-2 h-2 w-full overflow-hidden rounded bg-blue-100">
+                                <div class="h-2 rounded bg-blue-600" style="width: {{ $spProzent }}%"></div>
+                            </div>
+                            @if ($spFehler > 0)
+                                <div class="mt-2 text-red-700">{{ $spFehler }} bisher fehlgeschlagen</div>
+                            @endif
+                        </div>
+                        <div class="text-sm text-gray-500">Die Nachrichten gehen im Hintergrund raus. Du kannst das Fenster schließen, der Versand läuft weiter. Solange er läuft, kann für diese Veranstaltung kein zweiter Versand gestartet werden.</div>
+                    </div>
+                @elseif ($sendResult === null)
                     @php
                         $preview = $this->sendPreview;
                         $eventDays = $this->eventDays;
@@ -841,7 +865,13 @@
                         @endforeach
                     </div>
                 @else
+                    @if (!empty($sendResult['message']))
+                        <div class="rounded bg-red-50 p-3 text-sm text-red-800">{{ $sendResult['message'] }}</div>
+                    @endif
                     <div class="rounded bg-green-50 p-3 text-sm text-green-800">{{ $sendResult['sent'] }} Nachricht(en) gesendet.</div>
+                    @if (($sendResult['skipped'] ?? 0) > 0)
+                        <div class="rounded bg-gray-50 p-3 text-sm text-gray-700">{{ $sendResult['skipped'] }} × ausgelassen, weil inzwischen schon angeschrieben.</div>
+                    @endif
                     @if ($infoBeiBestaetigung !== null)
                         <div class="rounded bg-green-50 p-3 text-sm text-green-800">Infos hinterlegt: {{ $infoBeiBestaetigung['attached'] }} × Datei, Hinweis an {{ $infoBeiBestaetigung['noted'] }} Einbuchung(en).</div>
                     @endif
@@ -856,7 +886,11 @@
                 @endif
                 </div>
                 <div class="shrink-0 border-t border-gray-100 px-6 py-4">
-                @if ($sendResult === null)
+                @if ($sendJobUuid !== null)
+                    <div class="flex justify-end">
+                        <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                    </div>
+                @elseif ($sendResult === null)
                     <div class="flex justify-end gap-3">
                         <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendConfirmations"
