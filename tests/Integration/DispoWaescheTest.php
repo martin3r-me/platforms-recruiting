@@ -81,6 +81,7 @@ class DispoWaescheTest extends ZeitTestCase
         $this->assertSame('ungueltig', $d->ausgeben($a, 'hemd', DispoWaesche::MAX_ANZAHL + 1, $x));
         $this->assertSame('ungueltig', $d->ausgeben($a, 'socke', 1, $x), 'unbekannter Artikel');
         $this->assertSame('ungueltig', $d->ausgeben($a, 'sonstiges', 1, $x, '   ', 500), 'Sonstiges ohne Namen');
+        $this->assertSame('ungueltig', $d->ausgeben($a, 'sonstiges', 1, $x, ' | ', 500), 'nur ein Trenner ist kein Name');
         $this->assertSame('ungueltig', $d->ausgeben($a, 'sonstiges', 1, $x, 'Hose', -1));
         $this->assertSame('ungueltig', $d->ausgeben($a, 'sonstiges', 1, $x, 'Hose', DispoWaesche::MAX_PREIS_CENT + 1));
         $this->assertSame(0, RecZeitWaesche::query()->count());

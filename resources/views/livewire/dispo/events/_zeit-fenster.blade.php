@@ -87,7 +87,7 @@
                         @else
                             <ul class="divide-y divide-gray-100 text-sm">
                                 @foreach ($zw['posten'] as $wp)
-                                    <li class="flex flex-wrap items-center justify-between gap-2 py-1.5" wire:key="waesche-{{ $wp['id'] }}">
+                                    <li class="flex flex-wrap items-center justify-between gap-2 py-1.5" wire:key="waesche-{{ $wp['id'] }}-{{ $wp['zurueck'] }}-{{ $waescheStand }}">
                                         <span class="text-gray-700">
                                             {{ $wp['anzahl'] }} × {{ $wp['name'] }}
                                             @if ($wp['sonstiges'])

@@ -210,6 +210,13 @@ class Show extends Component
     public string $waescheAnzahl = '1';
     public string $waescheName = '';
     public string $waescheEuro = '';
+
+    /**
+     * Zaehlt jeden Wäsche-Schreibversuch. Steht im wire:key der Posten: auch eine abgelehnte Rückgabe
+     * baut die Auswahl neu, sonst zeigte sie weiter den abgelehnten Wert (Livewire tauscht nur geaenderte
+     * Attribute) und ein falscher Abzug ginge an ZAS.
+     */
+    public int $waescheStand = 0;
     /** Person, fuer die das Fenster geoeffnet wurde: wechselt sie an der Zeile, wird nichts geschrieben. */
     #[Locked]
     public ?int $zeitEmployeeId = null;
@@ -2433,12 +2440,12 @@ class Show extends Component
         $preisCent = 0;
         if ($this->waescheArtikel === \Platform\Recruiting\Services\Zeit\Waesche\WaescheArtikel::SONSTIGES) {
             $euro = str_replace(',', '.', trim($this->waescheEuro));
-            if (!preg_match('/^\d{1,4}(\.\d{1,2})?$/', $euro)) {
-                $this->zeitFehler('waescheEuro', 'Bitte einen Preis in Euro angeben, z. B. 19,90.');
+            $preisCent = preg_match('/^\d{1,4}(\.\d{1,2})?$/', $euro) ? (int) round(((float) $euro) * 100) : -1;
+            if ($preisCent < 0 || $preisCent > \Platform\Recruiting\Services\Zeit\DispoWaesche::MAX_PREIS_CENT) {
+                $this->zeitFehler('waescheEuro', 'Bitte einen Preis bis 1.000 € angeben, z. B. 19,90.');
 
                 return;
             }
-            $preisCent = (int) round(((float) $euro) * 100);
         }
         $anzahl = ctype_digit(trim($this->waescheAnzahl)) ? (int) trim($this->waescheAnzahl) : 0;
         $status = $this->waescheSchreiben(fn ($dienst, $a, $akteur) => $dienst->ausgeben($a, $this->waescheArtikel, $anzahl, $akteur, $this->waescheName, $preisCent));
@@ -2480,11 +2487,13 @@ class Show extends Component
         $this->resetErrorBag();
         $akteur = $this->zeitAkteur();
         if ($akteur === null) {
+            $this->waescheStand++;
             $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
 
             return 'name';
         }
         $status = $schritt(app(\Platform\Recruiting\Services\Zeit\DispoWaesche::class), $a, $akteur);
+        $this->waescheStand++;
         unset($this->zeitWaesche);
         $this->zeitMeldung = match ($status) {
             'ok' => null,

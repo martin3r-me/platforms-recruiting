@@ -57,7 +57,8 @@ class DispoWaesche
             return 'ungueltig';
         }
         if ($key === WaescheArtikel::SONSTIGES) {
-            $name = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\p{C}]+/u', ' ', $name)));
+            // Wie die Zelle in der ZAS-Datei (| ist dort Trenner): sonst wird aus „|“ ein leerer Eintrag.
+            $name = \Platform\Recruiting\Services\Zas\Dispo\ZasZeitenExport::freitext($name);
             if ($name === '' || mb_strlen($name) > 80 || $preisCent < 0 || $preisCent > self::MAX_PREIS_CENT) {
                 return 'ungueltig';
             }

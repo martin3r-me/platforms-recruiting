@@ -194,7 +194,7 @@ class ZasZeitenExport
         return [
             'WAbzug' => WaescheRechner::euro($rechnung['abzugCent']),
             // Trenner wie in Wgross (Olaf 20.11.); ein | im Namen selbst wird zum Leerzeichen.
-            'Wfehlt' => implode('|', array_map(fn ($n) => self::freitext($n), $rechnung['fehlt'])),
+            'Wfehlt' => implode('|', array_values(array_filter(array_map(fn ($n) => self::freitext($n), $rechnung['fehlt']), fn ($n) => $n !== ''))),
         ];
     }
 

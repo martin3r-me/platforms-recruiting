@@ -494,6 +494,9 @@ class DispoZeitFensterTest extends ZeitTestCase
         $c->waescheEuro = 'abc';
         $c->waescheAusgeben();
         $this->assertNotNull($c->zeitMeldung, 'falscher Preis wird gemeldet');
+        $c->waescheEuro = '1000,01';
+        $c->waescheAusgeben();
+        $this->assertSame('Bitte einen Preis bis 1.000 € angeben, z. B. 19,90.', $c->zeitMeldung);
         $this->assertCount(2, $c->zeitWaesche['posten']);
 
         $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00', 'gesperrt_at' => '2026-10-01 21:00:00', 'gesperrt_grund' => 'erledigt']);
@@ -510,8 +513,10 @@ class DispoZeitFensterTest extends ZeitTestCase
         $c->zeitTeamleiter = '';
         $c->zeitTeamleiterFrei = true;
 
+        $stand = $c->waescheStand;
         $c->waescheAusgeben();
         $this->assertSame(\Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_NAME_FEHLT, $c->zeitMeldung);
+        $this->assertGreaterThan($stand, $c->waescheStand, 'auch ein abgelehnter Versuch baut die Auswahl neu');
         $this->assertSame([], $c->zeitWaesche['posten']);
 
         $c->zeitTeamleiter = 'Anna Leiter';
