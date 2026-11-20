@@ -263,5 +263,13 @@ class MitarbeiterStatistikDatenTest extends TestCase
         $beide = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'beide');
         $this->assertSame(['I, Ida', 'L, Lena', 'Steckel, Merle', 'T, Tom'], $sortiert($beide), 'Lena einmal, Udo nirgends');
         $this->assertSame(4, $beide['gesamt']['aktiv']);
+
+        // Status-Filter getrennt von der Firma
+        $nurGo = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'beide', 'GO');
+        $this->assertSame(['L, Lena', 'T, Tom'], $sortiert($nurGo), 'nur Status GO');
+        $nurMa = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'beide', 'MA');
+        $this->assertSame(['I, Ida', 'Steckel, Merle'], $sortiert($nurMa), 'nur Status MA, egal welche Firma');
+        $rgMa = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'RG', 'MA');
+        $this->assertSame(['Steckel, Merle'], $sortiert($rgMa), 'Firma RG + Status MA');
     }
 }

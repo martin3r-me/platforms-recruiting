@@ -27,6 +27,9 @@ class Mitarbeiter extends Component
     /** 'RG' (Standard) | 'MA' | 'beide' — untyped wie die anderen Selects. */
     public $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
 
+    /** ZAS-Status: 'beide' (GO und MA, Standard) | 'GO' | 'MA' — hat nichts mit der Firma zu tun. */
+    public $statusFilter = MitarbeiterStatistikRechner::STATUS_BEIDE;
+
     /** 'alle' | 'ohne' | Nummer der Kostenstelle — untyped wie die anderen Selects. */
     public $kostenstelleFilter = 'alle';
 
@@ -123,6 +126,19 @@ class Mitarbeiter extends Component
             : MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
     }
 
+    public function updatedStatusFilter($value): void
+    {
+        $this->statusFilter = $this->statusSicher();
+        $this->schliesseDrill();
+    }
+
+    private function statusSicher(): string
+    {
+        return (is_string($this->statusFilter) && array_key_exists($this->statusFilter, MitarbeiterStatistikRechner::STATUSFILTER))
+            ? $this->statusFilter
+            : MitarbeiterStatistikRechner::STATUS_BEIDE;
+    }
+
     public function updatedKostenstelleFilter($value): void
     {
         $this->kostenstelleFilter = (is_string($value) || is_int($value)) && $value !== '' ? (string) $value : 'alle';
@@ -139,7 +155,7 @@ class Mitarbeiter extends Component
     {
         $this->ordneZeitraumStill();
 
-        return app(MitarbeiterStatistikDaten::class)->auswerten(self::teamId(), now()->toDateString(), $this->von, $this->bis, $this->gesellschaftSicher());
+        return app(MitarbeiterStatistikDaten::class)->auswerten(self::teamId(), now()->toDateString(), $this->von, $this->bis, $this->gesellschaftSicher(), $this->statusSicher());
     }
 
     private function ordneZeitraumStill(): void
@@ -250,7 +266,8 @@ class Mitarbeiter extends Component
             default => self::kostenstellenName((int) $this->drillKostenstelle),
         };
 
-        return $merkmal . ' · ' . $ks . ' · ' . MitarbeiterStatistikRechner::GESELLSCHAFTEN[$this->gesellschaftSicher()];
+        return $merkmal . ' · ' . $ks . ' · ' . MitarbeiterStatistikRechner::GESELLSCHAFTEN[$this->gesellschaftSicher()]
+            . ' · Status ' . MitarbeiterStatistikRechner::STATUSFILTER[$this->statusSicher()];
     }
 
     // ---------------------------------------------------------------- Einstellungen

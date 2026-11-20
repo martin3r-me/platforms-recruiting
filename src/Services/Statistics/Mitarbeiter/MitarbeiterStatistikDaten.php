@@ -23,7 +23,7 @@ class MitarbeiterStatistikDaten
     /**
      * @return array{personen: list<array<string,mixed>>, zeilen: list<array<string,mixed>>, gesamt: array<string,mixed>, soll: array<int,int>, stichtag: string}
      */
-    public function auswerten(int $teamId, string $heute, string $von, string $bis, string $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG): array
+    public function auswerten(int $teamId, string $heute, string $von, string $bis, string $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG, string $statusFilter = MitarbeiterStatistikRechner::STATUS_BEIDE): array
     {
         $anstellungen = $this->anstellungen($teamId);
         $stichtag = min($bis, $heute);
@@ -32,7 +32,7 @@ class MitarbeiterStatistikDaten
         $nummern = $this->eingehendeNummern($von, $bis);
 
         $letzter = $this->letzterEinsatz(array_column($anstellungen, 'id'), $heute);
-        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis, $letzter, $gesellschaft);
+        $personen = MitarbeiterStatistikRechner::personen($anstellungen, $einsaetze, $nummern, $heute, $von, $bis, $letzter, $gesellschaft, $statusFilter);
         $soll = RecKostenstellenSoll::geltend($teamId, $stichtag);
         $zeilen = MitarbeiterStatistikRechner::jeKostenstelle($personen, $soll);
 

@@ -15,7 +15,7 @@
     $zeitraum = $fmtDatum($this->von) . ' – ' . $fmtDatum($this->bis);
     $stichtag = $fmtDatum($a['stichtag']);
     $regel = 'Aktiv = aktive Mitarbeiter der gewählten Gesellschaft, jede Person einmal (auch wenn sie bei RG und MA geführt wird). '
-        . 'Aktiv heißt Status GO oder MA in ZAS – der Status „MA“ hat nichts mit der Firma MA zu tun. Es zählen nur Einsätze der gewählten Gesellschaft. '
+        . 'Aktiv heißt Status GO oder MA in ZAS (über „Status“ einzeln wählbar) – der Status „MA“ hat nichts mit der Firma MA zu tun. Es zählen nur Einsätze der gewählten Gesellschaft. '
         . 'Produktiv = aktiv und mindestens ein disponierter Einsatz (Auftrag oder beendet, nicht abgesagt/verschwunden) '
         . 'in den 60 Tagen bis ' . $stichtag . '; ist das heute, zählen auch schon disponierte kommende Einsätze. '
         . 'Termine = disponierte Einsätze im gewählten Zeitraum bis heute. '
@@ -29,13 +29,22 @@
 
     <x-ui-panel title="Mitarbeiter" subtitle="Aktive und produktive Mitarbeiter je Kostenstelle — jede Zahl ist anklickbar" class="relative z-30">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <x-ui-input-select
-                name="gesellschaft"
-                label="Gesellschaft"
-                size="sm"
-                :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFTEN"
-                wire:model.live="gesellschaft"
-            />
+            <div class="grid grid-cols-2 gap-2">
+                <x-ui-input-select
+                    name="gesellschaft"
+                    label="Gesellschaft"
+                    size="sm"
+                    :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFTEN"
+                    wire:model.live="gesellschaft"
+                />
+                <x-ui-input-select
+                    name="statusFilter"
+                    label="Status (ZAS)"
+                    size="sm"
+                    :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::STATUSFILTER"
+                    wire:model.live="statusFilter"
+                />
+            </div>
             <x-ui-input-select
                 name="kostenstelleFilter"
                 label="Kostenstelle"

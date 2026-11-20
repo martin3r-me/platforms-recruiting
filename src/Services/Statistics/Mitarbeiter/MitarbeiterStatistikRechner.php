@@ -41,6 +41,19 @@ final class MitarbeiterStatistikRechner
         self::GESELLSCHAFT_BEIDE => 'RG und MA',
     ];
 
+    /**
+     * Status-Filter (Sebastian 20.11.2026): aktiv = ZAS-Status GO oder MA; wählbar „nur GO“, „nur MA“ oder beides.
+     * Status „MA“ = noch dabei, aber gerade nicht abrufbar — hat nichts mit der Firma MA zu tun.
+     */
+    public const STATUS_GO = 'GO';
+    public const STATUS_MA = 'MA';
+    public const STATUS_BEIDE = 'beide';
+    public const STATUSFILTER = [
+        self::STATUS_BEIDE => 'GO und MA',
+        self::STATUS_GO => 'GO',
+        self::STATUS_MA => 'MA',
+    ];
+
     /** Gehört die Anstellung zur gewählten Gesellschaft (Einsätze zählen mit)? */
     public static function inGesellschaft(array $a, string $gesellschaft): bool
     {
@@ -50,12 +63,21 @@ final class MitarbeiterStatistikRechner
     }
 
     /** Macht die Anstellung die Person in der gewählten Gesellschaft „aktiv“? */
-    public static function aktivIn(array $a, string $gesellschaft): bool
+    public static function aktivIn(array $a, string $gesellschaft, string $statusFilter = self::STATUS_BEIDE): bool
     {
         // Aktiv = ZAS-Status GO oder MA (Sebastian 20.11.2026: „als aktiv zählt status go und ma“); INAKTIV kommt
         // bei uns als is_active = false an. Status „MA“ (noch dabei, gerade nicht abrufbar) hat NICHTS mit der
         // Firma MA zu tun.
-        return $a['aktiv'] && self::inGesellschaft($a, $gesellschaft) && ($a['status'] ?? null) !== 'INAKTIV';
+        if (!$a['aktiv'] || !self::inGesellschaft($a, $gesellschaft)) {
+            return false;
+        }
+        $status = $a['status'] ?? null;
+        if ($status === 'INAKTIV') {
+            return false;
+        }
+
+        // Ohne gelieferten Status zählt die Anstellung nur bei „GO und MA“ (nichts verschwindet stillschweigend).
+        return $statusFilter === self::STATUS_BEIDE || $status === $statusFilter;
     }
 
     /** Stufen-Schlüssel => [min, max|null] */
@@ -83,7 +105,7 @@ final class MitarbeiterStatistikRechner
      *        Ladezeitraum — für die Wahl der Niederlassung bei zwei Kostenstellen (Review 19.11.)
      * @return list<array<string,mixed>> eine Zeile je AKTIVER Person
      */
-    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis, array $letzterEinsatzAllzeit = [], string $gesellschaft = self::GESELLSCHAFT_BEIDE): array
+    public static function personen(array $anstellungen, array $einsaetze, array $eingehendeNummern, string $heute, string $von, string $bis, array $letzterEinsatzAllzeit = [], string $gesellschaft = self::GESELLSCHAFT_BEIDE, string $statusFilter = self::STATUS_BEIDE): array
     {
         $stichtag = min($bis, $heute);
         // „letzte 60 Tage“ einschließlich des Stichtags
@@ -106,7 +128,7 @@ final class MitarbeiterStatistikRechner
         $out = [];
         foreach ($gruppen as $key => $liste) {
             usort($liste, fn ($x, $y) => $x['id'] <=> $y['id']);
-            $aktive = array_values(array_filter($liste, fn ($a) => self::aktivIn($a, $gesellschaft)));
+            $aktive = array_values(array_filter($liste, fn ($a) => self::aktivIn($a, $gesellschaft, $statusFilter)));
             if ($aktive === []) {
                 continue;
             }
