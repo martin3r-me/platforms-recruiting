@@ -204,6 +204,12 @@ class Show extends Component
     public bool $showZeitModal = false;
     #[Locked]
     public ?int $zeitAssignmentId = null;
+
+    /** Wäsche im Fenster „Zeit“ (Markus 18./20.11.2026): neuer Posten — fester Artikel oder „sonstiges“. */
+    public string $waescheArtikel = 'hemd';
+    public string $waescheAnzahl = '1';
+    public string $waescheName = '';
+    public string $waescheEuro = '';
     /** Person, fuer die das Fenster geoeffnet wurde: wechselt sie an der Zeile, wird nichts geschrieben. */
     #[Locked]
     public ?int $zeitEmployeeId = null;
@@ -2104,8 +2110,12 @@ class Show extends Component
         $this->zeitMeldung = null;
         $this->zeitGrund = '';
         $this->zeitOeffnenGrund = '';
+        $this->waescheArtikel = 'hemd';
+        $this->waescheAnzahl = '1';
+        $this->waescheName = '';
+        $this->waescheEuro = '';
         $this->resetErrorBag();
-        unset($this->zeitFenster);
+        unset($this->zeitFenster, $this->zeitWaesche);
     }
 
     /** Fuellt Formular und Schnappschuss aus dem Datensatz neu; der Grund wird geleert, ausser $grundBehalten. */
@@ -2402,6 +2412,89 @@ class Show extends Component
             $this->addError('zeitOeffnenGrund', 'Bitte einen Grund angeben.');
         }
         $this->zeitNachSchreiben($a, $status, 'oeffnen');
+    }
+
+    // ---- Wäsche im Fenster „Zeit“ ----
+
+    /** Posten und Rechnung der offenen Einbuchung; null ohne offenes Fenster. */
+    #[Computed]
+    public function zeitWaesche(): ?array
+    {
+        if (!$this->zeitAktiv || !$this->showZeitModal) {
+            return null;
+        }
+        $a = $this->zeitEinbuchung();
+
+        return $a === null ? null : app(\Platform\Recruiting\Services\Zeit\DispoWaesche::class)->liste($a);
+    }
+
+    public function waescheAusgeben(): void
+    {
+        $preisCent = 0;
+        if ($this->waescheArtikel === \Platform\Recruiting\Services\Zeit\Waesche\WaescheArtikel::SONSTIGES) {
+            $euro = str_replace(',', '.', trim($this->waescheEuro));
+            if (!preg_match('/^\d{1,4}(\.\d{1,2})?$/', $euro)) {
+                $this->zeitFehler('waescheEuro', 'Bitte einen Preis in Euro angeben, z. B. 19,90.');
+
+                return;
+            }
+            $preisCent = (int) round(((float) $euro) * 100);
+        }
+        $anzahl = ctype_digit(trim($this->waescheAnzahl)) ? (int) trim($this->waescheAnzahl) : 0;
+        $status = $this->waescheSchreiben(fn ($dienst, $a, $akteur) => $dienst->ausgeben($a, $this->waescheArtikel, $anzahl, $akteur, $this->waescheName, $preisCent));
+        if ($status === 'ok') {
+            $this->waescheAnzahl = '1';
+            $this->waescheName = '';
+            $this->waescheEuro = '';
+        }
+    }
+
+    /** $zurueck kommt als Text aus der Auswahl ($event.target.value). */
+    public function waescheZurueck(int $postenId, mixed $zurueck): void
+    {
+        $wert = is_int($zurueck) ? $zurueck : (ctype_digit(trim((string) $zurueck)) ? (int) trim((string) $zurueck) : -1);
+        $this->waescheSchreiben(fn ($dienst, $a, $akteur) => $dienst->zurueck($a, $postenId, $wert, $akteur));
+    }
+
+    public function waescheEntfernen(int $postenId): void
+    {
+        $this->waescheSchreiben(fn ($dienst, $a, $akteur) => $dienst->entfernen($a, $postenId));
+    }
+
+    /**
+     * Gemeinsamer Riegel: Schalter, Einbuchung unverändert, Name des Teamleiters am Eventzugang.
+     *
+     * @param \Closure(\Platform\Recruiting\Services\Zeit\DispoWaesche, RecDispoAssignment, \Platform\Recruiting\Zeit\ZeitAkteur): string $schritt
+     */
+    private function waescheSchreiben(\Closure $schritt): string
+    {
+        if (!$this->zeitAktiv) {
+            return 'aus';
+        }
+        $a = $this->zeitEinbuchung();
+        if ($a === null) {
+            $this->zeitWeg();
+
+            return 'weg';
+        }
+        $this->resetErrorBag();
+        $akteur = $this->zeitAkteur();
+        if ($akteur === null) {
+            $this->zeitFehler('zeitTeamleiter', self::ZEIT_NAME_FEHLT);
+
+            return 'name';
+        }
+        $status = $schritt(app(\Platform\Recruiting\Services\Zeit\DispoWaesche::class), $a, $akteur);
+        unset($this->zeitWaesche);
+        $this->zeitMeldung = match ($status) {
+            'ok' => null,
+            'gesperrt' => 'Die Zeit ist erledigt – die Wäsche ist damit gesperrt.',
+            'ungueltig' => 'Bitte Artikel, Anzahl (1–' . \Platform\Recruiting\Services\Zeit\DispoWaesche::MAX_ANZAHL . ') und bei „Sonstiges“ Bezeichnung und Preis prüfen.',
+            'weg' => 'Der Posten ist nicht mehr da – die Liste ist neu geladen.',
+            default => 'Das geht gerade nicht.',
+        };
+
+        return $status;
     }
 
     /** Meldung zum Ergebnis; bei ok Formular und Schnappschuss neu fuellen. Cache der Spalte und des Fensters verwerfen. */

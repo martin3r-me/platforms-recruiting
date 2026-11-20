@@ -469,6 +469,57 @@ class DispoZeitFensterTest extends ZeitTestCase
         $this->assertSame('fehlt noch · davon 1 kommt später', $offen['label'], 'wer schon da ist, zählt nicht mehr');
     }
 
+    public function test_waesche_im_fenster_ausgeben_rueckgabe_und_sperre(): void
+    {
+        $a = $this->einbuchung();
+        $c = $this->offen($a);
+
+        $c->waescheArtikel = 'weste';
+        $c->waescheAnzahl = '2';
+        $c->waescheAusgeben();
+        $c->waescheArtikel = 'sonstiges';
+        $c->waescheName = 'Hose';
+        $c->waescheEuro = '19,90';
+        $c->waescheAusgeben();
+        $this->assertNull($c->zeitMeldung);
+        $this->assertSame('', $c->waescheName, 'Eingabe nach dem Ausgeben geleert');
+
+        $w = $c->zeitWaesche;
+        $this->assertSame(['Weste', 'Hose'], array_column($w['posten'], 'name'));
+        $this->assertSame('79,90', $w['abzug']);
+
+        $c->waescheZurueck($w['posten'][0]['id'], '1'); // kommt als Text aus der Auswahl
+        $this->assertSame('49,90', $c->zeitWaesche['abzug']);
+
+        $c->waescheEuro = 'abc';
+        $c->waescheAusgeben();
+        $this->assertNotNull($c->zeitMeldung, 'falscher Preis wird gemeldet');
+        $this->assertCount(2, $c->zeitWaesche['posten']);
+
+        $this->eintrag($a, ['kommen_at' => '2026-10-01 12:00:00', 'gehen_at' => '2026-10-01 20:00:00', 'gesperrt_at' => '2026-10-01 21:00:00', 'gesperrt_grund' => 'erledigt']);
+        $c->waescheEntfernen($w['posten'][1]['id']);
+        $this->assertSame('Die Zeit ist erledigt – die Wäsche ist damit gesperrt.', $c->zeitMeldung);
+        $this->assertCount(2, $c->zeitWaesche['posten']);
+    }
+
+    public function test_waesche_am_eventzugang_nur_mit_teamleiter_namen(): void
+    {
+        $a = $this->einbuchung();
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->offen($a);
+        $c->zeitTeamleiter = '';
+        $c->zeitTeamleiterFrei = true;
+
+        $c->waescheAusgeben();
+        $this->assertSame(\Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_NAME_FEHLT, $c->zeitMeldung);
+        $this->assertSame([], $c->zeitWaesche['posten']);
+
+        $c->zeitTeamleiter = 'Anna Leiter';
+        $c->waescheAusgeben();
+        $this->assertCount(1, $c->zeitWaesche['posten']);
+        $this->assertSame('Anna Leiter (Eventzugang)', \Platform\Recruiting\Models\RecZeitWaesche::query()->value('ausgegeben_von'));
+    }
+
     // ---- Fix-Runde 1 ----
 
     public function test_portal_stempelt_gehen_waehrend_das_fenster_offen_ist(): void

@@ -70,6 +70,85 @@
                     <p class="text-xs text-gray-500">Zeiten werden auf die nächste Viertelstunde gerundet.</p>
                 @endif
 
+                @php
+                    $zw = $this->zeitWaesche;
+                    $zwArtikel = \Platform\Recruiting\Services\Zeit\Waesche\WaescheArtikel::fest();
+                @endphp
+                @if ($zw !== null)
+                    <div class="rounded-lg border border-gray-200 p-3">
+                        <div class="mb-2 flex items-baseline justify-between gap-2">
+                            <h3 class="text-sm font-medium text-gray-700">Wäsche</h3>
+                            @if ($zw['posten'] !== [])
+                                <span class="text-xs text-gray-500">Abzug Lohn: {{ $zw['abzug'] }} €</span>
+                            @endif
+                        </div>
+                        @if ($zw['posten'] === [])
+                            <p class="text-sm text-gray-400">Keine Wäsche ausgegeben.</p>
+                        @else
+                            <ul class="divide-y divide-gray-100 text-sm">
+                                @foreach ($zw['posten'] as $wp)
+                                    <li class="flex flex-wrap items-center justify-between gap-2 py-1.5" wire:key="waesche-{{ $wp['id'] }}">
+                                        <span class="text-gray-700">
+                                            {{ $wp['anzahl'] }} × {{ $wp['name'] }}
+                                            @if ($wp['sonstiges'])
+                                                <span class="text-xs text-gray-400">({{ $wp['preis'] }} €)</span>
+                                            @endif
+                                        </span>
+                                        <span class="flex items-center gap-2">
+                                            <label class="flex items-center gap-1 text-xs text-gray-600">
+                                                zurück
+                                                <select wire:change="waescheZurueck({{ $wp['id'] }}, $event.target.value)" @if ($zfNurLesen) disabled @endif
+                                                        class="rounded border border-gray-300 px-1 py-0.5 text-sm disabled:bg-gray-50 disabled:text-gray-500">
+                                                    @for ($n = 0; $n <= $wp['anzahl']; $n++)
+                                                        <option value="{{ $n }}" @if ($n === $wp['zurueck']) selected @endif>{{ $n }}</option>
+                                                    @endfor
+                                                </select>
+                                            </label>
+                                            @if (!$zfNurLesen)
+                                                <button type="button" wire:click="waescheEntfernen({{ $wp['id'] }})" wire:confirm="Posten entfernen?"
+                                                        class="rounded px-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-600" title="Entfernen">✕</button>
+                                            @endif
+                                        </span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                            @if ($zw['fehlt'] !== [])
+                                <p class="mt-1 text-xs text-amber-700">Noch nicht zurück: {{ implode(', ', $zw['fehlt']) }}</p>
+                            @endif
+                        @endif
+
+                        @if (!$zfNurLesen)
+                            <div class="mt-2 flex flex-wrap items-end gap-2 border-t border-gray-100 pt-2">
+                                <label class="block text-xs text-gray-600">
+                                    Artikel
+                                    <select wire:model.live="waescheArtikel" class="mt-0.5 block rounded border border-gray-300 px-2 py-1 text-sm">
+                                        @foreach ($zwArtikel as $wk => $wa)
+                                            <option value="{{ $wk }}">{{ $wa->name }}</option>
+                                        @endforeach
+                                        <option value="sonstiges">Sonstiges …</option>
+                                    </select>
+                                </label>
+                                <label class="block text-xs text-gray-600">
+                                    Anzahl
+                                    <input type="text" inputmode="numeric" wire:model="waescheAnzahl" class="mt-0.5 block w-14 rounded border border-gray-300 px-2 py-1 text-sm">
+                                </label>
+                                @if ($waescheArtikel === 'sonstiges')
+                                    <label class="block text-xs text-gray-600">
+                                        Bezeichnung
+                                        <input type="text" wire:model="waescheName" maxlength="80" placeholder="z. B. Hose" class="mt-0.5 block w-32 rounded border border-gray-300 px-2 py-1 text-sm">
+                                    </label>
+                                    <label class="block text-xs text-gray-600">
+                                        Preis €
+                                        <input type="text" inputmode="decimal" wire:model="waescheEuro" placeholder="19,90" class="mt-0.5 block w-20 rounded border border-gray-300 px-2 py-1 text-sm">
+                                    </label>
+                                @endif
+                                <button type="button" wire:click="waescheAusgeben" class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">Ausgeben</button>
+                            </div>
+                            @error('waescheEuro') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                        @endif
+                    </div>
+                @endif
+
                 @if (!$zfNurLesen)
                     <label class="block text-sm">
                         <span class="text-gray-600">Grund der Änderung <span class="text-red-600">*</span></span>
