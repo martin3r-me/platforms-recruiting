@@ -7,6 +7,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\PostmarkEmailService;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikDaten;
+use Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner;
 use Platform\Recruiting\Services\Statistics\Mitarbeiter\Personalreport;
 
 /**
@@ -59,8 +60,9 @@ class PersonalreportSenden extends Command
             return self::SUCCESS;
         }
 
-        // Report = RG (Markus 19.11.2026: „Es dürfen nur aktive Mitarbeiter der RG aufgeführt werden“).
-        $auswertung = $daten->auswerten($team, $heute, $heute, $heute, \Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFT_RG);
+        // Report = RG, Status nur GO (Markus 19.11.2026: „Es dürfen nur aktive Mitarbeiter der RG aufgeführt werden“;
+        // Sebastian 20.11.2026: „report nur go“ — deckt sich mit den ZAS-Zahlen).
+        $auswertung = $daten->auswerten($team, $heute, $heute, $heute, MitarbeiterStatistikRechner::GESELLSCHAFT_RG, MitarbeiterStatistikRechner::STATUS_GO);
         $link = null;
         try {
             $link = route('recruiting.statistics.employees');
