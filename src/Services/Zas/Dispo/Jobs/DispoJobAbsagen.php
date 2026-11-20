@@ -40,7 +40,7 @@ final class DispoJobAbsagen
                 'datum'         => $os->shift?->datum?->format('Y-m-d') ?? '',
                 'veranstaltung' => (string) ($os->shift?->event?->name ?? $os->shift?->event?->einsatz_ref ?? ''),
                 'schicht'       => trim(DispoJobZeit::spanne((string) $os->shift?->von, (string) $os->shift?->bis) . ' ' . (string) $os->shift?->taetigkeit),
-                'grund'         => JobOffersAbsage::GRUENDE[$os->declined_reason] ?? (string) $os->declined_reason,
+                'grund'         => self::grundLabel($os->declined_reason),
                 'notiz'         => (string) $os->declined_note,
                 'am'            => $os->declined_at?->format('d.m.Y H:i') ?? '',
             ])->all();
@@ -58,24 +58,57 @@ final class DispoJobAbsagen
             return [];
         }
         $rows = RecDispoJobOfferShift::query()->whereIn('shift_id', $shiftIds)->whereNotNull('declined_at')
-            ->with('offer:id,rec_employee_id')->orderBy('declined_at')->get();
+            ->with('offer:id,rec_employee_id,request_id')->orderBy('declined_at')->get();
         $ids = $rows->map(fn ($r) => (int) ($r->offer?->rec_employee_id ?? 0))->filter()->unique()->values()->all();
         $namen = $ids === [] ? [] : RecEmployee::query()->whereIn('id', $ids)->get(['id', 'first_name', 'last_name'])
             ->mapWithKeys(fn ($e) => [(int) $e->id => trim($e->first_name . ' ' . $e->last_name)])->all();
+        $nutzer = self::nutzerNamen($rows->pluck('ausgetragen_by_user_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all());
 
         $out = [];
         foreach ($rows as $r) {
             $id = (int) ($r->offer?->rec_employee_id ?? 0);
+            $ausgetragen = $r->declined_reason === DispoJobZusageAustragen::GRUND;
             $out[(int) $r->shift_id][] = [
-                'employee_id' => $id,
-                'name'        => $namen[$id] ?? ('#' . $id),
-                'grund'       => JobOffersAbsage::GRUENDE[$r->declined_reason] ?? (string) $r->declined_reason,
-                'notiz'       => (string) $r->declined_note,
-                'am'          => $r->declined_at?->format('d.m. H:i') ?? '',
+                'offer_shift_id' => (int) $r->id,
+                'request_id'     => (int) ($r->offer?->request_id ?? 0),
+                'employee_id'    => $id,
+                'name'           => $namen[$id] ?? ('#' . $id),
+                'grund'          => self::grundLabel($r->declined_reason),
+                'ausgetragen'    => $ausgetragen,
+                'von'            => $ausgetragen && $r->ausgetragen_by_user_id !== null ? ($nutzer[(int) $r->ausgetragen_by_user_id] ?? '') : '',
+                'notiz'          => (string) $r->declined_note,
+                'am'             => $r->declined_at?->format('d.m. H:i') ?? '',
             ];
         }
 
         return $out;
+    }
+
+    /** „Kann nicht“-Gruende wie auf der Jobseite; Austragung durch die Dispo eigene Zeile (Spec 2026-11-20). */
+    public static function grundLabel(?string $grund): string
+    {
+        if ($grund === DispoJobZusageAustragen::GRUND) {
+            return DispoJobZusageAustragen::GRUND_LABEL;
+        }
+
+        return JobOffersAbsage::GRUENDE[$grund] ?? (string) $grund;
+    }
+
+    /**
+     * @param list<int> $ids
+     * @return array<int, string>
+     */
+    private static function nutzerNamen(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        try {
+            return \Platform\Core\Models\User::query()->whereIn('id', $ids)->pluck('name', 'id')
+                ->mapWithKeys(fn ($n, $id) => [(int) $id => (string) $n])->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     private static function basis(array $employeeIds, string $seit)

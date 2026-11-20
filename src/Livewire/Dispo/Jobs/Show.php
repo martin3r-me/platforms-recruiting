@@ -30,6 +30,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobVorlagenWaechter;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZahlen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasHaken;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasStand;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageAustragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageVerschieben;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusagenInfo;
 
@@ -498,6 +499,79 @@ class Show extends Component
             $this->fehler = DispoJobZusageVerschieben::TEXTE[$ergebnis] ?? DispoJobZusageVerschieben::TEXTE[DispoJobZusageVerschieben::WEG];
         }
         unset($this->rueckmeldungen, $this->schichten, $this->fortschritt, $this->zasAndereSchicht);
+    }
+
+    /**
+     * Zusage austragen (Spec 2026-11-20 Punkt 2, Markus 20.11.2026): Platz wird
+     * frei, die Person bekommt die Schicht nicht noch einmal angeboten.
+     */
+    public function austragen(int $offerShiftId): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        $ergebnis = DispoJobZusageAustragen::ausfuehren($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
+        if ($ergebnis['ergebnis'] === DispoJobZusageAustragen::OK) {
+            $this->hinweis = DispoJobZusageAustragen::TEXTE[DispoJobZusageAustragen::OK]
+                . ($ergebnis['in_zas'] ? ' ' . DispoJobZusageAustragen::IN_ZAS_TEXT : '');
+        } else {
+            $this->fehler = DispoJobZusageAustragen::TEXTE[$ergebnis['ergebnis']] ?? DispoJobZusageAustragen::TEXTE[DispoJobZusageAustragen::WEG];
+        }
+        $this->nachAenderung();
+    }
+
+    /** Versehentlich ausgetragen: zurueck, solange der Platz frei ist. */
+    public function austragenRueckgaengig(int $offerShiftId): void
+    {
+        $this->fehler = '';
+        $this->hinweis = '';
+        $ergebnis = DispoJobZusageAustragen::zuruecknehmen($this->anfrage(), $offerShiftId);
+        if ($ergebnis === DispoJobZusageAustragen::OK) {
+            $this->hinweis = 'Austragen rückgängig gemacht — die Zusage gilt wieder.';
+        } else {
+            $this->fehler = DispoJobZusageAustragen::TEXTE[$ergebnis] ?? DispoJobZusageAustragen::TEXTE[DispoJobZusageAustragen::WEG];
+        }
+        $this->nachAenderung();
+    }
+
+    private function nachAenderung(): void
+    {
+        unset($this->rueckmeldungen, $this->schichten, $this->fortschritt, $this->zasAndereSchicht, $this->wiederFrei);
+    }
+
+    /**
+     * „N Plätze wieder frei“ (Spec 2026-11-20 Punkt 2): der Wellenplan ist zu
+     * Ende (keine Welle wartet oder laeuft) und danach wurde jemand ausgetragen.
+     * 0 = kein Hinweis. Laufen noch Wellen, bieten sie den Platz von selbst an.
+     */
+    #[Computed]
+    public function wiederFrei(): int
+    {
+        $r = $this->vorgang;
+        if (!self::istOffen($r) || !$r->darfSenden()) {
+            return 0;
+        }
+        $wellen = $r->waves()->get(['id', 'finished_at']);
+        if ($wellen->isEmpty() || $wellen->contains(fn ($w) => $w->finished_at === null)) {
+            return 0;
+        }
+        $ende = $wellen->max('finished_at');
+        $ausgetragen = RecDispoJobOfferShift::query()
+            ->where('declined_reason', DispoJobZusageAustragen::GRUND)
+            ->where('declined_at', '>=', $ende)
+            ->whereHas('offer', fn ($q) => $q->where('request_id', $r->id))
+            ->exists();
+        if (!$ausgetragen) {
+            return 0;
+        }
+        $offen = array_column(DispoJobGedeckt::offeneSchichten($r), 'id');
+        $frei = 0;
+        foreach ($this->schichten as $s) {
+            if (in_array((int) $s->id, $offen, true)) {
+                $frei += max(0, (int) $s->gesucht - (int) $s->zugesagt);
+            }
+        }
+
+        return $frei;
     }
 
     /**

@@ -897,7 +897,7 @@
                             <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $absagen['anzahl'] }}</span>
                         </div>
                         @if ($absagen['liste'] === [])
-                            <p class="mt-1 text-sm text-gray-500">Keine Absage über „Kann nicht“ in den letzten 60 Tagen.</p>
+                            <p class="mt-1 text-sm text-gray-500">Keine Absage („Kann nicht“ oder von der Dispo ausgetragen) in den letzten 60 Tagen.</p>
                         @else
                             <ul class="mt-2 space-y-1 text-sm text-gray-700">
                                 @foreach ($absagen['liste'] as $ab)

@@ -96,6 +96,31 @@ class DispoDeclineTest extends TestCase
         $this->assertNull($vaTag2->refresh()->declined_at);
     }
 
+    /** Spec 2026-11-20 Punkt 3: Absage einer Person, die ueber eine Wellen-Zusage kam → Zusage ausgetragen. */
+    public function test_absage_traegt_verknuepfte_wellen_zusage_aus(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-DEC-WELLE']);
+        $e = $this->employee('RG77');
+        $tag = $this->row($event->id, $e->id, 'DS-W1', now()->addDays(2)->toDateString());
+        $andererTag = $this->row($event->id, $e->id, 'DS-W2', now()->addDays(3)->toDateString());
+
+        $r = \Platform\Recruiting\Models\RecDispoJobRequest::create(['team_id' => self::TEAM, 'filial_nr' => 200, 'zeitraum_von' => now()->toDateString(),
+            'zeitraum_bis' => now()->addDays(10)->toDateString(), 'modus' => 'zuerst', 'status' => 'laeuft', 'created_by_user_id' => 1]);
+        $s1 = $r->shifts()->create(['rec_dispo_event_id' => $event->id, 'datum' => now()->addDays(2)->toDateString(), 'von' => '09:00', 'taetigkeit' => 'Service', 'gesucht' => 1, 'closed_at' => now()]);
+        $s2 = $r->shifts()->create(['rec_dispo_event_id' => $event->id, 'datum' => now()->addDays(3)->toDateString(), 'von' => '09:00', 'taetigkeit' => 'Service', 'gesucht' => 1]);
+        $offer = \Platform\Recruiting\Models\RecDispoJobOffer::create(['wave_id' => 1, 'request_id' => $r->id, 'rec_employee_id' => $e->id, 'anchor_employee_id' => $e->id, 'sent_at' => now()]);
+        $z1 = \Platform\Recruiting\Models\RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $s1->id, 'accepted_at' => now(), 'zas_assignment_id' => $tag->id]);
+        $z2 = \Platform\Recruiting\Models\RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $s2->id, 'accepted_at' => now(), 'zas_assignment_id' => $andererTag->id]);
+
+        (new DispoDecline(new DispoEmployeeGateway()))->apply((int) $event->id, [(int) $tag->id], [$e->id], 'krank', null, false, false, 42);
+
+        $this->assertNull($z1->refresh()->accepted_at, 'abgesagter Tag: Zusage ausgetragen');
+        $this->assertSame('ausgetragen', $z1->declined_reason);
+        $this->assertSame(42, $z1->ausgetragen_by_user_id);
+        $this->assertNull($s1->refresh()->closed_at, 'Platz wieder frei');
+        $this->assertNotNull($z2->refresh()->accepted_at, 'anderer Tag bleibt');
+    }
+
     public function test_apply_locks_the_portal_group_wide_only_when_asked(): void
     {
         $event = RecDispoEvent::create(['einsatz_ref' => 'E-DEC-2']);
@@ -177,6 +202,16 @@ class DispoDeclineTest extends TestCase
             'database/migrations/2026_09_04_000002_add_escalation_plan_to_rec_dispo_assignments.php',
             'database/migrations/2026_09_04_000003_add_reminder_sent_to_to_rec_dispo_assignments.php',
             'database/migrations/2026_09_04_000004_add_manual_confirm_to_rec_dispo_assignments.php',
+            // Zusage austragen bei Absage (Spec 2026-11-20 Punkt 3)
+            'database/migrations/2026_10_13_000001_create_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_13_000002_add_anlass_to_rec_dispo_job_requests.php',
+            'database/migrations/2026_10_14_000001_add_bis_to_rec_dispo_job_shifts.php',
+            'database/migrations/2026_10_20_000001_add_stati_to_rec_dispo_job_waves.php',
+            'database/migrations/2026_10_27_000001_add_wellen_to_rec_dispo_job_tables.php',
+            'database/migrations/2026_10_29_000002_add_dispoposten_id_to_rec_dispo_job_shifts.php',
+            'database/migrations/2026_10_30_000001_add_zas_exported_at_to_rec_dispo_job_offer_shifts.php',
+            'database/migrations/2026_11_13_000001_add_versandweg_freigabe_to_rec_dispo_job_tables.php',
+            'database/migrations/2026_11_20_000001_add_ausgetragen_to_rec_dispo_job_offer_shifts.php',
         ];
 
         foreach ($files as $relative) {

@@ -47,6 +47,8 @@ class JobOffers extends Component
 
     /** „Kann nicht“ (nur Dringend, Spec 2026-10-27 §5): aufgeklappte Angebots-Schicht, Grund, Notiz. Besitz prueft der Dienst. */
     public ?int $absageOffen = null;
+    /** Offenes Bestaetigungs-Fenster „verbindlich gebucht“ (Spec 2026-11-20 Punkt 1, Markus 19.11.2026). */
+    public ?int $zusageOffen = null;
     public string $absageGrund = '';
     public string $absageNotiz = '';
 
@@ -108,8 +110,21 @@ class JobOffers extends Component
         return JobOffersLaden::gruppen($this->employeeIds, (int) $this->employeeId, $this->firstName, $this->anfrageId);
     }
 
+    /** Erster Klick auf „Ich bin dabei“: nur das Fenster oeffnen — gespeichert wird erst mit „OK“. */
+    public function zusageFragen(int $offerShiftId): void
+    {
+        $this->zusageOffen = $offerShiftId;
+        $this->hinweis = '';
+    }
+
+    public function zusageAbbrechen(): void
+    {
+        $this->zusageOffen = null;
+    }
+
     public function zusagen(int $offerShiftId): void
     {
+        $this->zusageOffen = null;
         if ($this->employeeId === null || $this->portalLocked) {
             return;
         }

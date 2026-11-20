@@ -6,20 +6,36 @@ use Platform\Recruiting\Models\RecDispoJobRequest;
 use Platform\Recruiting\Models\RecDispoJobShift;
 
 /**
- * „Personalbedarf gedeckt“ je Schicht (Spec 2026-10-27 §4): die Zusagen
- * reichen (Markus: „wenn die Zusagen ausreichen im HCM ist die VA gedeckt“)
- * ODER von Hand markiert. Gilt in beiden Modi fuer den Versand; die Seite
- * schliesst im Modus „zuerst“ zusaetzlich ueber closed_at wie bisher.
+ * „Personalbedarf gedeckt“ je Schicht (Spec 2026-10-27 §4): von Hand markiert
+ * ODER — nur im Modus „zuerst“ — die Zusagen reichen. Im Modus „sammeln“ bieten
+ * die Wellen weiter an, bis die Dispo die Schicht selbst als gedeckt markiert
+ * (Spec 2026-11-20 Punkt 4, Janine 19.11.: „nach 2 Einbuchungen zählt die
+ * Schicht als gedeckt“; Markus 20.11. „so bitte umsetzen“). Die Seite schliesst
+ * im Modus „zuerst“ zusaetzlich ueber closed_at wie bisher.
  */
 final class DispoJobGedeckt
 {
-    /** @param object|array<string,mixed> $shift mit gesucht, gedeckt_manuell_at (und optional zugesagt) */
-    public static function istGedeckt(object|array $shift, ?int $zugesagt = null): bool
+    /**
+     * @param object|array<string,mixed> $shift mit gesucht, gedeckt_manuell_at (und optional zugesagt)
+     * @param string $modus Modus der Anfrage (RecDispoJobRequest::MODUS_*)
+     */
+    public static function istGedeckt(object|array $shift, ?int $zugesagt, string $modus): bool
     {
         $feld = fn (string $n) => is_array($shift) ? ($shift[$n] ?? null) : ($shift->{$n} ?? null);
         if ($feld('gedeckt_manuell_at') !== null) {
             return true;
         }
+        if ($modus !== RecDispoJobRequest::MODUS_ZUERST) {
+            return false;
+        }
+
+        return self::genugZusagen($shift, $zugesagt);
+    }
+
+    /** Zusagen erreichen das Soll — im Modus „sammeln“ nur ein Hinweis an die Dispo. */
+    public static function genugZusagen(object|array $shift, ?int $zugesagt = null): bool
+    {
+        $feld = fn (string $n) => is_array($shift) ? ($shift[$n] ?? null) : ($shift->{$n} ?? null);
         $gesucht = (int) $feld('gesucht');
         $zugesagt ??= (int) $feld('zugesagt');
 
@@ -38,7 +54,7 @@ final class DispoJobGedeckt
             ->whereDate('datum', '>=', now()->toDateString())
             ->orderBy('datum')->orderBy('von')
             ->get()
-            ->reject(fn (RecDispoJobShift $s) => self::istGedeckt($s, (int) $s->zugesagt))
+            ->reject(fn (RecDispoJobShift $s) => self::istGedeckt($s, (int) $s->zugesagt, (string) $request->modus))
             ->map(fn (RecDispoJobShift $s) => ['id' => (int) $s->id, 'datum' => $s->datum->format('Y-m-d'), 'taetigkeit' => (string) $s->taetigkeit,
                 'event' => (int) $s->rec_dispo_event_id, 'von' => (string) $s->von, 'bis' => (string) $s->bis])
             ->values()->all();

@@ -118,7 +118,8 @@ final class DispoJobsRunde2WiringTest extends TestCase
     {
         $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
         $this->assertStringNotContainsString('btn-link', $view);
-        $this->assertMatchesRegularExpression('/class="btn-ja" wire:click="zusagen\(.+?\)"[^>]*>Ich bin dabei</', $view);
+        // Seit 20.11.2026 oeffnet „Ich bin dabei“ erst das Fenster „verbindlich gebucht“ (zusageFragen), gespeichert wird mit OK.
+        $this->assertMatchesRegularExpression('/class="btn-ja" wire:click="zusageFragen\(.+?\)"[^>]*>Ich bin dabei</', $view);
         $this->assertMatchesRegularExpression('/class="btn-rot" wire:click="absageOeffnen\(.+?\)"[^>]*>Ich kann nicht</', $view);
         // Andere Anlaesse behalten ihren einen Knopf.
         $this->assertStringContainsString("@if (!\$shift['dringend'])", $view);
@@ -129,7 +130,13 @@ final class DispoJobsRunde2WiringTest extends TestCase
     {
         $view = self::datei('resources/views/livewire/public/job-offers.blade.php');
         $this->assertStringNotContainsString('background:#fff', $view);
-        $this->assertStringNotContainsString('rgba(0,0,0', $view);
+        // Die Absage-Box selbst ohne feste dunkle Toene; die Abdunkelung hinter dem Zusage-Fenster
+        // (20.11.2026) ist in beiden Modi dunkel gewollt.
+        preg_match_all('/\.absage[^{]*\{[^}]*\}/', $view, $regeln);
+        $this->assertNotEmpty($regeln[0]);
+        foreach ($regeln[0] as $regel) {
+            $this->assertStringNotContainsString('rgba(0,0,0', $regel);
+        }
         $this->assertMatchesRegularExpression('/\.absage textarea\{[^}]*background:var\(--surface\); color:var\(--ink\)/', $view);
     }
 

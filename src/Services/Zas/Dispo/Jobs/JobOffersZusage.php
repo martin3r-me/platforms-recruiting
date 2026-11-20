@@ -118,7 +118,7 @@ final class JobOffersZusage
      * anderen Anfrage (Schwester, gleicher Schluessel) zaehlt nicht — der Klick
      * sagt ihr gerade mit zu. Sperrend gelesen wie die Vollzaehlung.
      */
-    private static function tagBelegt(RecDispoJobShift $shift, array $employeeIds): bool
+    public static function tagBelegt(RecDispoJobShift $shift, array $employeeIds): bool
     {
         $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->bis, $shift->taetigkeit);
         // Erst die Angebote der Person (ohne Sperre), dann sperrend nur ueber deren offer_id-Index —

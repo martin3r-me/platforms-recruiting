@@ -413,7 +413,8 @@ class SendDispoJobWaveJobTest extends TestCase
     public function test_auto_welle_bei_gedecktem_bedarf_sendet_nichts_und_kettet_nicht(): void
     {
         [$request, $wave] = $this->anfrage();
-        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 60]);
+        // Automatisch gedeckt nur im Modus „zuerst“ (Spec 2026-11-20 Punkt 4).
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 60, 'modus' => RecDispoJobRequest::MODUS_ZUERST]);
         $shift = $request->shifts()->first();
         $shift->update(['gesucht' => 1]);
         $anna = $this->employee('Anna', '0176 12345678');
@@ -431,6 +432,27 @@ class SendDispoJobWaveJobTest extends TestCase
         $this->assertSame('bedarf_gedeckt', $wave->fresh()->summary['gestoppt']);
         $this->assertNotNull($wave->fresh()->finished_at);
         $this->assertSame(2, $request->waves()->count(), 'keine dritte Welle');
+    }
+
+    /** Spec 2026-11-20 Punkt 4 (Janine 19.11.): „sammeln“ bietet weiter an, obwohl die Zusagen reichen. */
+    public function test_sammeln_bietet_trotz_genug_zusagen_weiter_an(): void
+    {
+        [$request, $wave] = $this->anfrage();
+        $request->update(['welle_max' => 1, 'welle_abstand_minuten' => 60]);
+        $shift = $request->shifts()->first();
+        $shift->update(['gesucht' => 1]);
+        $anna = $this->employee('Anna', '0176 12345678');
+        $this->employee('Ben', '0176 87654321');
+        $alt = $request->waves()->create(['nr' => 0, 'ma_bloecke' => [200], 'gruppen' => ['alle'], 'nur_passende_taetigkeit' => false, 'started_at' => now(), 'finished_at' => now()]);
+        $offer = RecDispoJobOffer::create(['wave_id' => $alt->id, 'request_id' => $request->id, 'rec_employee_id' => $anna, 'anchor_employee_id' => $anna, 'sent_at' => now()]);
+        \Platform\Recruiting\Models\RecDispoJobOfferShift::create(['offer_id' => $offer->id, 'shift_id' => $shift->id, 'accepted_at' => now()]);
+        $wave->update(['auto' => true]);
+
+        $job = $this->jobOhneBus($wave->id);
+        $job->handle($this->cache(), $this->sender());
+
+        $this->assertSame(1, $this->stub->calls, 'Ben bekommt das Angebot');
+        $this->assertNull($wave->fresh()->summary['gestoppt'] ?? null);
     }
 
     public function test_von_hand_gedeckte_schicht_wird_nicht_angeboten(): void

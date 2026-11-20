@@ -32,6 +32,17 @@
 .rg-crew .absage .btn-nein{flex:1 1 150px; white-space:nowrap; border:1px solid var(--crit); border-radius:var(--r); padding:11px; background:var(--surface); color:var(--crit); font-size:14px; font-weight:600; cursor:pointer}
 .rg-crew .evhead .satz{margin-top:4px; font-size:13.5px; opacity:.92}
 .rg-crew .evhead .bis{margin-top:6px; font-size:13px; font-weight:700}
+.rg-crew .zusage-fenster{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.45)}
+.rg-crew .zusage-box{width:100%; max-width:380px; background:var(--surface); color:var(--ink); border-radius:var(--r); padding:18px 18px 16px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.rg-crew .zusage-box .titel{font-family:var(--display); font-size:18px}
+.rg-crew .zusage-box .ort{margin-top:2px; font-size:13px; color:var(--ink-2)}
+.rg-crew .zusage-box dl{display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:12px 0 0; font-size:14px}
+.rg-crew .zusage-box dt{color:var(--ink-2)}
+.rg-crew .zusage-box dd{margin:0; font-weight:600}
+.rg-crew .zusage-box .satz{margin:14px 0 0; font-size:15px; font-weight:600}
+.rg-crew .zusage-box .knoepfe{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+.rg-crew .zusage-box .btn-ja{flex:1 1 120px; padding:11px; font-size:16px}
+.rg-crew .zusage-box .btn-zurueck{flex:1 1 120px; border:1px solid var(--line-2); border-radius:var(--r); padding:11px; background:var(--surface); color:var(--ink); font-size:15px; cursor:pointer}
 .rg-crew .fussnote{padding:8px 16px 12px; font-size:12px; color:var(--ink-2)}
 </style>
 
@@ -116,7 +127,9 @@
                         <div class="jobrow">
                             <div>
                                 <div class="l1">{{ $zeile }}</div>
-                                @if ($shift['declined'])
+                                @if ($shift['ausgetragen'])
+                                    <div class="l2">Du bist für diese Schicht ausgetragen</div>
+                                @elseif ($shift['declined'])
                                     <div class="l2">Du hast abgesagt</div>
                                 @elseif ($shift['tag_belegt'] && !$shift['accepted'])
                                     <div class="l2">Du hast für diesen Tag schon zugesagt</div>
@@ -131,12 +144,12 @@
                             @elseif (!$shift['voll'] && !$shift['declined'] && !$shift['tag_belegt'])
                                 @if (!$shift['dringend'])
                                     <div class="side">
-                                        <button type="button" class="btn-confirm" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
+                                        <button type="button" class="btn-confirm" wire:click="zusageFragen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
                                     </div>
                                 @elseif (!$absageHier)
                                     {{-- Ist die Rueckfrage offen, stehen beide Antworten dort — sonst gaebe es „dabei“ doppelt. --}}
                                     <div class="entscheid">
-                                        <button type="button" class="btn-ja" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
+                                        <button type="button" class="btn-ja" wire:click="zusageFragen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich bin dabei</button>
                                         <button type="button" class="btn-rot" wire:click="absageOeffnen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Ich kann nicht</button>
                                     </div>
                                 @endif
@@ -159,7 +172,7 @@
                                     @endif
                                     <div class="knoepfe">
                                         <button type="button" class="btn-nein" wire:click="absagen" wire:loading.attr="disabled">Ja, ich kann nicht</button>
-                                        <button type="button" class="btn-ja" wire:click="zusagen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Doch, ich bin dabei</button>
+                                        <button type="button" class="btn-ja" wire:click="zusageFragen({{ $shift['offer_shift_id'] }})" wire:loading.attr="disabled">Doch, ich bin dabei</button>
                                     </div>
                                 </div>
                             @endif
@@ -179,6 +192,45 @@
                 <div class="empty">Gerade gibt es keine offenen Einsätze für dich.</div>
             @endif
         @endforelse
+
+        {{-- Spec 2026-11-20 Punkt 1 (Markus 19.11.2026): Zusage erst nach „OK“ im Fenster. --}}
+        @php
+            $zusageZeile = null;
+            if ($zusageOffen !== null) {
+                foreach ($groups as $g) {
+                    foreach ($g['days'] as $zYmd => $zShifts) {
+                        foreach ($zShifts as $zShift) {
+                            if ($zShift['offer_shift_id'] === $zusageOffen) {
+                                $zusageZeile = ['name' => $g['name'], 'ort' => $g['ort'] ?? null, 'tag' => $labelDate($zYmd), 'zeit' => $zShift['zeit'], 'taetigkeit' => $zShift['taetigkeit'] ?: 'Einsatz'];
+                            }
+                        }
+                    }
+                }
+            }
+            $verbindlichSatz = $duzen ? 'Mit der Zusage wirst du verbindlich für diesen Einsatz gebucht.' : 'Mit der Zusage werden Sie verbindlich für diesen Einsatz gebucht.';
+        @endphp
+        @if ($zusageZeile !== null)
+            <div class="zusage-fenster" wire:key="zusage-fenster-{{ $zusageOffen }}" role="dialog" aria-modal="true" aria-labelledby="zusage-titel">
+                <div class="zusage-box">
+                    <div id="zusage-titel" class="titel">{{ $zusageZeile['name'] }}</div>
+                    @if (!empty($zusageZeile['ort']))
+                        <div class="ort">{{ $zusageZeile['ort'] }}</div>
+                    @endif
+                    <dl>
+                        <dt>Tag</dt><dd>{{ $zusageZeile['tag'] }}</dd>
+                        @if ($zusageZeile['zeit'] !== '')
+                            <dt>Uhrzeit</dt><dd>{{ $zusageZeile['zeit'] }}</dd>
+                        @endif
+                        <dt>Tätigkeit</dt><dd>{{ $zusageZeile['taetigkeit'] }}</dd>
+                    </dl>
+                    <p class="satz">{{ $verbindlichSatz }}</p>
+                    <div class="knoepfe">
+                        <button type="button" class="btn-ja" wire:click="zusagen({{ $zusageOffen }})" wire:loading.attr="disabled">OK</button>
+                        <button type="button" class="btn-zurueck" wire:click="zusageAbbrechen" wire:loading.attr="disabled">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        @endif
     @endif
 </div>
 </div>

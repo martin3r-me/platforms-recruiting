@@ -105,6 +105,7 @@ final class JobOffersLaden
                 'anlass'         => $shift->request->anlass,
                 'dringend'       => $shift->request->anlass === 'dringend',
                 'declined'       => $os->declined_at !== null,
+                'ausgetragen'    => $os->declined_reason === DispoJobZusageAustragen::GRUND,
                 'tag_belegt'     => $os->accepted_at === null && isset($zugesagtTage[$shift->datum->toDateString()]) && !isset($zugesagtSchluessel[$schluessel]),
                 'antworten_bis'  => $bis !== null ? JobOffersTexte::antwortenBis(\Carbon\Carbon::parse($bis), now()) : null,
                 'os'             => $os,
@@ -138,6 +139,7 @@ final class JobOffersLaden
                 'voll'           => $row['voll'],
                 'dringend'       => (bool) ($row['dringend'] ?? false),
                 'declined'       => (bool) ($row['declined'] ?? false),
+                'ausgetragen'    => (bool) ($row['ausgetragen'] ?? false),
                 'tag_belegt'     => (bool) ($row['tag_belegt'] ?? false),
             ];
         }

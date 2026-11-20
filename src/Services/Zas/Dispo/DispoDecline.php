@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageAustragen;
 
 /**
  * Absage erfassen und zuruecknehmen (Kunde 04.09., tagesgenau seit 21.09.).
@@ -57,6 +58,17 @@ class DispoDecline
 
         if ($updated > 0 && $lockPortal) {
             $this->gateway->lockPortal($groupIds, 'Dispo-Absage (' . $reason . ')');
+        }
+
+        // Kam die Person ueber eine Zusage aus einer Welle, wird die Zusage ausgetragen —
+        // der Platz ist wieder frei (Spec 2026-11-20 Punkt 3). Nur fuer jetzt abgesagte Einbuchungen.
+        if ($updated > 0) {
+            $abgesagt = RecDispoAssignment::query()
+                ->where('rec_dispo_event_id', $eventId)
+                ->whereIn('id', $assignmentIds)
+                ->whereNotNull('declined_at')
+                ->pluck('id')->map(fn ($v) => (int) $v)->all();
+            DispoJobZusageAustragen::wegenAbsage($abgesagt, $userId);
         }
 
         return $updated;

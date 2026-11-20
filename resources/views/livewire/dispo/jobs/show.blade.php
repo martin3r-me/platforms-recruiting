@@ -143,6 +143,14 @@
                 <button type="button" wire:click="neueWelleUmschalten" class="text-sm text-blue-700 hover:underline">{{ $neueWelleOffen ? 'Schließen' : 'Neue Welle' }}</button>
             @endif
         </div>
+        {{-- Spec 2026-11-20 Punkt 2: Wellenplan zu Ende, danach wurde jemand ausgetragen. --}}
+        @php $wiederFrei = $this->wiederFrei; @endphp
+        @if ($wiederFrei > 0 && !$neueWelleOffen)
+            <div class="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <span>{{ $wiederFrei }} {{ $wiederFrei === 1 ? 'Platz' : 'Plätze' }} wieder frei</span>
+                <button type="button" wire:click="neueWelleUmschalten" class="rounded-lg border border-amber-300 bg-white px-3 py-1 text-sm text-amber-800 hover:bg-amber-100">Neue Welle starten</button>
+            </div>
+        @endif
         @forelse ($wellen as $w)
             @php
                 $stand = $w['stand'];
@@ -381,7 +389,9 @@
                     $s->taetigkeit,
                 ]));
                 $gedecktVonHand = $s->gedeckt_manuell_at !== null;
-                $voll = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt::istGedeckt($s, (int) $s->zugesagt);
+                $voll = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt::istGedeckt($s, (int) $s->zugesagt, (string) $anfrage->modus);
+                // Modus „sammeln“ (Spec 2026-11-20 Punkt 4): genug Zusagen deckt nicht von selbst — nur Hinweis neben dem Knopf.
+                $genugSammeln = !$voll && \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt::genugZusagen($s, (int) $s->zugesagt);
                 $kopfKlasse = $voll ? '-mx-4 -mt-4 rounded-t-lg bg-green-50 px-4 pt-4 pb-2' : '';
                 $offeneHaken = count(array_filter($zeilen, fn ($z) => $z->zas_entered_at === null));
                 $listeText = \Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZasListe::text(array_map(
@@ -405,6 +415,9 @@
                             @if ($gedecktVonHand)
                                 <button type="button" wire:click="gedecktOeffnen({{ (int) $s->id }})" class="rounded-full border border-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-50">wieder öffnen</button>
                             @elseif (!$voll)
+                                @if ($genugSammeln)
+                                    <span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700" title="Bei „Alle Zusagen sammeln“ laufen die Wellen weiter, bis du die Schicht als gedeckt markierst.">genug Zusagen – Wellen laufen weiter</span>
+                                @endif
                                 <button type="button" wire:click="gedecktMarkieren({{ (int) $s->id }})" wire:confirm="Schicht als gedeckt markieren? Sie wird nicht mehr angeboten, bis du sie wieder öffnest."
                                         class="rounded-full border border-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-50">als gedeckt markieren</button>
                             @endif
@@ -433,7 +446,15 @@
                 @php $absagenSchicht = $rueck['absagen'][$s->id] ?? []; @endphp
                 @if ($absagenSchicht !== [])
                     <details class="text-xs text-gray-600">
-                        <summary class="cursor-pointer text-amber-700">{{ count($absagenSchicht) }} {{ count($absagenSchicht) === 1 ? 'Absage' : 'Absagen' }} („Kann nicht“)</summary>
+                        @php
+                            $nAusgetragen = count(array_filter($absagenSchicht, fn ($ab) => $ab['ausgetragen']));
+                            $nKannNicht = count($absagenSchicht) - $nAusgetragen;
+                            $absageTitel = implode(' · ', array_filter([
+                                $nKannNicht > 0 ? $nKannNicht . ' ' . ($nKannNicht === 1 ? 'Absage' : 'Absagen') . ' („Kann nicht“)' : null,
+                                $nAusgetragen > 0 ? $nAusgetragen . ' ausgetragen' : null,
+                            ]));
+                        @endphp
+                        <summary class="cursor-pointer text-amber-700">{{ $absageTitel }}</summary>
                         <ul class="mt-1 space-y-0.5">
                             @foreach ($absagenSchicht as $ab)
                                 <li wire:key="absage-{{ $s->id }}-{{ $loop->index }}">
@@ -442,7 +463,15 @@
                                     @else
                                         {{ $ab['name'] }}
                                     @endif
-                                    · {{ $ab['grund'] }}@if ($ab['notiz'] !== '') · „{{ $ab['notiz'] }}“@endif · {{ $ab['am'] }}
+                                    @php $abGrund = $ab['grund'] . ($ab['von'] !== '' ? ' (' . $ab['von'] . ')' : ''); @endphp
+                                    · {{ $abGrund }}
+                                    @if ($ab['notiz'] !== '')
+                                        · „{{ $ab['notiz'] }}“
+                                    @endif
+                                    · {{ $ab['am'] }}
+                                    @if ($ab['ausgetragen'] && $offen && $ab['request_id'] === (int) $anfrage->id)
+                                        · <button type="button" wire:click="austragenRueckgaengig({{ (int) $ab['offer_shift_id'] }})" class="text-blue-700 hover:underline">rückgängig</button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -647,6 +676,15 @@
                                                     @endforeach
                                                 </select>
                                             @endif
+                                            @php
+                                                // Spec 2026-11-20 Punkt 2: Platz wird frei, die Person bekommt die Schicht nicht noch einmal.
+                                                $zInZas = $z->zas_assignment_id !== null || $z->zas_exported_at !== null || $z->zas_entered_at !== null;
+                                                $austragenText = $maName . ' austragen? Der Platz ist dann wieder frei und die nächste Welle bietet ihn wieder an. '
+                                                    . $maName . ' bekommt diese Schicht nicht noch einmal angeboten.'
+                                                    . ($zInZas ? ' Die Zusage steht schon in ZAS — bitte dort auch austragen.' : '');
+                                            @endphp
+                                            <button type="button" wire:click="austragen({{ $z->id }})" wire:confirm="{{ $austragenText }}" wire:loading.attr="disabled"
+                                                    class="rounded border border-red-200 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50">Zusage austragen</button>
                                         </div>
                                     </td>
                                 </tr>
