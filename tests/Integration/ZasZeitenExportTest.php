@@ -102,13 +102,13 @@ class ZasZeitenExportTest extends ZeitTestCase
     {
         $va = $this->va();
         $a = $this->assignment($va, ['ds_ref' => '936181', 'rec_employee_id' => $this->ma(217, 'RG217'), 'datum' => '2026-11-13']);
-        $this->eintrag($a, ['bemerkung' => "kam; spaeter\nwegen Bahn"]);
+        $this->eintrag($a, ['bemerkung' => "kam; spaeter\nwegen\u{2028}Bahn Wagen 3|"]);
 
         $x = $this->export();
         $csv = $x->csv($x->ermitteln(), new ZasCsvBuilder());
 
         $kopf = "PNr;VID;EDatum;VDatum;Start;Ende;Pause;Stunden;Fahrzeit;ZASID;erfasstvon;Bemerkung;Wäsche;Wgross;abgesagt;verspaetet;Wzurueck;WAbzug;WKunde;Wfehlt|;\r\n";
-        $zeile = "RG217;RG20523;14.11.2026;13.11.2026;17:30;00:00;0,5;6,00;;936181;RG217;kam, spaeter wegen Bahn;;;;;;;;;|;\r\n";
+        $zeile = "RG217;RG20523;14.11.2026;13.11.2026;17:30;00:00;0,5;6,00;;936181;RG217;kam, spaeter wegen Bahn Wagen 3;;;;;;;;;|;\r\n";
         $this->assertSame($kopf . $zeile, $csv);
         $this->assertStringStartsNotWith(ZasCsvBuilder::BOM, $csv, 'wie das alte Portal: ohne BOM');
     }
@@ -208,10 +208,32 @@ class ZasZeitenExportTest extends ZeitTestCase
         $this->assertNull(Capsule::table('rec_zeit_eintraege')->where('id', $id)->value('zas_exported_at'));
     }
 
+    public function test_inzwischen_geoeffnet_korrigiert_und_neu_erledigt_liefert_nicht_die_alten_werte(): void
+    {
+        $a = $this->assignment($this->va(), ['rec_employee_id' => $this->ma(1, 'RG1')]);
+        $id = $this->eintrag($a);
+        $x = $this->export();
+        $stand = $x->ermitteln();
+
+        Capsule::table('rec_zeit_eintraege')->where('id', $id)->update(['gehen_at' => '2026-11-13 22:00:00', 'gesperrt_at' => '2026-11-14 11:00:00']);
+
+        $this->assertSame([], $x->beanspruchen($stand), 'alter Stand wird nicht geliefert');
+        $neu = $x->beanspruchen($x->ermitteln());
+        $this->assertSame('23:00', $neu[0]['Ende'], 'der naechste Abruf liefert die korrigierten Werte');
+    }
+
+    public function test_edatum_ist_der_ortstag_der_sperre(): void
+    {
+        $a = $this->assignment($this->va(), ['rec_employee_id' => $this->ma(1, 'RG1')]);
+        $this->eintrag($a, ['gesperrt_at' => '2026-11-14 23:30:00']); // 00:30 am 15.11. in Berlin
+
+        $this->assertSame('15.11.2026', $this->export()->ermitteln()[0]['EDatum']);
+    }
+
     public function test_erfasstvon(): void
     {
         $va = $this->va();
-        $tl = $this->assignment($va, ['rec_employee_id' => $this->ma(50, 'RG50', 'Anna', 'Leiter'), 'taetigkeit' => 'Teamleiter']);
+        $tl = $this->assignment($va, ['rec_employee_id' => $this->ma(50, 'RG50', 'Anna', 'Leiter'), 'taetigkeit' => 'Teamleiter']); // „teamleit…“
         $selbst = $this->assignment($va, ['rec_employee_id' => $this->ma(1, 'RG1')]);
         $perTl = $this->assignment($va, ['rec_employee_id' => $this->ma(2, 'RG2')]);
         $perTlUmgekehrt = $this->assignment($va, ['rec_employee_id' => $this->ma(3, 'RG3')]);
@@ -233,14 +255,52 @@ class ZasZeitenExportTest extends ZeitTestCase
         $this->assertSame('', $z['RG5']['erfasstvon'], 'Name passt zu niemandem an der VA');
     }
 
+    public function test_waesche_spalten_abzug_und_fehlende_teile(): void
+    {
+        $va = $this->va();
+        $mit = $this->assignment($va, ['rec_employee_id' => $this->ma(1, 'RG1')]);
+        $ohne = $this->assignment($va, ['rec_employee_id' => $this->ma(2, 'RG2')]);
+        $this->eintrag($mit);
+        $this->eintrag($ohne);
+        foreach ([['hemd', 'Hemd', 2500, 400, false, 1, 1], ['weste', 'Weste', 3000, 0, true, 1, 0], ['sonstiges', 'Hose | lang', 2000, 0, false, 1, 0]] as [$k, $n, $p, $r, $l, $anz, $zur]) {
+            Capsule::table('rec_zeit_waesche')->insert([
+                'team_id' => self::TEAM, 'rec_dispo_assignment_id' => $mit->id, 'rec_employee_id' => $mit->rec_employee_id,
+                'artikel_key' => $k, 'bezeichnung' => $n, 'preis_cent' => $p, 'reinigung_lohn_cent' => $r, 'leihe_kunde' => $l,
+                'anzahl' => $anz, 'zurueck' => $zur, 'ausgegeben_von' => 'TL', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $x = $this->export();
+        $zeilen = collect($x->ermitteln())->keyBy('PNr');
+        $this->assertSame('54,00', $zeilen['RG1']['WAbzug'], 'Hemd zurück 4 + Weste weg 30 + Hose weg 20');
+        $this->assertSame('Weste|Hose lang', $zeilen['RG1']['Wfehlt']);
+        $this->assertSame('', $zeilen['RG2']['WAbzug'], 'ohne Wäsche leer');
+        $this->assertSame('', $zeilen['RG2']['Wfehlt']);
+
+        $csv = $x->csv([$zeilen['RG1']], new ZasCsvBuilder());
+        $this->assertStringEndsWith(';;;;;;54,00;;Weste|Hose lang;|;' . "\r\n", $csv, 'Wäsche/Wgross/abgesagt/verspaetet/Wzurueck/WKunde bleiben leer, bis Olaf antwortet');
+    }
+
     public function test_erfasstvon_bei_zwei_gleichnamigen_bleibt_leer(): void
     {
         $va = $this->va();
-        $this->assignment($va, ['rec_employee_id' => $this->ma(50, 'RG50', 'Anna', 'Leiter')]);
-        $this->assignment($va, ['rec_employee_id' => $this->ma(51, 'RG51', 'Anna', 'Leiter')]);
+        $this->assignment($va, ['rec_employee_id' => $this->ma(50, 'RG50', 'Anna', 'Leiter'), 'taetigkeit' => 'TL']);
+        $this->assignment($va, ['rec_employee_id' => $this->ma(51, 'RG51', 'Anna', 'Leiter'), 'taetigkeit' => 'Teamleitung']);
         $a = $this->assignment($va, ['rec_employee_id' => $this->ma(1, 'RG1')]);
         $this->eintrag($a, [], ['akteur_typ' => 'user', 'akteur_id' => 7, 'akteur_name' => 'Anna Leiter (Eventzugang)']);
 
         $this->assertSame('', $this->export()->ermitteln()[0]['erfasstvon']);
+    }
+
+    public function test_erfasstvon_nur_gegen_aktive_teamleiter(): void
+    {
+        $va = $this->va();
+        $this->assignment($va, ['rec_employee_id' => $this->ma(50, 'RG50', 'Anna', 'Leiter'), 'taetigkeit' => 'TL']);
+        $this->assignment($va, ['rec_employee_id' => $this->ma(51, 'RG51', 'Anna', 'Leiter'), 'taetigkeit' => 'TL', 'declined_at' => '2026-11-12 10:00:00']);
+        $this->assignment($va, ['rec_employee_id' => $this->ma(52, 'RG52', 'Anna', 'Leiter'), 'taetigkeit' => 'Service']);
+        $a = $this->assignment($va, ['rec_employee_id' => $this->ma(1, 'RG1')]);
+        $this->eintrag($a, [], ['akteur_typ' => 'user', 'akteur_id' => 7, 'akteur_name' => 'Anna Leiter (Eventzugang)']);
+
+        $this->assertSame('RG50', $this->export()->ermitteln()[0]['erfasstvon'], 'abgesagte Namensvetterin und Service-Kraft zählen nicht');
     }
 }

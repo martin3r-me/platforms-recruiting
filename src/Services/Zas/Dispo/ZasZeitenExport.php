@@ -6,9 +6,11 @@ use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\ZasCsvBuilder;
+use Platform\Recruiting\Services\Zeit\DispoWaesche;
 use Platform\Recruiting\Services\Zeit\DispoZeitBezug;
 use Platform\Recruiting\Services\Zeit\DispoZeiten;
 use Platform\Recruiting\Services\Zeit\RheingedeckZeitRegeln;
+use Platform\Recruiting\Services\Zeit\Waesche\WaescheRechner;
 use Platform\Recruiting\Services\Zeit\ZeitAnzeige;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 use Platform\Recruiting\Zeit\ZeitEintrag;
@@ -22,7 +24,11 @@ use Platform\Recruiting\Zeit\ZeitRechner;
  *   PNr;VID;EDatum;VDatum;Start;Ende;Pause;Stunden;Fahrzeit;ZASID;erfasstvon;Bemerkung;Wäsche;Wgross;abgesagt;verspaetet;Wzurueck|;
  *
  * Hinten haengen WAbzug/WKunde/Wfehlt (Mail an Olaf 20.11.: „zusätzliche
- * Felder hinten dran, kein Problem“), bis zur Wäsche-Erfassung leer.
+ * Felder hinten dran, kein Problem“). WAbzug (Euro, Komma) und Wfehlt (Teile mit
+ * | getrennt) kommen aus der Wäsche-Erfassung (DispoWaesche, Markus' Regeln).
+ * Wäsche/Wgross/Wzurueck/WKunde bleiben vorerst LEER: was ZAS dort heute rechnet
+ * und welche IDs aus {Dispo6} gelten, beantwortet Olaf noch — eine falsche
+ * Bezeichnung in Wgross liefe in ZAS sonst in die Lohnrechnung.
  *
  * Byteweise wie Olafs Beispiel: UTF-8 OHNE BOM, CRLF, Kopf endet auf `|;`,
  * Datenzeilen auf `;|;`. Pause und Stunden als Dezimalstunden mit Komma
@@ -44,7 +50,16 @@ class ZasZeitenExport
 
     private const ZEITFELDER = ['kommen_at', 'gehen_at'];
 
-    public function __construct(private readonly RheingedeckZeitRegeln $regeln = new RheingedeckZeitRegeln()) {}
+    /** @var array<int, string> Mitarbeiter-ID => Personalnummer (je Abruf) */
+    private array $pnrCache = [];
+
+    /** @var array<int, array<string, array<string, true>>> Veranstaltung => Teamleiter-Namen */
+    private array $tlCache = [];
+
+    public function __construct(
+        private readonly RheingedeckZeitRegeln $regeln = new RheingedeckZeitRegeln(),
+        private readonly ?DispoWaesche $waesche = null,
+    ) {}
 
     /**
      * Lieferbare Zeilen ermitteln, ohne etwas zu schreiben.
@@ -77,6 +92,9 @@ class ZasZeitenExport
             ->get()->keyBy('id');
 
         $verlauf = $this->letzteZeitbuchung($eintraege->pluck('id')->all());
+        $waesche = ($this->waesche ?? app(DispoWaesche::class))->rechnungen(
+            $assignments->filter(fn ($a) => $a->rec_employee_id !== null)->map(fn ($a) => (int) $a->rec_employee_id)->all()
+        );
 
         $zeilen = [];
         foreach ($eintraege as $e) {
@@ -113,8 +131,9 @@ class ZasZeitenExport
                 'Stunden'    => self::dezimal($arbeit, true),
                 'ZASID'      => $zasId,
                 'erfasstvon' => $this->erfasstVon($verlauf[(int) $e->id] ?? null, $a),
-                'Bemerkung'  => trim((string) $e->bemerkung),
-            ];
+                'Bemerkung'  => self::freitext((string) $e->bemerkung),
+                '_gesperrt'  => $e->getRawOriginal('gesperrt_at'),
+            ] + self::waescheSpalten($waesche[(int) $a->id] ?? null);
         }
 
         return $zeilen;
@@ -133,10 +152,12 @@ class ZasZeitenExport
         $jetzt = now();
         $geliefert = [];
         foreach ($zeilen as $z) {
+            // Genau der Sperr-Stand, der gelesen wurde: inzwischen geoeffnet (und evtl. neu erledigt)
+            // heisst, die Werte in $z sind veraltet — dann liefert erst der naechste Abruf.
             $n = ZeitEintrag::query()
                 ->whereKey((int) $z['id'])
                 ->whereNull('zas_exported_at')
-                ->whereNotNull('gesperrt_at')
+                ->where('gesperrt_at', $z['_gesperrt'])
                 ->update(['zas_exported_at' => $jetzt]);
             if ($n === 1) {
                 $geliefert[] = $z;
@@ -158,6 +179,35 @@ class ZasZeitenExport
         }
 
         return $out;
+    }
+
+    /**
+     * @param array{abzugCent:int, fehlt:list<string>, ausgegeben:list<string>}|null $rechnung
+     * @return array{WAbzug:string, Wfehlt:string}
+     */
+    private static function waescheSpalten(?array $rechnung): array
+    {
+        if ($rechnung === null || $rechnung['ausgegeben'] === []) {
+            return ['WAbzug' => '', 'Wfehlt' => ''];
+        }
+
+        return [
+            'WAbzug' => WaescheRechner::euro($rechnung['abzugCent']),
+            // Trenner wie in Wgross (Olaf 20.11.); ein | im Namen selbst wird zum Leerzeichen.
+            'Wfehlt' => implode('|', array_map(fn ($n) => self::freitext($n), $rechnung['fehlt'])),
+        ];
+    }
+
+    /**
+     * Freitext zellsicher machen: der CSV-Baustein entfernt nur `|;`, ein `|` am Zellende
+     * ergaebe mit dem Trenner aber ein vorzeitiges Zeilenende. Darum `|` und alle
+     * Steuer-/Trennzeichen (auch U+2028/U+2029) zu Leerzeichen, Leerraum zusammengezogen.
+     */
+    public static function freitext(string $text): string
+    {
+        $text = (string) preg_replace('/[\p{C}\p{Zl}\p{Zp}|]+/u', ' ', $text);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
     }
 
     /** Minuten als Dezimalstunden mit Komma: Stunden immer zwei Stellen (6,00), Pause knapp (0,5 / 0,75). */
@@ -183,11 +233,12 @@ class ZasZeitenExport
             return '';
         }
         if ($buchung['akteur_typ'] === DispoZeitBezug::PERSON_TYP && $buchung['akteur_id'] !== null) {
-            $pnr = trim((string) RecEmployee::query()->whereKey($buchung['akteur_id'])->value('personnel_number'));
+            $id = (int) $buchung['akteur_id'];
+            $this->pnrCache[$id] ??= trim((string) RecEmployee::query()->whereKey($id)->value('personnel_number'));
 
-            return ZasPersonnelNumber::hasPrefix($pnr) ? $pnr : '';
+            return ZasPersonnelNumber::hasPrefix($this->pnrCache[$id]) ? $this->pnrCache[$id] : '';
         }
-        $zusatz = \Platform\Recruiting\Livewire\Dispo\Events\Show::ZEIT_EVENTZUGANG;
+        $zusatz = DispoZeiten::EVENTZUGANG;
         $name = $buchung['akteur_name'];
         if ($buchung['akteur_typ'] !== 'user' || !str_ends_with($name, $zusatz)) {
             return '';
@@ -197,33 +248,51 @@ class ZasZeitenExport
             return '';
         }
 
-        $treffer = [];
-        $kollegen = RecDispoAssignment::query()
-            ->with('employee:id,first_name,last_name,personnel_number')
-            ->where('rec_dispo_event_id', $a->rec_dispo_event_id)
-            ->whereNotNull('rec_employee_id')
-            ->get();
-        foreach ($kollegen as $k) {
-            $emp = $k->employee;
-            if ($emp === null) {
-                continue;
-            }
-            $voll = self::namensSchluessel($emp->first_name . ' ' . $emp->last_name);
-            $umgekehrt = self::namensSchluessel($emp->last_name . ' ' . $emp->first_name);
-            if ($gesucht === $voll || $gesucht === $umgekehrt) {
-                $pnr = trim((string) $emp->personnel_number);
-                if (ZasPersonnelNumber::hasPrefix($pnr)) {
-                    $treffer[$pnr] = true;
-                }
-            }
-        }
+        $treffer = $this->teamleiterNamen((int) $a->rec_dispo_event_id)[$gesucht] ?? [];
 
         return count($treffer) === 1 ? (string) array_key_first($treffer) : '';
     }
 
+    /**
+     * Teamleiter der Veranstaltung nach Namensschluessel => [Personalnummer => true] — dieselbe
+     * Auswahl wie die Namensvorschlaege am Eventzugang (Show::zeitTeamleiterVorschlaege): aktive
+     * Einbuchungen mit Taetigkeit „TL“/„Teamleit…“. Einmal je Veranstaltung geladen.
+     *
+     * @return array<string, array<string, true>>
+     */
+    private function teamleiterNamen(int $eventId): array
+    {
+        if (isset($this->tlCache[$eventId])) {
+            return $this->tlCache[$eventId];
+        }
+        $aus = [];
+        $kollegen = RecDispoAssignment::query()
+            ->with('employee:id,first_name,last_name,personnel_number')
+            ->where('rec_dispo_event_id', $eventId)
+            ->whereNotNull('rec_employee_id')
+            ->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNull('declined_at')
+            ->get();
+        foreach ($kollegen as $k) {
+            $emp = $k->employee;
+            $t = mb_strtolower(trim((string) $k->taetigkeit));
+            if ($emp === null || ($t !== 'tl' && !str_contains($t, 'teamleit'))) {
+                continue;
+            }
+            $pnr = trim((string) $emp->personnel_number);
+            if (!ZasPersonnelNumber::hasPrefix($pnr)) {
+                continue;
+            }
+            foreach ([$emp->first_name . ' ' . $emp->last_name, $emp->last_name . ' ' . $emp->first_name] as $n) {
+                $aus[self::namensSchluessel($n)][$pnr] = true;
+            }
+        }
+
+        return $this->tlCache[$eventId] = $aus;
+    }
+
     private static function namensSchluessel(string $name): string
     {
-        $name = str_replace(',', ' ', $name);
+        $name = (string) preg_replace('/[\p{C},]+/u', ' ', $name);
 
         return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $name)));
     }

@@ -1943,7 +1943,7 @@ class Show extends Component
         }
     }
 
-    public const ZEIT_EVENTZUGANG = ' (Eventzugang)';
+    public const ZEIT_EVENTZUGANG = \Platform\Recruiting\Services\Zeit\DispoZeiten::EVENTZUGANG;
     public const ZEIT_NAME_FEHLT = 'Bitte zuerst den eigenen Namen auswählen.';
 
     /**

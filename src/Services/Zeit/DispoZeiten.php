@@ -40,6 +40,9 @@ class DispoZeiten
 
     public const GRUND_ERLEDIGT = 'erledigt';
 
+    /** Zusatz am Namen, wenn ein Teamleiter am Eventzugang (Sammelkonto) bucht — so steht er im Verlauf. */
+    public const EVENTZUGANG = ' (Eventzugang)';
+
     public function __construct(
         private Stempeluhr $uhr,
         private ZeitSchalter $schalter,
@@ -162,6 +165,7 @@ class DispoZeiten
             'bemerkung' => (string) ($e?->bemerkung ?? ''),
             'zustand' => $e?->zustand() ?? 'offen',
             'gesperrt' => $e?->istGesperrt() ?? false,
+            'an_zas' => $e?->getAttribute('zas_exported_at') !== null,
             'verlauf' => $verlauf,
         ];
     }
@@ -294,13 +298,22 @@ class DispoZeiten
         if ($e === null) {
             return 'nicht_gesperrt';
         }
-        if ($e->getAttribute('zas_exported_at') !== null) {
-            // Schon an ZAS uebergeben: ein zweites Mal geht die Zeile nie raus, eine Aenderung hier
-            // kaeme dort nie an. Korrektur im Buero in ZAS (wie bei der Waesche, Markus 20.11.2026).
-            return 'an_zas';
-        }
 
-        return $this->uhr->entsperren($e, $akteur, $grund);
+        // Schon an ZAS uebergeben: ein zweites Mal geht die Zeile nie raus, eine Aenderung hier
+        // kaeme dort nie an. Korrektur im Buero in ZAS (wie bei der Waesche, Markus 20.11.2026).
+        // Gesperrt gelesen: der ZAS-Abruf (ZasZeitenExport::beanspruchen) schreibt dieselbe Zeile,
+        // ohne Sperre koennte er zwischen Pruefung und Entsperren liefern.
+        return $e->getConnection()->transaction(function () use ($e, $akteur, $grund) {
+            $frisch = ZeitEintrag::query()->whereKey($e->getKey())->lockForUpdate()->first();
+            if ($frisch === null) {
+                return 'nicht_gesperrt';
+            }
+            if ($frisch->getAttribute('zas_exported_at') !== null) {
+                return 'an_zas';
+            }
+
+            return $this->uhr->entsperren($frisch, $akteur, $grund);
+        });
     }
 
     /**

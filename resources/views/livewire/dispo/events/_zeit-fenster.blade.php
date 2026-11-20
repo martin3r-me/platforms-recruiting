@@ -6,7 +6,8 @@
     $zf = $this->zeitFenster;
     $zfAssignmentId = $this->zeitAssignmentId;
     $zfNurLesen = $zf !== null && $zf['gesperrt'];
-    $zfDarfOeffnen = $zf !== null && $zf['gesperrt'] && $this->zeitDarfOeffnen;
+    $zfAnZas = $zf !== null && ($zf['an_zas'] ?? false);
+    $zfDarfOeffnen = $zf !== null && $zf['gesperrt'] && !$zfAnZas && $this->zeitDarfOeffnen;
     $zfKannErledigen = $zf !== null && !$zfNurLesen && $zf['zustand'] === 'ausgecheckt';
     $zfRegel = $zf === null ? '' : 'nach Regel: ' . $zf['regelpause'];
     $zfKopfTeile = array_values(array_filter([$zf['name'] ?? '', $zf['tag'] ?? ''], fn ($t) => $t !== ''));
@@ -27,7 +28,13 @@
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 @if ($zf['gesperrt'])
-                    <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">Erledigt und gesperrt. Die Werte sind nur noch lesbar.</p>
+                    <p class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                        @if ($zfAnZas)
+                            Erledigt und an ZAS übergeben. Änderungen bitte direkt in ZAS.
+                        @else
+                            Erledigt und gesperrt. Die Werte sind nur noch lesbar.
+                        @endif
+                    </p>
                 @elseif ($eventOnly)
                     <div class="rounded bg-gray-50 px-3 py-2">
                         @include('recruiting::livewire.dispo.events._zeit-teamleiter-name', ['zeitTlVorschlaege' => $this->zeitTeamleiterVorschlaege])
