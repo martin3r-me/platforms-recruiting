@@ -71,12 +71,12 @@ final class MitarbeiterStatistikRechner
         if (!$a['aktiv'] || !self::inGesellschaft($a, $gesellschaft)) {
             return false;
         }
-        $status = $a['status'] ?? null;
+        // Ohne gelieferten Status gilt GO — so zeigt es auch die Mitarbeiterakte (Employees/Show: 'empty' => 'GO').
+        $status = $a['status'] ?? self::STATUS_GO;
         if ($status === 'INAKTIV') {
             return false;
         }
 
-        // Ohne gelieferten Status zählt die Anstellung nur bei „GO und MA“ (nichts verschwindet stillschweigend).
         return $statusFilter === self::STATUS_BEIDE || $status === $statusFilter;
     }
 

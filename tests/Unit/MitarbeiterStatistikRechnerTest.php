@@ -216,4 +216,18 @@ final class MitarbeiterStatistikRechnerTest extends TestCase
         $c->entferneEmpfaenger('clara@rheingedeck.de');
         $this->assertSame([], $c->empfaengerListe);
     }
+
+    public function test_status_filter_fehlender_status_gilt_als_go(): void
+    {
+        $a = fn (?string $status, bool $aktiv = true) => ['aktiv' => $aktiv, 'firma' => 'RG', 'status' => $status];
+
+        $this->assertTrue(R::aktivIn($a(null), 'RG', R::STATUS_GO), 'kein Status = GO (wie in der Mitarbeiterakte)');
+        $this->assertFalse(R::aktivIn($a(null), 'RG', R::STATUS_MA));
+        $this->assertTrue(R::aktivIn($a(null), 'RG', R::STATUS_BEIDE));
+        $this->assertTrue(R::aktivIn($a('MA'), 'RG', R::STATUS_MA));
+        $this->assertFalse(R::aktivIn($a('MA'), 'RG', R::STATUS_GO));
+        $this->assertFalse(R::aktivIn($a('INAKTIV'), 'RG', R::STATUS_BEIDE));
+        $this->assertFalse(R::aktivIn($a('GO', false), 'RG', R::STATUS_GO));
+        $this->assertFalse(R::aktivIn($a('GO'), 'MA', R::STATUS_GO), 'andere Firma');
+    }
 }
