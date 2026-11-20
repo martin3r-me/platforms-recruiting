@@ -61,7 +61,8 @@ class DispoDecline
         }
 
         // Kam die Person ueber eine Zusage aus einer Welle, wird die Zusage ausgetragen —
-        // der Platz ist wieder frei (Spec 2026-11-20 Punkt 3). Nur fuer jetzt abgesagte Einbuchungen.
+        // der Platz ist wieder frei (Spec 2026-11-20 Punkt 3). Alle abgesagten der gewaehlten Einbuchungen —
+        // auch eine frueher abgesagte, deren Zusage noch steht (Altfall vor dem 20.11.).
         if ($updated > 0) {
             $abgesagt = RecDispoAssignment::query()
                 ->where('rec_dispo_event_id', $eventId)

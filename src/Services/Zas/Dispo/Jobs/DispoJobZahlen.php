@@ -28,7 +28,7 @@ final class DispoJobZahlen
         $tage = array_values(array_unique(array_map(fn ($s) => substr((string) $s['datum'], 0, 10), $schichten)));
         $daten = DispoJobKandidaten::laden($teamId, $tage, now()->format('Y-m'));
 
-        return self::ausDaten($daten, $schichten, $schonAngeschrieben, $auswahl, DispoJobSchonZugesagt::laden($teamId));
+        return self::ausDaten($daten, $schichten, $schonAngeschrieben, $auswahl, DispoJobSchonZugesagt::fuerVersand($teamId));
     }
 
     /**

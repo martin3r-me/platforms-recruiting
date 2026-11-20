@@ -676,6 +676,7 @@
                                                     @endforeach
                                                 </select>
                                             @endif
+                                            @if ($offen)
                                             @php
                                                 // Spec 2026-11-20 Punkt 2: Platz wird frei, die Person bekommt die Schicht nicht noch einmal.
                                                 $zInZas = $z->zas_assignment_id !== null || $z->zas_exported_at !== null || $z->zas_entered_at !== null;
@@ -685,6 +686,7 @@
                                             @endphp
                                             <button type="button" wire:click="austragen({{ $z->id }})" wire:confirm="{{ $austragenText }}" wire:loading.attr="disabled"
                                                     class="rounded border border-red-200 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50">Zusage austragen</button>
+                                            @endif
                                         </div>
                                     </td>
                                 </tr>

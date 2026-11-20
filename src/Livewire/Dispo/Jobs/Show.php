@@ -509,6 +509,11 @@ class Show extends Component
     {
         $this->fehler = '';
         $this->hinweis = '';
+        if (!self::istOffen($this->anfrage())) {
+            $this->fehler = 'Die Anfrage ist abgeschlossen — Austragen geht nur bei laufenden Anfragen.';
+
+            return;
+        }
         $ergebnis = DispoJobZusageAustragen::ausfuehren($this->anfrage(), $offerShiftId, auth()->id() !== null ? (int) auth()->id() : null);
         if ($ergebnis['ergebnis'] === DispoJobZusageAustragen::OK) {
             $this->hinweis = DispoJobZusageAustragen::TEXTE[DispoJobZusageAustragen::OK]
@@ -550,11 +555,13 @@ class Show extends Component
         if (!self::istOffen($r) || !$r->darfSenden()) {
             return 0;
         }
-        $wellen = $r->waves()->get(['id', 'finished_at']);
+        $wellen = $r->waves()->get(['id', 'started_at', 'finished_at']);
         if ($wellen->isEmpty() || $wellen->contains(fn ($w) => $w->finished_at === null)) {
             return 0;
         }
-        $ende = $wellen->max('finished_at');
+        // Ab dem Start der letzten Welle (Review 20.11. M3): sie hat ihre Schichten beim Start gelesen,
+        // eine Austragung waehrend sie lief bietet sie nicht mehr an.
+        $ende = $wellen->max('started_at') ?? $wellen->max('finished_at');
         $ausgetragen = RecDispoJobOfferShift::query()
             ->where('declined_reason', DispoJobZusageAustragen::GRUND)
             ->where('declined_at', '>=', $ende)

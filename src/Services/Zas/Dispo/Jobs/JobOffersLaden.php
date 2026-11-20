@@ -46,6 +46,14 @@ final class JobOffersLaden
             }
         }
 
+        // Aus einer Schicht ausgetragen (in irgendeiner Anfrage): dieselbe Schicht zeigt nirgends mehr „Ich bin dabei“ (Review 20.11. I2).
+        $ausgetragenSchluessel = [];
+        foreach ($alle as $os) {
+            if ($os->declined_reason === DispoJobZusageAustragen::GRUND) {
+                $ausgetragenSchluessel[DispoJobRecipientPlanner::schichtSchluessel($os->shift->rec_dispo_event_id, $os->shift->datum->toDateString(), $os->shift->von, $os->shift->bis, $os->shift->taetigkeit)] = true;
+            }
+        }
+
         $offerShifts = $anfrageId === null
             ? $alle
             : $alle->filter(fn ($os) => (int) $os->shift->request_id === $anfrageId)->values();
@@ -83,7 +91,7 @@ final class JobOffersLaden
             ->selectRaw('request_id, min(scheduled_for) as bis')->groupBy('request_id')
             ->pluck('bis', 'request_id');
 
-        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht, $zugesagtTage, $zugesagtSchluessel, $naechsteWelle) {
+        $rows = $offerShifts->map(function ($os) use ($zusagenJeSchicht, $zugesagtTage, $zugesagtSchluessel, $naechsteWelle, $ausgetragenSchluessel) {
             $shift = $os->shift;
             $zuerst = $shift->request->modus === RecDispoJobRequest::MODUS_ZUERST;
             $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->toDateString(), $shift->von, $shift->bis, $shift->taetigkeit);
@@ -104,8 +112,8 @@ final class JobOffersLaden
                 'frei'           => $zuerst ? max(0, (int) $shift->gesucht - (int) ($zusagenJeSchicht[$shift->id] ?? 0)) : null,
                 'anlass'         => $shift->request->anlass,
                 'dringend'       => $shift->request->anlass === 'dringend',
-                'declined'       => $os->declined_at !== null,
-                'ausgetragen'    => $os->declined_reason === DispoJobZusageAustragen::GRUND,
+                'declined'       => $os->declined_at !== null || ($os->accepted_at === null && isset($ausgetragenSchluessel[$schluessel])),
+                'ausgetragen'    => $os->declined_reason === DispoJobZusageAustragen::GRUND || ($os->accepted_at === null && isset($ausgetragenSchluessel[$schluessel])),
                 'tag_belegt'     => $os->accepted_at === null && isset($zugesagtTage[$shift->datum->toDateString()]) && !isset($zugesagtSchluessel[$schluessel]),
                 'antworten_bis'  => $bis !== null ? JobOffersTexte::antwortenBis(\Carbon\Carbon::parse($bis), now()) : null,
                 'os'             => $os,

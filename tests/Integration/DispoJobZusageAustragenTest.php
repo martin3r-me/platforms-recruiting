@@ -17,7 +17,7 @@ use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobAbsagen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobGedeckt;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobZusageAustragen;
 use Platform\Recruiting\Services\Zas\Dispo\Jobs\JobOffersZusage;
-use Platform\Recruiting\Services\Zas\Dispo\ZasDispoBookingExport;
+use Platform\Recruiting\Services\Zas\Dispo\Jobs\DispoJobSchonZugesagt;
 
 /**
  * Zusage austragen (Spec 2026-11-20, Markus 20.11.2026 „so bitte umsetzen“):
@@ -135,7 +135,7 @@ final class DispoJobZusageAustragenTest extends TestCase
         $this->assertNull($kannNicht->fresh()->accepted_at);
     }
 
-    public function test_in_zas_hinweis_und_export_laesst_ausgetragene_weg(): void
+    public function test_in_zas_hinweis_und_zeile_zaehlt_nicht_mehr_als_zusage(): void
     {
         [$r, $s] = $this->anfrage();
         $z = $this->zusage($r, $s, null, ['zas_exported_at' => now()->subMinutes(5), 'zas_entered_at' => now()->subMinutes(5)]);
@@ -212,5 +212,43 @@ final class DispoJobZusageAustragenTest extends TestCase
         $this->assertNotNull($andere->fresh()->accepted_at);
         $this->assertSame(0, DispoJobZusageAustragen::wegenAbsage([9001], 5), 'zweite Absage aendert nichts');
         $this->assertSame(0, DispoJobZusageAustragen::wegenAbsage([], 5));
+    }
+
+    /** Review 20.11. I1: scheitert die Hauptzeile, bleibt auch die Schwester ausgetragen. */
+    public function test_rueckgaengig_alles_oder_nichts_mit_schwester(): void
+    {
+        [$a, $sa] = $this->anfrage(RecDispoJobRequest::MODUS_ZUERST, 1, 21);
+        [$b, $sb] = $this->anfrage(RecDispoJobRequest::MODUS_SAMMELN, 3, 21);
+        $ma = ++self::$mitarbeiter;
+        $za = $this->zusage($a, $sa, $ma);
+        $zb = $this->zusage($b, $sb, $ma);
+        DispoJobZusageAustragen::ausfuehren($a, (int) $za->id, 1);
+        $this->zusage($a, $sa); // Q sagt in A zu → A wieder voll
+
+        $this->assertSame(DispoJobZusageAustragen::VOLL, DispoJobZusageAustragen::zuruecknehmen($a, (int) $za->id));
+        $this->assertNull($za->fresh()->accepted_at);
+        $this->assertNull($zb->fresh()->accepted_at, 'Schwester darf nicht still zurueckkommen');
+    }
+
+    /** Review 20.11. I2: ausgetragen gilt ueber Anfragen hinweg — nicht zusagbar, nicht in Wellen. */
+    public function test_ausgetragene_schicht_auch_aus_anderer_anfrage_nicht_zusagbar_und_nicht_im_versand(): void
+    {
+        [$a, $sa] = $this->anfrage(RecDispoJobRequest::MODUS_SAMMELN, 3, 31);
+        $ma = ++self::$mitarbeiter;
+        $za = $this->zusage($a, $sa, $ma);
+        DispoJobZusageAustragen::ausfuehren($a, (int) $za->id, 1);
+
+        [$c, $sc] = $this->anfrage(RecDispoJobRequest::MODUS_SAMMELN, 3, 31);
+        $neu = $this->zusage($c, $sc, $ma, ['accepted_at' => null]);
+        $this->assertSame('weg', JobOffersZusage::ausfuehren((int) $neu->id, [$ma]));
+        $this->assertNull($neu->fresh()->accepted_at);
+
+        $versand = DispoJobSchonZugesagt::fuerVersand(3);
+        $this->assertNotEmpty($versand[$ma] ?? [], 'Wellen ueberspringen die Person fuer diese Schicht');
+        $this->assertArrayNotHasKey($ma, DispoJobSchonZugesagt::laden(3), 'die reine Zusagen-Liste bleibt unveraendert');
+
+        $andererMa = ++self::$mitarbeiter;
+        $offen = $this->zusage($c, $sc, $andererMa, ['accepted_at' => null]);
+        $this->assertSame('ok', JobOffersZusage::ausfuehren((int) $offen->id, [$andererMa]), 'andere Personen sind nicht betroffen');
     }
 }

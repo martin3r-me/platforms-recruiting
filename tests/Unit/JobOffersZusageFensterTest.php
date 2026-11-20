@@ -40,6 +40,6 @@ final class JobOffersZusageFensterTest extends TestCase
         $this->assertSame(1, substr_count($view, 'wire:click="zusagen('), 'nur der OK-Knopf speichert');
         $this->assertSame(3, substr_count($view, 'wire:click="zusageFragen('), 'alle drei „dabei“-Knoepfe fragen erst');
         $this->assertStringContainsString('Mit der Zusage wirst du verbindlich für diesen Einsatz gebucht.', $view);
-        $this->assertStringContainsString('Du bist für diese Schicht ausgetragen', $view);
+        $this->assertStringContainsString("'Du bist für diese Schicht ausgetragen' : 'Sie sind für diese Schicht ausgetragen'", $view);
     }
 }

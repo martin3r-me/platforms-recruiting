@@ -33,4 +33,21 @@ final class DispoJobSchonZugesagt
 
         return array_map(fn ($keys) => array_values(array_unique($keys)), $out);
     }
+
+    /**
+     * Fuer Wellen und deren Vorschau: zugesagte UND ausgetragene Schichten
+     * (Spec 2026-11-20, Review I2) — wer ausgetragen wurde, bekommt die Schicht
+     * auch aus einer anderen Anfrage nicht noch einmal angeboten.
+     *
+     * @return array<int, list<string>>
+     */
+    public static function fuerVersand(int $teamId): array
+    {
+        $out = self::laden($teamId);
+        foreach (DispoJobZusageAustragen::schluessel($teamId) as $anker => $keys) {
+            $out[$anker] = array_values(array_unique(array_merge($out[$anker] ?? [], $keys)));
+        }
+
+        return $out;
+    }
 }

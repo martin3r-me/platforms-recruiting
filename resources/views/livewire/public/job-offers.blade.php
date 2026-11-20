@@ -128,7 +128,7 @@
                             <div>
                                 <div class="l1">{{ $zeile }}</div>
                                 @if ($shift['ausgetragen'])
-                                    <div class="l2">Du bist für diese Schicht ausgetragen</div>
+                                    <div class="l2">{{ $duzen ? 'Du bist für diese Schicht ausgetragen' : 'Sie sind für diese Schicht ausgetragen' }}</div>
                                 @elseif ($shift['declined'])
                                     <div class="l2">Du hast abgesagt</div>
                                 @elseif ($shift['tag_belegt'] && !$shift['accepted'])

@@ -61,6 +61,10 @@ final class JobOffersZusage
                 return 'weg';
             }
 
+            // Aus dieser Schicht ausgetragen (auch in einer anderen Anfrage): nicht noch einmal (Spec 2026-11-20, Review I2).
+            if ($os->accepted_at === null && self::ausgetragen($shift, $employeeIds)) {
+                return 'weg';
+            }
             $ergebnis = $os->accepted_at !== null ? 'ok' : self::annehmen($shift, $os, $employeeIds);
             if ($ergebnis !== 'ok') {
                 return $ergebnis;
@@ -76,6 +80,18 @@ final class JobOffersZusage
 
             return 'ok';
         }, 3);
+    }
+
+    private static function ausgetragen(RecDispoJobShift $shift, array $employeeIds): bool
+    {
+        $schluessel = DispoJobRecipientPlanner::schichtSchluessel($shift->rec_dispo_event_id, $shift->datum->format('Y-m-d'), $shift->von, $shift->bis, $shift->taetigkeit);
+        foreach (DispoJobZusageAustragen::schluessel(null, $employeeIds) as $keys) {
+            if (in_array($schluessel, $keys, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Regeln einer (gesperrten) Schicht anwenden. @return 'ok'|'voll'|'weg'|'tag_belegt' */

@@ -113,16 +113,18 @@ final class DispoJobZusageAustragen
 
             $ergebnis = null;
             $schichten = [];
-            foreach (array_merge([$vorab], $schwestern) as $zeile) {
+            foreach (array_merge([$vorab], $schwestern) as $i => $zeile) {
                 $frisch = RecDispoJobOfferShift::query()->whereKey($zeile->id)->with('offer')->lockForUpdate()->first();
                 $shift = $shifts[(int) $zeile->shift_id] ?? null;
-                if ($frisch === null || $shift === null || $frisch->declined_reason !== self::GRUND || $frisch->offer === null) {
-                    $ergebnis ??= self::WEG;
-                    continue;
-                }
-                $grund = self::platzFrei($shift, $frisch);
+                $grund = ($frisch === null || $shift === null || $frisch->declined_reason !== self::GRUND || $frisch->offer === null)
+                    ? self::WEG
+                    : self::platzFrei($shift, $frisch);
                 if ($grund !== self::OK) {
-                    $ergebnis ??= $grund;
+                    // Hauptzeile scheitert → nichts anfassen (Review 20.11. I1): sonst kaeme die
+                    // Schwester still zurueck und ginge ueber die andere Anfrage doch an ZAS.
+                    if ($i === 0) {
+                        return $grund;
+                    }
                     continue;
                 }
                 $frisch->update([
@@ -162,22 +164,66 @@ final class DispoJobZusageAustragen
                 ->whereNotNull('accepted_at')->whereNull('declined_at')
                 ->with('offer.request')
                 ->get();
-            foreach ($zeilen as $z) {
-                $request = $z->offer?->request;
-                if ($request === null) {
-                    continue;
-                }
-                $n += self::ausfuehren($request, (int) $z->id, $userId, self::NOTIZ_ABSAGE)['anzahl'];
-            }
         } catch (\Throwable $e) {
+            self::warnen($assignmentIds, $e);
+
+            return 0;
+        }
+        // Je Zeile eigener Versuch (Review 20.11. M5): ein Fehler laesst die uebrigen nicht zugesagt stehen.
+        foreach ($zeilen as $z) {
+            $request = $z->offer?->request;
+            if ($request === null) {
+                continue;
+            }
             try {
-                Log::warning('[DispoJobZusageAustragen] Austragen nach Absage fehlgeschlagen', ['assignments' => $assignmentIds, 'error' => $e->getMessage()]);
-            } catch (\Throwable) {
-                // Ohne Logger (Tests) bleibt es still — die Absage selbst ist gespeichert.
+                $n += self::ausfuehren($request, (int) $z->id, $userId, self::NOTIZ_ABSAGE)['anzahl'];
+            } catch (\Throwable $e) {
+                self::warnen($assignmentIds, $e);
             }
         }
 
         return $n;
+    }
+
+    /** @param list<int> $assignmentIds */
+    private static function warnen(array $assignmentIds, \Throwable $e): void
+    {
+        try {
+            Log::warning('[DispoJobZusageAustragen] Austragen nach Absage fehlgeschlagen', ['assignments' => $assignmentIds, 'error' => $e->getMessage()]);
+        } catch (\Throwable) {
+            // Ohne Logger (Tests) bleibt es still — die Absage selbst ist gespeichert.
+        }
+    }
+
+    /**
+     * Schicht-Schluessel, aus denen die Person ausgetragen wurde — ueber alle
+     * Anfragen des Teams (Review 20.11. I2, Mail: „Wer ausgetragen wurde, bekommt
+     * diese Schicht nicht noch einmal angeboten.“). Nur kuenftige Tage.
+     *
+     * @param list<int> $personIds rec_employee_id/anchor_employee_id der Person; leer = alle Personen
+     * @return array<int, list<string>> Anker => schichtSchluessel()
+     */
+    public static function schluessel(?int $teamId, array $personIds = []): array
+    {
+        $heute = now()->toDateString();
+        $out = [];
+        RecDispoJobOfferShift::query()
+            ->where('declined_reason', self::GRUND)
+            ->when($personIds !== [], fn ($q) => $q->whereHas('offer', fn ($o) => $o->whereIn('rec_employee_id', $personIds)->orWhereIn('anchor_employee_id', $personIds)))
+            ->whereHas('shift', fn ($q) => $q->whereDate('datum', '>=', $heute)
+                ->when($teamId !== null, fn ($s) => $s->whereHas('request', fn ($r) => $r->where('team_id', $teamId))))
+            ->with(['offer:id,anchor_employee_id', 'shift:id,rec_dispo_event_id,datum,von,bis,taetigkeit'])
+            ->get(['id', 'offer_id', 'shift_id'])
+            ->each(function ($os) use (&$out) {
+                if ($os->offer === null || $os->shift === null) {
+                    return;
+                }
+                $out[(int) $os->offer->anchor_employee_id][] = DispoJobRecipientPlanner::schichtSchluessel(
+                    $os->shift->rec_dispo_event_id, $os->shift->datum->format('Y-m-d'), $os->shift->von, $os->shift->bis, $os->shift->taetigkeit
+                );
+            });
+
+        return array_map(fn ($keys) => array_values(array_unique($keys)), $out);
     }
 
     /** @return self::OK|self::VOLL|self::TAG */

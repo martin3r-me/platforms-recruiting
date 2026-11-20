@@ -84,7 +84,10 @@ final class DispoJobGedeckt
         if ($request->modus !== RecDispoJobRequest::MODUS_ZUERST || $shift->gedeckt_manuell_at !== null || (int) $shift->gesucht <= 0) {
             return;
         }
-        $zugesagt = $shift->offerShifts()->whereNotNull('accepted_at')->whereNull('declined_at')->count();
+        // Sperrend zaehlen und die Schicht frisch lesen (Review 20.11. M1): eine gewoehnliche Lesung
+        // saehe unter REPEATABLE READ den Schnappschuss von vor der Sperre.
+        $shift = RecDispoJobShift::query()->whereKey($shift->id)->lockForUpdate()->first() ?? $shift;
+        $zugesagt = $shift->offerShifts()->whereNotNull('accepted_at')->whereNull('declined_at')->lockForUpdate()->count();
         $voll = $zugesagt >= (int) $shift->gesucht;
         if ($voll && $shift->closed_at === null) {
             $shift->update(['closed_at' => now()]);
