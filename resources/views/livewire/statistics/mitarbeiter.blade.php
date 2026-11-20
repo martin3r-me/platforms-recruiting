@@ -30,20 +30,20 @@
     <x-ui-panel title="Mitarbeiter" subtitle="Aktive und produktive Mitarbeiter je Kostenstelle — jede Zahl ist anklickbar" class="relative z-30">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
             <div class="grid grid-cols-2 gap-2">
-                <x-ui-input-select
-                    name="gesellschaft"
-                    label="Gesellschaft"
-                    size="sm"
-                    :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::GESELLSCHAFTEN"
-                    wire:model.live="gesellschaft"
-                />
-                <x-ui-input-select
-                    name="statusFilter"
-                    label="Status (ZAS)"
-                    size="sm"
-                    :options="\Platform\Recruiting\Services\Statistics\Mitarbeiter\MitarbeiterStatistikRechner::STATUSFILTER"
-                    wire:model.live="statusFilter"
-                />
+                <div>
+                    <div class="text-sm font-medium text-[var(--ui-secondary)] mb-1">Gesellschaft</div>
+                    <div class="flex gap-3 text-sm py-1.5">
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="RG" wire:model.live="gesellschaften"> RG</label>
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="MA" wire:model.live="gesellschaften"> MA</label>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-sm font-medium text-[var(--ui-secondary)] mb-1">Status (ZAS)</div>
+                    <div class="flex gap-3 text-sm py-1.5">
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="GO" wire:model.live="stati"> GO</label>
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="MA" wire:model.live="stati"> MA</label>
+                    </div>
+                </div>
             </div>
             <x-ui-input-select
                 name="kostenstelleFilter"

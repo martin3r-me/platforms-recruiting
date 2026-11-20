@@ -24,11 +24,11 @@ class Mitarbeiter extends Component
     public ?string $von = null;
     public ?string $bis = null;
 
-    /** 'RG' (Standard) | 'MA' | 'beide' — untyped wie die anderen Selects. */
-    public $gesellschaft = MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
+    /** Angehakte Gesellschaften ('RG', 'MA'); Standard nur RG. Beide angehakt = „beide“. Untyped (Livewire-Eingabe). */
+    public $gesellschaften = [MitarbeiterStatistikRechner::GESELLSCHAFT_RG];
 
-    /** ZAS-Status: 'beide' (GO und MA, Standard) | 'GO' | 'MA' — hat nichts mit der Firma zu tun. */
-    public $statusFilter = MitarbeiterStatistikRechner::STATUS_BEIDE;
+    /** Angehakte ZAS-Status ('GO', 'MA'); Standard beide. Hat nichts mit der Firma zu tun. Untyped (Livewire-Eingabe). */
+    public $stati = [MitarbeiterStatistikRechner::STATUS_GO, MitarbeiterStatistikRechner::STATUS_MA];
 
     /** 'alle' | 'ohne' | Nummer der Kostenstelle — untyped wie die anderen Selects. */
     public $kostenstelleFilter = 'alle';
@@ -113,30 +113,48 @@ class Mitarbeiter extends Component
             && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
     }
 
-    public function updatedGesellschaft($value): void
+    public function updatedGesellschaften($value = null): void
     {
-        $this->gesellschaft = $this->gesellschaftSicher();
+        $this->gesellschaften = self::angehakt($this->gesellschaften, ['RG', 'MA'], [MitarbeiterStatistikRechner::GESELLSCHAFT_RG]);
         $this->schliesseDrill();
     }
 
+    public function updatedStati($value = null): void
+    {
+        $this->stati = self::angehakt($this->stati, ['GO', 'MA'], [MitarbeiterStatistikRechner::STATUS_GO, MitarbeiterStatistikRechner::STATUS_MA]);
+        $this->schliesseDrill();
+    }
+
+    /**
+     * Nur erlaubte Werte, feste Reihenfolge. Nichts angehakt geht nicht (leere Statistik ergibt keinen Sinn):
+     * dann gilt wieder der Standard — der zuletzt abgehakte Haken bleibt also stehen.
+     *
+     * @param list<string> $erlaubt
+     * @param list<string> $standard
+     * @return list<string>
+     */
+    private static function angehakt($werte, array $erlaubt, array $standard): array
+    {
+        $werte = is_array($werte) ? array_map(fn ($w) => is_scalar($w) ? (string) $w : '', $werte) : [];
+        $sauber = array_values(array_filter($erlaubt, fn ($e) => in_array($e, $werte, true)));
+
+        return $sauber === [] ? $standard : $sauber;
+    }
+
+    /** Angehakte Gesellschaften → Rechner-Wert ('RG' | 'MA' | 'beide'). */
     private function gesellschaftSicher(): string
     {
-        return (is_string($this->gesellschaft) && array_key_exists($this->gesellschaft, MitarbeiterStatistikRechner::GESELLSCHAFTEN))
-            ? $this->gesellschaft
-            : MitarbeiterStatistikRechner::GESELLSCHAFT_RG;
+        $g = self::angehakt($this->gesellschaften, ['RG', 'MA'], [MitarbeiterStatistikRechner::GESELLSCHAFT_RG]);
+
+        return count($g) === 2 ? MitarbeiterStatistikRechner::GESELLSCHAFT_BEIDE : $g[0];
     }
 
-    public function updatedStatusFilter($value): void
-    {
-        $this->statusFilter = $this->statusSicher();
-        $this->schliesseDrill();
-    }
-
+    /** Angehakte Status → Rechner-Wert ('GO' | 'MA' | 'beide'). */
     private function statusSicher(): string
     {
-        return (is_string($this->statusFilter) && array_key_exists($this->statusFilter, MitarbeiterStatistikRechner::STATUSFILTER))
-            ? $this->statusFilter
-            : MitarbeiterStatistikRechner::STATUS_BEIDE;
+        $s = self::angehakt($this->stati, ['GO', 'MA'], [MitarbeiterStatistikRechner::STATUS_GO, MitarbeiterStatistikRechner::STATUS_MA]);
+
+        return count($s) === 2 ? MitarbeiterStatistikRechner::STATUS_BEIDE : $s[0];
     }
 
     public function updatedKostenstelleFilter($value): void
