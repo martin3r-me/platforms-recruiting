@@ -15,7 +15,7 @@
     $zeitraum = $fmtDatum($this->von) . ' – ' . $fmtDatum($this->bis);
     $stichtag = $fmtDatum($a['stichtag']);
     $regel = 'Aktiv = aktive Mitarbeiter der gewählten Gesellschaft, jede Person einmal (auch wenn sie bei RG und MA geführt wird). '
-        . 'RG-Mitarbeiter, die in ZAS auf „MA“ stehen, zählen nicht zur RG. Es zählen nur Einsätze der gewählten Gesellschaft. '
+        . 'Aktiv heißt Status GO oder MA in ZAS – der Status „MA“ hat nichts mit der Firma MA zu tun. Es zählen nur Einsätze der gewählten Gesellschaft. '
         . 'Produktiv = aktiv und mindestens ein disponierter Einsatz (Auftrag oder beendet, nicht abgesagt/verschwunden) '
         . 'in den 60 Tagen bis ' . $stichtag . '; ist das heute, zählen auch schon disponierte kommende Einsätze. '
         . 'Termine = disponierte Einsätze im gewählten Zeitraum bis heute. '

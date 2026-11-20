@@ -219,9 +219,11 @@ class MitarbeiterStatistikDatenTest extends TestCase
         $this->assertFalse($r['personen'][0]['produktiv']);
     }
 
-    public function test_gesellschaft_rg_ohne_auf_ma_gewechselte_ma_getrennt_beide_einmal(): void
+    public function test_firma_filter_und_status_ma_getrennt_beide_einmal(): void
     {
-        // Merle Steckel (19.11.): RG-Anstellung aktiv mit ZAS-Status MA, MA-Anstellung inaktiv -> zählt nirgends.
+        // Status GO und MA zählen als aktiv; Status „MA“ hat nichts mit der Firma MA zu tun.
+        // Merle Steckel: RG-Anstellung aktiv mit Status MA -> RG; MA-Anstellung inaktiv -> nicht MA.
+        // Ida: Firma MA mit Status MA -> MA. Udo: RG, zwar is_active, aber Status INAKTIV -> nirgends.
         // Lena: RG GO aktiv und MA aktiv (eine Person) -> RG 1, MA 1, beide 1.
         // Tom: nur MA aktiv.
         DB::table('rec_employees')->insert([
@@ -230,6 +232,8 @@ class MitarbeiterStatistikDatenTest extends TestCase
             ['id' => 3, 'team_id' => 3, 'rec_person_id' => 81, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'Lena', 'last_name' => 'L', 'company' => 'RG'],
             ['id' => 4, 'team_id' => 3, 'rec_person_id' => 81, 'is_active' => 1, 'cost_center' => '101', 'first_name' => 'Lena', 'last_name' => 'L', 'company' => 'MA'],
             ['id' => 5, 'team_id' => 3, 'rec_person_id' => null, 'is_active' => 1, 'cost_center' => '400', 'first_name' => 'Tom', 'last_name' => 'T', 'company' => 'MA'],
+            ['id' => 6, 'team_id' => 3, 'rec_person_id' => null, 'is_active' => 1, 'cost_center' => '400', 'first_name' => 'Ida', 'last_name' => 'I', 'company' => 'MA'],
+            ['id' => 7, 'team_id' => 3, 'rec_person_id' => null, 'is_active' => 1, 'cost_center' => '100', 'first_name' => 'Udo', 'last_name' => 'U', 'company' => 'RG'],
         ]);
         DB::table('rec_employee_hr_data')->insert([
             ['rec_employee_id' => 1, 'export_status' => 'MA'],
@@ -237,22 +241,27 @@ class MitarbeiterStatistikDatenTest extends TestCase
             ['rec_employee_id' => 3, 'export_status' => 'GO'],
             ['rec_employee_id' => 4, 'export_status' => 'GO'],
             ['rec_employee_id' => 5, 'export_status' => 'GO'],
+            ['rec_employee_id' => 6, 'export_status' => 'MA'],
+            ['rec_employee_id' => 7, 'export_status' => 'INAKTIV'],
         ]);
         // Lena arbeitet nur über die MA-PNr
         $this->einbuchung(4, '2026-11-10');
 
         $d = new MitarbeiterStatistikDaten();
+        $sortiert = function (array $r) { $n = array_column($r['personen'], 'name'); sort($n); return $n; };
+
         $rg = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'RG');
-        $this->assertSame(['L, Lena'], array_column($rg['personen'], 'name'));
-        $this->assertFalse($rg['personen'][0]['produktiv'], 'MA-Einsatz zählt nicht für die RG');
+        $this->assertSame(['L, Lena', 'Steckel, Merle'], $sortiert($rg), 'Status MA zählt in der RG, Udo (INAKTIV) nicht');
+        $lenaRg = array_values(array_filter($rg['personen'], fn ($p) => $p['name'] === 'L, Lena'))[0];
+        $this->assertFalse($lenaRg['produktiv'], 'MA-Einsatz zählt nicht für die RG');
 
         $ma = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'MA');
-        $this->assertSame(['L, Lena', 'T, Tom'], array_column($ma['personen'], 'name'));
-        $this->assertTrue($ma['personen'][0]['produktiv']);
+        $this->assertSame(['I, Ida', 'L, Lena', 'T, Tom'], $sortiert($ma), 'Ida mit Status MA zählt bei der Firma MA; Steckels MA-Anstellung ist inaktiv');
+        $lenaMa = array_values(array_filter($ma['personen'], fn ($p) => $p['name'] === 'L, Lena'))[0];
+        $this->assertTrue($lenaMa['produktiv']);
 
         $beide = $d->auswerten(3, '2026-11-19', '2026-10-23', '2026-11-19', 'beide');
-        $this->assertSame(['L, Lena', 'T, Tom'], array_column($beide['personen'], 'name'), 'Steckel zählt nirgends, Lena einmal');
-        $this->assertTrue($beide['personen'][0]['produktiv']);
-        $this->assertSame(2, $beide['gesamt']['aktiv']);
+        $this->assertSame(['I, Ida', 'L, Lena', 'Steckel, Merle', 'T, Tom'], $sortiert($beide), 'Lena einmal, Udo nirgends');
+        $this->assertSame(4, $beide['gesamt']['aktiv']);
     }
 }

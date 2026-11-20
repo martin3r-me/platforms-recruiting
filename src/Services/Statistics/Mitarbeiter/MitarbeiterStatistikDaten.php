@@ -55,8 +55,8 @@ class MitarbeiterStatistikDaten
 
         $spalten = ['e.id', 'e.rec_person_id', 'e.is_active', 'e.cost_center', 'p.cost_center as stelle_cost_center',
             'e.first_name', 'e.last_name', 'e.personnel_number', 'e.phone', 'e.company'];
-        // Status je Anstellung aus ZAS (GO/MA/INAKTIV): eine RG-Anstellung auf „MA“ ist zur MA gewechselt
-        // und zählt nicht mehr zur RG (Markus 19.11.2026: „Steckel Merle steht auf MA in der RG“).
+        // Status je Anstellung aus ZAS (GO/MA/INAKTIV). GO und MA zählen als aktiv; Status „MA“ hat nichts
+        // mit der Firma MA zu tun.
         if (Schema::hasTable('rec_employee_hr_data')) {
             $q->leftJoin('rec_employee_hr_data as h', 'h.rec_employee_id', '=', 'e.id');
             $spalten[] = 'h.export_status';

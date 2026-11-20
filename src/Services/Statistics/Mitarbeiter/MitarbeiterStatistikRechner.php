@@ -10,7 +10,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoPhoneMatcher;
  * Regeln (mit Sebastian/Markus festgelegt):
  *  - Eine PERSON zählt einmal, auch wenn sie bei RG und MA geführt wird („kann sich ja nicht
  *    klonen“). Schlüssel: rec_person_id, sonst die Anstellung selbst.
- *  - AKTIV: mindestens eine aktive Anstellung.
+ *  - AKTIV: mindestens eine aktive Anstellung der gewählten Firma (ZAS-Status GO oder MA).
  *  - PRODUKTIV: aktiv und mindestens eine zählende Einbuchung (GeleisteterEinsatz) in den
  *    60 Tagen bis zum Stichtag. Ist der Stichtag heute, zählen auch schon disponierte künftige
  *    Einsätze („disponierte, noch nicht beendete Termine mit beachten“).
@@ -28,9 +28,10 @@ final class MitarbeiterStatistikRechner
 
     /**
      * Gesellschafts-Filter (Markus 19.11.2026: „Es dürfen nur aktive Mitarbeiter der RG aufgeführt werden“ und
-     * „Filter für die Gesellschaften … Auswahl MA und RG“). RG = Anstellung bei der RG, deren ZAS-Status nicht
-     * „MA“ ist (gewechselt); MA = Anstellung bei der MA. „beide“ = beides, die Person zählt weiter einmal.
+     * „Filter für die Gesellschaften … Auswahl MA und RG“). Rein nach der Firma der Anstellung: RG = bei der RG,
+     * MA = bei der MA, „beide“ = beides, die Person zählt weiter einmal. Der ZAS-Status ist davon getrennt.
      */
+
     public const GESELLSCHAFT_RG = 'RG';
     public const GESELLSCHAFT_MA = 'MA';
     public const GESELLSCHAFT_BEIDE = 'beide';
@@ -51,15 +52,10 @@ final class MitarbeiterStatistikRechner
     /** Macht die Anstellung die Person in der gewählten Gesellschaft „aktiv“? */
     public static function aktivIn(array $a, string $gesellschaft): bool
     {
-        if (!$a['aktiv'] || !self::inGesellschaft($a, $gesellschaft)) {
-            return false;
-        }
-        // RG-Anstellung mit ZAS-Status „MA“: zur MA gewechselt, zählt nicht mehr zur RG.
-        if (($a['firma'] ?? null) === self::GESELLSCHAFT_RG && ($a['status'] ?? null) === 'MA') {
-            return false;
-        }
-
-        return true;
+        // Aktiv = ZAS-Status GO oder MA (Sebastian 20.11.2026: „als aktiv zählt status go und ma“); INAKTIV kommt
+        // bei uns als is_active = false an. Status „MA“ (noch dabei, gerade nicht abrufbar) hat NICHTS mit der
+        // Firma MA zu tun.
+        return $a['aktiv'] && self::inGesellschaft($a, $gesellschaft) && ($a['status'] ?? null) !== 'INAKTIV';
     }
 
     /** Stufen-Schlüssel => [min, max|null] */

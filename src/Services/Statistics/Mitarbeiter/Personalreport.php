@@ -63,7 +63,7 @@ class Personalreport
             $text .= sprintf("%-28s %6s %6d %10d %11s\n", mb_substr($name, 0, 28), $fmt($z['soll']), $z['aktiv'], $z['produktiv'], $fmtAbw($abw));
         }
 
-        $erklaerung = 'Aktiv = aktive Mitarbeiter der RG (ohne die in ZAS auf „MA“ gewechselten), jede Person einmal. Produktiv = aktiv und mindestens ein '
+        $erklaerung = 'Aktiv = aktive Mitarbeiter der RG (Status GO oder MA in ZAS), jede Person einmal. Produktiv = aktiv und mindestens ein '
             . 'disponierter Einsatz in den letzten 60 Tagen oder ein schon disponierter kommender Einsatz. '
             . 'Abweichung = Produktiv minus Soll.';
         $html .= '</table>'
