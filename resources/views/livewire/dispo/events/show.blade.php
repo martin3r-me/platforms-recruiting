@@ -485,7 +485,11 @@
                     $chased = $this->chasedByEmployee;
                 @endphp
                 @forelse ($this->filteredAssignments as $assignment)
-                    <tr class="group {{ $assignment->missing_since ? 'opacity-50' : '' }}">
+                    @php
+                        // „kommt später“ und noch nicht eingecheckt: Zeile farbig, damit der Teamleiter sie unter „fehlt noch“ sieht (Markus 20.11.2026).
+                        $zeileKommtSpaeter = $assignment->late_marked_at !== null && (($this->zeitEintraege[$assignment->id] ?? null)?->kommen_at === null);
+                    @endphp
+                    <tr class="group {{ $assignment->missing_since ? 'opacity-50' : '' }} {{ $zeileKommtSpaeter ? 'bg-amber-50' : '' }}">
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->datum->format('d.m.Y') }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->von ?? '—' }}@if ($assignment->bis)–{{ $assignment->bis }}@endif</td>
                         <td class="px-4 py-2">{{ $assignment->taetigkeit ?? '—' }}</td>
@@ -526,11 +530,11 @@
                                 <span class="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-600" title="Fehlt seit {{ $assignment->missing_since->format('d.m.Y H:i') }} im ZAS-Vollbestand">verschwunden</span>
                             @endif
                             @if ($assignment->late_marked_at)
-                                <button type="button" wire:click="toggleLate({{ $assignment->id }})" @if($eventOnly) disabled @endif
-                                        class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800" title="Verspätet markiert {{ $assignment->late_marked_at->format('d.m. H:i') }} — klicken zum Entfernen">⏱ verspätet</button>
-                            @elseif (!$eventOnly)
                                 <button type="button" wire:click="toggleLate({{ $assignment->id }})"
-                                        class="ml-1 rounded px-1 py-0.5 text-xs text-gray-300 opacity-0 hover:text-amber-600 group-hover:opacity-100" title="Als verspätet markieren (Check-in)">⏱</button>
+                                        class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800" title="Kommt später – markiert {{ $assignment->late_marked_at->format('d.m. H:i') }}. Nur für die Planung vor Ort. Klicken zum Entfernen">⏱ kommt später</button>
+                            @else
+                                <button type="button" wire:click="toggleLate({{ $assignment->id }})"
+                                        class="ml-1 rounded px-1 py-0.5 text-xs text-gray-300 opacity-0 hover:text-amber-600 group-hover:opacity-100 focus:opacity-100" title="Als „kommt später“ markieren (hat sich gemeldet)">⏱</button>
                             @endif
                         </td>
                         <td class="px-4 py-2">

@@ -441,18 +441,32 @@ class DispoZeitFensterTest extends ZeitTestCase
         }
     }
 
-    public function test_toggle_late_unberuehrt(): void
+    public function test_kommt_spaeter_auch_mit_dem_eventzugang(): void
     {
-        $wurzel = dirname(__DIR__, 2);
-        $basis = @shell_exec('git -C ' . escapeshellarg($wurzel) . ' show origin/main:src/Livewire/Dispo/Events/Show.php 2>/dev/null');
-        if (!is_string($basis) || $basis === '') {
-            $this->markTestSkipped('origin/main nicht lesbar');
-        }
-        $methode = fn (string $q) => preg_match('/    public function toggleLate\(.*?\n    }\n/s', $q, $m) ? $m[0] : null;
+        // Markus 20.11.2026: der Teamleiter markiert vor Ort, wer sich gemeldet hat, dass er später kommt.
+        $a = $this->einbuchung();
+        $this->eventOnlyListe(['sebastian@test.de']);
+        $c = $this->offen($a);
 
-        $jetzt = $methode(file_get_contents($wurzel . '/src/Livewire/Dispo/Events/Show.php'));
-        $this->assertNotNull($jetzt);
-        $this->assertSame($methode($basis), $jetzt);
+        $c->toggleLate((int) $a->id);
+        $this->assertNotNull(RecDispoAssignment::query()->find($a->id)->late_marked_at);
+
+        $c->toggleLate((int) $a->id);
+        $this->assertNull(RecDispoAssignment::query()->find($a->id)->late_marked_at);
+    }
+
+    public function test_fehlt_noch_zaehlt_wer_spaeter_kommt(): void
+    {
+        $event = $this->event();
+        $spaet = $this->einbuchung($event, ['late_marked_at' => '2026-10-01 07:00:00']);
+        $this->einbuchung($event, ['rec_employee_id' => 902]);
+        $schonDa = $this->einbuchung($event, ['rec_employee_id' => 903, 'late_marked_at' => '2026-10-01 07:00:00']);
+        $this->eintrag($schonDa, ['kommen_at' => '2026-10-01 06:30:00']);
+
+        $c = $this->offen($spaet);
+        $offen = collect($c->rowStempelOptions)->firstWhere('value', 'offen');
+        $this->assertSame(2, $offen['count']);
+        $this->assertSame('fehlt noch · davon 1 kommt später', $offen['label'], 'wer schon da ist, zählt nicht mehr');
     }
 
     // ---- Fix-Runde 1 ----

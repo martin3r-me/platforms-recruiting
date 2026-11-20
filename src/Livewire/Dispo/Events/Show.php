@@ -1195,14 +1195,23 @@ class Show extends Component
         }
         $karte = $this->zeitEintraege;
         $zahl = array_fill_keys(array_keys(self::STEMPEL_FILTER), 0);
+        $spaeter = 0;
         $rows = \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply($this->event->assignments, $this->rowDays, $this->rowTimes, $this->rowTaetigkeiten);
         foreach ($rows as $a) {
             if ($this->stempelbar($a)) {
-                $zahl[$this->stempelZustand($a, $karte)]++;
+                $zustand = $this->stempelZustand($a, $karte);
+                $zahl[$zustand]++;
+                if ($zustand === 'offen' && $a->late_marked_at !== null) {
+                    $spaeter++;
+                }
             }
         }
         $out = [];
         foreach (self::STEMPEL_FILTER as $wert => $label) {
+            // Markus 20.11.: „dass ich sehe, dass von 10 die noch fehlen 5 noch kommen“
+            if ($wert === 'offen' && $spaeter > 0) {
+                $label .= ' · davon ' . $spaeter . ' ' . ($spaeter === 1 ? 'kommt' : 'kommen') . ' später';
+            }
             $out[] = ['value' => $wert, 'label' => $label, 'count' => $zahl[$wert]];
         }
 
@@ -1861,12 +1870,13 @@ class Show extends Component
         unset($this->event, $this->sendPreview, $this->declineDayOptions);
     }
 
-    /** Verspaetet-Marker (Kunde 07.09.): Check-in-Hilfe — pro Einbuchung an-/abwaehlbar, reine Doku. */
+    /**
+     * Marker „kommt später“ (Kunde 07.09. als „verspätet“; Markus 19./20.11.2026: der Teamleiter markiert,
+     * wer sich gemeldet hat, dass er später kommt — nur Planung vor Ort, geht nicht an ZAS). Darum auch
+     * mit dem Eventzugang setzbar.
+     */
     public function toggleLate(int $assignmentId): void
     {
-        if ($this->blockedForEventOnly()) {
-            return;
-        }
         $a = RecDispoAssignment::query()
             ->where('rec_dispo_event_id', $this->eventId)
             ->whereKey($assignmentId)
