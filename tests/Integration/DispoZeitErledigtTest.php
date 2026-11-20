@@ -407,6 +407,18 @@ class DispoZeitErledigtTest extends ZeitTestCase
         $this->assertSame('ok', $d->korrigieren($a, $this->akteur(), ['bemerkung' => 'neu'], 'Nachtrag'));
     }
 
+    public function test_oeffnen_verweigert_wenn_schon_an_zas_uebergeben(): void
+    {
+        $d = $this->dienst();
+        $a = $this->einbuchung();
+        $this->aus($a, ['gesperrt_at' => '2026-10-01 20:30:00', 'gesperrt_grund' => 'erledigt', 'zas_exported_at' => '2026-10-02 06:00:00']);
+        Capsule::table('rec_applicant_settings')->delete();
+
+        $this->assertSame('an_zas', $d->oeffnen($a, $this->akteur(), 'Nacharbeit', $this->auth->nutzer));
+        $this->assertNotNull($this->gespeichert($a)->gesperrt_at, 'bleibt gesperrt');
+        $this->assertSame(0, ZeitVerlauf::query()->where('feld', 'gesperrt_at')->count(), 'nichts in den Verlauf');
+    }
+
     public function test_oeffnen_bei_leerer_liste_darf_jedes_konto_mit_eigener_anmeldung(): void
     {
         $d = $this->dienst();

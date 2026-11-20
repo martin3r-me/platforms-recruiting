@@ -68,6 +68,11 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // ?dry_run=1 liefert ohne zu markieren, ?einsatz= begrenzt auf eine VA.
     Route::get('/dispo/bookings.csv', \Platform\Recruiting\Http\Controllers\ZasDispoBookingExportController::class)
         ->name('recruiting.zas.dispo.bookings');
+
+    // Rueckkanal: erledigte Zeiten im Format des bisherigen Webportals (Olaf 19./20.11.2026).
+    // MIT Marker: jeder Zeiteintrag genau einmal. ?dry_run liefert ohne zu markieren, ?einsatz= begrenzt auf eine VA.
+    Route::get('/dispo/zeiten.csv', \Platform\Recruiting\Http\Controllers\ZasZeitenExportController::class)
+        ->name('recruiting.zas.dispo.zeiten');
 });
 
 // Bewerber-Datei-Stream (Slot-Prefix `upl-*`)

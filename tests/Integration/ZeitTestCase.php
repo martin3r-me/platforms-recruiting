@@ -37,6 +37,7 @@ abstract class ZeitTestCase extends DressTestCase
             ['2026_11_18_000001_add_zeit_nur_teamleiter_to_rec_dispo_events', 'rec_dispo_events', 'zeit_nur_teamleiter'],
             ['2026_11_16_000001_create_rec_zeit_eintraege_table', 'rec_zeit_eintraege', null],
             ['2026_11_16_000002_create_rec_zeit_verlauf_table', 'rec_zeit_verlauf', null],
+            ['2026_11_20_000001_add_zas_exported_at_to_rec_zeit_eintraege', 'rec_zeit_eintraege', 'zas_exported_at'],
         ] as [$name, $tabelle, $spalte]) {
             $fehlt = $spalte === null ? !$schema->hasTable($tabelle) : !$schema->hasColumn($tabelle, $spalte);
             if ($fehlt) {

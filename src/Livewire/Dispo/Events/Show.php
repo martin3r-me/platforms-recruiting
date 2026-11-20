@@ -2409,6 +2409,7 @@ class Show extends Component
             $status === 'nicht_ausgecheckt' => 'Erledigt geht nur bei ausgecheckten Einträgen.',
             $status === 'nicht_berechtigt' => 'Dazu fehlt die Berechtigung.',
             $status === 'nicht_gesperrt' => 'Der Eintrag ist nicht gesperrt.',
+            $status === 'an_zas' => 'Schon an ZAS übergeben – bitte direkt in ZAS korrigieren.',
             $status === 'unveraendert' => 'Nichts geändert.',
             $status === 'schon' && $aktion === 'gehen' => 'Schon ausgecheckt.',
             $status === 'schon' => 'Schon eingecheckt.',

@@ -272,7 +272,7 @@ class DispoZeiten
     /**
      * „Wieder oeffnen“: wer nach ZeitSchalter::darfEntsperren() darf (eigene Anmeldung; Eventzugang nie), mit Pflicht-Grund.
      *
-     * ok | nicht_berechtigt | nicht_gesperrt | ungueltig | aus | ohne_person
+     * ok | nicht_berechtigt | nicht_gesperrt | an_zas | ungueltig | aus | ohne_person
      */
     public function oeffnen(RecDispoAssignment $a, ZeitAkteur $akteur, string $grund, mixed $user): string
     {
@@ -293,6 +293,11 @@ class DispoZeiten
         $e = ZeitEintrag::finde($bezug->personTyp, $bezug->personId, $bezug->bezugTyp, $bezug->bezugId);
         if ($e === null) {
             return 'nicht_gesperrt';
+        }
+        if ($e->getAttribute('zas_exported_at') !== null) {
+            // Schon an ZAS uebergeben: ein zweites Mal geht die Zeile nie raus, eine Aenderung hier
+            // kaeme dort nie an. Korrektur im Buero in ZAS (wie bei der Waesche, Markus 20.11.2026).
+            return 'an_zas';
         }
 
         return $this->uhr->entsperren($e, $akteur, $grund);
